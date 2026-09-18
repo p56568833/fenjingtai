@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3f7dff"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".28"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="512" rx="228" fill="url(#sheen)"/>
+  <!-- 分镜色条：蓝(A) 绿(真实) 黄(通用) -->
+  <rect x="216" y="252" width="592" height="96" rx="48" fill="#ffffff" opacity=".95"/>
+  <rect x="216" y="404" width="430" height="96" rx="48" fill="#7ee2b8" opacity=".95"/>
+  <rect x="216" y="556" width="512" height="96" rx="48" fill="#ffd76e" opacity=".95"/>
+  <!-- 播放三角 -->
+  <path d="M432 700 L560 700 L496 796 Z" fill="#ffffff" opacity=".9"/>
+  <circle cx="216" cy="300" r="34" fill="#ffffff"/>
+  <circle cx="216" cy="452" r="34" fill="#7ee2b8"/>
+  <circle cx="216" cy="604" r="34" fill="#ffd76e"/>
+</svg>

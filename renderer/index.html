@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分镜台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<script>try{if(localStorage.getItem('fjz:theme')==='dark')document.body.classList.add('dark')}catch(e){}</script>
+
+<!-- ═════════ 顶栏 ═════════ -->
+<header class="topbar">
+  <div class="logo">
+    <div class="mark">
+      <svg viewBox="0 0 24 24"><path d="M20.6 4.6 4.9 8.2c-.9.2-1.5 1-1.4 1.9l.1.9h17.1l-1-6.4ZM2.9 12.9V18a2 2 0 0 0 2 2h14.2a2 2 0 0 0 2-2v-5.1H2.9Z"/></svg>
+    </div>
+    <span class="name">分镜台</span>
+  </div>
+
+  <button class="btn" id="btnProjects" title="项目列表">项目<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+  <div class="proj-title" id="projTitle" contenteditable="true" spellcheck="false">示例稿</div>
+
+  <div class="spacer"></div>
+
+  <div class="view-toggle" id="viewToggle">
+    <button data-v="check" title="整篇原文上直接勾 A / B roll (⌘T)">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 3 3 5-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>勾选
+    </button>
+    <button data-v="table" class="active" title="逐句标注 (⌘T)">
+      <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>表格
+    </button>
+  </div>
+
+  <div class="save-state" id="saveState">
+    <div class="dot"></div><span id="saveTxt">已保存</span>
+  </div>
+
+  <button class="btn" id="btnImport">导入<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+  <button class="btn primary" id="btnExport">导出<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+  <button class="btn icon-only" id="btnSearch" title="搜索句子 (⌘F)">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+  </button>
+  <button class="btn icon-only" id="btnTheme" title="浅色 / 深色切换 (⌘L)">
+    <svg id="iconSun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    <svg id="iconMoon" viewBox="0 0 24 24" style="display:none"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+  </button>
+</header>
+
+<!-- ═════════ 统计 / 筛选 ═════════ -->
+<div class="stats">
+  <div class="stats-inner">
+    <div class="segbar" id="segbar"></div>
+    <div class="meta-line">
+      <div class="filters" id="filters"></div>
+      <div class="progress-txt" id="progressTxt"></div>
+      <div class="chip-filter" id="btnDur" title="全片与各类型的时长估算">⏱ 时长</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ 主体 ═════════ -->
+<div class="table-wrap" id="tableWrap">
+  <div class="table">
+    <div class="thead" id="thead">
+      <div style="text-align:right;padding-right:6px">#</div>
+      <div>口播内容</div>
+      <div title="按 4.5 字 / 秒估算">≈时长</div>
+      <div class="h-type">类型 <kbd>1-5</kbd></div>
+      <div>画面 · 备注</div>
+    </div>
+    <div class="rows" id="rows"></div>
+  </div>
+</div>
+
+<!-- ═════════ 底栏 ═════════ -->
+<footer class="footbar">
+  <span><kbd>1-5</kbd> 标注 · <kbd>Shift</kbd> 点选多句</span><span class="sep">·</span>
+  <span><kbd>↑↓</kbd> 切换 · <kbd>Enter</kbd> 备注跳行 / 拆分</span><span class="sep">·</span>
+  <span>双击改字 · 句首 <kbd>⌫</kbd> 并回上一句 · 悬停 <kbd>＋</kbd> 插入 <kbd>✕</kbd> 删除 <kbd>◇</kbd> 分新章节 · 点章节行改名 / 删节</span><span class="sep">·</span>
+  <span>勾选视图：点句子弹卡选类型 · 拖选批量 · 句下红字写批注</span>
+  <div class="right">
+    <span><kbd>⌘F</kbd> 搜索 · <kbd>⌘Z</kbd> 撤销 · 数据存在本机文件</span>
+  </div>
+</footer>
+
+<!-- 搜索条 -->
+<div class="searchbar" id="searchbar">
+  <input id="searchInput" placeholder="搜索句子或画面备注…">
+  <span class="cnt" id="searchCnt"></span>
+  <button id="qPrev" title="上一个 (Shift+Enter)">↑</button>
+  <button id="qNext" title="下一个 (Enter)">↓</button>
+  <button id="qClose" title="关闭 (Esc)">✕</button>
+</div>
+
+<div class="toast" id="toast"><span class="tick">✓</span><span id="toastTxt"></span><button class="toast-act" id="toastAct" style="display:none">撤销</button></div>
+
+<!-- 确认弹窗 -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal">
+    <h3 id="mTitle"></h3>
+    <p id="mBody"></p>
+    <div class="m-btns">
+      <button class="btn ghost" id="mCancel">取消</button>
+      <button class="btn danger" id="mOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 粘贴导入弹窗 -->
+<div class="modal-mask" id="pasteMask">
+  <div class="modal wide">
+    <h3>粘贴整篇稿子</h3>
+    <p>整篇一次粘进来就行，不用一条条弄。</p>
+    <textarea class="paste-area" id="pasteArea" placeholder="把整篇口播稿粘到这里……
+
+【开场钩子】
+第一句话。第二句话。
+【正文】
+……"></textarea>
+    <div class="paste-hint">自动按<b>标点</b>分句，一句一行；<b>【】</b>或 <b>#</b> 开头的行识别为章节标题。<br>也支持粘回以前导出的<b>带批注 MD</b>，类型和备注会一起恢复。</div>
+    <div class="m-btns">
+      <button class="btn ghost" id="pasteCancel">取消</button>
+      <button class="btn primary" id="pasteOk">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 环境错误提示（被浏览器打开时） -->
+<div class="modal-mask show" id="envMask" style="display:none">
+  <div class="modal">
+    <h3>请从「分镜台.app」启动</h3>
+    <p id="envBody">这个页面是分镜台的界面文件，被浏览器打开时存不了数据。<br>请回到「应用程序」文件夹双击「分镜台」启动。</p>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

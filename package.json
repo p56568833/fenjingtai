@@ -1,0 +1,18 @@
+{
+  "name": "fenjingtai",
+  "productName": "分镜台",
+  "version": "1.0.0",
+  "description": "口播稿逐句分镜标注工具",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node scripts/test.mjs",
+    "repack": "node scripts/repack.mjs",
+    "package": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^33.0.0",
+    "puppeteer-core": "^25.11.0"
+  }
+}
