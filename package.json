@@ -1,18 +1,25 @@
 {
   "name": "fenjingtai",
   "productName": "分镜台",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "口播稿逐句分镜标注工具",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node scripts/test.mjs",
+    "test": "node scripts/production-test.mjs && node scripts/main-test.mjs && node scripts/test.mjs",
+    "test:data": "node scripts/production-test.mjs && node scripts/main-test.mjs",
+    "lint": "eslint .",
+    "format": "prettier --write \"electron/**/*.js\" \"renderer/**/*.{js,css,html}\" \"scripts/**/*.mjs\"",
     "repack": "node scripts/repack.mjs",
     "package": "node scripts/package.mjs"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "electron": "^33.0.0",
-    "puppeteer-core": "^25.11.0"
+    "@eslint/js": "^10.0.1",
+    "electron": "^44.4.5",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "puppeteer-core": "^25.12.0"
   }
 }

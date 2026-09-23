@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>分章行缝交互 · 演示</title>
+<style>
+:root{
+  --bg:#f3f5f9;
+  --card:#ffffff;
+  --card-hover:#fbfcfe;
+  --hairline:#e8ebf2;
+  --hairline-2:#dfe3ec;
+  --text:#1a2233;
+  --text-2:#5a6478;
+  --text-3:#98a1b3;
+  --accent:#3b74e8;
+
+  --c-a:#3b74e8;
+  --c-real:#12945f;
+  --c-stock:#d9820b;
+  --c-ai:#7c4de8;
+  --c-fx:#e8502f;
+
+  --a-bg:var(--c-a);    --a-tx:#ffffff;  --a-bd:transparent; --a-sh:rgba(59,116,232,.30);
+  --real-bg:var(--c-real);--real-tx:#fff;--real-bd:transparent;--real-sh:rgba(18,148,95,.28);
+  --stock-bg:var(--c-stock);--stock-tx:#fff;--stock-bd:transparent;--stock-sh:rgba(217,130,11,.28);
+  --ai-bg:var(--c-ai);  --ai-tx:#fff;    --ai-bd:transparent; --ai-sh:rgba(124,77,232,.28);
+  --fx-bg:var(--c-fx);  --fx-tx:#fff;    --fx-bd:transparent; --fx-sh:rgba(232,80,47,.28);
+  --none-bg:transparent;--none-tx:#8a93a6;--none-bd:#c6ccda;
+
+  --row-hover:rgba(120,132,158,.07);
+  --row-sel-bg:#eef4ff;
+  --row-sel-grad:linear-gradient(90deg,rgba(59,116,232,.07),rgba(123,92,255,.04) 45%,transparent);
+  --todo:#c77700;
+  --toast-bg:#ffffff;
+
+  /* 分章 = 章节的身份色（与章节条 ◆ 同源） */
+  --sec-grad:linear-gradient(135deg,#3f7dff,#8b5cf6);
+  --sec-c:#5b63e8;
+  --sec-bd:rgba(99,102,241,.35);
+  --sec-bg:rgba(99,102,241,.09);
+  --add-c:#12945f;
+  --add-bd:rgba(18,148,95,.35);
+  --add-bg:#edf7f1;
+
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  color-scheme:light;
+}
+body.dark{
+  --bg:#0b0e14;
+  --card:#141926;
+  --hairline:rgba(255,255,255,.06);
+  --hairline-2:rgba(255,255,255,.1);
+  --text:#eef1f8;
+  --text-2:#9aa4b8;
+  --text-3:#5c6679;
+  --accent:#4c8dff;
+
+  --a-bg:rgba(76,141,255,.18);   --a-tx:#c3daff;   --a-bd:rgba(76,141,255,.5);   --a-sh:0 2px 12px rgba(76,141,255,.14);
+  --real-bg:rgba(47,214,132,.14);--real-tx:#a9f2cd;--real-bd:rgba(47,214,132,.44);--real-sh:0 2px 12px rgba(47,214,132,.12);
+  --stock-bg:rgba(255,194,77,.13);--stock-tx:#ffe2ab;--stock-bd:rgba(255,194,77,.43);--stock-sh:0 2px 12px rgba(255,194,77,.11);
+  --ai-bg:rgba(165,107,255,.17); --ai-tx:#d6c1ff;  --ai-bd:rgba(165,107,255,.48); --ai-sh:0 2px 12px rgba(165,107,255,.14);
+  --fx-bg:rgba(255,107,82,.14);  --fx-tx:#ffc3b6;  --fx-bd:rgba(255,107,82,.44);  --fx-sh:0 2px 12px rgba(255,107,82,.12);
+  --none-bg:transparent;--none-tx:#7c8798;--none-bd:#39424f;
+
+  --row-hover:rgba(255,255,255,.032);
+  --row-sel-bg:rgba(76,141,255,.08);
+  --row-sel-grad:linear-gradient(90deg,rgba(76,141,255,.09),rgba(123,92,255,.05) 45%,rgba(255,255,255,.02));
+  --todo:#ffc24d;
+  --toast-bg:#181e2e;
+
+  --sec-c:#9ba4ff;
+  --sec-bd:rgba(129,140,248,.45);
+  --sec-bg:rgba(129,140,248,.13);
+  --add-c:#4de08f;
+  --add-bd:rgba(47,214,132,.4);
+  --add-bg:rgba(47,214,132,.1);
+  color-scheme:dark;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+::selection{background:rgba(59,116,232,.25)}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  background-color:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:-1;
+  background:
+    radial-gradient(1200px 620px at 10% -12%, rgba(76,141,255,.10), transparent 58%),
+    radial-gradient(1000px 540px at 92% -12%, rgba(123,92,255,.09), transparent 58%);
+}
+body.theming, body.theming *, body.theming *::before, body.theming *::after{
+  transition: background-color .3s ease, color .3s ease, border-color .3s ease, box-shadow .3s ease, fill .3s ease, stroke .3s ease, opacity .3s ease !important;
+}
+
+/* ───────── 页头 ───────── */
+.topbar{
+  display:flex;align-items:center;gap:12px;
+  padding:18px 32px;
+}
+.brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:800;letter-spacing:.3px}
+.brand .logo{
+  width:28px;height:28px;border-radius:8px;display:grid;place-items:center;
+  background:var(--sec-grad);color:#fff;font-size:14px;
+  box-shadow:0 3px 10px rgba(94,110,255,.35);
+}
+.tag{
+  font-size:11px;font-weight:700;letter-spacing:1px;color:var(--sec-c);
+  background:var(--sec-bg);border:1px solid var(--sec-bd);
+  border-radius:999px;padding:3px 10px;
+}
+.topbar .muted{margin-left:auto;font-size:12px;color:var(--text-3)}
+
+/* ───────── 说明 + 控件 ───────── */
+main{max-width:1120px;margin:0 auto;padding:0 32px 120px}
+.intro{
+  background:var(--card);border:1px solid var(--hairline);border-radius:16px;
+  padding:22px 26px;margin-bottom:14px;
+  box-shadow:0 1px 3px rgba(15,23,42,.05);
+}
+.intro h1{font-size:18px;font-weight:800;letter-spacing:.3px;margin-bottom:10px}
+.intro p{font-size:13.5px;line-height:1.9;color:var(--text-2)}
+.intro p+p{margin-top:6px}
+.intro strong{color:var(--text)}
+.intro .muted{color:var(--text-3);font-size:12.5px}
+
+.controls{
+  display:flex;align-items:center;flex-wrap:wrap;gap:22px;
+  background:var(--card);border:1px solid var(--hairline);border-radius:14px;
+  padding:13px 20px;margin-bottom:14px;
+  box-shadow:0 1px 3px rgba(15,23,42,.05);
+}
+.ctl-group{display:flex;align-items:center;gap:10px}
+.ctl-label{font-size:11px;font-weight:700;letter-spacing:1.4px;color:var(--text-3)}
+.seg{display:flex;background:var(--hairline);border-radius:10px;padding:3px;gap:2px}
+.seg button{
+  font:inherit;font-size:12.5px;font-weight:600;color:var(--text-2);
+  background:transparent;border:0;border-radius:8px;padding:6px 13px;cursor:pointer;
+  transition:background .13s,color .13s,box-shadow .13s;
+}
+.seg button:hover{color:var(--text)}
+.seg button.active{
+  background:var(--card);color:var(--text);
+  box-shadow:0 1px 4px rgba(15,23,42,.12);
+}
+.toggle{
+  font:inherit;font-size:12.5px;font-weight:600;color:var(--text-2);
+  background:var(--card);border:1px solid var(--hairline-2);border-radius:999px;
+  padding:6px 14px;cursor:pointer;
+  transition:background .13s,color .13s,border-color .13s;
+}
+.toggle:hover{color:var(--text);border-color:var(--text-3)}
+.toggle.on{
+  background:#eaf1ff;border-color:#b9d0ff;color:#2b5fc7;
+}
+body.dark .toggle.on{background:rgba(99,140,255,.14);border-color:rgba(110,150,255,.45);color:#eef1f8}
+
+/* ───────── 表格（对齐分镜台的真实排版） ───────── */
+.tablecard{
+  background:var(--card);border:1px solid var(--hairline);border-radius:16px;
+  overflow:hidden;
+  box-shadow:0 1px 3px rgba(15,23,42,.05);
+}
+.thead,.row{
+  display:grid;
+  grid-template-columns:56px minmax(0,1fr) 76px 200px minmax(250px,330px);
+  gap:18px;align-items:center;
+}
+.thead{
+  padding:12px 24px;
+  border-bottom:1px solid var(--hairline-2);
+  font-size:11px;font-weight:700;letter-spacing:1.4px;color:var(--text-3);
+}
+.rows{padding:6px 0 10px}
+
+/* 章节条：与分镜台一致 */
+.sec-row{
+  display:flex;align-items:center;gap:12px;
+  padding:18px 28px 8px;user-select:none;
+}
+.sec-row .dm{
+  font-size:10px;color:#fff;
+  background:var(--sec-grad);
+  width:16px;height:16px;border-radius:5px;display:grid;place-items:center;flex:none;
+  box-shadow:0 2px 8px rgba(94,110,255,.35);
+}
+.sec-row .name{
+  font-size:12.5px;font-weight:800;letter-spacing:2.5px;color:var(--text-2);
+  border-radius:6px;overflow-wrap:anywhere;
+}
+.sec-row .name:hover{color:var(--text)}
+.sec-row .cnt{font-size:11px;font-family:var(--mono);color:var(--text-3);white-space:nowrap}
+.sec-row .todo-cnt{font-size:11px;font-family:var(--mono);color:var(--todo);font-weight:600;white-space:nowrap}
+.sec-row .line{flex:1;height:1px;background:linear-gradient(90deg,var(--hairline-2),transparent)}
+.sec-pen{
+  opacity:0;transition:opacity .13s;color:var(--text-3);
+  display:grid;place-items:center;flex:none;cursor:pointer;
+}
+.sec-row:hover .sec-pen{opacity:.85}
+.sec-pen:hover{color:var(--sec-c)}
+.sec-pen svg{width:12px;height:12px}
+.name[contenteditable="true"]{
+  outline:none;cursor:text;user-select:text;
+  background:var(--card);
+  box-shadow:0 0 0 2px rgba(59,116,232,.35);
+  padding:3px 8px;margin:-3px -8px;
+}
+.name[contenteditable="true"]:empty::before{content:"输入章节名";color:var(--text-3);pointer-events:none}
+
+/* 句子行：注意右侧没有行尾按钮区——这正是这个方案的意义 */
+.row{
+  position:relative;
+  margin:0 8px;padding:13px 24px;
+  border-bottom:1px solid transparent;   /* 分隔线交给下面的 .seam 画 */
+  cursor:pointer;
+  transition:background .12s;
+}
+.row:hover{background:var(--row-hover)}
+.row.selected{background:var(--row-sel-grad),var(--row-sel-bg)}
+.row .spine{
+  position:absolute;left:0;top:50%;transform:translateY(-50%);
+  width:4px;height:56%;border-radius:0 4px 4px 0;
+  background:transparent;transition:height .16s;
+}
+.row.selected .spine{height:76%}
+.idx{font-family:var(--mono);font-size:13px;color:var(--text-3);text-align:right;padding-right:6px}
+.sent{
+  font-size:17px;font-weight:500;line-height:1.55;color:var(--text);
+  letter-spacing:.2px;border-radius:8px;overflow-wrap:anywhere;
+}
+.row.unannotated .sent{color:#5a6478}
+body.dark .row.unannotated .sent{color:#b6bfd0}
+.sent:empty::before{content:"输入这句口播…";color:var(--text-3);pointer-events:none}
+.sent[contenteditable="true"]{
+  outline:none;background:var(--card);
+  box-shadow:0 0 0 2px rgba(59,116,232,.35);
+  padding:4px 10px;margin:-4px -10px;min-width:60px;
+}
+.dur{font-family:var(--mono);font-size:12px;color:var(--text-3)}
+.typebox{display:flex;align-items:center}
+.tchip{
+  width:100%;height:36px;border-radius:10px;
+  display:inline-flex;align-items:center;gap:8px;padding:0 13px;
+  font-size:12.5px;font-weight:700;letter-spacing:.3px;white-space:nowrap;
+  border:1px solid;user-select:none;
+}
+.tchip svg{width:14px;height:14px;flex:none}
+.t-a   {background:var(--a-bg);    color:var(--a-tx);    border-color:var(--a-bd);    box-shadow:0 2px 10px var(--a-sh),inset 0 1px 0 rgba(255,255,255,.18)}
+.t-real{background:var(--real-bg); color:var(--real-tx); border-color:var(--real-bd); box-shadow:0 2px 10px var(--real-sh),inset 0 1px 0 rgba(255,255,255,.18)}
+.t-stock{background:var(--stock-bg);color:var(--stock-tx);border-color:var(--stock-bd);box-shadow:0 2px 10px var(--stock-sh),inset 0 1px 0 rgba(255,255,255,.18)}
+.t-ai  {background:var(--ai-bg);   color:var(--ai-tx);   border-color:var(--ai-bd);   box-shadow:0 2px 10px var(--ai-sh),inset 0 1px 0 rgba(255,255,255,.18)}
+.t-fx  {background:var(--fx-bg);   color:var(--fx-tx);   border-color:var(--fx-bd);   box-shadow:0 2px 10px var(--fx-sh),inset 0 1px 0 rgba(255,255,255,.18)}
+.t-none{
+  background:var(--none-bg);color:var(--none-tx);border:1.5px dashed var(--none-bd);
+}
+.t-none kbd{
+  font-family:var(--mono);font-size:10px;background:rgba(120,132,158,.12);
+  border:1px solid var(--hairline-2);border-radius:4px;padding:1px 5px;color:var(--text-3);
+}
+body.dark .t-none kbd{background:rgba(255,255,255,.05)}
+.note{
+  font-size:13px;line-height:1.65;color:var(--text-2);
+  border-radius:8px;overflow-wrap:anywhere;outline:none;min-height:22px;
+}
+.note:hover{background:var(--row-hover)}
+.note:focus{background:var(--card);box-shadow:0 0 0 2px rgba(59,116,232,.35);padding:4px 10px;margin:-4px -10px}
+.note:empty::before{content:"点击填写画面描述…";color:var(--text-3);pointer-events:none}
+
+/* ───────── 行缝：本页的主角 ───────── */
+.seam{position:relative;height:18px;margin:0 8px}
+.seam-line{
+  position:absolute;left:24px;right:24px;top:50%;height:1px;
+  transform:translateY(-50%);
+  background:var(--hairline);
+}
+.seam-line::after{
+  content:'';position:absolute;inset:0;
+  background:var(--seam-glow);
+  opacity:0;
+  transition:opacity .22s ease .18s;
+}
+.seam:hover .seam-line::after,
+.seam:focus-within .seam-line::after{
+  opacity:1;
+  transition:opacity .14s ease;
+}
+.seam-inner{
+  position:absolute;inset:0;z-index:1;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.seam-btn{
+  font:inherit;cursor:pointer;flex:none;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  opacity:0;transform:scale(.85);pointer-events:none;
+  transition:opacity .22s ease .18s, transform .22s ease .18s, background .13s, color .13s, border-color .13s;
+}
+.seam:hover .seam-btn,
+.seam:focus-within .seam-btn{
+  opacity:1;transform:none;pointer-events:auto;
+  transition:opacity .14s ease, transform .14s cubic-bezier(.3,0,.2,1), background .13s, color .13s, border-color .13s;
+}
+.seam-btn svg{width:11px;height:11px;stroke:currentColor;stroke-width:2.6;stroke-linecap:round;fill:none;flex:none}
+
+/* 分章按钮（共用底型） */
+.seam-sec{
+  width:23px;height:23px;border-radius:7px;
+  background:var(--card);border:1.5px solid var(--sec-bd);color:var(--sec-c);
+  box-shadow:0 2px 8px rgba(15,23,42,.10);
+}
+.seam-sec:hover{
+  background:var(--sec-grad);border-color:transparent;color:#fff;
+  box-shadow:0 3px 12px rgba(94,110,255,.4);
+}
+.seam-btn .lbl{display:none}
+/* 插句按钮 */
+.seam-add{
+  width:21px;height:21px;border-radius:50%;
+  background:var(--card);border:1.5px solid var(--add-bd);color:var(--add-c);
+  box-shadow:0 2px 8px rgba(15,23,42,.10);
+}
+.seam-add:hover{
+  background:var(--add-c);border-color:transparent;color:#fff;
+  box-shadow:0 3px 12px rgba(18,148,95,.35);
+}
+body:not(.show-add) .seam-add{display:none}
+
+/* —— 三种样式变体 —— */
+/* ① 线中菱形：细线中央浮出菱形 */
+.rows.seam-v1{--seam-glow:linear-gradient(90deg,transparent,rgba(99,102,241,.55) 24%,rgba(99,102,241,.55) 76%,transparent)}
+body.dark .rows.seam-v1{--seam-glow:linear-gradient(90deg,transparent,rgba(129,140,248,.6) 24%,rgba(129,140,248,.6) 76%,transparent)}
+
+/* ② 左置章节点：浮出的就是「未来章节条上的 ◆」，位置对齐 */
+.rows.seam-v2{--seam-glow:linear-gradient(90deg,rgba(99,102,241,.5),rgba(99,102,241,.18) 55%,transparent)}
+body.dark .rows.seam-v2{--seam-glow:linear-gradient(90deg,rgba(129,140,248,.55),rgba(129,140,248,.2) 55%,transparent)}
+.rows.seam-v2 .seam-inner{justify-content:space-between;padding:0 16px}
+.rows.seam-v2 .seam-sec{
+  width:20px;height:20px;border-radius:5px;
+  background:var(--sec-grad);border-color:transparent;color:#fff;font-size:8px;
+  box-shadow:0 2px 8px rgba(94,110,255,.35);
+}
+.rows.seam-v2 .seam-sec:hover{filter:brightness(1.12);box-shadow:0 3px 12px rgba(94,110,255,.45)}
+.rows.seam-v2 .seam-sec svg{width:9px;height:9px}
+
+/* ③ 文字胶囊：线断开，中央一枚写明用途的胶囊 */
+.rows.seam-v3{--seam-glow:linear-gradient(90deg,transparent,rgba(99,102,241,.5) 16%,rgba(99,102,241,.5) 84%,transparent)}
+body.dark .rows.seam-v3{--seam-glow:linear-gradient(90deg,transparent,rgba(129,140,248,.55) 16%,rgba(129,140,248,.55) 84%,transparent)}
+.rows.seam-v3 .seam-btn{
+  width:auto;height:27px;border-radius:999px;padding:0 15px;
+  font-size:12.5px;font-weight:700;letter-spacing:.3px;
+}
+.rows.seam-v3 .seam-btn .lbl{display:inline}
+.rows.seam-v3 .seam-sec:hover{background:var(--sec-grad)}
+
+/* 插入动画 */
+@keyframes bornIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+.born{animation:bornIn .3s cubic-bezier(.3,0,.2,1) backwards}
+
+/* ───────── 提示条 ───────── */
+.toast{
+  position:fixed;left:50%;bottom:30px;transform:translate(-50%,14px);
+  display:flex;align-items:center;gap:10px;
+  background:var(--toast-bg);border:1px solid var(--hairline);
+  border-radius:999px;padding:10px 12px 10px 18px;
+  font-size:13.5px;font-weight:600;color:var(--text);
+  box-shadow:0 10px 32px rgba(15,23,42,.16);
+  opacity:0;pointer-events:none;
+  transition:opacity .22s ease, transform .22s ease;
+}
+.toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast .tick{
+  width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+  background:#12945f;color:#fff;font-size:11px;flex:none;
+}
+.toast-act{
+  font:inherit;font-size:12.5px;font-weight:700;color:var(--sec-c);
+  background:var(--sec-bg);border:1px solid var(--sec-bd);border-radius:999px;
+  padding:5px 13px;cursor:pointer;
+}
+.toast-act:hover{background:var(--sec-grad);border-color:transparent;color:#fff}
+
+/* ───────── 页脚 ───────── */
+.hints{
+  margin-top:16px;text-align:center;
+  font-size:12px;color:var(--text-3);line-height:2;
+}
+.hints kbd{
+  font-family:var(--mono);font-size:10px;color:var(--text-2);
+  background:rgba(120,132,158,.12);border:1px solid var(--hairline-2);
+  border-radius:4px;padding:1px 5px;
+}
+body.dark .hints kbd{background:rgba(255,255,255,.05)}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}
+}
+@media (max-width:900px){
+  .thead,.row{grid-template-columns:40px minmax(0,1fr) 64px 150px}
+  .row .note,.thead .h-note{display:none}
+}
+</style>
+</head>
+<body class="show-add">
+
+<div class="topbar">
+  <div class="brand"><span class="logo">🎬</span>分镜台 · 分章行缝交互</div>
+  <span class="tag">交互演示</span>
+  <span class="muted">虚构稿子,随便点</span>
+</div>
+
+<main>
+  <section class="intro">
+    <h1>把分章按钮,藏进两句之间的缝里</h1>
+    <p>把鼠标移到<strong>两句话之间</strong>的分隔线上 —— 分章按钮会从缝里浮出来;点一下,这句上面就长出一个新章节,章节名可以直接打字。句子本身完全干净,不再每句挂按钮。</p>
+    <p class="muted">两个小细节:① 章节头上下两条缝不给分章按钮 —— 那里已经是章节开头,分了也是空章节;② 分出来的章节名自动进入编辑状态,回车确认。</p>
+  </section>
+
+  <section class="controls">
+    <div class="ctl-group">
+      <span class="ctl-label">缝上按钮样式</span>
+      <div class="seg" id="segVar">
+        <button data-v="1">① 线中菱形</button>
+        <button data-v="2">② 左置章节点</button>
+        <button data-v="3" class="active">③ 文字胶囊</button>
+      </div>
+    </div>
+    <div class="ctl-group">
+      <span class="ctl-label">选项</span>
+      <button class="toggle on" id="tgAdd" aria-pressed="true">缝上带「＋ 插句」</button>
+      <button class="toggle" id="tgDark" aria-pressed="false">深色模式</button>
+    </div>
+  </section>
+
+  <section class="tablecard">
+    <div class="thead">
+      <span></span><span>句子</span><span>时长</span><span>标注</span><span class="h-note">画面描述</span>
+    </div>
+    <div class="rows seam-v3" id="rows"></div>
+  </section>
+
+  <div class="hints">
+    悬停两句之间的缝 → <strong>◆ 新章节</strong> / <strong>＋ 新句子</strong> · 双击句子可改字 · 点行可选中 · 章节名旁的铅笔可改名<br>
+    <kbd>Esc</kbd> 取消编辑 · 每次改动都能「撤销」
+  </div>
+</main>
+
+<div class="toast" id="toast">
+  <span class="tick">✓</span><span id="toastTxt"></span>
+  <button class="toast-act" id="toastAct">撤销</button>
+</div>
+
+<script>
+/* ───────── 类型定义（与分镜台 types.js 一致） ───────── */
+const ICON = {
+  a:    '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="7.2" r="3.6"/><path d="M12 12.6c-4 0-7.5 2.1-7.5 4.9V19h15v-1.5c0-2.8-3.5-4.9-7.5-4.9Z"/></svg>',
+  real: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h11a1 1 0 0 1 1 1v2.3l4.4-2.6a.55.55 0 0 1 .8.5v9.6a.55.55 0 0 1-.8.5L16 14.7V17a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Z"/></svg>',
+  stock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>',
+  ai:   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z"/></svg>',
+  fx:   '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.2 2.2 4.5 13.4c-.3.4 0 .9.5.9h5l-1.3 7.3c-.1.5.6.8.9.4l8.7-11.2c.3-.4 0-.9-.5-.9h-5l1.3-7.3c.1-.5-.6-.8-.9-.4Z"/></svg>',
+};
+const TYPES = {
+  a:    {label:'A roll',   cls:'t-a',    icon:ICON.a},
+  real: {label:'真实素材', cls:'t-real', icon:ICON.real},
+  stock:{label:'通用素材', cls:'t-stock',icon:ICON.stock},
+  ai:   {label:'AI 动画',  cls:'t-ai',   icon:ICON.ai},
+  fx:   {label:'结构特效', cls:'t-fx',   icon:ICON.fx},
+};
+
+const DIAMOND = '<svg viewBox="0 0 24 24"><path d="M12 4.2 19.8 12 12 19.8 4.2 12Z" stroke-linejoin="round"/></svg>';
+const PLUS    = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
+const PEN     = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+
+/* ───────── 虚构演示稿 ───────── */
+let uid = 1;
+const U = () => uid++;
+let items = [
+  {uid:U(), kind:'sec',  name:'开场 · 停不下来的机器'},
+  {uid:U(), kind:'line', text:'1985 年的圣诞假期,硅谷大部分公司都放了假,有一家公司,机器一天都没停。', type:'a',    note:'真人出镜开讲,暖光书房'},
+  {uid:U(), kind:'line', text:'机房里几十台机器亮着灯,它们在等一个结果:机器能不能自己学会一件没人教过的事。', type:'stock', note:'机房空镜缓推,指示灯呼吸感'},
+  {uid:U(), kind:'line', text:'后来这件事有了个名字,叫自我对弈。', type:'ai', note:'AI 动画:两个模型对弈的可视化'},
+  {uid:U(), kind:'line', text:'今天这段故事,主角是人。', type:'a', note:''},
+  {uid:U(), kind:'sec',  name:'十一个人'},
+  {uid:U(), kind:'line', text:'时间再往前拨几个月,这间办公室里,只有十一个人。', type:'a', note:'老照片横移,人像逐个亮起'},
+  {uid:U(), kind:'line', text:'他们的使命书上写着一句话:造福全人类。', type:'real', note:'使命书原文特写,推近到那一行'},
+  {uid:U(), kind:'line', text:'十一个名字,后来从名单上一个个划掉了。', type:'fx', note:'结构特效:名单逐个划除'},
+  {uid:U(), kind:'line', text:'留下来的那个人,把使命改成了另一句话。', type:'a', note:''},
+  {uid:U(), kind:'line', text:'这事,得从那场圣诞假期的实验说起。', type:null, note:''},
+  {uid:U(), kind:'line', text:'有人说他疯了,有人说他值这个价。疯在钱,值在人。', type:'a', note:'双视窗分屏,左右各一句话'},
+  {uid:U(), kind:'line', text:'掌握它的,是少数几家公司。今天听这句话,还像预言吗?', type:null, note:''},
+];
+
+const rowsEl = document.getElementById('rows');
+const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const dur = t => t ? (t.length / 4.5).toFixed(1) + 's' : '—';
+
+/* ───────── 渲染 ───────── */
+function chipHTML(type){
+  if(!type){
+    return `<div class="tchip t-none">未标注 <kbd>1–5</kbd></div>`;
+  }
+  const t = TYPES[type];
+  return `<div class="tchip ${t.cls}">${t.icon}<span>${t.label}</span></div>`;
+}
+
+function render(bornUid){
+  let html = '';
+  let no = 0;
+  // 预计算每个章节的句数 / 未标数
+  const stats = items.map(() => ({cnt:0, todo:0}));
+  let cur = -1;
+  items.forEach((it, i) => {
+    if(it.kind === 'sec'){ cur = i; return; }
+    if(cur >= 0){ stats[cur].cnt++; if(!it.type) stats[cur].todo++; }
+  });
+
+  items.forEach((it, i) => {
+    // 与上一项之间的缝
+    if(i > 0){
+      const above = items[i-1], below = it;
+      const canSplit = !(above.kind === 'sec' || below.kind === 'sec');
+      html += `
+      <div class="seam" data-i="${i-1}">
+        <span class="seam-line"></span>
+        <div class="seam-inner">
+          ${canSplit ? `<button class="seam-btn seam-sec" title="从此句分为新章节" tabindex="-1">${DIAMOND}<span class="lbl">新章节</span></button>` : ''}
+          <button class="seam-btn seam-add" title="在这句后面插入一句" tabindex="-1">${PLUS}<span class="lbl">新句子</span></button>
+        </div>
+      </div>`;
+    }
+
+    const born = it.uid === bornUid ? ' born' : '';
+    if(it.kind === 'sec'){
+      const s = stats[i];
+      html += `
+      <div class="sec-row${born}" data-uid="${it.uid}">
+        <span class="dm">◆</span>
+        <span class="name">${esc(it.name)}</span>
+        <span class="cnt">${s.cnt} 句</span>
+        ${s.todo ? `<span class="todo-cnt">未标 ${s.todo}</span>` : ''}
+        <span class="line"></span>
+        <span class="sec-pen" title="改名">${PEN}</span>
+      </div>`;
+    } else {
+      no++;
+      const col = it.type ? `var(--c-${it.type === 'real' ? 'real' : it.type})` : 'transparent';
+      html += `
+      <div class="row${it.type ? '' : ' unannotated'}${born}" data-uid="${it.uid}">
+        <div class="spine" style="background:${col}"></div>
+        <div class="idx">${no}</div>
+        <div class="sent">${esc(it.text)}</div>
+        <div class="dur">${dur(it.text)}</div>
+        <div class="typebox">${chipHTML(it.type)}</div>
+        <div class="note" contenteditable="true" spellcheck="false">${esc(it.note)}</div>
+      </div>`;
+    }
+  });
+  rowsEl.innerHTML = html;
+}
+
+/* ───────── 行缝操作 ───────── */
+function splitAt(i){
+  const nu = U();
+  items.splice(i + 1, 0, {uid:nu, kind:'sec', name:'新章节'});
+  render(nu);
+  const el = rowsEl.querySelector(`.sec-row[data-uid="${nu}"]`);
+  if(el) editName(el, true);
+  toast('已分为新章节,直接打字改名', () => {
+    items = items.filter(x => x.uid !== nu);
+    render();
+  });
+}
+
+function addLine(i){
+  const nu = U();
+  items.splice(i + 1, 0, {uid:nu, kind:'line', text:'', type:null, note:''});
+  render(nu);
+  const el = rowsEl.querySelector(`.row[data-uid="${nu}"] .sent`);
+  if(el) openSent(el);
+  toast('已插入一句', () => {
+    items = items.filter(x => x.uid !== nu);
+    render();
+  });
+}
+
+/* ───────── 就地编辑 ───────── */
+function editName(secEl, selectAll){
+  const nameEl = secEl.querySelector('.name');
+  const it = items.find(x => x.uid === +secEl.dataset.uid);
+  if(!it || nameEl.isContentEditable) return;
+  const prev = it.name;
+  let done = false;
+  nameEl.contentEditable = 'true';
+  nameEl.focus();
+  if(selectAll){
+    const r = document.createRange(); r.selectNodeContents(nameEl);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  }
+  function finish(commit){
+    if(done) return; done = true;
+    nameEl.removeEventListener('keydown', onKey);
+    nameEl.removeEventListener('blur', onBlur);
+    nameEl.contentEditable = 'false';
+    it.name = commit ? (nameEl.textContent.trim() || '新章节') : prev;
+    nameEl.textContent = it.name;
+  }
+  function onKey(e){
+    if(e.key === 'Enter'){ e.preventDefault(); finish(true); }
+    else if(e.key === 'Escape'){ e.preventDefault(); finish(false); }
+  }
+  function onBlur(){ finish(true); }
+  nameEl.addEventListener('keydown', onKey);
+  nameEl.addEventListener('blur', onBlur);
+}
+
+function openSent(sentEl){
+  const it = items.find(x => x.uid === +sentEl.closest('.row').dataset.uid);
+  if(!it || sentEl.isContentEditable) return;
+  const prev = it.text;
+  let done = false;
+  sentEl.contentEditable = 'true';
+  sentEl.focus();
+  function finish(commit){
+    if(done) return; done = true;
+    sentEl.removeEventListener('keydown', onKey);
+    sentEl.removeEventListener('blur', onBlur);
+    sentEl.contentEditable = 'false';
+    it.text = commit ? sentEl.textContent.trim() : prev;
+    sentEl.textContent = it.text;
+  }
+  function onKey(e){
+    if(e.key === 'Enter'){ e.preventDefault(); finish(true); }
+    else if(e.key === 'Escape'){ e.preventDefault(); finish(false); }
+  }
+  function onBlur(){ finish(true); }
+  sentEl.addEventListener('keydown', onKey);
+  sentEl.addEventListener('blur', onBlur);
+}
+
+/* ───────── 事件 ───────── */
+rowsEl.addEventListener('click', e => {
+  const secBtn = e.target.closest('.seam-sec');
+  if(secBtn){ splitAt(+secBtn.closest('.seam').dataset.i); return; }
+  const addBtn = e.target.closest('.seam-add');
+  if(addBtn){ addLine(+addBtn.closest('.seam').dataset.i); return; }
+  const pen = e.target.closest('.sec-pen');
+  if(pen){ editName(pen.closest('.sec-row')); return; }
+  const row = e.target.closest('.row');
+  if(row && !e.target.closest('[contenteditable="true"]')){
+    rowsEl.querySelectorAll('.row.selected').forEach(el => el !== row && el.classList.remove('selected'));
+    row.classList.toggle('selected');
+  }
+});
+rowsEl.addEventListener('dblclick', e => {
+  const sent = e.target.closest('.sent');
+  if(sent) openSent(sent);
+});
+rowsEl.addEventListener('input', e => {
+  const note = e.target.closest('.note');
+  if(note){
+    const it = items.find(x => x.uid === +note.closest('.row').dataset.uid);
+    if(it) it.note = note.textContent;
+  }
+});
+
+/* ───────── 提示条 ───────── */
+const toastEl = document.getElementById('toast');
+const toastTxt = document.getElementById('toastTxt');
+const toastAct = document.getElementById('toastAct');
+let toastTimer = null, undoFn = null;
+function toast(msg, undo){
+  toastTxt.textContent = msg;
+  undoFn = undo || null;
+  toastAct.style.display = undo ? '' : 'none';
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 5000);
+}
+toastAct.addEventListener('click', () => {
+  if(undoFn) undoFn();
+  undoFn = null;
+  toastEl.classList.remove('show');
+});
+
+/* ───────── 控件 ───────── */
+document.getElementById('segVar').addEventListener('click', e => {
+  const b = e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#segVar button').forEach(x => x.classList.toggle('active', x === b));
+  rowsEl.classList.remove('seam-v1', 'seam-v2', 'seam-v3');
+  rowsEl.classList.add('seam-v' + b.dataset.v);
+});
+const tgAdd = document.getElementById('tgAdd');
+tgAdd.addEventListener('click', () => {
+  const on = !document.body.classList.contains('show-add');
+  document.body.classList.toggle('show-add', on);
+  tgAdd.classList.toggle('on', on);
+  tgAdd.setAttribute('aria-pressed', on);
+});
+const tgDark = document.getElementById('tgDark');
+tgDark.addEventListener('click', () => {
+  const on = !document.body.classList.contains('dark');
+  document.body.classList.add('theming');
+  document.body.classList.toggle('dark', on);
+  tgDark.classList.toggle('on', on);
+  tgDark.setAttribute('aria-pressed', on);
+  setTimeout(() => document.body.classList.remove('theming'), 340);
+});
+
+render();
+</script>
+</body>
+</html>

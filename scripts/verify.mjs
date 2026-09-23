@@ -3,7 +3,10 @@ import { writeFileSync } from 'node:fs';
 
 const b = await puppeteer.connect({ browserURL: 'http://localhost:9222', defaultViewport: null });
 const page = (await b.pages()).find(p => p.url().includes('renderer/index.html'));
-const shot = async name => { writeFileSync(`/tmp/v-${name}.png`, await page.screenshot()); console.log('saved', name); };
+const shot = async name => {
+  writeFileSync(`/tmp/v-${name}.png`, await page.screenshot());
+  console.log('saved', name);
+};
 
 // 1. 表头对齐（浅色表格）
 await new Promise(r => setTimeout(r, 1500));
@@ -23,7 +26,7 @@ await shot('theme-light-again');
 
 // 4. 切类型后 300ms 内截一张：行内容应原地变化、无整页重建白闪
 const id = await page.evaluate(() => {
-  const r = document.querySelector('.row .row-add')?.closest('.row');
+  const r = document.querySelector('.row .row-del')?.closest('.row');
   return r ? r.dataset.id : null;
 });
 await page.evaluate(id => {

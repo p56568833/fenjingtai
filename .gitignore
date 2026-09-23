@@ -1,3 +1,10 @@
 node_modules/
 dist/
 .DS_Store
+# 手动备份 / 源码包不进仓库：版本历史交给 git（git log / git tag）
+备份-*
+*.tar.gz
+# 安装脚本与日志
+*.command
+安装日志.txt
+.install-status
