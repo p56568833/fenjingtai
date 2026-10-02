@@ -1,3 +1,12 @@
-node_modules/
+node_modules
 dist/
 .DS_Store
+.env
+.env.*
+*.log
+备份-*
+_备份与存档/
+*.tar.gz
+*.command
+安装日志.txt
+.install-status

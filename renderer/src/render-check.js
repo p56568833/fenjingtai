@@ -1,15 +1,16 @@
+import { sharedScenes } from './visuals.js';
 /* 勾选视图：整篇原文排版（保留段落），先选句子、再标 A / B roll 四类。
    只有渲染；点击 / 拖选 / 键盘交互在 check.js。 */
-import { state, rowById, currentSelection, qMatch } from './state.js';
+import { state, rowById, currentSelection, qMatch, match } from './state.js';
 import { TYPES } from './types.js';
 import { esc, hiText } from './util.js';
 import { takeAnimation } from './anim.js';
 
 /* 句子 span 的基础类名（选中高亮 cur 由 renderSelectionOnly 统一管理，不在这里）。
    渲染与标注后的原地刷新共用同一份，状态永远和数据对得上 */
-export function spanClass(r){
+export function spanClass(r) {
   const st = r.type && TYPES[r.type] ? ` st-${r.type}` : '';
-  const qdim = (state.query && !qMatch(r)) ? ' qdim' : '';
+  const qdim = state.query && !qMatch(r) ? ' qdim' : '';
   return `as${st}${qdim}`;
 }
 
@@ -18,13 +19,13 @@ export function spanClass(r){
 const MAX_SENTS = 5;
 const MAX_CHARS = 120;
 
-export function renderCheck(){
+export function renderCheck() {
   document.querySelector('#thead').style.display = 'none';
   const wrap = document.querySelector('#rows');
   const anim = takeAnimation();
-  wrap.className = 'rows ck' + (anim ? ' anim' : '');   // anim 只在切视图/切筛选那次渲染挂上
+  wrap.className = 'rows ck' + (anim ? ' anim' : ''); // anim 只在切视图/切筛选那次渲染挂上
 
-  if(!state.rows.some(r=>r.kind==='line')){
+  if (!state.rows.some(r => r.kind === 'line')) {
     wrap.innerHTML = `<div class="ck-empty">
       <div class="big">把整篇稿子粘进来，读一遍顺手标画面</div>
       <div class="sub">自动按标点分句、保留段落排版。<br>点句子就弹出标注卡：选 A roll / B roll 四类，写画面批注（红字显示在句子下方）。</div>
@@ -33,59 +34,97 @@ export function renderCheck(){
     return;
   }
 
-  let html = `<div class="ck-hint">点句子＝弹标注卡（选类型 / 写批注）· 拖选几句再按 <kbd>1-5</kbd>＝批量标 · <kbd>0</kbd> 擦除 · 句下红字是画面批注，点它可改</div>`;
+  let html = `<div class="ck-hint">多选：点「多选句子」后逐句勾选，选好点「共用一个画面」 · 顶部标签筛选正文</div>`;
   html += `<div class="ck-article">`;
-  let buf = [], bufChars = 0, i = 0;
-  const span = r=>{
+  let buf = [],
+    bufChars = 0,
+    i = 0,
+    activeGroup = null,
+    activeOwner = null;
+  const groups = sharedScenes(state.rows);
+  const closeGroup = () => {
+    if (activeGroup) {
+      flushP();
+      const owner = rowById(activeOwner);
+      if (owner?.note) html += `<span class="as-note shared-note" data-note="${activeOwner}">${esc(owner.note)}</span>`;
+      html += `</div>`;
+      activeGroup = null;
+      activeOwner = null;
+    }
+  };
+  const span = r => {
     const hit = state.query && qMatch(r);
     const txt = hit ? hiText(r.text, state.query) : esc(r.text);
-    const note = r.note ? `<span class="as-note" data-note="${r.id}">${esc(r.note)}</span>` : '';
+    const note = r.note && !r.groupId ? `<span class="as-note" data-note="${r.id}">${esc(r.note)}</span>` : '';
     return `<span class="${spanClass(r)}" data-id="${r.id}">${txt}</span>` + note;
   };
-  const flushP = ()=>{
-    if(!buf.length) return;
+  const flushP = () => {
+    if (!buf.length) return;
     i++;
-    html += `<p class="ck-p"${anim ? ` style="animation-delay:${Math.min(i*24,240)}ms"` : ''}>` + buf.map(span).join('') + `</p>`;
-    buf = []; bufChars = 0;
+    html +=
+      `<p class="ck-p"${anim ? ` style="animation-delay:${Math.min(i * 24, 240)}ms"` : ''}>` +
+      buf.map(span).join('') +
+      `</p>`;
+    buf = [];
+    bufChars = 0;
   };
-  for(const r of state.rows){
-    if(r.kind==='section'){
+  for (const r of state.rows) {
+    if (r.kind === 'section') {
       flushP();
+      closeGroup();
       html += `<div class="ck-sec" data-sid="${r.id}"><span class="dm">◆</span><span class="name">${esc(r.text)}</span><span class="line"></span><span class="sec-pen" title="改名 / 删节"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span></div>`;
       continue;
     }
-    if(buf.length && (r.para || buf.length>=MAX_SENTS || bufChars>=MAX_CHARS)) flushP();
+    if (!match(r)) continue;
+    if (activeGroup !== (r.groupId || null)) {
+      flushP();
+      closeGroup();
+      const group = groups.get(r.groupId);
+      if (group) {
+        activeGroup = r.groupId;
+        activeOwner = r.id;
+        html += `<div class="shared-passage" data-note-owner="${r.id}"><div class="shared-passage-heading"><button class="shared-passage-title" data-detail="${r.id}"><strong>共用画面</strong><span>${esc(group.label)}</span><small>查看素材 ↗</small></button><button class="shared-more" data-group-more="${esc(r.groupId)}" title="调整共用范围">···</button></div>`;
+      }
+    }
+    if (buf.length && (r.para || buf.length >= MAX_SENTS || bufChars >= MAX_CHARS)) flushP();
     buf.push(r);
-    bufChars += (r.text||'').length;
+    bufChars += (r.text || '').length;
   }
   flushP();
+  closeGroup();
   html += `</div>`;
   wrap.innerHTML = html;
 }
 
 /* 数据变了以后原地刷新指定句子 span 的类名，不重建整篇（标注时文字不闪）。
    选中高亮是 renderSelectionOnly 的职责，这里刷完基础类名要把它补回去 */
-export function updateCheckSpans(ids){
+export function updateCheckSpans(ids) {
   const sel = new Set(currentSelection());
-  for(const id of ids){
-    const r = rowById(id); if(!r) continue;
+  for (const id of ids) {
+    const r = rowById(id);
+    if (!r) continue;
     const el = document.querySelector(`.as[data-id="${id}"]`);
-    if(el) el.className = spanClass(r) + (sel.has(id) ? ' cur' : '');
+    if (el) el.className = spanClass(r) + (sel.has(id) ? ' cur' : '');
   }
 }
 
 /* 批注保存后原地更新句下红字行：有则改字、无则建、清空则删，不重建整篇 */
-export function updateCheckNote(id){
-  const r = rowById(id); if(!r) return;
-  const span = document.querySelector(`.as[data-id="${id}"]`); if(!span) return;
-  let noteEl = document.querySelector(`.as-note[data-note="${id}"]`);
-  if(r.note){
-    if(!noteEl){
+export function updateCheckNote(id) {
+  const r = rowById(id);
+  if (!r) return;
+  const span = document.querySelector(`.as[data-id="${id}"]`);
+  if (!span) return;
+  const passage = span.closest('.shared-passage');
+  const owner = passage ? +passage.dataset.noteOwner : id;
+  let noteEl = document.querySelector(`.as-note[data-note="${owner}"]`);
+  if (r.note) {
+    if (!noteEl) {
       noteEl = document.createElement('span');
-      noteEl.className = 'as-note';
-      noteEl.dataset.note = String(id);
-      span.after(noteEl);
+      noteEl.className = 'as-note' + (passage ? ' shared-note' : '');
+      noteEl.dataset.note = String(owner);
+      if (passage) passage.append(noteEl);
+      else span.after(noteEl);
     }
     noteEl.textContent = r.note;
-  } else if(noteEl) noteEl.remove();
+  } else if (noteEl) noteEl.remove();
 }

@@ -7,6 +7,7 @@ import { packager } from '@electron/packager';
 import { copyFileSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { shouldIgnore } from './package-filter.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,10 +15,13 @@ process.env.ELECTRON_MIRROR ||= 'https://npmmirror.com/mirrors/electron/';
 
 const RELEASE_DIR = path.join(ROOT, 'dist', 'release');
 mkdirSync(RELEASE_DIR, { recursive: true });
-const sh = (cmd, args) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+const sh = (cmd, args) =>
+  execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    .toString()
+    .trim();
 
 /* 打一个架构：.app → 改图标/Bundle ID → ad-hoc 签名 → zip + dmg */
-async function buildOne(arch){
+async function buildOne(arch) {
   const out = await packager({
     dir: ROOT,
     name: '分镜台',
@@ -25,7 +29,9 @@ async function buildOne(arch){
     arch,
     out: path.join(ROOT, 'dist'),
     overwrite: true,
-    ignore: [/^\/dist/, /^\/scripts/, /^\/assets/, /^\/\.git/, /^\/\.DS_Store/],
+    // 白名单：只打包运行必需的三样（和 repack.mjs 一致）。项目根目录里的备份文件夹、旧版 HTML、
+    // 源码包、自测脚本一律不进安装包——以前按黑名单排除，漏掉的「备份-*」会把整个旧 .app 打进去
+    ignore: shouldIgnore,
   });
 
   // v20 返回输出目录；真实 bundle 在 <name>.app 子目录
@@ -39,7 +45,7 @@ async function buildOne(arch){
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleName', '-string', '分镜台', plist]);
   // 图标和 Info.plist 都动过了，原有签名已失效；重新 ad-hoc 签一遍，arm64 没签名根本起不来
   sh('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', APP]);
-  utimesSync(APP, new Date(), new Date());   // 摸一下 mtime，让 Finder 刷新图标缓存
+  utimesSync(APP, new Date(), new Date()); // 摸一下 mtime，让 Finder 刷新图标缓存
 
   // 文件名不带版本号：GitHub 的 releases/latest/download/<文件名> 直链才能跨版本长期有效
   const stem = `FenJingTai-mac-${arch}`;

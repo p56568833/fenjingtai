@@ -1,28 +1,65 @@
-/* 秒级重打包：只重打 app.asar（electron/ + renderer/ + package.json），Electron 运行时原样不动。
-   日常迭代用 npm run repack（1-2 秒）；首次打包、升级依赖、换图标才需要 npm run package。 */
+/* Refresh existing runtimes offline; --archives also refreshes ZIP/DMG installers. */
 import { createPackageWithOptions } from '@electron/asar';
-import { cpSync, existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, mkdirSync, renameSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const APP = path.join(ROOT, 'dist', '分镜台-darwin-arm64', '分镜台.app');
-const ASAR = path.join(APP, 'Contents', 'Resources', 'app.asar');
-if(!existsSync(ASAR)){
-  console.error('还没打过完整包（找不到 ' + path.relative(ROOT, ASAR) + '），先跑 npm run package');
-  process.exit(1);
-}
-
-// 只装运行时真正加载的东西：主进程 electron/、渲染层 renderer/、入口声明 package.json。
-// node_modules 里全是开发依赖（electron/puppeteer 打包工具链），运行时一个都不 import，不进 asar
 const staging = path.join(ROOT, 'dist', '.asar-staging');
+const architectures = ['arm64', 'x64'].filter(arch =>
+  existsSync(path.join(ROOT, 'dist', `分镜台-darwin-${arch}`, '分镜台.app')),
+);
+if (!architectures.length) throw new Error('尚无应用运行时，请先运行 npm run package');
+const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' });
 rmSync(staging, { recursive: true, force: true });
 mkdirSync(staging, { recursive: true });
-for(const item of ['electron', 'renderer', 'package.json'])
-  cpSync(path.join(ROOT, item), path.join(staging, item), { recursive: true });
-
-const tmp = ASAR + '.new';
-await createPackageWithOptions(staging, tmp, { dot: true });
-renameSync(tmp, ASAR);
-rmSync(staging, { recursive: true, force: true });
-console.log('完成：app.asar 已更新（运行时未动）—', ASAR);
+// 自测文件只在开发环境用（发布版不接受 --selftest），不进安装包
+for (const item of ['electron', 'renderer', 'package.json'])
+  cpSync(path.join(ROOT, item), path.join(staging, item), {
+    recursive: true,
+    filter: src => !/selftest\.js$/.test(src) && !/\.DS_Store$/.test(src),
+  });
+const version = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+try {
+  for (const arch of architectures) {
+    const app = path.join(ROOT, 'dist', `分镜台-darwin-${arch}`, '分镜台.app');
+    const asar = path.join(app, 'Contents', 'Resources', 'app.asar');
+    await createPackageWithOptions(staging, asar + '.new', { dot: true });
+    renameSync(asar + '.new', asar);
+    const plist = path.join(app, 'Contents', 'Info.plist');
+    for (const key of ['CFBundleShortVersionString', 'CFBundleVersion'])
+      run('/usr/bin/plutil', ['-replace', key, '-string', version, plist]);
+    run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app]);
+    run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+    utimesSync(app, new Date(), new Date());
+    console.log(`${arch} 应用已更新并校验签名：${app}`);
+    if (process.argv.includes('--archives')) {
+      const release = path.join(ROOT, 'dist', 'release');
+      mkdirSync(release, { recursive: true });
+      const stem = `FenJingTai-mac-${arch}`;
+      run('/usr/bin/ditto', ['-c', '-k', '--keepParent', app, path.join(release, stem + '.zip')]);
+      const dmgStage = path.join(ROOT, 'dist', `.dmg-stage-${arch}`);
+      mkdirSync(dmgStage, { recursive: true });
+      try {
+        run('/usr/bin/ditto', [app, path.join(dmgStage, '分镜台.app')]);
+        symlinkSync('/Applications', path.join(dmgStage, 'Applications'));
+        run('/usr/bin/hdiutil', [
+          'create',
+          '-volname',
+          '分镜台',
+          '-srcfolder',
+          dmgStage,
+          '-ov',
+          '-format',
+          'UDZO',
+          path.join(release, stem + '.dmg'),
+        ]);
+      } finally {
+        rmSync(dmgStage, { recursive: true, force: true });
+      }
+      console.log(`${arch} ZIP / DMG 已更新`);
+    }
+  }
+} finally {
+  rmSync(staging, { recursive: true, force: true });
+}
