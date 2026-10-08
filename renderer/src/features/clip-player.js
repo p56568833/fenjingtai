@@ -41,16 +41,19 @@ export function forLineHTML(c) {
   return `<p class="vr-for"><b>配</b>${whole ? `整段（${noRange(target)}）` : `${noRange(target)}「${esc(quote)}」`}</p>`;
 }
 
-/* 画面上方的整段口播：逐句包成 span，当前候选配的那几句高亮 */
+/* 画面上方的整段口播：一句一行（句号用 CSS 画在左边，不进文字），当前候选配的那几句高亮、其余淡一点 */
 export function voHTML(members) {
-  return members.map(m => `<span data-vo-no="${m.no}">${esc(m.text)}</span>`).join('');
+  return members.map(m => `<span class="vo-s" data-vo-no="${m.no}">${esc(m.text)}</span>`).join('');
 }
 export function paintVoHighlight(c) {
   const host = document.querySelector('#vrList .vr-vo');
   if (!host) return;
   const nos = new Set(c ? targetLines(c).target.map(r => r.no) : []);
   const whole = c ? targetLines(c).whole : true;
-  host.querySelectorAll('[data-vo-no]').forEach(s => s.classList.toggle('on', !whole && nos.has(+s.dataset.voNo)));
+  const all = host.querySelectorAll('[data-vo-no]');
+  all.forEach(s => s.classList.toggle('on', !whole && nos.has(+s.dataset.voNo)));
+  // 只配其中几句时，没配到的句子淡下去，一眼看出这个候选管哪几句
+  host.classList.toggle('partial', !whole && nos.size > 0 && nos.size < all.length);
 }
 
 /* 片段在口播时间轴上的位置 */

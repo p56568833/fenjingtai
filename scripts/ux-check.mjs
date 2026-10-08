@@ -136,7 +136,8 @@ await sleep(400);
 const delInfo = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('.row')];
   const target = rows[5];
-  target.querySelector('.row-del').click();
+  target.querySelector('.row-more').click();
+  document.querySelector('.pop-item[data-shot-act="delete"]').click();
   return { idx: target.querySelector('.idx').textContent };
 });
 await sleep(400);

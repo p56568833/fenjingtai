@@ -220,6 +220,7 @@ body.dark .topbar {
 }
 .proj-title:hover {
   background: rgba(120, 132, 158, 0.08);
+  border-color: var(--hairline-2);
 }
 .proj-title:focus {
   background: var(--card);
@@ -304,37 +305,64 @@ body.dark .btn:hover {
   height: 16px;
 }
 
-/* 视图切换 */
+/* 视图切换：视频审核 ↔ 表格。按钮本身透明，选中项底下垫一块白色滑块，切换时滑块带一点回弹地左右滑过去 */
 .view-toggle {
+  position: relative;
   display: flex;
   gap: 2px;
   padding: 3px;
-  border-radius: 11px;
+  border-radius: 12px;
   background: rgba(120, 132, 158, 0.1);
   border: 1px solid var(--hairline);
 }
 body.dark .view-toggle {
   background: rgba(255, 255, 255, 0.05);
 }
+.vt-pill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 0;
+  border-radius: 9px;
+  background: var(--card);
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.12),
+    var(--row-shadow);
+  transition:
+    transform 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    width 0.36s cubic-bezier(0.34, 1.3, 0.5, 1);
+  pointer-events: none;
+}
+body.dark .vt-pill {
+  background: rgba(255, 255, 255, 0.12);
+}
 .view-toggle button {
-  height: 30px;
-  padding: 0 13px;
+  position: relative;
+  z-index: 1;
+  height: 34px;
+  padding: 0 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: 9px;
   cursor: pointer;
   background: transparent;
   color: var(--text-2);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   font-family: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  transition: all 0.14s;
+  gap: 7px;
+  transition:
+    color 0.2s,
+    transform 0.12s;
+}
+.view-toggle button[hidden] {
+  display: none;
 }
 .view-toggle button svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   stroke: currentColor;
   fill: none;
   stroke-width: 2;
@@ -344,12 +372,38 @@ body.dark .view-toggle {
 .view-toggle button:hover {
   color: var(--text);
 }
+.view-toggle button:active {
+  transform: scale(0.96);
+}
 .view-toggle button.active {
-  background: var(--card);
   color: var(--text);
-  box-shadow:
-    0 1px 4px rgba(15, 23, 42, 0.12),
-    var(--row-shadow);
+}
+.view-toggle button[data-v='review'].active {
+  color: var(--accent);
+}
+/* 待审数小角标 */
+.vt-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.vt-badge[hidden] {
+  display: none;
+}
+@keyframes badgePop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
 }
 
 .save-state {
@@ -851,9 +905,8 @@ body.dark .note:empty::before {
   user-select: none;
   position: sticky;
   z-index: 6;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* 吸顶章节标题用不透明底色：半透明时滚过去的句子会从标题后面透出来 */
+  background: var(--bg);
 }
 .rows .section-row {
   top: 36px;
@@ -1038,9 +1091,7 @@ body.dark .ck-hint kbd {
   bottom: 0;
   left: calc(50% - 50vw);
   width: 100vw;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--bg);
 }
 .ck-article .ck-sec:first-child {
   padding-top: 8px;
@@ -1286,6 +1337,20 @@ body.dark .toast {
 .toast .tick {
   color: #12a06b;
   font-weight: 800;
+  min-width: 10px;
+  text-align: center;
+}
+.toast[data-kind='info'] .tick {
+  color: var(--text-3);
+}
+.toast[data-kind='warn'] .tick {
+  color: #d9820b;
+}
+.toast[data-kind='error'] {
+  border-color: rgba(220, 54, 46, 0.45);
+}
+.toast[data-kind='error'] .tick {
+  color: #dc362e;
 }
 .toast-act {
   font-family: inherit;
@@ -1500,9 +1565,11 @@ select:focus-visible {
   gap: 10px;
 }
 .proj-title {
-  max-width: 240px;
+  /* 顶栏有空就多显示一些标题，窄窗口再省略（悬停看全文、点一下就能改名） */
+  max-width: min(40vw, 520px);
   min-width: 80px;
   flex-shrink: 1;
+  cursor: text;
 }
 .btn {
   box-shadow: none;
@@ -1679,7 +1746,7 @@ body.dark {
 }
 .outline-item small {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-3);
   margin-top: 4px;
 }
@@ -1756,7 +1823,7 @@ body.dark .note:empty::before {
   gap: 5px;
 }
 .production-badge {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-3);
   border: 0;
   background: transparent;
@@ -1882,7 +1949,7 @@ body.dark .note:empty::before {
 .footbar {
   height: 34px;
   gap: 12px;
-  font-size: 10px;
+  font-size: 11px;
   padding: 0 20px;
   color: var(--text-2);
 }
@@ -1899,6 +1966,15 @@ body.dark .as-note {
 .ck-hint {
   color: var(--text-3);
   font-size: 11px;
+}
+.review-assets-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin: 2px 0 10px;
+  cursor: pointer;
 }
 #reviewList,
 #importPreview {
@@ -1995,7 +2071,7 @@ body.dark .as-note {
     height: 18px;
   }
   .typebox .tchip {
-    font-size: 10px;
+    font-size: 10.5px;
     gap: 4px;
     padding: 0 5px;
   }
@@ -2017,7 +2093,7 @@ body.dark .as-note {
     --note-width: 190px;
   }
   .footbar {
-    font-size: 9px;
+    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -2230,7 +2306,7 @@ body.multi-mode .as:focus-visible {
 }
 .asset-caption small {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-3);
   margin-top: 3px;
 }
@@ -2579,7 +2655,7 @@ body.dark .asset-remove {
 .asset-thumb.thumb-unsupported {
   flex-direction: column;
   gap: 4px;
-  font-size: 10px;
+  font-size: 10.5px;
   text-align: center;
   line-height: 1.4;
   padding: 4px;
@@ -2592,7 +2668,7 @@ body.dark .asset-remove {
   color: var(--text-3);
 }
 .thumb-retry {
-  font-size: 10px;
+  font-size: 10.5px;
   padding: 1px 7px;
   border: 1px solid var(--hairline-2);
   border-radius: 4px;
@@ -3333,8 +3409,7 @@ body.drop-import::after {
 .inspector-asset {
   flex-wrap: wrap;
 }
-.inspector-asset .asset-role,
-.inspector-asset .asset-span {
+.inspector-asset .asset-role {
   flex: 0 0 100%;
 }
 .asset-role {
@@ -3370,35 +3445,12 @@ body.drop-import::after {
 .role-chip.role-alt.on {
   background: var(--text-3);
 }
-.asset-span {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--text-2);
-}
-.asset-span select {
-  font: inherit;
-  font-size: 11px;
-  padding: 2px 4px;
-  border-radius: 4px;
-  border: 1px solid var(--hairline-2);
-  background: var(--card);
-  color: var(--text);
-}
-.role-help {
-  font-size: 10.5px;
-  line-height: 1.6;
-  color: var(--text-3);
-  margin: 0 0 4px;
-}
 .inspector-asset.role-alt .asset-open {
   opacity: 0.6;
 }
 .role-tag {
   display: inline-block;
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
   line-height: 1;
   padding: 3px 6px;
@@ -3445,15 +3497,6 @@ body.drop-import::after {
   padding: 5px 8px;
   border: 1px dashed var(--hairline-2);
   color: var(--accent);
-}
-.inspector .asset-span select {
-  display: inline-block;
-  width: auto;
-  flex: 0 0 auto;
-  margin: 0;
-  padding: 3px 6px;
-  font-size: 11px;
-  min-height: 0;
 }
 
 /* ── 视频审核（1.5） ── */
@@ -3737,7 +3780,7 @@ body.drop-import::after {
   position: absolute;
   left: 3px;
   top: 3px;
-  font-size: 9.5px;
+  font-size: 10.5px;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   padding: 0 4px;
@@ -3799,16 +3842,15 @@ body.dark .as.typed {
   height: 13px;
 }
 .chip-filter.chip-tool {
+  /* 工具按钮（类型… / 时长 · 口播）：实线边框，和筛选芯片区分开靠透明底，不再用虚线（虚线像占位或禁用） */
   background: transparent;
-  border-style: dashed;
   color: var(--text-2);
   cursor: pointer;
+  font-family: inherit;
 }
-.side-type {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-3);
-  margin-left: 8px;
+.chip-filter.chip-tool:hover {
+  color: var(--text);
+  border-color: var(--text-3);
 }
 
 /* 工具条：目录开关、按需出现的「孤立标点」提示 */
@@ -4218,19 +4260,23 @@ body.dark .voice-ok {
   width: min(820px, 94vw);
 }
 .help-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 28px;
-  max-height: 64vh;
+  /* 按内容高度分两栏（不按行对齐），左右两栏一样高，不会一栏截断一栏留白 */
+  columns: 2 300px;
+  column-gap: 32px;
+  max-height: 72vh;
   overflow-y: auto;
 }
 .help-grid section {
   break-inside: avoid;
+  padding-bottom: 6px;
 }
 .help-grid h4 {
   font-size: 12px;
   color: var(--text-3);
   margin: 12px 0 6px;
+}
+.help-grid section:first-child h4 {
+  margin-top: 0;
 }
 .help-row {
   display: grid;
@@ -4262,8 +4308,12 @@ body.dark .voice-ok {
 .te-row {
   grid-template-columns: 20px 34px 22px 86px 120px minmax(160px, 1fr) auto 46px 28px 28px 28px;
 }
-.side-type {
-  margin-right: auto;
+.side-locate {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--accent);
+  margin-right: 6px;
+  white-space: nowrap;
 }
 body.has-voice .toast {
   bottom: 112px;
@@ -4323,10 +4373,20 @@ body.drop-voice .segbar {
   min-width: 0;
 }
 .work-tools > .filters {
-  flex: none;
+  /* 筛选条只占一行：窗口窄时可以横向滑动，不再把右边的进度、类型、面板按钮挤到第二行 */
+  flex: 1 1 0;
+  min-width: 160px;
   max-width: 100%;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
   gap: 4px;
+}
+.work-tools > .filters::-webkit-scrollbar {
+  display: none;
+}
+.work-tools .chip-filter.empty:not(.active) {
+  opacity: 0.55;
 }
 .work-tools .chip-filter {
   flex: none;
@@ -4378,6 +4438,59 @@ body.drop-voice .segbar {
 }
 .select-tools[hidden] {
   display: none;
+}
+.select-tools {
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* 操作条上的类型按钮：鼠标批量标注 */
+.sel-types {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-right: 6px;
+  margin-right: 2px;
+  border-right: 1px solid var(--hairline);
+}
+.sel-types[hidden] {
+  display: none;
+}
+.sel-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sel-type:hover {
+  color: var(--text);
+  background: var(--hover, rgba(120, 132, 158, 0.1));
+}
+.sel-type .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.sel-type.clear {
+  color: var(--text-3);
+  border-style: dashed;
+}
+.sel-hint {
+  font-size: 12px;
+  color: #b4690e;
+  white-space: nowrap;
+}
+body.dark .sel-hint {
+  color: #f0a64a;
 }
 .workspace.has-inspector .select-tools {
   left: calc((100% - 340px) / 2);
@@ -4487,6 +4600,32 @@ body.drop-voice .segbar {
 }
 body.dark .shared-scene::before {
   background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+/* 选中组里的任意一句：整组套上和普通选中行一样的灰底灰框（不另加颜色），
+   左边的细线和「共用画面」标签加深；组内正在看的那句底色再深一点 */
+.shared-scene.picked {
+  background: var(--row-sel-bg);
+  box-shadow: inset 0 0 0 1.5px var(--sel-ring);
+  border-radius: 8px;
+}
+.shared-scene.picked::before {
+  background: var(--accent);
+}
+.shared-scene.picked .shared-scene-title strong {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.shared-scene.picked .shared-scene-title span {
+  color: var(--text-2);
+}
+.shared-scene.picked .shared-more {
+  opacity: 1;
+}
+.shared-scene.picked .shared-scene-lines > .row.selected {
+  background: color-mix(in srgb, var(--text) 7%, var(--row-sel-bg));
+  border-radius: 6px;
+}
+.shared-passage.picked {
+  box-shadow: 0 0 0 1.5px var(--sel-ring);
 }
 
 /* 右侧面板：说明文字收进 ⓘ；按钮挨在一起；描述框跟着内容长高，不截断 */
@@ -4616,7 +4755,7 @@ body.has-select-tools .table-wrap .rows {
   position: absolute;
   top: 4px;
   transform: translateX(-50%);
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-family: var(--mono);
   color: #6f7a8d;
   pointer-events: none;
@@ -4636,7 +4775,7 @@ body.has-select-tools .table-wrap .rows {
   position: absolute;
   bottom: -15px;
   left: 3px;
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 500;
   color: #6f7a8d;
   white-space: nowrap;
@@ -4865,13 +5004,14 @@ body.multi-mode .shared-scene-body {
 .rows > .row > .row-act.asset-empty,
 .rows > .row .row-assets .row-act.asset-empty {
   right: 8px;
-  top: calc(50% - 26px);
+  top: calc(50% - 13px);
 }
 .rows > .row > .row-more {
   top: 50%;
 }
-.rows > .row > .row-del {
-  top: calc(50% + 26px);
+/* 这一行还没素材、鼠标停在上面时，＋ 和 ··· 上下各让一半，两个按钮整体居中 */
+.rows > .row:hover:has(.asset-empty) > .row-more {
+  top: calc(50% + 13px);
 }
 @media (max-width: 1200px) {
   .thead,
@@ -4903,10 +5043,10 @@ body.multi-mode .shared-scene-body {
   .rows > .row > .row-act.asset-empty,
   .rows > .row .row-assets .row-act.asset-empty {
     right: 6px;
-    top: calc(50% - 23px);
+    top: calc(50% - 12px);
   }
-  .rows > .row > .row-del {
-    top: calc(50% + 23px);
+  .rows > .row:hover:has(.asset-empty) > .row-more {
+    top: calc(50% + 12px);
   }
 }
 
@@ -5313,7 +5453,7 @@ body.multi-mode .shared-scene-body {
   top: -14px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 9.5px;
+  font-size: 10.5px;
   color: #f5c542;
 }
 .vr-time {
@@ -5333,4 +5473,727 @@ body.multi-mode .shared-scene-body {
 .vr-voice.off {
   opacity: 0.6;
   cursor: default;
+}
+
+/* 1.10 项目菜单标题行：右侧一个「数据文件夹」小链接 */
+.p-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.p-title-link {
+  font: inherit;
+  font-size: 11px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.p-title-link:hover {
+  text-decoration: underline;
+}
+
+/* 1.10 紧凑行距（视图 → 紧凑行距，⇧⌘D）：长稿一屏多看几句；画面描述只露两行，点进去编辑时展开全文 */
+body.compact .row {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  min-height: 42px;
+}
+body.compact .sent {
+  font-size: 14px;
+  line-height: 1.5;
+}
+body.compact .note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+body.compact .rows:not(.ck) .note:not(:focus) {
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+body.compact .tchip {
+  height: 24px;
+}
+body.compact .section-row {
+  padding-top: 12px;
+  padding-bottom: 4px;
+}
+body.compact .rows:not(.ck) > .row {
+  contain-intrinsic-size: auto 48px;
+}
+
+/* 1.10 视频审核：候选清单没写回时的提示（可重试） */
+.vr-sync {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #c4372f;
+}
+body.dark .vr-sync {
+  color: #ff8e86;
+}
+.vr-sync[hidden] {
+  display: none;
+}
+
+/* 1.10 应用内更新：顶栏「更新到 x.y.z」按钮 + 更新窗口 */
+.update-btn {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  font-weight: 600;
+}
+.update-btn:hover {
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+}
+.update-btn[hidden] {
+  display: none;
+}
+.modal.update-modal {
+  width: min(560px, 92vw);
+}
+.upd-meta {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin: -4px 0 12px;
+}
+.upd-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-2);
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 60%, var(--card));
+}
+.upd-reason {
+  font-size: 12.5px;
+  color: #b4690e;
+  margin: 10px 0 0;
+}
+body.dark .upd-reason {
+  color: #f0a64a;
+}
+.upd-reason[hidden],
+.upd-bar[hidden] {
+  display: none;
+}
+.upd-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  overflow: hidden;
+  margin-top: 14px;
+}
+.upd-bar > span {
+  display: block;
+  height: 100%;
+  width: var(--p, 0%);
+  background: var(--accent);
+  transition: width 0.2s;
+}
+.upd-status {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin: 10px 0 0;
+  min-height: 1.2em;
+}
+.update-modal .m-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.update-modal .m-btns .spacer {
+  flex: 1;
+}
+
+/* 1.10 视频审核作为「页面」：顶栏下面整块铺满（不再是浮在半透明遮罩上的弹窗），顶栏照常可点 */
+#vrMask {
+  z-index: 60;
+  background: var(--bg);
+  backdrop-filter: none;
+  place-items: stretch;
+}
+body.dark #vrMask {
+  background: var(--bg);
+}
+#vrMask .modal.vr-modal {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+  padding: 16px 24px 14px;
+}
+
+/* 1.10 动效：弹层、提示、按钮带一点回弹，切换更有手感（系统开了「减少动态效果」时全部关掉，见上面的 media 规则） */
+.modal {
+  animation: modalIn 0.32s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+}
+.modal-mask.show {
+  animation: maskIn 0.2s ease-out;
+}
+@keyframes maskIn {
+  from {
+    opacity: 0;
+  }
+}
+.popover {
+  transform-origin: top left;
+  animation: popoverIn 0.26s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(-6px);
+  }
+}
+/* 翻到锚点上方的菜单：从下往上长出来 */
+.popover.pop-up {
+  animation-name: popoverUp;
+}
+@keyframes popoverUp {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(6px);
+  }
+}
+/* 二级菜单（最近删除 / 自动备份）在原地换内容：从右边滑进来，像翻到下一页 */
+.popover.pop-sub {
+  animation: popoverSub 0.28s cubic-bezier(0.34, 1.3, 0.5, 1);
+}
+@keyframes popoverSub {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+.pop-back {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.pop-back + .p-title {
+  border-top: 1px solid var(--hairline);
+  margin-top: 4px;
+}
+/* 菜单开着时，打开它的按钮保持「按下」的样子，一眼看出菜单属于谁 */
+.btn.pop-open,
+.chip-filter.pop-open {
+  background: rgba(120, 132, 158, 0.14);
+  border-color: rgba(120, 132, 158, 0.45);
+}
+body.dark .btn.pop-open,
+body.dark .chip-filter.pop-open {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.btn.primary.pop-open {
+  background: #416c9d;
+  filter: brightness(0.88);
+}
+.toast {
+  transition:
+    opacity 0.24s ease,
+    transform 0.42s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+.btn,
+.chip-filter,
+.sel-type,
+.vr-btn {
+  transition:
+    background-color 0.16s,
+    border-color 0.16s,
+    color 0.16s,
+    box-shadow 0.16s,
+    transform 0.12s;
+}
+.btn:active:not(:disabled),
+.chip-filter:active,
+.sel-type:active,
+.vr-btn:active {
+  transform: scale(0.96);
+}
+.select-tools:not([hidden]) {
+  animation: selectToolsSpring 0.38s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+@keyframes selectToolsSpring {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px) scale(0.96);
+  }
+}
+.inspector:not([hidden]) {
+  animation: inspectorIn 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes inspectorIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+.shared-scene,
+.row {
+  transition:
+    background-color 0.18s,
+    box-shadow 0.18s;
+}
+.vr-cand {
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
+}
+.vr-cand.focus {
+  transform: translateY(-1px);
+}
+
+/* ═════════ 选中样式：左侧色条（1.10） ═════════
+   选中的句子：很浅的主色底 + 左边一条主色竖线 + 编号变主色。只有一层强调，不再灰框套灰框。
+   共用画面：选中组里任意一句，整组铺一层更淡的底、左边的括号线加粗，不画框；组底部留出空隙，
+   最后一句的选中底色和「…」按钮不会压到组的边上。 */
+.row.selected,
+.row.selected:hover,
+.shared-scene-lines > .row.selected,
+.shared-scene.picked .shared-scene-lines > .row.selected {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  border-radius: 4px 8px 8px 4px;
+}
+body.dark .row.selected,
+body.dark .row.selected:hover,
+body.dark .shared-scene-lines > .row.selected,
+body.dark .shared-scene.picked .shared-scene-lines > .row.selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.row.selected .idx > span {
+  color: var(--accent);
+  font-weight: 700;
+}
+.shared-scene.picked {
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+  box-shadow: none;
+  border-radius: 10px;
+}
+body.dark .shared-scene.picked {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.shared-scene.picked::before {
+  width: 3px;
+  left: 7px;
+}
+.shared-scene > .shared-scene-body {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.shared-scene-lines .row-act {
+  bottom: 8px;
+}
+
+/* ═════════ 动效（1.10）：滑块跟着走 / 换位置 / 数字滚动 / 弹窗从按钮长出来 ═════════
+   滑块的位置和大小由 motion.js 的 glide() 写进 transform / width / height，这里只管长相和弹簧过渡。
+   系统开了「减少动态效果」时，最下面统一把过渡关掉。 */
+.mo-glide {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
+  transition:
+    transform 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    width 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    height 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    opacity 0.2s ease;
+}
+
+/* 1 · 筛选条：选中样式直接切换（不做滑框）。悬停不再上浮 1px——筛选条是横向滚动容器，上浮会被裁掉上边框 */
+.work-tools .chip-filter:hover {
+  transform: none;
+}
+
+/* 2 · 章节目录：高亮块跟着正文滚动上下滑 */
+.outline {
+  position: relative;
+}
+.outline-item {
+  position: relative;
+  z-index: 1;
+}
+.outline-glide {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.outline.has-glide .outline-item.active {
+  background: transparent;
+}
+
+/* 3 · 换句：选中条从上一句滑过来（影子到之前，新句子先不亮） */
+.table {
+  position: relative;
+}
+.mo-sel-ghost {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 4px 8px 8px 4px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+body.dark .mo-sel-ghost {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.row.selected.sel-arriving,
+.shared-scene-lines > .row.selected.sel-arriving,
+.shared-scene.picked .shared-scene-lines > .row.selected.sel-arriving {
+  background: transparent;
+  box-shadow: none;
+  transition: none;
+}
+
+/* 4 · 菜单：灰色高亮块跟着鼠标在项之间滑 */
+.popover .pop-item {
+  position: relative;
+  z-index: 1;
+}
+.pop-glide {
+  border-radius: 9px;
+  background: rgba(120, 132, 158, 0.12);
+}
+body.dark .pop-glide {
+  background: rgba(255, 255, 255, 0.08);
+}
+.popover.has-glide .pop-item:hover,
+.popover.has-glide .pop-item:focus {
+  background: transparent;
+}
+
+/* 5 · 审核页：左边画面列表的高亮、通过 / 不要 / 换一个 的底色块 */
+.vr-nav {
+  position: relative;
+}
+.vr-nav-shot {
+  position: relative;
+  z-index: 1;
+}
+.vrnav-glide {
+  border-radius: 7px;
+  background: var(--filter-active-bg);
+}
+.vr-nav.has-glide .vr-nav-shot.on {
+  background: transparent;
+}
+.vr-row {
+  position: relative;
+}
+.vr-row > .vr-btn {
+  position: relative;
+  z-index: 1;
+}
+.vr-dpill {
+  border-radius: 8px;
+  background: var(--c-real);
+}
+.vr-dpill[data-d='no'] {
+  background: var(--c-b);
+}
+.vr-dpill[data-d='re'] {
+  background: var(--c-stock);
+}
+.vr-row.has-glide > .vr-btn.on {
+  background: transparent;
+}
+
+/* 6–8 · 列表重画时消失的句子：在原位置留个影子淡出 */
+.mo-ghosts {
+  position: fixed;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+  padding: 0;
+  margin: 0;
+}
+.mo-ghosts > .mo-ghost {
+  position: absolute !important;
+  margin: 0 !important;
+}
+
+/* 12 · 数字滚动：新旧数字叠在同一格，一个滚出去一个滚进来 */
+.mo-roll {
+  display: inline-grid;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.mo-roll > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+
+/* 13 · 节奏色条：标了一句，对应那一段颜色和宽度平滑变过去 */
+.segbar .seg {
+  transition:
+    background-color 0.45s ease,
+    flex-grow 0.5s cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+
+/* 14 · 保存状态：保存中圆点呼吸；存好了变成打勾的绿圈，一会儿缩回圆点 */
+.save-state .dot {
+  position: relative;
+  transition:
+    background 0.2s,
+    width 0.32s cubic-bezier(0.34, 1.6, 0.5, 1),
+    height 0.32s cubic-bezier(0.34, 1.6, 0.5, 1);
+}
+.save-state.saving .dot {
+  animation: saveBreath 0.9s ease-in-out infinite;
+}
+@keyframes saveBreath {
+  50% {
+    transform: scale(1.6);
+    opacity: 0.55;
+  }
+}
+.save-state.just-saved .dot {
+  width: 13px;
+  height: 13px;
+  margin: -3.5px;
+  box-shadow: 0 0 0 3px rgba(18, 160, 107, 0.16);
+}
+.save-state.just-saved .dot::after {
+  content: '';
+  position: absolute;
+  left: 4.4px;
+  top: 2.2px;
+  width: 3px;
+  height: 6px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+  animation: saveTick 0.36s 0.12s cubic-bezier(0.34, 1.6, 0.5, 1) backwards;
+}
+@keyframes saveTick {
+  from {
+    opacity: 0;
+    transform: rotate(45deg) scale(0.2);
+  }
+}
+
+/* 15 · 弹窗关的时候多留 0.2–0.3 秒播完缩回去的动画（这期间点不到、也拿不到焦点） */
+.modal-mask.mo-closing {
+  display: grid;
+  pointer-events: none;
+}
+
+/* 16 · 搜索条展开时从右边裁开 */
+.searchbar {
+  transform-origin: right center;
+}
+
+/* 18 · 深浅色水波：关掉浏览器默认的交叉淡变，只留圆形展开 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mo-glide,
+  .segbar .seg,
+  .save-state .dot {
+    transition: none;
+  }
+  .save-state.saving .dot,
+  .save-state.just-saved .dot::after {
+    animation: none;
+  }
+}
+
+/* ═════════ 右侧面板（1.10）：素材与片段放最上面 ═════════
+   顺序：素材与片段（标题右边是「对着口播看画面」，下面一行口播时间和片段长短提醒）→ 画面描述 → 原文（旁边「听这段口播」） */
+.inspector .spacer {
+  flex: 1;
+}
+.detail-assets {
+  margin-top: 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.detail-assets > .asset-list-title {
+  margin: 6px 0 6px;
+  min-height: 30px;
+}
+.inspector .sync-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline-2));
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+.inspector .sync-btn:hover {
+  border-color: var(--accent);
+}
+.detail-assets > .voice-block {
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+.detail-assets > .voice-block .voice-warn,
+.detail-assets > .voice-block .voice-ok {
+  margin-top: 4px;
+}
+.inspector .detail-note-block {
+  display: block;
+  margin-top: 14px;
+}
+.detail-excerpt-title {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  color: var(--text-2);
+  align-items: center;
+}
+.inspector .listen-btn {
+  font-size: 12px;
+}
+
+/* ═════════ 审核页（1.10）：画面标题 + 口播原文 ═════════
+   原文是审核时最要紧的参照：一句一行、字放大，左边一条主色竖线像引用；句号小字放在左边（不进文字内容）。
+   候选只配其中几句时，配到的句子带底色、其余淡下去。 */
+.vr-shot h4 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 2px 0 12px;
+}
+.vr-shot-range {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-radius: 6px;
+  padding: 3px 8px;
+  letter-spacing: 0.2px;
+}
+.vr-shot-label {
+  font-size: 18px;
+  font-weight: 750;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+.modal p.vr-vo {
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px 12px 12px 4px;
+  padding: 14px 20px 14px 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+body.dark .modal p.vr-vo {
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: none;
+}
+.modal p.vr-vo .vo-s {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  align-items: baseline;
+  padding: 3px 6px 3px 0;
+  border-radius: 8px;
+  transition:
+    color 0.2s,
+    background-color 0.2s,
+    opacity 0.2s;
+}
+.modal p.vr-vo .vo-s::before {
+  content: attr(data-vo-no);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+  text-align: right;
+  padding-right: 12px;
+}
+.modal p.vr-vo .vo-s + .vo-s {
+  margin-top: 2px;
+}
+.modal p.vr-vo span.on {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: none;
+  border-radius: 8px;
+}
+.modal p.vr-vo span.on::before {
+  color: var(--accent);
+  font-weight: 700;
+}
+.modal p.vr-vo.partial span:not(.on) {
+  color: var(--text-3);
+}
+/* 候选卡片的标题和「已看画面」说明也跟着大一号，和上面的原文层级对得上 */
+.vr-head strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+.modal p.vr-why {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.modal p.vr-for {
+  font-size: 13px;
+}
+
+/* 审核页：画面标题和口播原文钉在候选列表顶上——候选多、往下翻时，原文一直看得见。
+   原文很长时最多占列表三分之一高，自己滚动，不把候选挤没了 */
+.vr-shot-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--card);
+  padding-top: 2px;
+  margin-bottom: 4px;
+}
+.vr-shot-head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -10px;
+  height: 10px;
+  pointer-events: none;
+  background: linear-gradient(var(--card), transparent);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.vr-shot-head.stuck::after {
+  opacity: 1;
+}
+.vr-shot-head .vr-vo {
+  max-height: 32vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
 }

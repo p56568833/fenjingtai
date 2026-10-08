@@ -6,7 +6,7 @@ import { undo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
 import { checkDelivery } from '../core/shots.js';
 import { usageList } from '../core/asset-model.js';
-import { addRefsToShot } from '../app/asset-actions.js';
+import { addRefsToShot, setUsageSpan } from '../app/asset-actions.js';
 import { setType, ungroupAction } from '../app/actions.js';
 import { buildAssetListMd } from '../core/export-doc.js';
 
@@ -64,19 +64,16 @@ export async function runRoleTests(t) {
     '面板每条素材都有主画面 / 叠加 / 备选三个按钮',
     $$('#inspector .asset-role').length === 3 && $$('#inspector .role-chip').length === 9,
   );
-  t('共用画面才有出现位置', $$('#inspector select[data-span-usage]').length === 6);
 
   click('#inspector [data-role-usage="1"][data-role="overlay"]');
   t(
     '设为叠加，组内每句同步',
     [0, 1, 2].every(n => us(n)[1].role === 'overlay'),
   );
+  // 句子范围选择已从面板移除，范围规则仍通过数据操作验证。
   const pickSpan = (index, from, to) => {
-    const f = $(`#inspector select[data-span-usage="${index}"][data-span-end="from"]`);
-    const e = $(`#inspector select[data-span-usage="${index}"][data-span-end="to"]`);
-    f.value = String(from);
-    e.value = String(to);
-    e.dispatchEvent(new Event('change', { bubbles: true }));
+    const row = state.rows.find(r => r.id === state.sel);
+    setUsageSpan(row, index, from, to);
   };
   pickSpan(1, 1, 1);
   t('位置：叠加只在第二句出现', us(0)[1].off === true && !us(1)[1].off && us(2)[1].off === true);

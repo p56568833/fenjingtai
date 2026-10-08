@@ -39,19 +39,31 @@ export function isEditing(el) {
   );
 }
 
-/* toast：相同内容重复触发只重置计时，不重放动画 */
-export function toast(msg, action) {
+/* toast：相同内容重复触发只重置计时，不重放动画。
+   kind：ok 完成（绿勾）/ info 提示（灰点）/ warn 注意（黄色）/ error 出错（红色，停留更久）。
+   没写 kind 时按文字猜：带「失败 / 无法 / 出错」的是 error，「没有… / 请先… / 不能…」这类是 info，其余当完成 */
+const ERROR_RE = /失败|无法|出错|错误|损坏|读不出|打不开|不存在|超时|拒绝/;
+const INFO_RE = /^(没有|请先|不能|先|这句已经|那条操作|已取消|正在|开始)|对不上|跳过|当前筛选下/;
+export const guessKind = msg => (ERROR_RE.test(msg) ? 'error' : INFO_RE.test(msg) ? 'info' : 'ok');
+const KIND_ICON = { ok: '✓', info: '•', warn: '!', error: '!' };
+export function toast(msg, action, kind) {
   const t = $('#toast'),
     act = $('#toastAct');
+  const k = KIND_ICON[kind] ? kind : guessKind(String(msg));
   t._msg = msg;
   t._at = Date.now();
   $('#toastTxt').textContent = msg;
+  const tick = t.querySelector('.tick');
+  if (tick) tick.textContent = KIND_ICON[k];
+  t.dataset.kind = k;
+  t.setAttribute('role', k === 'error' ? 'alert' : 'status');
   t._action = action || null;
   act.style.display = action ? '' : 'none';
   if (action) act.textContent = action.label;
   t.classList.add('show');
   clearTimeout(t._h);
-  t._h = setTimeout(() => t.classList.remove('show'), action ? 6000 : 2200);
+  const ms = k === 'error' ? 7000 : action ? 6000 : k === 'warn' ? 4500 : 2600;
+  t._h = setTimeout(() => t.classList.remove('show'), ms);
 }
 
 let modalCb = null;

@@ -59,8 +59,15 @@ export function planImport(doc, srcFile, rows, existing = []) {
       };
       const old = existing.find(c => c.srcFile === base.srcFile && c.lines === base.lines && c.key === base.key);
       if (old) {
-        const same = old.url === url && old.in === tin && old.out === tout;
-        updated.push({ old, next: { ...old, ...base, ...(same ? {} : { decision: '', note: old.note || '' }) } });
+        const changed = candidateChanged(old, { url, in: tin, out: tout });
+        // 链接或片段变了：回到待审，旧的素材关联 / 已保存状态都作废（旧文件留在磁盘上，不删）
+        const next = { ...old, ...base, ...(changed ? { decision: '', note: old.note || '' } : {}) };
+        if (changed) {
+          delete next.assetId;
+          delete next.savedPath;
+          delete next.decidedAt;
+        }
+        updated.push({ old, next, changed });
       } else if (raw.review?.decision === 'no') {
         // 以前已经标成「不要」、被清掉的：同一份清单再导入时不让它回来
         continue;
@@ -160,6 +167,55 @@ export function lineTag(c, rows) {
 }
 export const fileTitle = (c, rows) => [lineTag(c, rows), c.title].filter(Boolean).join('_');
 export const hasLineTag = p => /^第\d+(?:-\d+)?句_/.test(assetName(p));
+
+/* 项目 JSON 里带的候选记录：清洗字段，rowId 按导入时的 id 映射改写；对不上句子的丢掉，素材已不在库里的不再算「已挂」 */
+export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = new Set(), assets = {} } = {}) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object') continue;
+    const url = String(raw.url || '').trim();
+    const tin = parseClock(raw.in),
+      tout = parseClock(raw.out);
+    if (!/^https?:\/\//i.test(url) || !(tout > tin)) continue;
+    const rowId = idMap.has(raw.rowId) ? idMap.get(raw.rowId) : raw.rowId;
+    if (!rowIds.has(rowId)) continue;
+    let id = typeof raw.id === 'string' && raw.id ? raw.id : 'vc-' + crypto.randomUUID();
+    if (seen.has(id)) id = 'vc-' + crypto.randomUUID();
+    seen.add(id);
+    const decision = ['ok', 'no', 're'].includes(raw.decision) ? raw.decision : '';
+    const assetId = typeof raw.assetId === 'string' && assets[raw.assetId] ? raw.assetId : undefined;
+    out.push({
+      id,
+      key: String(raw.key || ''),
+      lines: String(raw.lines ?? ''),
+      label: String(raw.label || ''),
+      rowId,
+      title: String(raw.title || assetName(url)),
+      url,
+      page: String(raw.page || ''),
+      in: tin,
+      out: tout,
+      license: String(raw.license || ''),
+      why: String(raw.why || ''),
+      for: raw.for != null ? String(raw.for) : '',
+      srcFile: typeof raw.srcFile === 'string' ? raw.srcFile : '',
+      decision: decision === 'ok' && !assetId ? '' : decision,
+      note: String(raw.note || ''),
+      ...(assetId ? { assetId } : {}),
+      ...(assetId && typeof raw.savedPath === 'string' && raw.savedPath ? { savedPath: raw.savedPath } : {}),
+      ...(Number.isFinite(raw.decidedAt) ? { decidedAt: raw.decidedAt } : {}),
+      ...(typeof raw.batchId === 'string' ? { batchId: raw.batchId } : {}),
+      ...(Number.isFinite(raw.batchAt) ? { batchAt: raw.batchAt } : {}),
+      ...(typeof raw.batchName === 'string' ? { batchName: raw.batchName } : {}),
+    });
+  }
+  return out;
+}
+
+/* 同一候选的链接或片段改了：原来通过时挂上的素材、保存好的本地片段都不再代表这个候选 */
+export const candidateChanged = (old, next) => old.url !== next.url || old.in !== next.in || old.out !== next.out;
 
 /* 写回候选清单的内容：每个来源文件一份 */
 export function reviewPayload(cands) {

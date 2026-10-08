@@ -35,9 +35,16 @@ contextBridge.exposeInMainWorld('native', {
   hasFfmpeg: () => ipcRenderer.invoke('video:has-ffmpeg'),
   saveVideoSegment: req => ipcRenderer.invoke('video:save-segment', req),
   downloadOriginalVideo: req => ipcRenderer.invoke('video:download-original', req),
+  cancelDownload: url => ipcRenderer.invoke('video:cancel-download', url),
   tagSavedClip: (p, tag) => ipcRenderer.invoke('video:tag-saved', p, tag),
   onSegmentProgress: cb => ipcRenderer.on('video:segment-progress', (_e, p) => cb(p)),
   onDownloadProgress: cb => ipcRenderer.on('video:download-progress', (_e, p) => cb(p)),
   writeCandidateReview: (file, results) => ipcRenderer.invoke('candidates:write-back', file, results),
   revealAsset: p => ipcRenderer.invoke('assets:reveal', p),
+  // 应用内更新
+  checkUpdate: opts => ipcRenderer.invoke('update:check', opts),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  cancelUpdate: () => ipcRenderer.invoke('update:cancel'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdateProgress: cb => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
 });

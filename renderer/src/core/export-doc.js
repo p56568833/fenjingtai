@@ -200,10 +200,12 @@ export function buildCsv(ctx) {
   return '\uFEFF' + table.map(r => r.map(cell).join(',')).join('\n');
 }
 
-export function buildProjectJson({ title, rows, assets = {}, speechRate, timing, types, voice }) {
+/* 项目 JSON（v4）：项目里的全部数据——句子、素材库、类型、字幕、口播、视频候选（含审核结果与批次）、片段保存位置。
+   本地素材只记路径，不含文件本身；换电脑后路径对不上的素材会显示「文件失联」，可以重新定位 */
+export function buildProjectJson({ title, rows, assets = {}, speechRate, timing, types, voice, candidates, mediaDir }) {
   return JSON.stringify(
     {
-      v: 3,
+      v: 4,
       title,
       speechRate,
       ...(types ? { types } : {}),
@@ -211,6 +213,8 @@ export function buildProjectJson({ title, rows, assets = {}, speechRate, timing,
       assets,
       ...(timing ? { timing } : {}),
       ...(voice ? { voice } : {}),
+      ...(Array.isArray(candidates) && candidates.length ? { candidates } : {}),
+      ...(mediaDir ? { mediaDir } : {}),
       savedAt: new Date().toISOString(),
     },
     null,

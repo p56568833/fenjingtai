@@ -9,7 +9,7 @@ import { normalizeProjectRows, reconcileDraft } from '../core/shots.js';
 import { buildAnnotatedMd, buildAssetListMd, buildCsv, buildProjectJson } from '../core/export-doc.js';
 import { parseAny, migrateSections, mdTypes } from '../core/parse.js';
 import { normalizeTypes } from '../core/types.js';
-import { CANDIDATE_TYPE } from '../core/candidates.js';
+import { CANDIDATE_TYPE, sanitizeProjectCandidates } from '../core/candidates.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
 import { toast, confirmModal, esc } from './dom.js';
@@ -41,7 +41,7 @@ function renderImportPreview() {
       ? '将创建新项目，现有项目保留。'
       : mode === 'update'
         ? '按完全一致且不重复的原文匹配。更新前会保留一份原项目副本。'
-        : '当前项目内容将被替换；替换前会保留一份原项目副本。';
+        : '当前项目内容将被替换，视频候选和字幕对齐一并清空；替换前会保留一份原项目副本。';
   $('#importPreview').innerHTML = rows
     .map(r =>
       r.kind === 'section'
@@ -62,14 +62,14 @@ function acceptImport() {
   } else {
     const result = mode === 'update' ? reconcileDraft(state.rows, rows).rows : rows;
     storage.archiveCurrentCopy('改稿前');
-    applyImport(result, mode === 'update' ? state.title : name);
+    applyImport(result, mode === 'update' ? state.title : name, { mode });
     state.speechRate = rate;
     storage.persist();
   }
   pendingImport = null;
   $('#importPreviewMask').classList.remove('show');
   update('rows');
-  toast(mode === 'new' ? '已导入为新项目' : '稿件已更新，原项目副本已保留');
+  if (mode === 'new') toast('已导入为新项目', null, 'ok');
 }
 
 /* 项目 JSON 一律导入为新项目（不覆盖现有工作，更安全） */
@@ -78,32 +78,41 @@ function importAsNewProject(name, txt) {
   try {
     proj = JSON.parse(txt);
   } catch {
-    return toast('JSON 解析失败');
+    return toast('JSON 解析失败：文件内容不是有效的 JSON', null, 'error');
   }
+  if (!proj || typeof proj !== 'object' || Array.isArray(proj))
+    return toast('这个 JSON 不是分镜台的项目文件', null, 'error');
+  if (Number(proj.v) > 4) return toast('这个项目文件来自更新版本的分镜台，请先升级软件再导入', null, 'error');
   const projTypes = proj.types ? normalizeTypes(proj.types) : normalizeTypes(null);
   let rows;
+  const info = {};
   try {
-    rows = normalizeProjectRows(migrateSections(proj.rows || []), projTypes);
+    rows = normalizeProjectRows(migrateSections(proj.rows || []), projTypes, info);
   } catch (error) {
-    return toast(error.message);
+    return toast(error.message, null, 'error');
   }
-  if (!rows.length) return toast('这个 JSON 里没有句子');
-  storage.createProject(
-    proj.title || name.replace(/\.json$/i, ''),
-    rows,
-    proj.assets && typeof proj.assets === 'object' ? proj.assets : {},
-    {
-      types: projTypes,
-      ...(proj.voice && typeof proj.voice.path === 'string' ? { voice: proj.voice } : {}),
-    },
-  );
-  state.timing = proj.timing && Array.isArray(proj.timing.cues) ? proj.timing : null;
-  state.speechRate = Number(proj.speechRate) >= 1 && Number(proj.speechRate) <= 10 ? Number(proj.speechRate) : 4.5;
+  if (!rows.length) return toast('这个 JSON 里没有句子', null, 'error');
+  const assets = proj.assets && typeof proj.assets === 'object' && !Array.isArray(proj.assets) ? proj.assets : {};
+  const candidates = sanitizeProjectCandidates(proj.candidates, {
+    idMap: info.idMap,
+    rowIds: new Set(rows.filter(r => r.kind === 'line').map(r => r.id)),
+    assets,
+  });
+  const rate = Number(proj.speechRate);
+  storage.createProject(proj.title || name.replace(/\.json$/i, ''), rows, assets, {
+    types: projTypes,
+    ...(proj.voice && typeof proj.voice.path === 'string' ? { voice: proj.voice } : {}),
+    ...(proj.timing && Array.isArray(proj.timing.cues) ? { timing: proj.timing } : {}),
+    ...(candidates.length ? { candidates } : {}),
+    ...(typeof proj.mediaDir === 'string' && proj.mediaDir ? { mediaDir: proj.mediaDir } : {}),
+    speechRate: rate >= 1 && rate <= 10 ? rate : 4.5,
+  });
   storage.persist();
   clearUndo();
   armAnimation();
   update('rows');
-  toast(`已作为新项目导入「${state.title}」· ${rows.filter(r => r.kind === 'line').length} 句`);
+  const extra = candidates.length ? ` · ${candidates.length} 个视频候选` : '';
+  toast(`已作为新项目导入「${state.title}」· ${rows.filter(r => r.kind === 'line').length} 句${extra}`);
 }
 
 function importText(txt, name, isJson) {
@@ -140,9 +149,13 @@ export async function importFromFile() {
 
 /* ── 导出 ── */
 async function download(name, content) {
-  const ok = await native.exportFile(name, content);
-  toast(ok ? `已导出：${name}` : '已取消导出');
-  return ok;
+  const r = await native.exportFile(name, content);
+  if (r && r.ok === false) {
+    toast('导出失败：' + (r.error || '写不进这个位置'), null, 'error');
+    return false;
+  }
+  toast(r ? `已导出：${name}` : '已取消导出', null, r ? 'ok' : 'info');
+  return !!r;
 }
 
 export async function doExport(kind, checked = false) {
@@ -197,6 +210,8 @@ export async function doExport(kind, checked = false) {
         timing: state.timing,
         types: types().list,
         voice: state.voice,
+        candidates: state.candidates,
+        mediaDir: state.mediaDir,
       }),
     );
   }
@@ -230,14 +245,14 @@ function openExportMenu(anchor) {
     anchor,
     `
       <div class="p-title">导出「${esc(state.title)}」</div>
-      <div class="pop-item" data-x="review"><svg class="mi" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></svg><span class="main">交稿检查<span class="desc">${n ? `${n} 个镜头待处理` : '检查通过'}</span></span></div>
+      <div class="pop-item" data-x="review"><svg class="mi" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></svg><span class="main">交稿检查<span class="desc">${n ? `${n} 个镜头待处理` : '分镜方案完整 · 可再勾选检查素材交付'}</span></span></div>
       <div class="pop-sep"></div>
       <div class="pop-item" data-x="pdf"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg><span class="main">PDF 分镜脚本<span class="desc">按镜头排版，发给别人直接看 · ⇧⌘E</span></span></div>
       <div class="pop-sep"></div>
       <div class="pop-item" data-x="md"><span class="pdot" style="background:var(--accent)"></span><span class="main">带批注的 MD<span class="desc">回写成批注稿，接回原来的工作流</span></span></div>
       <div class="pop-item" data-x="list"><span class="pdot" style="background:#12945f"></span><span class="main">素材清单 MD<span class="desc">按类型分组，照单找素材</span></span></div>
       <div class="pop-item" data-x="csv"><span class="pdot" style="background:#d9820b"></span><span class="main">CSV 表格<span class="desc">进 Excel / 飞书表格</span></span></div>
-      <div class="pop-item" data-x="json"><span class="pdot" style="background:#7c4de8"></span><span class="main">项目文件 JSON<span class="desc">备份存档，可导回这个软件</span></span></div>`,
+      <div class="pop-item" data-x="json"><span class="pdot" style="background:#7c4de8"></span><span class="main">项目文件 JSON<span class="desc">项目的全部数据（含视频审核结果），可导回这个软件；不含素材文件本身</span></span></div>`,
   );
   markPopAnchor(anchor);
 }

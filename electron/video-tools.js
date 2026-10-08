@@ -26,10 +26,37 @@ function uniquePath(dir, base, ext) {
   return p;
 }
 const segmentFileBase = (name, start, end) => `${safeName(name)}_${mmss(start)}-${mmss(end)}`;
+/* 原子地占住一个不重名的目标文件（先建一个空文件占位）：两个同名任务同时保存时各拿各的文件名，不会写到同一个文件 */
+function reservePath(dir, base, ext) {
+  for (let i = 1; i < 1000; i++) {
+    const p = path.join(dir, i === 1 ? `${base}${ext}` : `${base} (${i})${ext}`);
+    try {
+      fs.closeSync(fs.openSync(p, 'wx'));
+      return p;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+    }
+  }
+  throw new Error('同名文件太多，请换个保存位置');
+}
+const tmpBeside = p => `${p}.${process.pid}-${Math.random().toString(36).slice(2, 8)}.part`;
+const removeQuiet = p => {
+  try {
+    fs.rmSync(p, { force: true });
+  } catch {}
+};
 
 /* ── ffmpeg ── */
 const FFMPEG_CANDIDATES = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'];
+/* 找到过一次就记住（不再每次同步跑 which）；记住的路径失效了再重新找 */
+let ffmpegCache = null;
 function findFfmpeg(extra = []) {
+  if (!extra.length && ffmpegCache && fs.existsSync(ffmpegCache)) return ffmpegCache;
+  const found = locateFfmpeg(extra);
+  if (!extra.length) ffmpegCache = found;
+  return found;
+}
+function locateFfmpeg(extra) {
   const env = process.env.FJT_FFMPEG ? [process.env.FJT_FFMPEG] : [];
   for (const p of [...env, ...extra, ...FFMPEG_CANDIDATES]) {
     try {
@@ -55,6 +82,9 @@ function segmentArgs(url, start, end, out, seekAfterInput = false) {
     '-progress',
     'pipe:1', // 机器可读的进度（out_time_us=…）写到 stdout，界面据此显示百分比
     '-y',
+    // 只允许走网络协议：候选清单来自网上，不让 m3u8 之类的播放列表再去引用本机文件
+    '-protocol_whitelist',
+    'http,https,tls,tcp,crypto',
     ...(seekAfterInput
       ? ['-i', url, '-ss', String(Math.max(0, Number(start)))]
       : ['-ss', String(Math.max(0, Number(start))), '-i', url]),
@@ -147,11 +177,20 @@ const isHttpUrl = u => {
     return false;
   }
 };
+/* 流媒体播放列表（HLS / DASH）可以再引用任意地址，不直接交给 ffmpeg */
+const isPlaylist = u => {
+  try {
+    return /\.(m3u8?|mpd)$/i.test(new URL(u).pathname);
+  } catch {
+    return false;
+  }
+};
 async function saveSegment(
   { url, start, end, dir, name },
   { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress } = {},
 ) {
   if (!isHttpUrl(url)) return { ok: false, error: '只支持在线视频链接' };
+  if (isPlaylist(url)) return { ok: false, error: '这是流媒体播放列表（m3u8 / mpd），请换成直接的视频文件地址' };
   if (!(Number(end) > Number(start))) return { ok: false, error: '出点必须晚于入点' };
   if (!dir || !path.isAbsolute(dir) || !fs.existsSync(dir)) return { ok: false, error: '保存位置不存在，请重新选择' };
   if (!ffmpeg)
@@ -160,8 +199,13 @@ async function saveSegment(
       needFfmpeg: true,
       error: '这台电脑上没找到 ffmpeg。在「终端」里运行 brew install ffmpeg 装好后再试。',
     };
-  const out = uniquePath(dir, segmentFileBase(name, start, end), '.mp4');
-  const tmp = out + '.part.mp4';
+  let out;
+  try {
+    out = reservePath(dir, segmentFileBase(name, start, end), '.mp4');
+  } catch (e) {
+    return { ok: false, error: '没法在保存位置建文件：' + (e.message || e) };
+  }
+  const tmp = tmpBeside(out) + '.mp4';
   const dur = Math.max(0.1, Number(end) - Number(start));
   const attempt = async seekAfterInput => {
     const result = await run(ffmpeg, segmentArgs(url.split('#')[0], start, end, tmp, seekAfterInput), {
@@ -174,71 +218,125 @@ async function saveSegment(
     } catch {}
     return size >= 1024 ? result : { ok: false, error: '没有截到有效的视频画面' };
   };
-  let r = await attempt(false);
-  // 一些视频站点拒绝随机跳转请求，却允许从头顺序读取；只在空片段或限流时再试一次。
-  if (!r.ok && /没有截到|HTTP 429|Too many requests/i.test(r.error || '')) {
-    fs.rmSync(tmp, { force: true });
-    onProgress?.(0);
-    r = await attempt(true);
+  let r;
+  try {
+    r = await attempt(false);
+    // 一些视频站点拒绝随机跳转请求，却允许从头顺序读取；只在空片段或限流时再试一次。
+    if (!r.ok && /没有截到|HTTP 429|Too many requests/i.test(r.error || '')) {
+      removeQuiet(tmp);
+      onProgress?.(0);
+      r = await attempt(true);
+    }
+    if (r.ok) fs.renameSync(tmp, out);
+  } catch (e) {
+    r = { ok: false, error: String(e?.message || e) };
   }
   if (!r.ok) {
-    try {
-      fs.rmSync(tmp, { force: true });
-    } catch {}
+    removeQuiet(tmp);
+    removeQuiet(out); // 占位的空文件
     return r;
   }
-  fs.renameSync(tmp, out);
   return { ok: true, path: out };
 }
 
 /* ── 下载完整原片（用户明确要求时） ── */
-function downloadFile(url, dest, { get, maxRedirects = 6, onProgress } = {}) {
+/* 下载：跟随重定向（只跟到 http / https），30 秒没有任何数据就算超时，可以取消（signal），
+   进度最多每 250 毫秒报一次；写到随机临时文件，完整收到后再改名 */
+const DOWNLOAD_IDLE_MS = 30 * 1000;
+function downloadFile(url, dest, { get, maxRedirects = 6, onProgress, signal, idleMs = DOWNLOAD_IDLE_MS } = {}) {
   const getter = get || (u => (u.startsWith('https:') ? require('node:https') : require('node:http')).get(u));
   return new Promise(resolve => {
+    let settled = false;
+    let cleanup = () => {};
+    const finish = r => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(r);
+    };
+    if (signal?.aborted) return finish({ ok: false, canceled: true, error: '已取消下载' });
     const go = (u, left) => {
       let req;
       try {
         req = getter(u);
       } catch (e) {
-        resolve({ ok: false, error: String(e.message || e) });
+        finish({ ok: false, error: String(e.message || e) });
         return;
       }
+      const onAbort = () => {
+        req.destroy?.();
+        finish({ ok: false, canceled: true, error: '已取消下载' });
+      };
+      signal?.addEventListener?.('abort', onAbort, { once: true });
+      req.setTimeout?.(idleMs, () => {
+        req.destroy?.();
+        finish({ ok: false, error: `下载超时：${Math.round(idleMs / 1000)} 秒没有收到数据` });
+      });
       req.on('response', res => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
           res.resume();
-          go(new URL(res.headers.location, u).href, left - 1);
+          signal?.removeEventListener?.('abort', onAbort);
+          let next;
+          try {
+            next = new URL(res.headers.location, u).href;
+          } catch {
+            finish({ ok: false, error: '下载失败：跳转地址无效' });
+            return;
+          }
+          if (!isHttpUrl(next)) {
+            finish({ ok: false, error: '下载失败：跳转到了不支持的地址' });
+            return;
+          }
+          go(next, left - 1);
           return;
         }
         if (res.statusCode !== 200) {
           res.resume();
-          resolve({ ok: false, error: `下载失败：HTTP ${res.statusCode}` });
+          finish({ ok: false, error: `下载失败：HTTP ${res.statusCode}` });
           return;
         }
         const total = Number(res.headers['content-length']) || 0;
-        let got = 0;
-        const tmp = dest + '.part';
+        let got = 0,
+          lastTick = 0;
+        const tmp = tmpBeside(dest);
         const f = fs.createWriteStream(tmp);
+        cleanup = () => {
+          signal?.removeEventListener?.('abort', onAbort);
+        };
+        const fail = e => {
+          res.destroy?.();
+          f.destroy();
+          removeQuiet(tmp);
+          finish({ ok: false, error: String((e && e.message) || e) });
+        };
+        signal?.addEventListener?.('abort', () => fail(new Error('已取消下载')), { once: true });
         res.on('data', d => {
           got += d.length;
-          if (onProgress) onProgress(got, total);
+          const now = Date.now();
+          if (onProgress && now - lastTick >= 250) {
+            lastTick = now;
+            onProgress(got, total);
+          }
         });
         res.pipe(f);
         f.on('finish', () => {
           f.close(() => {
-            fs.renameSync(tmp, dest);
-            resolve({ ok: true, path: dest, bytes: got });
+            if (settled) return removeQuiet(tmp);
+            if (total && got < total) return fail(new Error('下载不完整，连接中途断开了'));
+            try {
+              fs.renameSync(tmp, dest);
+            } catch (e) {
+              return fail(e);
+            }
+            onProgress?.(got, total || got);
+            finish({ ok: true, path: dest, bytes: got });
           });
         });
-        const fail = e => {
-          try {
-            fs.rmSync(tmp, { force: true });
-          } catch {}
-          resolve({ ok: false, error: String((e && e.message) || e) });
-        };
         res.on('error', fail);
+        res.on('aborted', () => fail(new Error('下载中断，连接被关闭')));
         f.on('error', fail);
       });
-      req.on('error', e => resolve({ ok: false, error: String(e.message || e) }));
+      req.on('error', e => finish({ ok: false, error: String(e.message || e) }));
     };
     go(url, maxRedirects);
   });
@@ -248,8 +346,15 @@ async function downloadOriginal({ url, dir, name }, opts = {}) {
   if (!dir || !path.isAbsolute(dir) || !fs.existsSync(dir)) return { ok: false, error: '保存位置不存在，请重新选择' };
   const clean = url.split('#')[0];
   const ext = (path.extname(new URL(clean).pathname) || '.mp4').toLowerCase().slice(0, 6);
-  const dest = uniquePath(dir, `${safeName(name)}_完整原片`, ext);
-  return downloadFile(clean, dest, opts);
+  let dest;
+  try {
+    dest = reservePath(dir, `${safeName(name)}_完整原片`, ext);
+  } catch (e) {
+    return { ok: false, error: '没法在保存位置建文件：' + (e.message || e) };
+  }
+  const r = await downloadFile(clean, dest, opts);
+  if (!r.ok) removeQuiet(dest); // 占位的空文件
+  return r;
 }
 
 /* ── 已保存的片段补上句号 ──
@@ -307,11 +412,25 @@ function writeReview(file, results, { now = () => new Date().toISOString(), writ
     }
   doc.reviewedAt = now();
   const text = JSON.stringify(doc, null, 2);
-  if (write) write(file, text);
-  else {
-    const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, text, 'utf8');
-    fs.renameSync(tmp, file);
+  try {
+    if (write) write(file, text);
+    else {
+      // 写临时文件 + 落盘 + 改名：中途断电也不会留下半截清单
+      const tmp = tmpBeside(file);
+      const fd = fs.openSync(tmp, 'w');
+      try {
+        fs.writeFileSync(fd, text, 'utf8');
+        fs.fsyncSync(fd);
+      } finally {
+        fs.closeSync(fd);
+      }
+      fs.renameSync(tmp, file);
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      error: '清单写不进去：' + (e.code === 'EACCES' || e.code === 'EPERM' ? '没有写入权限' : e.message || e),
+    };
   }
   return { ok: true, updated: n };
 }
@@ -321,6 +440,8 @@ module.exports = {
   safeName,
   uniquePath,
   segmentFileBase,
+  reservePath,
+  isPlaylist,
   findFfmpeg,
   segmentArgs,
   saveSegment,

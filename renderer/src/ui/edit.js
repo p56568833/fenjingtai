@@ -2,7 +2,6 @@
    全部走 #rows 事件委托；中文输入法组合中的按键一律放行给输入法。 */
 import { state, emit, rowById, currentSelection, visibleLineIds, toggleLineSelection } from '../app/state.js';
 import {
-  deleteRows,
   mergeToPrev,
   splitAt,
   insertAfter,
@@ -206,12 +205,6 @@ export function initEdit() {
       else toggleLineSelection(+selection.dataset.select, selection.checked);
       closePop();
       renderSelectionOnly();
-      return;
-    }
-    const del = e.target.closest('.row-del');
-    if (del) {
-      e.stopPropagation();
-      deleteRows([+del.dataset.del]);
       return;
     }
 

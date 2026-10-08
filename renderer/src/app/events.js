@@ -13,7 +13,7 @@
      history {sel}   撤销 / 重做恢复了快照
      types           当前项目的类型表变了
      voice           口播音频变了
-     notify {msg, action}   给用户的一句提示（由界面层 toast 出来） */
+     notify {msg, action, kind}   给用户的一句提示（由界面层 toast 出来；kind 见 ui/dom.js toast） */
 const listeners = new Map();
 
 export function on(evt, fn) {
@@ -26,4 +26,4 @@ export function emit(evt, payload) {
 }
 
 /* 数据层给用户的提示：不直接操作 DOM，由界面层注册的 notify 处理 */
-export const notify = (msg, action) => emit('notify', { msg, action });
+export const notify = (msg, action, kind) => emit('notify', { msg, action, kind });

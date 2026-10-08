@@ -26,7 +26,7 @@ await shot('theme-light-again');
 
 // 4. 切类型后 300ms 内截一张：行内容应原地变化、无整页重建白闪
 const id = await page.evaluate(() => {
-  const r = document.querySelector('.row .row-del')?.closest('.row');
+  const r = document.querySelector('.row .row-more')?.closest('.row');
   return r ? r.dataset.id : null;
 });
 await page.evaluate(id => {

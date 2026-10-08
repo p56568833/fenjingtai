@@ -2,19 +2,41 @@
 import { state, rowById, visibleLineIds, emit, qMatch } from '../app/state.js';
 import { renderSelectionOnly } from './render.js';
 import { closePop, syncPopToAnchor, popEl } from './popover.js';
+import { leave, cancelLeave, flash, reduced, SPRING } from './motion.js';
 
 function qMatches() {
   return visibleLineIds().filter(id => qMatch(rowById(id)));
 }
 
 export function openSearch() {
-  document.querySelector('#searchbar').classList.add('show');
+  const bar = document.querySelector('#searchbar');
+  cancelLeave(bar);
+  const was = bar.classList.contains('show');
+  bar.classList.add('show');
+  // 搜索框从右上角的放大镜那里横着展开
+  if (!was && !reduced())
+    bar.animate(
+      [
+        { clipPath: 'inset(0 0 0 calc(100% - 44px) round 12px)', opacity: 0.4, transform: 'translateY(-6px)' },
+        { clipPath: 'inset(0 0 0 0 round 12px)', opacity: 1, transform: 'none' },
+      ],
+      { duration: 420, easing: SPRING },
+    );
   const inp = document.querySelector('#searchInput');
   inp.focus();
   inp.select();
 }
 export function closeSearch() {
-  document.querySelector('#searchbar').classList.remove('show');
+  const bar = document.querySelector('#searchbar');
+  leave(
+    bar,
+    [
+      { clipPath: 'inset(0 0 0 0 round 12px)', opacity: 1 },
+      { clipPath: 'inset(0 0 0 calc(100% - 44px) round 12px)', opacity: 0 },
+    ],
+    { duration: 220, easing: 'cubic-bezier(0.4, 0, 1, 1)' },
+    () => bar.classList.remove('show'),
+  );
   if (state.query) {
     state.query = '';
     emit('rows');
@@ -34,6 +56,7 @@ function qNav(d) {
   renderSelectionOnly();
   const el = document.querySelector(`[data-id="${state.sel}"]`);
   el && el.scrollIntoView({ block: 'center' });
+  flash(el); // 跳到的那句荡开一圈光
   updateQCount();
 }
 function updateQCount() {

@@ -40,11 +40,19 @@ export const pickFolder = call('pickFolder');
 export const hasFfmpeg = call('hasFfmpeg');
 export const saveVideoSegment = call('saveVideoSegment');
 export const downloadOriginalVideo = call('downloadOriginalVideo');
+export const cancelDownload = call('cancelDownload');
 export const tagSavedClip = call('tagSavedClip');
 export const writeCandidateReview = call('writeCandidateReview');
 export const revealAsset = call('revealAsset');
 export const onSegmentProgress = cb => n()?.onSegmentProgress?.(cb);
 export const onDownloadProgress = cb => n()?.onDownloadProgress?.(cb);
+
+/* 应用内更新 */
+export const checkUpdate = call('checkUpdate');
+export const downloadUpdate = call('downloadUpdate');
+export const cancelUpdate = call('cancelUpdate');
+export const installUpdate = call('installUpdate');
+export const onUpdateProgress = cb => n()?.onUpdateProgress?.(cb);
 
 /* 菜单 / 系统 */
 export const onMenuAction = cb => n().onMenuAction(cb);

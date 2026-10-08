@@ -47,6 +47,14 @@ async function buildOne(arch) {
   const plist = path.join(APP, 'Contents/Info.plist');
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIdentifier', '-string', 'com.andychen.fenjingtai', plist]);
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleName', '-string', '分镜台', plist]);
+  // 应用分类：视频（访达「应用程序」按类别排列、启动台归类时用）
+  execFileSync('/usr/bin/plutil', [
+    '-replace',
+    'LSApplicationCategoryType',
+    '-string',
+    'public.app-category.video',
+    plist,
+  ]);
   // 图标和 Info.plist 都动过了，原有签名已失效；重新 ad-hoc 签一遍，arm64 没签名根本起不来
   sh('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', APP]);
   utimesSync(APP, new Date(), new Date()); // 摸一下 mtime，让 Finder 刷新图标缓存

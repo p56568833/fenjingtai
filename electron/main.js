@@ -1,10 +1,12 @@
 /* 分镜台 · 主进程：窗口 / 原生菜单 / 数据落盘（原子写 + 分层自动备份 + 损坏自救）/ 稿子文件读取 */
-const { app, BrowserWindow, Menu, dialog, shell, ipcMain, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, ipcMain, nativeImage, screen, net } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
+const { fileURLToPath } = require('node:url');
 const { createStore } = require('./data-store');
 const { readScriptFile, SCRIPT_EXTS } = require('./script-reader');
 const videoTools = require('./video-tools');
+const updater = require('./updater');
 
 /* 自测 / 预览只在开发环境（未打包）可用：发布版不接受 --selftest，不会开远程调试端口 */
 const IS_SELFTEST = !app.isPackaged && process.argv.includes('--selftest');
@@ -18,6 +20,16 @@ if (IS_SELFTEST) {
 }
 
 const DATA_DIR = () => path.join(app.getPath('userData'), '数据');
+const INDEX_FILE = path.join(__dirname, '..', 'renderer', 'index.html');
+/* 这个地址是不是应用自己的界面页（精确比对文件路径，不是「包含某段字符串」） */
+function isAppPage(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'file:' && path.resolve(fileURLToPath(u)) === path.resolve(INDEX_FILE);
+  } catch {
+    return false;
+  }
+}
 const store = createStore(DATA_DIR);
 
 let mainWindow = null;
@@ -68,7 +80,7 @@ function buildMenu() {
     {
       label: '视图',
       submenu: [
-        { label: '切换视图（原文 / 表格）', accelerator: 'CmdOrCtrl+T', click: send('toggle-view') },
+        { label: '切换视图（审核 / 表格）', accelerator: 'CmdOrCtrl+T', click: send('toggle-view') },
         { label: '专注标注', accelerator: 'CmdOrCtrl+E', click: send('focus-mode') },
         { label: '连播预览（从选中的句子开始）', click: send('playthrough') },
         { type: 'separator' },
@@ -79,14 +91,21 @@ function buildMenu() {
         { role: 'zoomOut', label: '缩小' },
         { role: 'resetZoom', label: '实际大小' },
         { type: 'separator' },
-        { role: 'reload', label: '刷新' },
+        { label: '紧凑行距', accelerator: 'Shift+CmdOrCtrl+D', click: send('toggle-density') },
+        // 刷新会打断正在截取的片段、丢掉审核窗口的位置：只在开发时提供
+        ...(app.isPackaged ? [] : [{ type: 'separator' }, { role: 'reload', label: '刷新（开发）' }]),
       ],
     },
     { label: '窗口', role: 'windowMenu' },
     {
       label: '帮助',
       role: 'help',
-      submenu: [{ label: '快捷键与帮助', accelerator: 'CmdOrCtrl+/', click: send('help') }],
+      submenu: [
+        { label: '快捷键与帮助', accelerator: 'CmdOrCtrl+/', click: send('help') },
+        { label: '交稿检查…', click: send('review') },
+        { type: 'separator' },
+        { label: '检查更新…', click: send('check-update') },
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -134,8 +153,7 @@ function createWindow() {
   });
   mainWindow = w;
   if (!IS_SELFTEST) w.once('ready-to-show', () => w.show());
-  const indexUrl = path.join(__dirname, '..', 'renderer', 'index.html');
-  w.loadFile(indexUrl, IS_SELFTEST ? { query: { selftest: '1' } } : {});
+  w.loadFile(INDEX_FILE, IS_SELFTEST ? { query: { selftest: '1' } } : {});
 
   // 导航护栏：界面只允许停在自己的 index.html；外链交给系统浏览器，任何新窗口都不开
   w.webContents.setWindowOpenHandler(({ url }) => {
@@ -143,8 +161,12 @@ function createWindow() {
     return { action: 'deny' };
   });
   w.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('file://') || !decodeURIComponent(url).includes('/renderer/index.html')) e.preventDefault();
+    if (!isAppPage(url)) e.preventDefault();
   });
+  w.webContents.on('will-attach-webview', e => e.preventDefault());
+  // 界面不需要摄像头、麦克风、定位、通知这些权限：除了视频全屏和复制，一律拒绝
+  const ALLOWED_PERMS = new Set(['fullscreen', 'clipboard-sanitized-write']);
+  w.webContents.session.setPermissionRequestHandler((_wc, perm, cb) => cb(ALLOWED_PERMS.has(perm)));
 
   if (!IS_SELFTEST) {
     let t = null;
@@ -175,6 +197,7 @@ app.on('second-instance', () => {
 
 app.whenReady().then(() => {
   buildMenu();
+  cleanStaleUpdates();
   createWindow();
   app.on('activate', () => {
     if (!BrowserWindow.getAllWindows().length) createWindow();
@@ -182,39 +205,61 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => app.quit());
 
+/* ── IPC：只接受应用自己界面页发来的请求 ── */
+const trusted = e => isAppPage(e.senderFrame?.url || '');
+const handle = (channel, fn) =>
+  ipcMain.handle(channel, (e, ...args) => {
+    if (!trusted(e)) throw new Error('拒绝来自未知页面的请求');
+    return fn(e, ...args);
+  });
+const onSync = (channel, fn) =>
+  ipcMain.on(channel, (e, ...args) => {
+    if (!trusted(e)) {
+      e.returnValue = null;
+      return;
+    }
+    fn(e, ...args);
+  });
+
 /* ── IPC：数据 ── */
-ipcMain.on('data:load-sync', e => {
+onSync('data:load-sync', e => {
   e.returnValue = store.load();
 }); // 同步版给启动用，见 preload
-ipcMain.on('data:status-sync', e => {
+onSync('data:status-sync', e => {
   store.load();
   e.returnValue = store.info();
 });
-ipcMain.handle('data:load', () => store.load());
-ipcMain.handle('data:save', (_e, patch) => store.savePatch(patch));
+handle('data:load', () => store.load());
+handle('data:save', (_e, patch) => store.savePatch(patch));
 /* 渲染进程 beforeunload 时的同步冲刷：invoke 是异步的，进程退出前来不及完成 */
-ipcMain.on('data:save-sync', (e, patch) => {
+onSync('data:save-sync', (e, patch) => {
   try {
     e.returnValue = store.savePatch(patch);
   } catch {
     e.returnValue = false;
   }
 });
-ipcMain.handle('data:backups', () => store.listBackups());
-ipcMain.handle('data:restore-backup', (_e, f) => store.readBackup(f));
-ipcMain.handle('data:open-folder', () => shell.openPath(DATA_DIR()));
+handle('data:backups', () => store.listBackups());
+handle('data:restore-backup', (_e, f) => store.readBackup(f));
+handle('data:open-folder', () => shell.openPath(DATA_DIR()));
 
 /* ── IPC：系统对话框 / 稿子文件 ── */
-ipcMain.handle('dialog:export', async (_e, name, content) => {
+handle('dialog:export', async (_e, name, content) => {
   const r = await dialog.showSaveDialog(win(), { defaultPath: name });
   if (r.canceled || !r.filePath) return false;
-  fs.writeFileSync(r.filePath, content, 'utf8');
-  return true;
+  try {
+    const tmp = r.filePath + '.tmp';
+    fs.writeFileSync(tmp, String(content ?? ''), 'utf8');
+    fs.renameSync(tmp, r.filePath);
+    return true;
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
 });
 /* PDF 分镜脚本：渲染层排好整页 HTML，这里用隐藏窗口加载后交给 Chromium 打印成矢量 PDF。
    排版窗口禁用脚本、拦截跳转，只渲染这一份本地生成的页面。 */
 const inch = mm => mm / 25.4;
-ipcMain.handle('pdf:export', async (_e, name, doc) => {
+handle('pdf:export', async (_e, name, doc) => {
   if (!doc || typeof doc.html !== 'string' || !doc.html) return { ok: false, error: '没有可导出的内容' };
   const r = await dialog.showSaveDialog(win(), {
     defaultPath: name,
@@ -265,7 +310,7 @@ ipcMain.handle('pdf:export', async (_e, name, doc) => {
   }
 });
 
-ipcMain.handle('dialog:import', async (_e, kind) => {
+handle('dialog:import', async (_e, kind) => {
   const filters =
     kind === 'srt'
       ? [{ name: '剪映 / 字幕文件', extensions: ['srt', 'vtt'] }]
@@ -275,7 +320,7 @@ ipcMain.handle('dialog:import', async (_e, kind) => {
   return readScriptFile(r.filePaths[0]);
 });
 /* 拖进窗口的稿子文件：渲染层拿到本地路径后请主进程读（docx 需要解压，渲染层做不了） */
-ipcMain.handle('file:read-script', (_e, file) => readScriptFile(file));
+handle('file:read-script', (_e, file) => readScriptFile(file));
 
 /* Local references are opened only by explicit user clicks. Image previews never fetch remote URLs. */
 const ASSET_EXTS = [
@@ -304,7 +349,7 @@ const ASSET_EXTS = [
   'pptx',
   'docx',
 ];
-ipcMain.handle('assets:pick', async () => {
+handle('assets:pick', async () => {
   const r = await dialog.showOpenDialog(win(), {
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: '素材与文档', extensions: ASSET_EXTS }],
@@ -313,7 +358,7 @@ ipcMain.handle('assets:pick', async () => {
 });
 /* 口播音频：音频或视频（录屏 / 相机直出）都行 */
 const VOICE_EXTS = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'mp4', 'mov', 'm4v', 'webm', 'mkv'];
-ipcMain.handle('voice:pick', async () => {
+handle('voice:pick', async () => {
   const r = await dialog.showOpenDialog(win(), {
     title: '选择口播音频',
     properties: ['openFile'],
@@ -322,16 +367,17 @@ ipcMain.handle('voice:pick', async () => {
   return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
 });
 /* 按文件夹找回失联素材：选一个文件夹，列出里面（含子文件夹，最多 4 层 / 2 万个）的素材文件 */
-ipcMain.handle('assets:pick-folder', async () => {
+handle('assets:pick-folder', async () => {
   const r = await dialog.showOpenDialog(win(), { title: '选择素材所在的文件夹', properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths.length) return null;
   return listFilesDeep(r.filePaths[0], ASSET_EXTS);
 });
-function listFilesDeep(root, exts, depth = 4, out = []) {
+/* 异步遍历：大文件夹也不卡住主进程（界面照常响应） */
+async function listFilesDeep(root, exts, depth = 4, out = []) {
   const re = new RegExp(`\\.(${exts.join('|')})$`, 'i');
   let entries;
   try {
-    entries = fs.readdirSync(root, { withFileTypes: true });
+    entries = await fs.promises.readdir(root, { withFileTypes: true });
   } catch {
     return out;
   }
@@ -339,13 +385,13 @@ function listFilesDeep(root, exts, depth = 4, out = []) {
     if (out.length >= 20000) break;
     if (d.name.startsWith('.')) continue;
     const p = path.join(root, d.name);
-    if (d.isDirectory() && depth > 0) listFilesDeep(p, exts, depth - 1, out);
+    if (d.isDirectory() && depth > 0) await listFilesDeep(p, exts, depth - 1, out);
     else if (d.isFile() && re.test(d.name)) out.push(p);
   }
   return out;
 }
 /* 重新定位失联文件：单选 */
-ipcMain.handle('assets:pick-one', async () => {
+handle('assets:pick-one', async () => {
   const r = await dialog.showOpenDialog(win(), {
     properties: ['openFile'],
     filters: [
@@ -356,7 +402,7 @@ ipcMain.handle('assets:pick-one', async () => {
   return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
 });
 /* 批量探测本地文件是否还在（文件失联检测） */
-ipcMain.handle('assets:probe', (_e, paths) => {
+handle('assets:probe', (_e, paths) => {
   const out = {};
   for (const p of Array.isArray(paths) ? paths : []) {
     if (typeof p !== 'string' || !p) continue;
@@ -370,7 +416,7 @@ ipcMain.handle('assets:probe', (_e, paths) => {
 });
 /* ── 视频审核（1.5）── */
 /* 视频片段 / 原片的保存位置：选一个文件夹 */
-ipcMain.handle('dialog:pick-folder', async (_e, current) => {
+handle('dialog:pick-folder', async (_e, current) => {
   const r = await dialog.showOpenDialog(win(), {
     title: '选择视频片段的保存位置',
     defaultPath: typeof current === 'string' && path.isAbsolute(current) ? current : app.getPath('desktop'),
@@ -378,9 +424,9 @@ ipcMain.handle('dialog:pick-folder', async (_e, current) => {
   });
   return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
 });
-ipcMain.handle('video:has-ffmpeg', () => !!videoTools.findFfmpeg());
+handle('video:has-ffmpeg', () => !!videoTools.findFfmpeg());
 /* 只保存入点到出点那几秒（ffmpeg 按需读取在线视频，不下整片） */
-ipcMain.handle('video:save-segment', (e, req) =>
+handle('video:save-segment', (e, req) =>
   videoTools.saveSegment(req || {}, {
     // 截取进度（0–1）：界面上的「正在截取… 37%」和进度条
     onProgress: p => {
@@ -388,30 +434,126 @@ ipcMain.handle('video:save-segment', (e, req) =>
     },
   }),
 );
-/* 下载完整原片：只在用户明确点了「下载完整原片」并确认后调用 */
-ipcMain.handle('video:download-original', (e, req) =>
-  videoTools.downloadOriginal(req || {}, {
-    onProgress: (got, total) => {
-      if (!e.sender.isDestroyed()) e.sender.send('video:download-progress', { url: req?.url, got, total });
-    },
-  }),
-);
+/* 下载完整原片：只在用户明确点了「下载完整原片」并确认后调用；同一个地址同时只下一份，可以取消 */
+const downloads = new Map(); // url → AbortController
+handle('video:download-original', async (e, req) => {
+  const url = req?.url;
+  if (downloads.has(url)) return { ok: false, error: '这部原片正在下载' };
+  const ctl = new AbortController();
+  downloads.set(url, ctl);
+  try {
+    return await videoTools.downloadOriginal(req || {}, {
+      signal: ctl.signal,
+      onProgress: (got, total) => {
+        if (!e.sender.isDestroyed()) e.sender.send('video:download-progress', { url, got, total });
+      },
+    });
+  } finally {
+    downloads.delete(url);
+  }
+});
+handle('video:cancel-download', (_e, url) => {
+  downloads.get(url)?.abort();
+  return downloads.has(url);
+});
 /* 旧版本保存的片段：文件名补上对应的句号 */
-ipcMain.handle('video:tag-saved', (_e, p, tag) => videoTools.renameWithLineTag(p, tag));
+handle('video:tag-saved', (_e, p, tag) => videoTools.renameWithLineTag(p, tag));
 /* 审核结果写回候选清单（只认 type = fenjingtai-candidates 的 JSON） */
-ipcMain.handle('candidates:write-back', (_e, file, results) => videoTools.writeReview(file, results));
-ipcMain.handle('assets:reveal', (_e, p) => {
+handle('candidates:write-back', (_e, file, results) => videoTools.writeReview(file, results));
+handle('assets:reveal', (_e, p) => {
   if (typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p)) shell.showItemInFolder(p);
 });
 
+/* ── 应用内更新：查 GitHub 最新版 → 下载并校验 → 退出时换上新版、自动重新打开（见 updater.js） ── */
+const update = { info: null, ctl: null, prepared: null, installing: false };
+const sendUpdate = (e, payload) => {
+  if (!e.sender.isDestroyed()) e.sender.send('update:progress', payload);
+};
+const whereInstalled = () => updater.installTarget(app.getPath('exe'), { isPackaged: app.isPackaged });
+/* 上次没装完留下的临时文件夹（下载好了但没重启就关了应用）：启动时清掉 */
+function cleanStaleUpdates() {
+  const where = whereInstalled();
+  if (!where.ok) return;
+  try {
+    for (const f of fs.readdirSync(where.parent))
+      if (f.startsWith('.分镜台-更新-') || f.startsWith('.分镜台-替换下来-'))
+        fs.rmSync(path.join(where.parent, f), { recursive: true, force: true });
+  } catch {}
+}
+handle('update:check', async (_e, { auto = false } = {}) => {
+  const current = app.getVersion();
+  // 开发版 / 自测不在启动时自动联网检查（手动「检查更新…」照常可以看）
+  if (auto && (!app.isPackaged || IS_SELFTEST)) return { ok: true, available: false, skipped: true, current };
+  const r = await updater.checkForUpdate({ current, arch: process.arch, fetchImpl: net.fetch });
+  if (r.ok && r.available) update.info = r;
+  const where = whereInstalled();
+  return {
+    ...r,
+    current,
+    canInstall: where.ok && !!r.url,
+    reason: where.ok ? (r.available && !r.url ? '这一版没有适合这台电脑的更新包，请到下载页面下载' : '') : where.reason,
+    ready: !!update.prepared && update.prepared.version === r.version,
+  };
+});
+handle('update:download', async e => {
+  const info = update.info;
+  if (!info?.url) return { ok: false, error: '没有可下载的更新包' };
+  const where = whereInstalled();
+  if (!where.ok) return { ok: false, error: where.reason };
+  if (update.ctl) return { ok: false, error: '正在下载更新' };
+  if (update.prepared?.version === info.version) return { ok: true, version: info.version };
+  const ctl = new AbortController();
+  update.ctl = ctl;
+  const dir = fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台更新-'));
+  try {
+    const d = await updater.downloadUpdate(info, path.join(dir, updater.assetName(process.arch)), {
+      fetchImpl: net.fetch,
+      signal: ctl.signal,
+      onProgress: (got, total) => sendUpdate(e, { phase: 'download', got, total }),
+    });
+    if (!d.ok) return d;
+    sendUpdate(e, { phase: 'verify' });
+    const p = updater.prepareUpdate(d.path, { parent: where.parent, version: info.version });
+    if (!p.ok) return p;
+    update.prepared = { ...p, target: where.app, version: info.version };
+    return { ok: true, version: info.version, verified: d.verified };
+  } finally {
+    update.ctl = null;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+handle('update:cancel', () => {
+  update.ctl?.abort();
+  return true;
+});
+handle('update:install', () => {
+  const p = update.prepared;
+  if (!p || !fs.existsSync(p.app)) return { ok: false, error: '更新包不见了，请重新下载' };
+  update.installing = true;
+  updater.scheduleSwap({
+    pid: process.pid,
+    newApp: p.app,
+    target: p.target,
+    stage: p.stage,
+    tmpDir: app.getPath('temp'),
+  });
+  // 先回话再退出：窗口关闭前界面会把没存完的改动同步存盘（beforeunload）
+  setTimeout(() => app.quit(), 150);
+  return { ok: true };
+});
+/* 下载好了但没点「重启更新」就退出：清掉放在「应用程序」里的临时新版 */
+app.on('will-quit', () => {
+  if (update.prepared && !update.installing) fs.rmSync(update.prepared.stage, { recursive: true, force: true });
+});
+
 /* 自测专用：测试素材目录与能力标记（正式运行返回 null） */
-ipcMain.on('selftest:fixtures', e => {
+onSync('selftest:fixtures', e => {
   const dir = IS_SELFTEST ? process.env.FJT_FIXTURE_DIR || null : null;
   e.returnValue = dir
     ? { dir, hasVideo: fs.existsSync(path.join(dir, '样片.mp4')), hasVoice: fs.existsSync(path.join(dir, '口播.wav')) }
     : null;
 });
-ipcMain.handle('assets:open', async (_e, value) => {
+handle('assets:open', async (_e, value) => {
   if (typeof value !== 'string') return '无法打开这个引用';
   try {
     if (/^https?:\/\//i.test(value)) {
@@ -436,18 +578,18 @@ async function thumbnail(file) {
   } catch {
     /* 这个平台没有系统缩略图，或系统不认这个格式：下面自己缩 */
   }
-  if (!IMAGE_RE.test(file) || fs.statSync(file).size > 60 * 1024 * 1024) return null;
+  if (!IMAGE_RE.test(file) || (await fs.promises.stat(file)).size > 60 * 1024 * 1024) return null;
   const img = nativeImage.createFromPath(file);
   if (img.isEmpty()) return null;
   const { width, height } = img.getSize();
   const k = Math.min(1, 480 / Math.max(width, height));
   return k < 1 ? img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: 'good' }) : img;
 }
-ipcMain.handle('assets:preview', async (_e, value) => {
+handle('assets:preview', async (_e, value) => {
   if (typeof value !== 'string' || !path.isAbsolute(value)) return null;
   if (!IMAGE_RE.test(value) && !VIDEO_RE.test(value)) return null;
   try {
-    if (!fs.statSync(value).isFile()) return null;
+    if (!(await fs.promises.stat(value)).isFile()) return null;
     const img = await thumbnail(value);
     if (!img || img.isEmpty()) return null;
     return /\.png$/i.test(value) ? img.toDataURL() : `data:image/jpeg;base64,${img.toJPEG(82).toString('base64')}`;

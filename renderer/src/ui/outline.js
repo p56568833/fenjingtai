@@ -1,6 +1,7 @@
 /* 左侧章节目录：各章句数 / 未标数，点击跳转；高亮跟随正文浏览位置 */
 import { state } from '../app/state.js';
 import { esc } from './dom.js';
+import { glide, leave, cancelLeave, reduced, EASE_OUT } from './motion.js';
 
 let outlineOpen = true;
 let lastKey = '';
@@ -27,6 +28,7 @@ function syncActiveOutline() {
     button.classList.toggle('active', +button.dataset.jump === active);
   }
   const selected = outline.querySelector('.outline-item.active');
+  glide(outline, selected, 'outline-glide'); // 高亮块跟着正文滑到当前章节
   if (!selected) return;
   const view = outline.getBoundingClientRect();
   const row = selected.getBoundingClientRect();
@@ -75,13 +77,38 @@ export function renderOutline() {
 export function initOutline() {
   const btn = document.querySelector('#btnOutline');
   document.querySelector('#tableWrap').addEventListener('scroll', scheduleActiveOutline, { passive: true });
+  const outline = document.querySelector('#outline');
   btn.onclick = () => {
     outlineOpen = !outlineOpen;
-    document.querySelector('#outline').hidden = !outlineOpen;
     btn.setAttribute('aria-expanded', String(outlineOpen));
     btn.classList.toggle('active', outlineOpen);
-    lastKey = '';
-    renderOutline();
+    // 目录从左边滑出来 / 收回去，表格跟着让位（带一点回弹）
+    const w = outline.offsetWidth || 175;
+    if (outlineOpen) {
+      cancelLeave(outline);
+      outline.hidden = false;
+      lastKey = '';
+      renderOutline();
+      if (!reduced())
+        outline.animate(
+          [
+            { marginLeft: `-${outline.offsetWidth}px`, opacity: 0 },
+            { marginLeft: '0px', opacity: 1 },
+          ],
+          { duration: 420, easing: 'cubic-bezier(0.3, 1.25, 0.5, 1)' },
+        );
+    } else
+      leave(
+        outline,
+        [
+          { marginLeft: '0px', opacity: 1 },
+          { marginLeft: `-${w}px`, opacity: 0 },
+        ],
+        { duration: 260, easing: EASE_OUT },
+        () => {
+          if (!outlineOpen) outline.hidden = true;
+        },
+      );
   };
   btn.classList.toggle('active', outlineOpen);
 }

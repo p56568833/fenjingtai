@@ -1,4 +1,4 @@
-import { state, update, currentSelection } from '../app/state.js';
+import { state, update, currentSelection, types } from '../app/state.js';
 import { shotMembers, shots, checkDelivery } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
 import { undo, clearUndo } from '../app/undo.js';
@@ -512,10 +512,13 @@ export async function runWorkspaceTests(t) {
   state.multi = [toolLines[0].id, toolLines[1].id];
   update('selection');
   await pause(20);
+  // 1.10：能共用时显示「共用一个画面」；不能共用（不连续 / 跨章节）时直接写原因，不摆灰按钮
   t(
-    '1.7 选中两句后浮出「共用一个画面」',
-    !$('#selectTools').hidden && $('#btnGroup').getBoundingClientRect().width > 0,
+    '1.7 选中两句后浮出操作条（共用按钮或不能共用的原因）',
+    !$('#selectTools').hidden &&
+      ($('#btnGroup').getBoundingClientRect().width > 0 || $('#selHint').getBoundingClientRect().width > 0),
   );
+  t('1.10 操作条上有类型按钮', $$('#selTypes [data-sel-type]').length === types().list.length + 1);
   state.multi = null;
   update('selection');
   const created = storage

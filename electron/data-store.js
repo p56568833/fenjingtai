@@ -81,20 +81,37 @@ function createStore(dataDir) {
     for (const { f } of list) if (!keep.has(f)) fs.rmSync(path.join(BACKUPS(), f), { force: true });
   }
 
-  function maybeBackup(now = Date.now()) {
-    if (now - lastBackupAt < BACKUP_INTERVAL) return;
-    lastBackupAt = now;
+  let backupError = null;
+  /* force：危险操作（整库恢复等）前不管隔了多久都先滚一份 */
+  function maybeBackup(now = Date.now(), { force = false } = {}) {
+    if (!force && now - lastBackupAt < BACKUP_INTERVAL) return;
     try {
       if (!fs.existsSync(LIB())) return;
       fs.mkdirSync(BACKUPS(), { recursive: true });
       fs.copyFileSync(LIB(), path.join(BACKUPS(), `备份-${stamp(now)}.json`));
+      lastBackupAt = now; // 复制成功才算备份过；失败了下次保存时再试，不会空等 30 分钟
+      backupError = null;
       prune(now);
-    } catch {
-      /* 备份失败不阻塞保存 */
+    } catch (e) {
+      backupError = String(e?.message || e); // 备份失败不阻塞保存，但界面能看到
     }
   }
 
-  const validLibrary = d => d && typeof d === 'object' && d.projects && typeof d.projects === 'object';
+  const validLibrary = d =>
+    d && typeof d === 'object' && !Array.isArray(d) && d.projects && typeof d.projects === 'object';
+  /* 单个项目能不能载入：至少要有句子数组 */
+  const validProject = p => p && typeof p === 'object' && Array.isArray(p.rows);
+  /* 把结构坏掉的项目挪到 quarantine 里（原样保留在数据文件中，不删），其余项目照常打开 */
+  function quarantineBroken(data) {
+    const bad = [];
+    for (const [id, p] of Object.entries(data.projects)) {
+      if (validProject(p)) continue;
+      data.quarantine = { ...(data.quarantine || {}), [id]: p };
+      delete data.projects[id];
+      bad.push((p && typeof p.title === 'string' && p.title) || id);
+    }
+    return bad;
+  }
 
   /* 只在第一次读的时候做自救；之后返回内存里那份结果 */
   function load() {
@@ -108,19 +125,38 @@ function createStore(dataDir) {
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (!validLibrary(data)) throw new Error('文件里没有项目列表');
-      loadInfo = { status: 'ok' };
+      const bad = quarantineBroken(data);
+      if (!Object.keys(data.projects).length && bad.length) throw new Error('所有项目的结构都损坏了');
+      loadInfo = bad.length ? { status: 'partial', broken: bad } : { status: 'ok' };
       return (cache = data);
     } catch (err) {
       const kept = path.join(dataDir(), `分镜台数据.损坏-${stamp()}.json`);
+      let preserved = false;
       try {
         fs.renameSync(file, kept);
+        preserved = true;
       } catch {
-        /* 改名失败就原地留着，下面照样不覆盖它 */
+        try {
+          fs.copyFileSync(file, kept); // 改名不行就复制一份
+          preserved = true;
+        } catch {
+          /* 保留不了原件：下面不往原文件位置写，免得盖掉它 */
+        }
       }
       for (const b of listBackups()) {
         try {
           const data = JSON.parse(fs.readFileSync(path.join(BACKUPS(), b.f), 'utf8'));
-          if (!validLibrary(data) || !Object.keys(data.projects).length) continue;
+          if (!validLibrary(data)) continue;
+          quarantineBroken(data);
+          if (!Object.keys(data.projects).length) continue;
+          if (!preserved) {
+            loadInfo = {
+              status: 'corrupt',
+              kept: path.basename(file),
+              error: '损坏的数据文件无法改名保留，没有自动恢复',
+            };
+            return (cache = null);
+          }
           writeAtomic(file, JSON.stringify(data));
           loadInfo = {
             status: 'recovered',
@@ -145,7 +181,10 @@ function createStore(dataDir) {
     if (!patch || typeof patch !== 'object') throw new Error('无效的保存内容');
     if (patch.full) {
       if (!validLibrary(patch.full)) throw new Error('无效的项目库');
-      return save(patch.full);
+      // 整库替换（恢复备份）前先把现在的库备份一份，恢复错了还能回来
+      const full = { ...patch.full };
+      if (cache?.quarantine && !full.quarantine) full.quarantine = cache.quarantine;
+      return save(full, { forceBackup: true });
     }
     const base = load() || { v: 2, projects: {} };
     const merged = { ...base, projects: { ...base.projects } };
@@ -160,9 +199,9 @@ function createStore(dataDir) {
     return save(merged);
   }
 
-  function save(library) {
+  function save(library, { forceBackup = false } = {}) {
     fs.mkdirSync(dataDir(), { recursive: true });
-    maybeBackup();
+    maybeBackup(Date.now(), { force: forceBackup });
     writeAtomic(LIB(), JSON.stringify(library));
     cache = library;
     loaded = true;
@@ -188,7 +227,7 @@ function createStore(dataDir) {
     readBackup,
     maybeBackup,
     prune,
-    info: () => loadInfo,
+    info: () => (backupError ? { ...loadInfo, backupError } : loadInfo),
     paths: { LIB, BACKUPS },
     _resetForTest: () => {
       loaded = false;

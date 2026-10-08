@@ -3,7 +3,7 @@
 import { state, rowById, timeline } from '../app/state.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
-import { shots, shotMembers, usageSpan, spanText, roleLabel, ROLES, ROLE_ORDER } from '../core/shots.js';
+import { shots, shotMembers, spanText, roleLabel, ROLES, ROLE_ORDER } from '../core/shots.js';
 import {
   usageList,
   usagePath,
@@ -17,6 +17,7 @@ import {
 } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
 import { esc } from './dom.js';
+import { pop } from './motion.js';
 
 export { baseName as assetName };
 export const isVideo = ref => VIDEO_EXT.test(ref);
@@ -89,24 +90,15 @@ export function assetCards(r) {
   return cards + altBtn;
 }
 
-/* 面板里每条素材的角色按钮 + 出现位置（共用画面才有位置；主画面手动调过秒数后，句子范围不再起作用，就不显示了） */
-function roleControls(r, u, index, members, timed = false) {
+/* 面板里每条素材的角色按钮 */
+function roleControls(u, index) {
   const chips = ['main', 'overlay', 'alt']
     .map(
       role =>
         `<button class="role-chip ${roleClass(role)}${u.role === role ? ' on' : ''}" data-role-usage="${index}" data-role="${role}" aria-pressed="${u.role === role}">${ROLES[role]}</button>`,
     )
     .join('');
-  let span = '';
-  if (members.length > 1 && !(timed && u.role === 'main')) {
-    const sp = usageSpan(members, u.assetId);
-    const from = sp.empty ? 0 : sp.from,
-      to = sp.empty ? members.length - 1 : sp.to;
-    const opts = sel =>
-      members.map((m, i) => `<option value="${i}"${i === sel ? ' selected' : ''}>第 ${m.no} 句</option>`).join('');
-    span = `<div class="asset-span"><span>出现在</span><select data-span-usage="${index}" data-span-end="from" aria-label="从哪句开始">${opts(from)}</select><span>到</span><select data-span-usage="${index}" data-span-end="to" aria-label="到哪句结束">${opts(to)}</select>${sp.whole ? '' : `<button class="asset-mini" data-span-whole="${index}">整段</button>`}</div>`;
-  }
-  return `<div class="asset-role" role="group" aria-label="素材角色">${chips}</div>${span}`;
+  return `<div class="asset-role" role="group" aria-label="素材角色">${chips}</div>`;
 }
 
 export function inspectorAssets(r, { missing } = {}) {
@@ -126,7 +118,6 @@ export function inspectorAssets(r, { missing } = {}) {
   const sec = x => (Math.round(x * 10) / 10).toFixed(1);
   return (
     vr +
-    `<p class="role-help">主画面：这段的底，可以有多个，按时间先后放（秒数在「对着口播看画面」里调） · 叠加：盖在主画面上 · 备选：先存着不用，不进素材清单</p>` +
     (usages.some(u => !(u.role in ROLES))
       ? `<button class="asset-mini auto-roles" id="autoRoles">还有素材未分配 · 第一个当主画面，其余放备选</button>`
       : '') +
@@ -163,7 +154,7 @@ export function inspectorAssets(r, { missing } = {}) {
         <button class="asset-mini" data-sys-open="${esc(path)}">系统打开</button>
         <button class="asset-remove" data-remove-usage="${index}" aria-label="移除 ${esc(a.name || baseName(path))}" title="只解除关联，保留本地文件">移除</button>
       </div>
-      ${roleControls(r, u, index, members, !!layout?.timed)}
+      ${roleControls(u, index)}
     </div>`;
       })
       .join('') +
@@ -184,7 +175,10 @@ export function preview(path, { force = false } = {}) {
   }
   return previews.get(path);
 }
-export const clearPreviewCache = () => previews.clear();
+export const clearPreviewCache = () => {
+  previews.clear();
+  remoteCache.clear();
+};
 
 function thumbPlaceholder(el, path, kind, missing) {
   el.replaceChildren();
@@ -210,43 +204,88 @@ function thumbPlaceholder(el, path, kind, missing) {
   el.append(label, retry);
 }
 
-/* 在线视频（视频审核通过、还没保存到本地）：直接从网上取片段入点那一帧当缩略图，不下载文件 */
+/* 在线视频（视频审核通过、还没保存到本地）：直接从网上取片段入点那一帧当缩略图，不下载文件。
+   取到的帧按地址缓存（表格每次重画不再重新联网），同时最多取 2 个。
+   跨域视频画到 canvas 上后不能导出成图片，所以缓存的是 canvas 本身，用时再画一份 */
+const remoteCache = new Map(); // path → canvas | false（取不到）
+const remoteQueue = [];
+let remoteBusy = 0;
+function paintRemote(el, path, src) {
+  if (!el.isConnected || el.dataset.previewPath !== path) return;
+  if (!src) {
+    el.classList.add('thumb-nopreview');
+    el.textContent = '在线视频';
+    return;
+  }
+  const cv = document.createElement('canvas');
+  cv.width = src.width;
+  cv.height = src.height;
+  try {
+    cv.getContext('2d').drawImage(src, 0, 0);
+  } catch {}
+  const play = document.createElement('span');
+  play.className = 'video-play';
+  play.textContent = '▶';
+  const tag = document.createElement('span');
+  tag.className = 'thumb-online';
+  tag.textContent = '在线';
+  el.replaceChildren(cv, play, tag);
+}
 function remoteVideoThumb(el, path) {
   if (el.querySelector('canvas')) return;
+  if (remoteCache.has(path)) return paintRemote(el, path, remoteCache.get(path));
   el.textContent = '…';
-  const v = document.createElement('video');
-  v.muted = true;
-  v.preload = 'auto';
-  const t0 = Number((path.match(/#t=([\d.]+)/) || [])[1]) || 0;
-  const done = ok => {
-    clearTimeout(timer);
-    if (!el.isConnected || el.dataset.previewPath !== path) return;
-    if (!ok) {
-      el.classList.add('thumb-nopreview');
-      el.textContent = '在线视频';
-    } else {
-      const cv = document.createElement('canvas');
-      cv.width = 320;
-      cv.height = Math.round((320 * v.videoHeight) / v.videoWidth) || 180;
-      try {
-        cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
-      } catch {}
-      const play = document.createElement('span');
-      play.className = 'video-play';
-      play.textContent = '▶';
-      const tag = document.createElement('span');
-      tag.className = 'thumb-online';
-      tag.textContent = '在线';
-      el.replaceChildren(cv, play, tag);
+  remoteQueue.push({ el, path });
+  pumpRemote();
+}
+function pumpRemote() {
+  while (remoteBusy < 2 && remoteQueue.length) {
+    const { el, path } = remoteQueue.shift();
+    if (remoteCache.has(path)) {
+      paintRemote(el, path, remoteCache.get(path));
+      continue;
     }
-    v.removeAttribute('src');
-    v.load();
-  };
-  const timer = setTimeout(() => done(false), 20000);
-  v.addEventListener('loadedmetadata', () => (v.currentTime = t0 + 0.5), { once: true });
-  v.addEventListener('seeked', () => setTimeout(() => done(true), 80), { once: true });
-  v.addEventListener('error', () => done(false), { once: true });
-  v.src = path.split('#')[0];
+    if (!el.isConnected) continue; // 已经被重画掉的格子不用再取
+    remoteBusy++;
+    grabRemote(path).then(src => {
+      remoteBusy--;
+      remoteCache.set(path, src);
+      paintRemote(el, path, src);
+      // 同一个地址排在后面的格子直接用缓存
+      for (const q of remoteQueue.filter(x => x.path === path)) paintRemote(q.el, path, src);
+      pumpRemote();
+    });
+  }
+}
+function grabRemote(path) {
+  return new Promise(resolve => {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.preload = 'auto';
+    const t0 = Number((path.match(/#t=([\d.]+)/) || [])[1]) || 0;
+    const done = ok => {
+      clearTimeout(timer);
+      let cv = false;
+      if (ok && v.videoWidth) {
+        cv = document.createElement('canvas');
+        cv.width = 320;
+        cv.height = Math.round((320 * v.videoHeight) / v.videoWidth) || 180;
+        try {
+          cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+        } catch {
+          cv = false;
+        }
+      }
+      v.removeAttribute('src');
+      v.load();
+      resolve(cv);
+    };
+    const timer = setTimeout(() => done(false), 20000);
+    v.addEventListener('loadedmetadata', () => (v.currentTime = t0 + 0.5), { once: true });
+    v.addEventListener('seeked', () => setTimeout(() => done(true), 80), { once: true });
+    v.addEventListener('error', () => done(false), { once: true });
+    v.src = path.split('#')[0];
+  });
 }
 
 /* 本地视频：自己解一帧当缩略图。不用系统缩略图——macOS 的系统缩略图对很多视频给的是「默认打开它的那个 App」的图标
@@ -407,6 +446,27 @@ function statusText(r) {
   return [clipTodo ? '片段待调整' : '', r.needsReview ? '待核对' : ''].filter(Boolean).join(' · ');
 }
 
+/* 素材卡片变化的动效：新挂上的素材弹进来；主画面 / 备选换了角色的轻轻跳一下。
+   按句子记住上一次有哪些卡片（整表重画后也认得出哪些是新的）；换项目时清空。 */
+const cardMemo = new Map();
+let cardMemoPid = null;
+function animateCards(id, assets) {
+  if (cardMemoPid !== state.projectId) {
+    cardMemo.clear();
+    cardMemoPid = state.projectId;
+  }
+  const now = new Map(
+    [...assets.querySelectorAll('.row-asset')].map(b => [b.title, b.className.match(/role-[\w-]+/)?.[0] || '']),
+  );
+  const before = cardMemo.get(id);
+  cardMemo.set(id, now);
+  if (!before) return;
+  assets.querySelectorAll('.row-asset').forEach((b, i) => {
+    if (!before.has(b.title)) setTimeout(() => pop(b, { scale: 0.6, duration: 520 }), i * 60);
+    else if (before.get(b.title) !== now.get(b.title)) pop(b, { scale: 0.9 });
+  });
+}
+
 function badgeOne(el) {
   const r = rowById(+(el.dataset.owner || el.dataset.id));
   if (!r) return;
@@ -427,6 +487,7 @@ function badgeOne(el) {
     if (assets.dataset.signature !== signature) {
       assets.innerHTML = assetCards(r);
       assets.dataset.signature = signature;
+      animateCards(r.id, assets);
     }
   }
 }

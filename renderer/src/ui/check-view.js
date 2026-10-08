@@ -70,7 +70,7 @@ function popCardForSelection({ atMouse = false } = {}) {
   const el = document.querySelector(`.as[data-id="${state.sel}"]`);
   if (!el) return;
   const r = el.getBoundingClientRect();
-  openMenu(el, selectionCardHTML(), atMouse ? {} : { pos: { x: r.left, y: r.bottom + 8 } });
+  openMenu(el, selectionCardHTML(), atMouse ? { atMouse: true } : { pos: { x: r.left, y: r.bottom + 8 } });
   markPopAnchor(el);
   popEl._ids = selectedLines();
   popEl.classList.add('hovercard');

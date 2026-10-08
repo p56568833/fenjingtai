@@ -57,6 +57,8 @@ function demoLibrary() {
 }
 
 export const current = () => library.projects[library.currentId];
+/* 按 id 取库里的项目（后台任务完成时项目已经切走，要改的是原项目） */
+export const projectById = id => library?.projects?.[id] || null;
 export const allProjects = () => Object.values(library.projects).sort((a, b) => b.updatedAt - a.updatedAt);
 export const settings = () => library.settings;
 
@@ -241,8 +243,11 @@ function purgeTrash(now = Date.now()) {
 
 /* 备份恢复：整库替换 */
 export function restoreLibrary(data) {
-  if (!data || !data.projects || !Object.keys(data.projects).length) return false;
-  library = { settings: {}, trash: {}, ...data };
+  if (!data || !data.projects || typeof data.projects !== 'object') return false;
+  // 备份里结构坏掉的项目不载入（留在原备份文件里），其余照常恢复
+  const projects = Object.fromEntries(Object.entries(data.projects).filter(([, p]) => p && Array.isArray(p.rows)));
+  if (!Object.keys(projects).length) return false;
+  library = { settings: {}, trash: {}, ...data, projects };
   if (!library.projects[library.currentId]) library.currentId = Object.keys(library.projects)[0];
   loadProjectIntoState(library.projects[library.currentId]);
   fullDirty = true;
@@ -252,6 +257,7 @@ export function restoreLibrary(data) {
 
 /* 从备份里只取一个项目，作为新项目加回来（不动其它项目） */
 export function importProjectCopy(project, suffix = '（从备份恢复）') {
+  if (!project || !Array.isArray(project.rows)) return null;
   const id = 'p_' + crypto.randomUUID();
   library.projects[id] = {
     ...structuredClone(project),

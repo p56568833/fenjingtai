@@ -7,7 +7,7 @@ import { demoProject } from '../core/demo.js';
 import * as native from '../platform/native.js';
 import { toast, confirmModal, esc } from './dom.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor } from './popover.js';
-import { armAnimation } from './anim.js';
+import { armAnimation, slideIn } from './anim.js';
 import { registerCommand, runCommand } from './commands.js';
 
 const timeAgo = t => {
@@ -18,6 +18,9 @@ const timeAgo = t => {
   return Math.floor(s / 86400) + ' 天前';
 };
 const lineCount = p => (p.rows || []).filter(r => r.kind === 'line').length;
+/* 二级菜单（最近删除 / 自动备份）就地替换项目菜单，顶上一行「‹ 返回」回到上一层 */
+const back = (to, label) =>
+  `<div class="pop-item pop-back" data-projact="${to}"><svg class="mi" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg><span>${label}</span></div>`;
 const FOLDER =
   '<svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
 
@@ -26,6 +29,7 @@ function afterProjectChange(msg) {
   clearUndo();
   armAnimation();
   update('rows');
+  slideIn(document.querySelector('.workspace'), 1, 48); // 换了项目：新内容从右边滑进来
   if (msg) toast(msg);
 }
 
@@ -44,15 +48,14 @@ function openProjectsMenu(anchor) {
   openMenu(
     anchor,
     `
-    <div class="p-title">项目（存本机：菜单 文件 → 打开数据文件夹）</div>
+    <div class="p-title p-title-row"><span>项目 · ${storage.allProjects().length} 个</span><button class="p-title-link" data-projact="folder" title="项目数据存在这台电脑上，点开看数据文件夹">数据文件夹</button></div>
     ${list}
     <div class="pop-sep"></div>
-    <div class="pop-item" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>新建空项目</span></div>
-    <div class="pop-item" data-projact="demo"><svg class="mi" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3M21 3v6h-6"/></svg><span>新建示例稿项目</span></div>
-    <div class="pop-item" data-projact="types"><svg class="mi" viewBox="0 0 24 24"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/></svg><span class="main">本项目的标注类型…<span class="desc">改名字、颜色、快捷键，增删类型</span></span></div>
+    <div class="pop-item" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">新建空项目<span class="desc">⌘N · 也可以直接把稿子文件拖进窗口</span></span></div>
     <div class="pop-sep"></div>
     ${trashN ? `<div class="pop-item" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2m-1 0v14H9V6"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
     <div class="pop-item" data-projact="backup"><svg class="mi" viewBox="0 0 24 24"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/></svg><span>从自动备份恢复…</span></div>
+    <div class="pop-item" data-projact="demo"><svg class="mi" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3M21 3v6h-6"/></svg><span class="main">新建示例稿项目<span class="desc">一份标好的示范稿，看看各种标注长什么样</span></span></div>
   `,
   );
   markPopAnchor(anchor);
@@ -62,15 +65,17 @@ function openTrashMenu(anchor) {
   const list = storage.trashList();
   openMenu(
     anchor,
-    !list.length
-      ? `<div class="p-title">最近删除是空的</div>`
-      : `<div class="p-title">最近删除（30 天后自动清掉）</div>` +
+    back('projects', '项目') +
+      (!list.length
+        ? `<div class="p-title">最近删除是空的</div>`
+        : `<div class="p-title">最近删除（30 天后自动清掉）</div>` +
           list
             .map(
               x =>
                 `<div class="pop-item" data-untrash="${esc(x.project.id)}">${FOLDER}<span class="main"><span>${esc(x.project.title || '未命名')}</span><span class="desc">${lineCount(x.project)} 句 · ${timeAgo(x.deletedAt)}删除 · 点击找回</span></span></div>`,
             )
-            .join(''),
+            .join('')),
+    { sub: true },
   );
   markPopAnchor(anchor);
 }
@@ -79,15 +84,17 @@ async function openBackupMenu(anchor) {
   const list = await native.listBackups();
   openMenu(
     anchor,
-    !list.length
-      ? `<div class="p-title">暂无备份（写盘时每 30 分钟自动备份一份：24 小时内全留，更早的每天留一份、保留 30 天）</div>`
-      : `<div class="p-title">选一个时间点（下一步可选：只取回某个项目，或整库恢复）</div>` +
+    back('projects', '项目') +
+      (!list.length
+        ? `<div class="p-title">暂无备份（写盘时每 30 分钟自动备份一份：24 小时内全留，更早的每天留一份、保留 30 天）</div>`
+        : `<div class="p-title">选一个时间点（下一步可选：只取回某个项目，或整库恢复）</div>` +
           list
             .map(
               b =>
                 `<div class="pop-item" data-backup="${esc(b.f)}"><span>${esc(b.f.replace(/^备份-|\.json$/g, ''))}</span><span class="sub">${timeAgo(b.t)}</span></div>`,
             )
-            .join(''),
+            .join('')),
+    { sub: true },
   );
   markPopAnchor(anchor);
 }
@@ -99,7 +106,8 @@ async function openBackupDetail(anchor, file) {
   const projects = Object.values(r.data.projects || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   openMenu(
     anchor,
-    `<div class="p-title">备份 ${esc(file.replace(/^备份-|\.json$/g, ''))} 里的项目 · 点一个只取回它</div>` +
+    back('backup', '全部备份') +
+      `<div class="p-title">备份 ${esc(file.replace(/^备份-|\.json$/g, ''))} 里的项目 · 点一个只取回它</div>` +
       projects
         .map(
           p =>
@@ -107,6 +115,7 @@ async function openBackupDetail(anchor, file) {
         )
         .join('') +
       `<div class="pop-sep"></div><div class="pop-item danger" data-backup-all="${esc(file)}"><span class="main">整库恢复到这个时间点<span class="desc">当前所有项目会被替换（数据损坏时兜底用）</span></span></div>`,
+    { sub: true },
   );
   markPopAnchor(anchor);
 }
@@ -181,6 +190,8 @@ export function initProjects() {
           afterProjectChange('示例稿项目已新建');
         }
         if (a === 'types') runCommand('types:edit');
+        if (a === 'folder') native.openDataFolder();
+        if (a === 'projects') setTimeout(() => openProjectsMenu(btn()), 0);
         if (a === 'trash') setTimeout(() => openTrashMenu(btn()), 0);
         if (a === 'backup') setTimeout(() => openBackupMenu(btn()), 0);
         return;
@@ -204,8 +215,8 @@ export function initProjects() {
         const r = await native.restoreBackup(one.dataset.backupFile);
         const p = r?.ok && r.data.projects?.[one.dataset.backupOne];
         if (!p) return toast('备份读取失败');
-        storage.importProjectCopy(p);
-        toast(`已把「${p.title || '未命名'}」作为新项目取回，现有项目没动`);
+        if (!storage.importProjectCopy(p)) return toast('备份里的这个项目结构损坏，没法取回', null, 'error');
+        toast(`已把「${p.title || '未命名'}」作为新项目取回，现有项目没动`, null, 'ok');
         return;
       }
       const all = e.target.closest('[data-backup-all]');

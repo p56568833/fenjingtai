@@ -374,4 +374,256 @@ test('增量保存：只改动过的项目被替换，null 删除项目，其余
   assert.equal(store.load().projects.p1.title, '整库');
 });
 
+/* ── 1.10 ── */
+test('1.10 数据文件里有结构坏掉的项目：其余照常打开，坏的原样放进 quarantine 不删', () => {
+  const dir = tmp();
+  const store = createStore(() => dir);
+  fs.writeFileSync(
+    store.paths.LIB(),
+    JSON.stringify({
+      v: 2,
+      currentId: 'p1',
+      projects: { p1: { id: 'p1', title: '好的', rows: [] }, p2: { id: 'p2', title: '坏的', rows: null } },
+    }),
+  );
+  const data = store.load();
+  assert.ok(data.projects.p1 && !data.projects.p2);
+  assert.equal(data.quarantine.p2.title, '坏的');
+  assert.equal(store.info().status, 'partial');
+  assert.deepEqual(store.info().broken, ['坏的']);
+  store.savePatch({ currentId: 'p1', projects: { p1: { id: 'p1', title: '好的2', rows: [] } } });
+  const disk = JSON.parse(fs.readFileSync(store.paths.LIB(), 'utf8'));
+  assert.equal(disk.quarantine.p2.title, '坏的', '保存时坏项目仍留在文件里');
+});
+test('1.10 备份失败不算备份过：下次保存立刻再试；整库恢复前强制备份', () => {
+  const dir = tmp();
+  const store = createStore(() => dir);
+  store.save(lib('一'));
+  fs.writeFileSync(path.join(dir, '自动备份'), '我是文件不是文件夹'); // 让建备份文件夹失败
+  store.save(lib('二'));
+  assert.ok(store.info().backupError, '备份失败要能被界面看到');
+  fs.rmSync(path.join(dir, '自动备份'));
+  store.save(lib('三'));
+  assert.equal(store.info().backupError, undefined);
+  assert.equal(store.listBackups().length, 1, '失败后没有空等 30 分钟，下一次保存就补上了备份');
+  store.savePatch({ full: lib('整库恢复') });
+  assert.equal(store.listBackups().length >= 1, true);
+  const newest = JSON.parse(fs.readFileSync(path.join(dir, '自动备份', store.listBackups()[0].f), 'utf8'));
+  assert.equal(newest.projects.p1.title, '三', '整库替换前先备份了替换前的库');
+});
+test('1.10 片段保存：同名同时保存各占一个文件名；流媒体播放列表不交给 ffmpeg；参数带协议白名单', () => {
+  const dir = tmp();
+  const a = vt.reservePath(dir, '同名', '.mp4');
+  const b = vt.reservePath(dir, '同名', '.mp4');
+  assert.notEqual(a, b);
+  assert.equal(path.basename(b), '同名 (2).mp4');
+  assert.ok(vt.isPlaylist('https://x/live/index.m3u8?a=1'));
+  assert.ok(!vt.isPlaylist('https://x/v.mp4'));
+  const args = vt.segmentArgs('https://x/v.mp4', 1, 2, '/o.mp4');
+  assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'http,https,tls,tcp,crypto');
+});
+await atest('1.10 两个同名片段并发保存都成功、互不覆盖；m3u8 直接拒绝', async () => {
+  const dir = tmp();
+  const run = async (bin, args) => {
+    await new Promise(r => setTimeout(r, 20));
+    fs.writeFileSync(args.at(-1), Buffer.alloc(4096, args.includes('9') ? 1 : 2));
+    return { ok: true };
+  };
+  const req = { url: 'https://x/v.mp4', start: 1, end: 10, dir, name: '并发' };
+  const [r1, r2] = await Promise.all([
+    vt.saveSegment(req, { ffmpeg: '/bin/ffmpeg', run }),
+    vt.saveSegment(req, { ffmpeg: '/bin/ffmpeg', run }),
+  ]);
+  assert.ok(r1.ok && r2.ok, `${r1.error || ''} ${r2.error || ''}`);
+  assert.notEqual(r1.path, r2.path);
+  assert.equal(fs.statSync(r1.path).size, 4096);
+  assert.equal(fs.statSync(r2.path).size, 4096);
+  assert.ok(!fs.readdirSync(dir).some(f => f.includes('.part')), '不留临时文件');
+  const hls = await vt.saveSegment({ ...req, url: 'https://x/a.m3u8' }, { ffmpeg: '/bin/ffmpeg', run });
+  assert.equal(hls.ok, false);
+  assert.match(hls.error, /播放列表/);
+});
+await atest('1.10 下载原片：长时间没数据算超时、可以取消，失败不留文件', async () => {
+  const { EventEmitter } = await import('node:events');
+  const { PassThrough } = await import('node:stream');
+  const dir = tmp();
+  // 一直不回应的服务器
+  const silent = () => {
+    const req = new EventEmitter();
+    req.setTimeout = (ms, cb) => setTimeout(cb, ms);
+    req.destroy = () => {};
+    return req;
+  };
+  const t = await vt.downloadOriginal({ url: 'https://x/a.mp4', dir, name: '超时' }, { get: silent, idleMs: 30 });
+  assert.equal(t.ok, false);
+  assert.match(t.error, /超时/);
+  // 下到一半取消
+  const ctl = new AbortController();
+  const slow = () => {
+    const req = new EventEmitter();
+    req.destroy = () => {};
+    setImmediate(() => {
+      const res = new PassThrough();
+      res.statusCode = 200;
+      res.headers = { 'content-length': '100' };
+      req.emit('response', res);
+      res.write('abc');
+      setTimeout(() => ctl.abort(), 10);
+    });
+    return req;
+  };
+  const c = await vt.downloadOriginal({ url: 'https://x/b.mp4', dir, name: '取消' }, { get: slow, signal: ctl.signal });
+  assert.equal(c.ok, false);
+  assert.equal(c.canceled, true);
+  await new Promise(r => setTimeout(r, 30));
+  assert.deepEqual(fs.readdirSync(dir), [], '超时、取消都不留文件（占位文件和临时文件都清掉）');
+});
+test('1.10 候选清单写不进去时返回失败原因（界面据此提示、保留审核结果）', () => {
+  const dir = tmp();
+  const f = path.join(dir, '候选.json');
+  fs.writeFileSync(
+    f,
+    JSON.stringify({ type: 'fenjingtai-candidates', shots: [{ lines: '1', cands: [{ key: 'A' }] }] }),
+  );
+  const r = vt.writeReview(f, [{ key: 'A', lines: '1', decision: 'no' }], {
+    write: () => {
+      throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /没有写入权限/);
+});
+
+/* ── 1.10 应用内更新 ── */
+const up = require('../electron/updater.js');
+test('更新：版本号逐段按数字比（1.10 比 1.9 新），草稿 / 预发布不算', () => {
+  assert.equal(up.compareVersions('1.10.0', '1.9.3'), 1);
+  assert.equal(up.compareVersions('v1.9.3', '1.9.3'), 0);
+  assert.equal(up.compareVersions('1.9.3', '1.10.0'), -1);
+  const rel = {
+    tag_name: 'v1.10.1',
+    body: '修了些问题',
+    html_url: 'https://github.com/x/y/releases/tag/v1.10.1',
+    assets: [
+      {
+        name: 'FenJingTai-mac-arm64.zip',
+        size: 100,
+        digest: 'sha256:' + 'a'.repeat(64),
+        browser_download_url: 'https://github.com/x/y/releases/download/v1.10.1/FenJingTai-mac-arm64.zip',
+      },
+      { name: 'FenJingTai-mac-x64.zip', size: 120, browser_download_url: 'https://github.com/x/y/x64.zip' },
+    ],
+  };
+  const arm = up.pickUpdate(rel, { current: '1.10.0', arch: 'arm64' });
+  assert.equal(arm.available, true);
+  assert.equal(arm.version, '1.10.1');
+  assert.equal(arm.sha256, 'a'.repeat(64));
+  assert.match(arm.url, /arm64\.zip$/);
+  assert.equal(up.pickUpdate(rel, { current: '1.10.0', arch: 'x64' }).sha256, '', '没有 digest 时不校验，但照样能更新');
+  assert.equal(up.pickUpdate(rel, { current: '1.10.1', arch: 'arm64' }).available, false);
+  assert.equal(up.pickUpdate({ ...rel, prerelease: true }, { current: '1.0.0', arch: 'arm64' }).available, false);
+});
+test('更新：只能原地更新装在可写位置的正式版；从安装盘、被系统隔离运行、开发版都给出原因', () => {
+  const exe = '/Applications/分镜台.app/Contents/MacOS/分镜台';
+  const ok = up.installTarget(exe, { platform: 'darwin', canWrite: () => true });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.app, '/Applications/分镜台.app');
+  assert.match(up.installTarget(exe, { platform: 'darwin', isPackaged: false }).reason, /开发版本/);
+  assert.match(
+    up.installTarget('/private/var/folders/x/AppTranslocation/Y/d/分镜台.app/Contents/MacOS/分镜台', {
+      platform: 'darwin',
+      canWrite: () => true,
+    }).reason,
+    /应用程序/,
+  );
+  assert.match(
+    up.installTarget('/Volumes/分镜台/分镜台.app/Contents/MacOS/分镜台', { platform: 'darwin', canWrite: () => true })
+      .reason,
+    /安装盘/,
+  );
+  assert.match(up.installTarget(exe, { platform: 'darwin', canWrite: () => false }).reason, /没有权限/);
+});
+await atest('更新：下载边下边校验 SHA-256，对不上就丢弃；取消不留文件', async () => {
+  const dir = tmp();
+  const body = Buffer.from('新版本的压缩包内容');
+  const sha = (await import('node:crypto')).createHash('sha256').update(body).digest('hex');
+  const fetchOk = async () => new Response(body, { status: 200, headers: { 'content-length': String(body.length) } });
+  const dest = path.join(dir, 'u.zip');
+  const ticks = [];
+  const r = await up.downloadUpdate({ url: 'https://x/u.zip', sha256: sha }, dest, {
+    fetchImpl: fetchOk,
+    onProgress: (g, t) => ticks.push([g, t]),
+  });
+  assert.ok(r.ok && r.verified, r.error);
+  assert.deepEqual(fs.readFileSync(dest), body);
+  assert.deepEqual(ticks.at(-1), [body.length, body.length]);
+  const bad = await up.downloadUpdate({ url: 'https://x/u.zip', sha256: 'b'.repeat(64) }, path.join(dir, 'v.zip'), {
+    fetchImpl: fetchOk,
+  });
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /校验没通过/);
+  const ctl = new AbortController();
+  const slow = async (_u, { signal }) =>
+    new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(new Uint8Array([1, 2, 3]));
+          signal.addEventListener('abort', () => c.error(new Error('aborted')));
+          setTimeout(() => ctl.abort(), 10);
+        },
+      }),
+      { status: 200 },
+    );
+  const c = await up.downloadUpdate({ url: 'https://x/u.zip' }, path.join(dir, 'w.zip'), {
+    fetchImpl: slow,
+    signal: ctl.signal,
+  });
+  assert.equal(c.canceled, true);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['u.zip'], '校验失败和取消都不留文件');
+  assert.equal(
+    (await up.downloadUpdate({ url: 'http://x/u.zip' }, dest, { fetchImpl: fetchOk })).ok,
+    false,
+    '只走 https',
+  );
+});
+test('更新：解压后核对是不是分镜台、版本对不对；不对就清掉临时文件夹', () => {
+  const parent = tmp();
+  const fakeRun = (bundleId, version) => (cmd, args) => {
+    if (cmd.endsWith('ditto')) fs.mkdirSync(path.join(args.at(-1), '分镜台.app', 'Contents'), { recursive: true });
+    if (cmd.endsWith('plutil')) return args[1] === 'CFBundleIdentifier' ? bundleId : version;
+    return '';
+  };
+  const good = up.prepareUpdate('/tmp/u.zip', { parent, version: '1.10.1', run: fakeRun(up.BUNDLE_ID, '1.10.1') });
+  assert.ok(good.ok, good.error);
+  assert.ok(good.app.endsWith('分镜台.app') && path.basename(good.stage).startsWith('.分镜台-更新-'));
+  const other = up.prepareUpdate('/tmp/u.zip', { parent, version: '1.10.1', run: fakeRun('com.evil.app', '1.10.1') });
+  assert.equal(other.ok, false);
+  assert.match(other.error, /不是分镜台/);
+  const wrongV = up.prepareUpdate('/tmp/u.zip', { parent, version: '1.10.1', run: fakeRun(up.BUNDLE_ID, '1.9.0') });
+  assert.match(wrongV.error, /对不上/);
+  assert.deepEqual(
+    fs.readdirSync(parent).filter(f => f !== path.basename(good.stage)),
+    [],
+    '失败的都清掉了',
+  );
+});
+test('更新：换新版的脚本先等应用退出，换不上就把旧版放回去，最后重新打开', () => {
+  assert.match(up.SWAP_SCRIPT, /kill -0 "\$PID"/);
+  assert.match(up.SWAP_SCRIPT, /else mv "\$OLD" "\$TARGET"/);
+  assert.match(up.SWAP_SCRIPT, /open "\$TARGET"/);
+  const calls = [];
+  const dir = tmp();
+  up.scheduleSwap({
+    pid: 123,
+    newApp: '/A/new.app',
+    target: '/A/分镜台.app',
+    stage: '/A/.s',
+    tmpDir: dir,
+    spawnImpl: (cmd, args, opts) => (calls.push({ cmd, args, opts }), { unref() {} }),
+  });
+  assert.equal(calls[0].cmd, '/bin/bash');
+  assert.deepEqual(calls[0].args.slice(1), ['123', '/A/new.app', '/A/分镜台.app', '/A/.s']);
+  assert.equal(calls[0].opts.detached, true);
+});
+
 console.log(`${count} 项主进程回归通过`);

@@ -4,7 +4,7 @@
 import { state, update, emit, currentSelection, rowById, rowIndex, match, types } from './state.js';
 import { notify } from './events.js';
 import { persist } from './storage.js';
-import { snapshot, undo } from './undo.js';
+import { snapshot, undo, discardIfUnchanged } from './undo.js';
 import {
   validGroup,
   sameGroupSelection,
@@ -233,6 +233,7 @@ export function dropIfEmpty(id) {
     }
     state.sel = nearestLine(i)?.id ?? null;
     commit();
+    discardIfUnchanged();
   }
 }
 
@@ -314,16 +315,31 @@ export function deleteSectionAll(id) {
 }
 
 /* ── 应用导入（覆盖当前项目内容；空项目直接进，有内容先确认）── */
-export function applyImport(rows, title) {
-  snapshot('导入新稿子');
+/* mode = 'update'：同稿修订（reconcileDraft 已保留对得上的句子 id）——视频候选只留还对得上句子的；
+   mode = 'replace'：换成另一份稿子——旧的视频候选、剪映字幕对齐都和新句子无关，一起清掉（改稿前副本里还有）。
+   口播音频只记路径，保留；它和新稿不对应时可以在「时长 · 口播」里移除 */
+export function applyImport(rows, title, { mode = 'replace' } = {}) {
+  snapshot(mode === 'update' ? '更新稿件' : '导入新稿子');
   state.rows = rows;
   state.assets = hydrateProjectAssets({ rows: state.rows, assets: state.assets });
   state.title = title;
   state.filter = 'all';
   state.multi = null;
   state.sel = rows.find(r => r.kind === 'line')?.id ?? null;
+  const before = state.candidates.length;
+  if (mode === 'update') {
+    const alive = new Set(rows.filter(r => r.kind === 'line').map(r => r.id));
+    state.candidates = state.candidates.filter(c => alive.has(c.rowId));
+  } else {
+    state.candidates = [];
+    state.timing = null;
+  }
+  const dropped = before - state.candidates.length;
   commit();
-  notify(`已导入「${title}」· ${rows.filter(r => r.kind === 'line').length} 句`);
+  const n = rows.filter(r => r.kind === 'line').length;
+  notify(
+    `${mode === 'update' ? '稿件已更新' : `已导入「${title}」`} · ${n} 句 · 原项目副本已保留${dropped ? ` · ${dropped} 个视频候选对不上新稿，已移除` : ''}`,
+  );
 }
 
 export const annotateSelection = t => setType(currentSelection(), t);

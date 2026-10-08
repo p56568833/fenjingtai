@@ -3,7 +3,13 @@
    组内句子「···」= 从这句开始使用另一个画面（低频操作收在这里，不在每句旁常驻一排按钮）
    有差异先展示差异和处理方式，不悄悄覆盖信息。 */
 import { state, rowById, types } from '../app/state.js';
-import { extendGroupNextAction, dropGroupLastAction, splitGroupAtAction, ungroupAction } from '../app/actions.js';
+import {
+  extendGroupNextAction,
+  dropGroupLastAction,
+  splitGroupAtAction,
+  ungroupAction,
+  deleteRows,
+} from '../app/actions.js';
 import { addRefsToShot, relocateAsset, invalidateProbe, relinkByNames } from '../app/asset-actions.js';
 import { shotMembers, groupExtendNextPlan, groupSplitAtPlan } from '../core/shots.js';
 import { usageList, assetUsageRefs, checkClip } from '../core/asset-model.js';
@@ -20,7 +26,7 @@ const actItem = (act, ids, label, desc, { disabled = false, danger = false } = {
   `<div class="pop-item${danger ? ' danger' : ''}${disabled ? ' disabled' : ''}" data-shot-act="${act}" ${ids}>
     <span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
 
-/* 行「···」：常用操作（删除 ✕）留在行上，低频的收进来 */
+/* 行「···」：素材、共用范围、删除这句（1.10 起删除也收进来：行尾只留一个按钮，不会误点 ✕） */
 export function openRowMenu(anchor, rowId) {
   const r = rowById(rowId);
   if (!r || r.kind !== 'line') return;
@@ -40,6 +46,8 @@ export function openRowMenu(anchor, rowId) {
       { disabled: !plan.ok },
     );
   }
+  html += '<div class="pop-sep"></div>';
+  html += actItem('delete', ids, '删除这句', '⌘⌫ · 可撤销', { danger: true });
   openMenu(anchor, html);
   markPopAnchor(anchor);
 }
@@ -168,6 +176,10 @@ function onShotAction(item) {
   }
   if (act === 'add-lib') {
     runCommand('assets:pick-from-project', row);
+    return;
+  }
+  if (act === 'delete') {
+    deleteRows([rowId]);
     return;
   }
 

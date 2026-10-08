@@ -62,8 +62,7 @@ export function renderTable() {
         <div class="dur">${durCellHTML(r)}</div>
         <div class="typebox">${chipHTML(r)}</div>
         <div class="visual-cell"><div class="row-assets"></div><div class="note" data-id="${r.id}" contenteditable="plaintext-only" spellcheck="false" data-ph="点击填写画面描述…">${esc(r.note || '')}</div></div>
-        <button class="row-act row-more" data-row-more="${r.id}" title="更多操作（素材 / 共用范围）"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
-        <button class="row-act row-del" data-del="${r.id}" title="删除这句"><svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+        <button class="row-act row-more" data-row-more="${r.id}" title="更多操作（素材 / 共用范围 / 删除这句）" aria-label="第 ${r.no} 句的更多操作"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
       </div>`;
   }
   wrap.innerHTML = html || `<div class="empty-hint">这个筛选下没有句子<br>点上方筛选条切回「全部」</div>`;

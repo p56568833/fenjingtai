@@ -3,14 +3,17 @@ import { state, on, emit, renumber, currentSelection, checkedIds, visibleLineIds
 import { renderStats } from './render-stats.js';
 import { renderTable, updateRowVisual, updateSectionBadges } from './render-table.js';
 import { renderCheck, updateCheckSpans, updateCheckNote } from './render-check.js';
-import { armAnimation } from './anim.js';
+import { armAnimation, animationArmed } from './anim.js';
+import { flipCapture, flipPlay, glideSelection } from './motion.js';
 import { closePop } from './popover.js';
 import { flushPendingEdits } from './edit.js';
 import { revealRow } from './dom.js';
+import { runCommand } from './commands.js';
 
 function syncTitle() {
   const t = document.querySelector('#projTitle');
   if (t && document.activeElement !== t && t.textContent !== state.title) t.textContent = state.title;
+  if (t) t.title = `${state.title}（点击改名）`;
 }
 
 /* 整表重建会换掉所有行：屏幕外的新行只按 contain-intrinsic-size 占位（72px），和原来的真实行高对不上，
@@ -49,6 +52,12 @@ function restoreAnchor(a) {
 
 export function renderAll() {
   const anchor = captureAnchor();
+  // 同一个项目、同一个视图里重画（筛选、删句、撤销、组成共用画面…）：记下屏幕上每句的位置，
+  // 重画后从老位置滑到新位置。切项目 / 切视图 / 导入时走整页入场动画，不做这个。
+  const flip =
+    state.view === 'table' && lastRendered === `${state.projectId}|${state.view}` && !animationArmed()
+      ? flipCapture(document.querySelector('#rows'))
+      : null;
   document.body.classList.toggle('reading', state.view === 'check');
   if (state.filter !== 'all') {
     const visible = new Set(visibleLineIds());
@@ -60,15 +69,14 @@ export function renderAll() {
   }
   renumber();
   syncTitle();
-  document
-    .querySelectorAll('#viewToggle button')
-    .forEach(b => b.classList.toggle('active', b.dataset.v === state.view));
+  syncViewToggle();
   renderStats();
   if (state.view === 'check') renderCheck();
   else renderTable();
   emit('workspace');
   renderSelectionOnly();
   restoreAnchor(anchor);
+  flipPlay(document.querySelector('#rows'), flip);
   lastRendered = `${state.projectId}|${state.view}`;
   // 这里不滚动：滚动交给明确的交互（键盘导航 / 搜索跳转 / 切视图），否则打字、筛选、撤销都会拽视口
 }
@@ -94,14 +102,28 @@ export function renderSelectionOnly() {
         el.removeAttribute('tabindex');
       }
     });
+    // 共用画面：选中组里任意一句，整段一起框住（和单句选中同一种样式）
+    document
+      .querySelectorAll('.shared-passage')
+      .forEach(p => p.classList.toggle('picked', !!p.querySelector('.as.cur')));
     return;
   }
   const ticked = new Set(checkedIds());
+  const only = list => (list.length === 1 ? list[0] : null);
+  const before = only(document.querySelectorAll('#rows .row.selected'));
   document.querySelectorAll('.row').forEach(el => {
     el.classList.toggle('selected', sel.has(+el.dataset.id));
     const box = el.querySelector('.row-select');
     if (box) box.checked = ticked.has(+el.dataset.id);
   });
+  // 共用画面：选中组里任意一句，整组（句子 + 类型 + 画面描述 + 素材）一起框住——
+  // 用的是和单句选中完全一样的灰底灰框，只是范围是一整组；组内当前那句再深一点
+  document
+    .querySelectorAll('.shared-scene')
+    .forEach(sc => sc.classList.toggle('picked', !!sc.querySelector('.row.selected')));
+  // 换句：选中条从上一句滑过来
+  const after = only(document.querySelectorAll('#rows .row.selected'));
+  if (before !== after) glideSelection(before, after);
 }
 
 export function setView(v) {
@@ -115,10 +137,30 @@ export function setView(v) {
   document.querySelector(`[data-id="${state.sel}"]`)?.scrollIntoView({ block: 'center' });
 }
 
-/* ⌘T / 原生菜单：原文 ↔ 表格 */
-const VIEW_CYCLE = ['table', 'check'];
+/* 顶栏视图切换：视频审核 ↔ 表格。视频审核开着时它是选中项；白色滑块滑到选中按钮底下（CSS 弹簧过渡） */
+const reviewOpen = () => !!document.querySelector('#vrMask.show');
+export function syncViewToggle() {
+  const box = document.querySelector('#viewToggle');
+  if (!box) return;
+  const active = reviewOpen() ? 'review' : state.view;
+  let on = null;
+  box.querySelectorAll('button').forEach(b => {
+    const hit = b.dataset.v === active;
+    b.classList.toggle('active', hit);
+    b.setAttribute('aria-selected', String(hit));
+    if (hit) on = b;
+  });
+  const pill = box.querySelector('.vt-pill');
+  if (!pill || !on) return;
+  pill.style.width = `${on.offsetWidth}px`;
+  pill.style.transform = `translateX(${on.offsetLeft}px)`;
+}
+/* ⌘T / 原生菜单：表格 ↔ 视频审核 */
 export function cycleView() {
-  setView(VIEW_CYCLE[(VIEW_CYCLE.indexOf(state.view) + 1) % VIEW_CYCLE.length]);
+  if (reviewOpen()) {
+    runCommand('video:close');
+    if (state.view !== 'table') setView('table');
+  } else runCommand('video:open');
 }
 
 /* 标注变了：筛选「全部」下原地刷新颜色和标签，其他筛选下句子可见性会变，整页重建 */
@@ -143,6 +185,13 @@ function onNotes({ ids }) {
 }
 
 export function initRender() {
+  // 待审数字滚动结束、字体加载或顶栏布局变化时，按钮尺寸还可能再次改变。
+  const toggle = document.querySelector('#viewToggle');
+  if (toggle) {
+    const observer = new ResizeObserver(syncViewToggle);
+    observer.observe(toggle);
+    toggle.querySelectorAll('button').forEach(button => observer.observe(button));
+  }
   on('rows', renderAll);
   on('selection', renderSelectionOnly);
   on('marks', onMarks);

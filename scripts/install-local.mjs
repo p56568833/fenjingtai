@@ -4,7 +4,7 @@
    按 AGENTS.md：构建放在带 .noindex 的临时目录（不被启动台 / Spotlight 收录），装好后清掉；
    只保留最新版本，不做软件备份。没有已安装的应用时，请先 npm run package 打一次完整包。 */
 import { createPackageWithOptions } from '@electron/asar';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, utimesSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -58,8 +58,22 @@ try {
     for (let i = 0; i < 60 && running(); i++) await sleep(250);
     if (running()) throw new Error('分镜台还开着、没能自动退出，请手动退出后再运行一次');
   }
-  rmSync(INSTALLED, { recursive: true, force: true });
-  run('/usr/bin/ditto', [app, INSTALLED]);
+  // 5. 先把新版完整拷进 /Applications 里的隐藏临时位置并校验，再两次改名换上去：
+  //    中途任何一步失败，原来的应用都还在，不会出现「旧的删了、新的没装上」
+  const incoming = '/Applications/.分镜台-安装中.app';
+  const outgoing = '/Applications/.分镜台-替换下来.app';
+  rmSync(incoming, { recursive: true, force: true });
+  rmSync(outgoing, { recursive: true, force: true });
+  run('/usr/bin/ditto', [app, incoming]);
+  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', incoming]);
+  renameSync(INSTALLED, outgoing);
+  try {
+    renameSync(incoming, INSTALLED);
+  } catch (e) {
+    renameSync(outgoing, INSTALLED); // 换不上就把原来的放回去
+    throw e;
+  }
+  rmSync(outgoing, { recursive: true, force: true }); // 只保留最新版本，不留旧版
   utimesSync(INSTALLED, new Date(), new Date()); // 让 Finder 刷新
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', INSTALLED]);
   console.log(`已安装到 ${INSTALLED}（${version}）`);

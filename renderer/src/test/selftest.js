@@ -506,6 +506,7 @@ export async function runSelfTest() {
   await suite('1.4 素材角色', './roles-selftest.js', 'runRoleTests');
   await suite('1.5 视频审核', './video-review-selftest.js', 'runVideoReviewTests');
   await suite('1.6 自定义类型 · 口播', './iteration-selftest.js', 'runIterationTests');
+  await suite('1.10 可靠性与交互', './release-110-selftest.js', 'runRelease110Tests');
   const failed = R.filter(x => !x.ok);
   return { total: R.length, failed: failed.length, cases: R };
 }

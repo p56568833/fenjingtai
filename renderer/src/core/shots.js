@@ -159,7 +159,15 @@ export function shots(rows) {
       return out;
     }, []);
 }
-export function checkDelivery(rows, types = DEFAULT_TYPES) {
+/* 需要配画面、但还没挂上要用的素材（主画面 / 叠加 / 未分配；只有备选不算）的镜头 */
+export const linkedUsages = r => usagesOf(r).filter(u => u.role !== 'alt' && !u.off);
+export function unlinkedShots(rows, types = DEFAULT_TYPES) {
+  const ti = typeIndex(types);
+  return shots(rows).filter(g => g[0].type && ti.needsVisual(g[0].type) && !g.some(m => linkedUsages(m).length));
+}
+/* 交稿检查。默认是「分镜方案」检查：类型、画面描述、主画面、片段、改稿、字幕；
+   opts.assets = true 时再加「素材交付」检查：需要画面却没关联素材、素材文件失联（opts.missing = 失联路径集合，opts.registry = 素材库） */
+export function checkDelivery(rows, types = DEFAULT_TYPES, opts = {}) {
   const ti = typeIndex(types);
   return shots(rows).flatMap(group => {
     const r = group[0],
@@ -177,6 +185,12 @@ export function checkDelivery(rows, types = DEFAULT_TYPES) {
     }
     if (group.some(x => x.needsReview)) issues.push('稿件更新待核对');
     if (group.some(x => x.time && x.time.st === 'est')) issues.push('字幕里没找到这句');
+    if (opts.assets && r.type && ti.needsVisual(r.type)) {
+      if (!group.some(m => linkedUsages(m).length)) issues.push('还没关联素材');
+      const reg = opts.registry || {};
+      const lost = group.some(m => usagesOf(m).some(u => u.role !== 'alt' && opts.missing?.has(reg[u.assetId]?.path)));
+      if (lost) issues.push('素材文件失联');
+    }
     return issues.length ? [{ id: r.id, no: r.no, text: group.map(x => x.text).join(''), issues }] : [];
   });
 }
@@ -259,15 +273,27 @@ export function groupRows(rows, ids) {
   return members;
 }
 const validTime = t => t && Number.isFinite(+t.start) && Number.isFinite(+t.end) && +t.end >= +t.start;
-export function normalizeProjectRows(rows, types = DEFAULT_TYPES) {
+/* 项目 JSON 导入：清洗句子。
+   原文件里的 id 是一串不重复的正整数时原样保留（手动秒数 at.of、视频候选 rowId 都按 id 指向句子，保留最省事也最不容易错）；
+   有重复 / 缺失 / 非法时才重新编号，并把 at.of 一起换成新 id。旧 id → 新 id 写进 info.idMap，调用方用它改写其他引用 */
+export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
   if (!Array.isArray(rows)) throw new Error('项目中没有有效的句子列表');
   const allowed = new Set(types.map(t => t.id));
+  const ids = rows.map(r => r?.id);
+  const keepIds = ids.every(x => Number.isInteger(x) && x > 0) && new Set(ids).size === ids.length;
+  const idMap = new Map();
   let id = 0;
+  const nextId = r => {
+    const nid = keepIds ? r.id : ++id;
+    if (r.id != null && !idMap.has(r.id)) idMap.set(r.id, nid);
+    return nid;
+  };
+  info.idMap = idMap;
   const result = rows.map(r => {
     if (!r || !['line', 'section'].includes(r.kind) || typeof r.text !== 'string') throw new Error('项目格式不完整');
-    if (r.kind === 'section') return { id: ++id, kind: 'section', text: r.text };
+    if (r.kind === 'section') return { id: nextId(r), kind: 'section', text: r.text };
     return {
-      id: ++id,
+      id: nextId(r),
       kind: 'line',
       text: r.text,
       type: allowed.has(r.type) ? r.type : null,
@@ -292,6 +318,10 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES) {
         : {}),
     };
   });
+  // 重新编号时，手动秒数里记的「镜头第一句 id」跟着换
+  if (!keepIds)
+    for (const r of result)
+      for (const u of r.assetUsages || []) if (u.at && idMap.has(u.at.of)) u.at = { ...u.at, of: idMap.get(u.at.of) };
   // A group may not span sections or disconnected runs in an imported project.
   const visited = new Set();
   let last = null;

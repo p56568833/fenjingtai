@@ -8,7 +8,6 @@ import {
   removeUsage,
   addRefsToShot,
   setUsageRole,
-  setUsageSpan,
   autoAssignRoles,
 } from '../app/asset-actions.js';
 import { ROLES, shotMembers } from '../core/shots.js';
@@ -16,7 +15,7 @@ import { spanOf } from '../core/timeline.js';
 import { fmtTc, fmtLen } from '../core/text.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
 import * as native from '../platform/native.js';
-import { esc, toast } from './dom.js';
+import { esc, toast, revealRow } from './dom.js';
 import { sharedScenes, assetRefs, hydrateAssetCards, inspectorAssets, refreshThumb, missingPaths } from './badges.js';
 import { registerCommand, runCommand } from './commands.js';
 import { preserveReadingPosition } from './reading-position.js';
@@ -33,13 +32,16 @@ const ASSET_TIPS =
   '也可以把文件直接拖进这里或句子上。移除只解除关联，保留本地文件；⌘Z 可撤销。' +
   '输入自动保存；共用画面的描述、素材和视频片段整组共用一份。链接与路径随项目保存，本地素材需随交稿另行打包。';
 
-/* 这个画面在口播里的时间段 + 听 / 对着口播预览 */
-function voiceBlock(members) {
+/* 这个画面在口播里的时间段，拆成三块分别放：
+   - meta：口播时间 + 片段够不够长的提醒，放在「素材与片段」标题下面（说的是素材和口播对不对得上）
+   - sync：「对着口播看画面」，放在「素材与片段」标题右边（预览的是这些素材怎么配口播）
+   - listen：「听这段口播」，放在原文旁边（听的是这几句话） */
+function voiceParts(members) {
   const span = spanOf(
     timeline(),
     members.map(r => r.id),
   );
-  if (!span) return '';
+  if (!span) return { meta: '', sync: '', listen: '' };
   const src = timeline().source;
   const how = src === 'srt' ? '字幕实测' : src === 'fit' ? '按口播音频推算' : '按语速估算';
   const len = span.end - span.start;
@@ -61,14 +63,13 @@ function voiceBlock(members) {
     : videos
       ? '<p class="voice-ok">视频片段都够盖住各自出现的时间</p>'
       : '';
-  return `<div class="voice-block">
-    <div class="voice-line"><b>口播</b><span class="mono">${fmtTc(span.start)}–${fmtTc(span.end)}</span><span>${fmtLen(len)} · ${how}</span></div>
-    ${compare}
-    <div class="detail-buttons">
-      ${state.voice ? `<button class="btn" data-voice-range="${members[0].id}">▶ 听这段口播</button>` : ''}
-      <button class="btn" data-sync-preview="${members[0].id}" title="${state.voice ? '口播和画面一起播；下面的镜头轨可以调每个主画面出现的秒数' : '还没导入口播音频：按估算时间静音走一遍。下面的镜头轨可以调每个主画面出现的秒数'}">▶ 对着口播看画面</button>
-    </div>
-  </div>`;
+  return {
+    meta: `<div class="voice-block"><div class="voice-line"><b>口播</b><span class="mono">${fmtTc(span.start)}–${fmtTc(span.end)}</span><span>${fmtLen(len)} · ${how}</span></div>${compare}</div>`,
+    sync: `<button class="btn sync-btn" data-sync-preview="${members[0].id}" title="${state.voice ? '口播和画面一起播；下面的镜头轨可以调每个主画面出现的秒数' : '还没导入口播音频：按估算时间静音走一遍。下面的镜头轨可以调每个主画面出现的秒数'}">▶ 对着口播看画面</button>`,
+    listen: state.voice
+      ? `<button class="text-button listen-btn" data-voice-range="${members[0].id}">▶ 听这段口播</button>`
+      : '',
+  };
 }
 
 export function renderInspector(force = false) {
@@ -94,13 +95,18 @@ export function renderInspector(force = false) {
   panel.dataset.project = state.projectId;
   const ti = types();
   const visual = !r.type || ti.needsVisual(r.type);
-  panel.innerHTML = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}<span class="side-type">${esc(ti.label(r.type))}</span><button class="text-button" id="closeDetail" aria-label="关闭素材面板">✕</button></div>
+  const voice = voiceParts(members);
+  panel.innerHTML = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}<button class="text-button side-locate" id="locateDetail" title="把这句滚到正文中间">定位到正文</button><button class="text-button" id="closeDetail" aria-label="关闭素材面板">✕</button></div>
+    <section class="detail-assets">
+      <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span><span class="spacer"></span>${voice.sync}</div>
+      ${voice.meta}
+      <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
+      <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="attachFromLib">从本项目素材</button>${missingPaths().size ? '<button class="btn" id="relinkFolder" title="选一个文件夹，按文件名自动找回所有失联素材">按文件夹找回失联素材</button>' : ''}</div>
+      <details class="asset-paths"><summary>编辑链接或文件路径</summary><textarea id="detailAssets" rows="3" placeholder="一行一个链接或文件路径，离开输入框时保存">${esc(assetRefs(r).join('\n'))}</textarea></details>
+    </section>
+    <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
+    <div class="detail-label detail-excerpt-title">原文${members.length > 1 ? `<small>${members.length} 句</small>` : ''}<span class="spacer"></span>${voice.listen}</div>
     <p class="detail-excerpt">${esc(members.map(x => x.text).join(''))}</p>
-    ${voiceBlock(members)}
-    <label><span class="detail-label">${visual ? '画面描述' : '备注'}${members.length > 1 ? `<small>${members.length} 句共用 · 改一处全同步</small>` : ''}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
-    <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span></div><div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
-    <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="attachFromLib">从本项目素材</button>${missingPaths().size ? '<button class="btn" id="relinkFolder" title="选一个文件夹，按文件名自动找回所有失联素材">按文件夹找回失联素材</button>' : ''}</div>
-    <details class="asset-paths"><summary>编辑链接或文件路径</summary><textarea id="detailAssets" rows="3" placeholder="一行一个链接或文件路径，离开输入框时保存">${esc(assetRefs(r).join('\n'))}</textarea></details>
     ${r.needsReview ? '<button class="btn" id="confirmReviewed">已核对这段改稿</button>' : ''}`;
   hydrateAssetCards();
 }
@@ -138,6 +144,11 @@ export function initInspector() {
       detailOpen = false;
       return renderInspector();
     }
+    if (e.target.closest('#locateDetail')) {
+      const r = panelRow();
+      if (r) revealRow(r.id, 'center');
+      return;
+    }
     const r = panelRow();
     if (!r) return;
     if (e.target.closest('#attachAsset')) {
@@ -167,14 +178,6 @@ export function initInspector() {
       const n = autoAssignRoles(r);
       renderInspector(true);
       if (n) toast(`已整理 ${n} 个素材的角色 · ⌘Z 可撤销`);
-      return;
-    }
-    const wholeBtn = e.target.closest('[data-span-whole]');
-    if (wholeBtn) {
-      const n = shotMembers(state.rows, r).length;
-      const demoted = setUsageSpan(r, +wholeBtn.dataset.spanWhole, 0, n - 1);
-      renderInspector(true);
-      toast(demoted?.length ? `已改为整段，「${demoted.join('」「')}」改为备选` : '已改为整段出现');
       return;
     }
     const vrBtn = e.target.closest('[data-vr-open]');
@@ -225,15 +228,6 @@ export function initInspector() {
   panel.addEventListener('change', e => {
     const r = panelRow();
     if (!r) return;
-    const sel = e.target.closest('select[data-span-usage]');
-    if (sel) {
-      // 素材出现位置：起止两个下拉，任一变动就整体提交（起比止晚时自动对调）
-      const index = +sel.dataset.spanUsage;
-      const pick = end => +panel.querySelector(`select[data-span-usage="${index}"][data-span-end="${end}"]`).value;
-      const demoted = setUsageSpan(r, index, pick('from'), pick('to'));
-      renderInspector(true);
-      if (demoted?.length) toast(`位置已改，「${demoted.join('」「')}」在同一句上让位，改为备选`);
-    }
     if (e.target.id === 'detailAssets' && setShotRefsFromText(r, e.target.value)) {
       panel.querySelector('.asset-list').innerHTML = inspectorAssets(r, { missing: missingPaths() });
       hydrateAssetCards();

@@ -1111,4 +1111,172 @@ test('候选写了 for（配哪几句）：通过后只在那几句出现', () =
     '没写 for：整段出现',
   );
 });
+/* ── 1.10：项目 JSON 往返 / 候选更新失效 / 交稿检查两种目标 ── */
+const { buildProjectJson } = await import('../renderer/src/core/export-doc.js');
+const { sanitizeProjectCandidates, planImport, CANDIDATE_TYPE } = await import('../renderer/src/core/candidates.js');
+const { unlinkedShots } = await import('../renderer/src/core/shots.js');
+test('1.10 项目 JSON 导入：id 合法就原样保留，手动秒数和候选都不失效', () => {
+  const src = [
+    { id: 10, kind: 'section', text: '章' },
+    {
+      id: 12,
+      kind: 'line',
+      text: '甲',
+      type: 'real',
+      groupId: 'shot-k',
+      assetUsages: [{ assetId: 'v', role: 'main', at: { start: 1, end: 2, of: 12 } }],
+    },
+    {
+      id: 15,
+      kind: 'line',
+      text: '乙',
+      type: 'real',
+      groupId: 'shot-k',
+      assetUsages: [{ assetId: 'v', role: 'main', at: { start: 1, end: 2, of: 12 } }],
+    },
+  ];
+  const info = {};
+  const rows = normalizeProjectRows(src, undefined, info);
+  assert.deepEqual(
+    rows.map(r => r.id),
+    [10, 12, 15],
+  );
+  assert.equal(rows[1].assetUsages[0].at.of, 12);
+  assert.equal(info.idMap.get(15), 15);
+});
+test('1.10 项目 JSON 导入：id 重复要重新编号时，手动秒数的 at.of 跟着换', () => {
+  const info = {};
+  const rows = normalizeProjectRows(
+    [
+      {
+        id: 7,
+        kind: 'line',
+        text: '甲',
+        assetUsages: [{ assetId: 'v', role: 'main', at: { start: 0, end: 1, of: 7 } }],
+      },
+      { id: 7, kind: 'line', text: '乙' },
+    ],
+    undefined,
+    info,
+  );
+  assert.deepEqual(
+    rows.map(r => r.id),
+    [1, 2],
+  );
+  assert.equal(rows[0].assetUsages[0].at.of, 1, '旧 id 7 → 新 id 1');
+});
+test('1.10 项目 JSON 带上视频候选和保存位置，导回来审核结果、批次都在；对不上句子的丢掉', () => {
+  const cands = [
+    {
+      id: 'vc-1',
+      key: 'A',
+      lines: '1',
+      rowId: 12,
+      url: 'https://x/a.mp4',
+      in: 1,
+      out: 5,
+      decision: 'ok',
+      note: '好',
+      assetId: 'v',
+      savedPath: '/m/a.mp4',
+      batchId: 'vb-1',
+      batchName: '第一章',
+      batchAt: 5,
+    },
+    {
+      id: 'vc-2',
+      key: 'B',
+      lines: '1',
+      rowId: 12,
+      url: 'https://x/b.mp4',
+      in: 1,
+      out: 5,
+      decision: 'no',
+      note: '太远',
+    },
+    { id: 'vc-3', key: 'C', lines: '9', rowId: 99, url: 'https://x/c.mp4', in: 1, out: 5 },
+    { id: 'vc-4', key: 'D', lines: '1', rowId: 12, url: 'ftp://x/d.mp4', in: 1, out: 5 },
+  ];
+  const json = JSON.parse(
+    buildProjectJson({ title: 't', rows: [], assets: {}, speechRate: 4.5, candidates: cands, mediaDir: '/m' }),
+  );
+  assert.equal(json.v, 4);
+  assert.equal(json.mediaDir, '/m');
+  const back = sanitizeProjectCandidates(json.candidates, {
+    idMap: new Map([[12, 2]]),
+    rowIds: new Set([2]),
+    assets: { v: { id: 'v' } },
+  });
+  assert.equal(back.length, 2, '对不上句子、链接不合法的丢掉');
+  assert.equal(back[0].rowId, 2, 'rowId 按导入时的 id 映射改写');
+  assert.equal(back[0].decision, 'ok');
+  assert.equal(back[0].savedPath, '/m/a.mp4');
+  assert.equal(back[0].batchName, '第一章');
+  assert.equal(back[1].decision, 'no');
+  assert.equal(back[1].note, '太远');
+  const noAsset = sanitizeProjectCandidates(json.candidates, { rowIds: new Set([12]), assets: {} });
+  assert.equal(noAsset[0].decision, '', '素材已不在库里：不再算「已通过」，回到待审');
+});
+test('1.10 同一份清单里的候选换了链接或片段：回到待审，旧素材关联和已保存状态作废', () => {
+  const rows = [{ id: 1, kind: 'line', no: 1, text: '甲' }];
+  const old = {
+    id: 'vc-1',
+    key: 'A',
+    lines: '1',
+    srcFile: '/c.json',
+    rowId: 1,
+    url: 'https://x/a.mp4',
+    in: 1,
+    out: 5,
+    decision: 'ok',
+    assetId: 'v',
+    savedPath: '/m/a.mp4',
+  };
+  const doc = {
+    type: CANDIDATE_TYPE,
+    shots: [{ lines: '1', cands: [{ key: 'A', url: 'https://x/a.mp4', in: 2, out: 6 }] }],
+  };
+  const plan = planImport(doc, '/c.json', rows, [old]);
+  assert.equal(plan.updated.length, 1);
+  const { next, changed } = plan.updated[0];
+  assert.equal(changed, true);
+  assert.equal(next.decision, '');
+  assert.equal(next.assetId, undefined);
+  assert.equal(next.savedPath, undefined);
+  const same = planImport(
+    {
+      type: CANDIDATE_TYPE,
+      shots: [{ lines: '1', cands: [{ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, why: '新理由' }] }],
+    },
+    '/c.json',
+    rows,
+    [old],
+  );
+  assert.equal(same.updated[0].changed, false);
+  assert.equal(same.updated[0].next.decision, 'ok', '只改了说明文字：审核结果保留');
+  assert.equal(same.updated[0].next.savedPath, '/m/a.mp4');
+});
+test('1.10 交稿检查：方案检查不管素材；勾上素材交付后列出没关联素材、文件失联的镜头', () => {
+  const rows = lines('甲。乙。丙。');
+  rows.forEach(r => {
+    r.type = 'real';
+    r.note = '画面';
+  });
+  rows[1].assetUsages = [{ assetId: 'x', role: 'main' }];
+  assert.equal(checkDelivery(rows).length, 0, '方案检查：素材没到位也通过');
+  assert.equal(unlinkedShots(rows).length, 2);
+  const altOnly = lines('丁。');
+  altOnly[0].type = 'real';
+  altOnly[0].assetUsages = [{ assetId: 'y', role: 'alt' }];
+  assert.equal(unlinkedShots(altOnly).length, 1, '只有备选不算已关联');
+  const full = checkDelivery(rows, undefined, {
+    assets: true,
+    missing: new Set(['/lost.mp4']),
+    registry: { x: { path: '/lost.mp4' }, y: { path: '/y.mp4' } },
+  });
+  assert.deepEqual(
+    full.map(x => x.issues),
+    [['还没关联素材'], ['素材文件失联'], ['还没关联素材']],
+  );
+});
 console.log(`${count} 项数据回归通过`);

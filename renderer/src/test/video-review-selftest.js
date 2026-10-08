@@ -112,7 +112,7 @@ export async function runVideoReviewTests(t) {
   update('rows');
   await pause(30);
   t('先有一张照片当主画面', us(0)[0]?.role === 'main');
-  t('没有候选时不显示「视频审核」按钮', $('#btnVideoReview').hidden === true);
+  t('没有候选时「视频审核」上不显示待审数', $('#vtBadge').hidden === true);
 
   /* 导入 */
   const file = { name: '视频候选.json', ext: 'json', content: JSON.stringify(DOC), path: '/tmp/视频候选.json' };
@@ -129,7 +129,12 @@ export async function runVideoReviewTests(t) {
   );
   t('「m:ss」写法的时间换算成秒', cand('A2').in === 15 && cand('A2').out === 30);
   t('导入后直接打开审核窗口', $('#vrMask').classList.contains('show'));
-  t('工具栏按钮显示待审数', !$('#btnVideoReview').hidden && $('#btnVideoReview').textContent.includes('3 待审'));
+  t(
+    '顶栏「视频审核」显示待审数，并处于选中状态',
+    !$('#vtBadge').hidden &&
+      $('#vtBadge').textContent === '3' &&
+      $('#viewToggle [data-v="review"]').classList.contains('active'),
+  );
   t(
     '左边按画面列出这一批（带待审数），右边只显示第一个画面的候选和口播原文',
     $$('#vrNav .vr-nav-shot').length === 2 &&
@@ -356,7 +361,7 @@ export async function runVideoReviewTests(t) {
   storage.switchProject(original);
   update('rows');
   await pause(20);
-  t('切到别的项目：候选不串过去', state.candidates.length === 0 && $('#btnVideoReview').hidden);
+  t('切到别的项目：候选不串过去', state.candidates.length === 0 && $('#vtBadge').hidden);
   storage.switchProject(pid);
   update('rows');
   await pause(20);

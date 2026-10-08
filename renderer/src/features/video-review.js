@@ -11,7 +11,7 @@
      「不要」的关窗口时自动清掉（结果已写回清单，再导入同一份清单也不会回来）。
    · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
 import { state, update, rowById, renumber, on } from '../app/state.js';
-import { persist, markProjectDirty } from '../app/storage.js';
+import { persist, markProjectDirty, projectById, allProjects } from '../app/storage.js';
 import { snapshot } from '../app/undo.js';
 import { invalidateProbe } from '../app/asset-actions.js';
 import { shotMembers } from '../core/shots.js';
@@ -44,6 +44,9 @@ import {
 } from './clip-player.js';
 import * as nat from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/dom.js';
+import { syncViewToggle } from '../ui/render.js';
+import { slideIn } from '../ui/anim.js';
+import { glide, roll, pop, SPRING } from '../ui/motion.js';
 import { registerCommand, runCommand } from '../ui/commands.js';
 
 export { CANDIDATE_TYPE };
@@ -51,27 +54,69 @@ const $ = s => document.querySelector(s);
 /* 原生能力统一走 platform/native.js（自测可通过 window.fjtHooks 注入替身） */
 const native = name => nat[name];
 
-/* ── 状态操作（一次 = 一步撤销） ── */
+/* ── 写回候选清单 ──
+   调用时立刻按「当时的候选」算好每个文件要写的内容（不等 500 毫秒后再读全局状态：期间切了项目也不会写错）；
+   内容和上次成功写入的一样就不再写；写失败的记下来，界面上能看到、下次再试。 */
 let writeTimer = null;
-function writeBack() {
-  clearTimeout(writeTimer);
-  writeTimer = setTimeout(async () => {
-    for (const [file, results] of reviewPayload(state.candidates)) {
-      try {
-        const r = await native('writeCandidateReview')(file, results);
-        if (r && r.ok === false) console.warn('候选清单回写失败', file, r.error);
-      } catch (e) {
-        console.warn('候选清单回写失败', e);
-      }
-    }
-  }, 500);
+const pendingWrites = new Map(); // 文件 → 结果列表
+const lastWritten = new Map(); // 文件 → 上次写成功的内容（JSON）
+const failedFiles = new Map(); // 文件 → 失败原因
+export const writeBackFailures = () => [...failedFiles.entries()];
+function queueWrites(cands) {
+  for (const [file, results] of reviewPayload(cands)) {
+    if (lastWritten.get(file) === JSON.stringify(results) && !failedFiles.has(file)) continue;
+    pendingWrites.set(file, results);
+  }
 }
-export const flushWriteBack = () => {
+async function runWrites() {
+  const jobs = [...pendingWrites.entries()];
+  pendingWrites.clear();
+  const out = new Map();
+  let newlyFailed = 0;
+  for (const [file, results] of jobs) {
+    let r;
+    try {
+      r = await native('writeCandidateReview')(file, results);
+    } catch (e) {
+      r = { ok: false, error: String(e?.message || e) };
+    }
+    const ok = !!r && r.ok !== false;
+    out.set(file, ok);
+    if (ok) {
+      lastWritten.set(file, JSON.stringify(results));
+      failedFiles.delete(file);
+    } else {
+      if (!failedFiles.has(file)) newlyFailed++;
+      failedFiles.set(file, r?.error || '写入失败');
+    }
+  }
+  if (newlyFailed)
+    toast(
+      `${newlyFailed} 份候选清单没能写回（${[...failedFiles.values()][0]}）。审核结果仍保存在项目里，下次审核时会再试`,
+      null,
+      'error',
+    );
+  refreshVideoReviewButton();
+  return out;
+}
+function writeBack(cands = state.candidates) {
+  queueWrites(cands);
   clearTimeout(writeTimer);
-  return Promise.all(
-    [...reviewPayload(state.candidates)].map(([f, r]) => native('writeCandidateReview')(f, r).catch(() => null)),
-  );
+  writeTimer = setTimeout(runWrites, 500);
+}
+/* 立即写完（返回每个文件是否写成功） */
+export const flushWriteBack = (cands = state.candidates) => {
+  clearTimeout(writeTimer);
+  queueWrites(cands);
+  return runWrites();
 };
+/* 这些候选的结果是否已经原样在清单文件里了 */
+function syncedFiles(cands) {
+  const ok = new Set();
+  for (const [file, results] of reviewPayload(cands))
+    if (!failedFiles.has(file) && lastWritten.get(file) === JSON.stringify(results)) ok.add(file);
+  return ok;
+}
 
 export function importCandidates(doc, srcFile) {
   renumber();
@@ -91,8 +136,20 @@ export function importCandidates(doc, srcFile) {
     batchAt: Date.now(),
     batchName: batchNameOf(doc, srcFile, plan),
   };
-  for (const { old, next } of plan.updated) {
+  let reset = 0;
+  for (const { old, next, changed } of plan.updated) {
     const forChanged = (old.for || '') !== (next.for || '');
+    if (changed) {
+      // 链接或片段换了：先把按旧版本挂上的视频从画面上撤下（描述里那行来源也删），旧的已保存状态作废
+      if (old.decision === 'ok' && old.assetId) {
+        detachCandidate(old, state.rows, state.assets);
+        reset++;
+      }
+      delete old.assetId;
+      delete old.savedPath;
+      delete old.decidedAt;
+      frames.delete(old.id);
+    }
     Object.assign(old, next);
     // 已通过的候选补写了「配哪几句」：素材在表格里的出现范围跟着改
     const lead = forChanged && old.decision === 'ok' && old.assetId ? rowById(old.rowId) : null;
@@ -107,8 +164,11 @@ export function importCandidates(doc, srcFile) {
   curShot = null;
   openVideoReview();
   toast(
-    `已导入 ${plan.added.length} 个视频候选${plan.updated.length ? `，更新 ${plan.updated.length} 个` : ''}${plan.skipped.length ? ` · ${plan.skipped.length} 个对不上句子，已跳过` : ''}`,
+    `已导入 ${plan.added.length} 个视频候选${plan.updated.length ? `，更新 ${plan.updated.length} 个` : ''}${reset ? `（其中 ${reset} 个已通过的换了链接或片段，已撤下旧视频、回到待审）` : ''}${plan.skipped.length ? ` · ${plan.skipped.length} 个对不上句子，已跳过` : ''}`,
+    null,
+    plan.skipped.length ? 'warn' : 'ok',
   );
+  if (reset) writeBack();
   return plan;
 }
 
@@ -155,6 +215,7 @@ export function setDecision(id, d) {
   writeBack();
   if (next) advanceAfterDecision(c);
   renderVideoReview();
+  if (next) stamp(c.id);
   if (msg) toast(msg);
 }
 let noteTimer = null;
@@ -199,8 +260,10 @@ function paintProgress(id) {
 export async function saveSegment(id, { quiet = false } = {}) {
   const c = state.candidates.find(x => x.id === id);
   if (!c || c.decision !== 'ok' || busy.has(id)) return null;
+  const pid = state.projectId,
+    projTitle = state.title;
   const dir = await ensureMediaDir();
-  if (!dir) return null;
+  if (!dir || state.projectId !== pid) return null;
   busy.add(id);
   prog.delete(id);
   renderVideoReview();
@@ -223,19 +286,41 @@ export async function saveSegment(id, { quiet = false } = {}) {
     renderVideoReview();
     if (r?.needFfmpeg)
       confirmModal('需要先装 ffmpeg', r.error, '知道了', () => {}, { cancelText: '关闭', danger: false });
-    else if (!quiet) toast('保存失败：' + (r?.error || '未知原因'));
+    else if (!quiet) toast('保存失败：' + (r?.error || '未知原因'), null, 'error');
+    return r;
+  }
+  // 截取期间切走了项目：结果写进原来那个项目（不碰现在打开的项目和它的撤销记录）
+  if (state.projectId !== pid) {
+    applySavedElsewhere(pid, id, r.path);
+    if (!quiet) toast(`「${projTitle}」的片段已保存：${assetName(r.path)}`, null, 'ok');
+    return r;
+  }
+  const cur = state.candidates.find(x => x.id === id);
+  if (!cur || cur.decision !== 'ok' || cur.url !== c.url || cur.in !== c.in || cur.out !== c.out) {
+    // 截取期间撤回了通过、或候选被更新成别的片段：文件留着，但不再挂到画面上
+    if (!quiet) toast(`片段已保存到 ${assetName(r.path)}，但这个候选已经变了，没有挂到画面上`, null, 'warn');
     return r;
   }
   snapshot('保存视频片段');
-  c.savedPath = r.path;
-  swapToLocal(c, r.path, state.rows, state.assets);
+  cur.savedPath = r.path;
+  swapToLocal(cur, r.path, state.rows, state.assets);
   invalidateProbe();
   persist();
   update('rows');
   writeBack();
   renderVideoReview();
-  if (!quiet) toast(`已保存：${assetName(r.path)}`, { label: '在访达中显示', cb: () => native('revealAsset')(r.path) });
+  if (!quiet)
+    toast(`已保存：${assetName(r.path)}`, { label: '在访达中显示', cb: () => native('revealAsset')(r.path) }, 'ok');
   return r;
+}
+function applySavedElsewhere(pid, candId, path) {
+  const p = projectById(pid);
+  const c = p?.candidates?.find(x => x.id === candId);
+  if (!p || !c || c.decision !== 'ok') return;
+  c.savedPath = path;
+  swapToLocal(c, path, p.rows || [], p.assets || {});
+  markProjectDirty(pid);
+  writeBack(p.candidates);
 }
 /* 旧版本保存的片段文件名只有视频标题：载入项目时在原文件夹里补上句号（第125-127句_…），
    素材库路径、候选记录、候选清单一起改。找不到文件的跳过，不进撤销（改的是磁盘上的文件名） */
@@ -272,6 +357,26 @@ export async function tagOldSavedClips() {
     }
   }
   if (!moved.size) return 0;
+  // 别的项目（比如「改稿前」副本）也可能引用同一个文件：一起改成新路径，不留失联
+  for (const p of allProjects()) {
+    if (p.id === pid) continue;
+    let hit = false;
+    for (const a of Object.values(p.assets || {}))
+      if (moved.has(a.path)) {
+        a.path = moved.get(a.path);
+        a.name = assetName(a.path);
+        hit = true;
+      }
+    for (const c of p.candidates || [])
+      if (moved.has(c.savedPath)) {
+        c.savedPath = moved.get(c.savedPath);
+        hit = true;
+      }
+    if (hit) {
+      syncMirror(p.rows || [], p.assets || {});
+      markProjectDirty(p.id);
+    }
+  }
   for (const c of candidates) if (moved.has(c.savedPath)) c.savedPath = moved.get(c.savedPath);
   for (const a of Object.values(assets || {}))
     if (moved.has(a.path)) {
@@ -306,8 +411,10 @@ export async function saveAllApproved() {
   let ok = 0,
     fail = 0;
   batchRun = { i: 0, n: list.length, id: null };
+  const pid = state.projectId;
   try {
     for (const c of list) {
+      if (state.projectId !== pid) break; // 切了项目：后面的不再继续截
       batchRun.i = ok + fail + 1;
       batchRun.id = c.id;
       paintProgress(c.id);
@@ -334,12 +441,17 @@ export function downloadOriginal(id) {
     async () => {
       const dir = await ensureMediaDir();
       if (!dir) return;
-      toast('开始下载完整原片…');
+      toast('开始下载完整原片…', { label: '取消', cb: () => native('cancelDownload')(c.url) }, 'info');
       renumber();
       const r = await native('downloadOriginalVideo')({ url: c.url, dir, name: fileTitle(c, state.rows) });
       if (r?.ok)
-        toast(`原片已下载：${assetName(r.path)}`, { label: '在访达中显示', cb: () => native('revealAsset')(r.path) });
-      else toast('下载失败：' + (r?.error || '未知原因'));
+        toast(
+          `原片已下载：${assetName(r.path)}`,
+          { label: '在访达中显示', cb: () => native('revealAsset')(r.path) },
+          'ok',
+        );
+      else if (r?.canceled) toast('已取消下载原片', null, 'info');
+      else toast('下载失败：' + (r?.error || '未知原因'), null, 'error');
     },
     { danger: false },
   );
@@ -357,13 +469,30 @@ const isPending = c => !c.decision;
 export const candidatesForRow = row =>
   row ? state.candidates.filter(c => shotMembers(state.rows, row).some(m => m.id === c.rowId)) : [];
 
+/* 顶栏「视频审核」上的待审数小角标（没有待审就不显示） */
 export function refreshVideoReviewButton() {
-  const b = $('#btnVideoReview');
-  if (!b) return;
-  const n = state.candidates.length;
-  b.hidden = !n;
+  const badge = $('#vtBadge');
+  if (!badge) return;
   const p = pendingCount();
-  b.textContent = p ? `视频审核 · ${p} 待审` : '视频审核';
+  const text = p > 99 ? '99+' : String(p);
+  const was = !badge.hidden;
+  badge.hidden = !p;
+  // 待审数变化：数字滚过去；角标刚出现时弹一下
+  if (was && p) roll(badge, text);
+  else {
+    badge.textContent = text;
+    badge.dataset.moRoll = text;
+    if (p) pop(badge, { scale: 0.3 });
+  }
+  const b = badge.closest('button');
+  if (b)
+    b.title = p
+      ? `视频审核：${p} 个候选待审 (⌘T)`
+      : state.candidates.length
+        ? '视频审核：这个项目的候选都审完了 (⌘T)'
+        : '视频审核：让 Claude 找好候选清单后导入 (⌘T)';
+  // 角标出现 / 消失会改变按钮宽度：刷新后再量，不能沿用刷新前的选中底块。
+  syncViewToggle();
 }
 
 /* 句子所在章节名 */
@@ -435,12 +564,15 @@ function pickDefaults(rowId) {
 }
 function selectShot(key) {
   if (key === curShot) return;
+  const order = curShots().map(x => x.key);
+  const dir = order.indexOf(key) >= order.indexOf(curShot) ? 1 : -1;
   curShot = key;
   curCand = null;
   touched.clear();
   stopAll();
   renderVideoReview();
   $('#vrList')?.scrollTo?.({ top: 0 });
+  slideIn($('#vrList'), dir); // 下一个画面从右边滑进来，往回翻从左边
 }
 /* 审完一个：焦点移到这个画面的下一个待审候选；这个画面都审完了，稍等一下跳到下一个还有待审的画面 */
 let advanceTimer = null;
@@ -465,27 +597,44 @@ function advanceAfterDecision(c) {
   }, 600);
 }
 
+/* 视频审核是顶栏下面整块的「页面」：盖住工具条和表格，顶栏照常可用 */
+function placeReviewPage() {
+  const bar = document.querySelector('.topbar');
+  if (bar) $('#vrMask').style.top = `${Math.round(bar.getBoundingClientRect().bottom)}px`;
+}
 export function openVideoReview(rowId = null) {
   touched.clear();
   curCand = null;
   pickDefaults(rowId);
+  placeReviewPage();
+  const wasOpen = $('#vrMask').classList.contains('show');
   $('#vrMask').classList.add('show');
+  if (!wasOpen) slideIn($('#vrMask .vr-modal'), -1);
   renderVideoReview();
+  syncViewToggle();
 }
 export const closeVideoReview = () => {
+  if (!$('#vrMask').classList.contains('show')) return;
   $('#vrMask').classList.remove('show');
   stopAll();
   clearTimeout(advanceTimer);
   purgeRejected();
+  syncViewToggle();
+  slideIn(document.querySelector('.workspace'), 1);
 };
 const stopAll = stopAllVideos;
-/* 「不要」的候选关窗口时清掉：结果已经写回清单（Claude 读得到），留着只会越堆越多 */
+/* 「不要」的候选关窗口时清掉：结果已经写回清单（Claude 读得到），留着只会越堆越多。
+   只清确实写进了清单文件的；写失败的留在项目里（下次关窗口再试），没有来源文件的照旧清掉 */
 async function purgeRejected() {
-  if (!state.candidates.some(c => c.decision === 'no')) return;
-  await flushWriteBack();
   const pid = state.projectId;
-  if (pid !== state.projectId) return;
-  state.candidates = state.candidates.filter(c => c.decision !== 'no');
+  const cands = state.candidates;
+  if (!cands.some(c => c.decision === 'no')) return;
+  await flushWriteBack(cands);
+  if (state.projectId !== pid || state.candidates !== cands) return; // 等待期间切了项目或数据被替换：这次不动
+  const synced = syncedFiles(cands);
+  const drop = c => c.decision === 'no' && (!c.srcFile || synced.has(c.srcFile));
+  if (!cands.some(drop)) return;
+  state.candidates = cands.filter(c => !drop(c));
   for (const id of [...frames.keys()]) if (!state.candidates.some(c => c.id === id)) frames.delete(id);
   persist();
   refreshVideoReviewButton();
@@ -531,6 +680,12 @@ export function renderVideoReview() {
   saveAll.classList.toggle('saving', !!batchRun);
   saveAll.textContent = saveAllLabel() || `保存已通过的片段（${unsaved}）`;
   $('#vrDir').textContent = state.mediaDir ? `保存到：${state.mediaDir}` : '还没选保存位置（第一次保存时会问）';
+  const mine = new Set(state.candidates.map(c => c.srcFile).filter(Boolean));
+  const fails = writeBackFailures().filter(([f]) => mine.has(f));
+  const sync = $('#vrSync');
+  sync.hidden = !fails.length;
+  if (fails.length)
+    sync.innerHTML = `${fails.length} 份清单没写回：${esc(fails[0][1])} <button class="vr-link" id="vrRetrySync">重试</button>`;
 
   // 左边：按章节列画面
   let sec = null;
@@ -550,6 +705,7 @@ export function renderVideoReview() {
     })
     .join('');
   $('#vrNav').querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
+  glide($('#vrNav'), $('#vrNav').querySelector('.vr-nav-shot.on'), 'vrnav-glide'); // 左边的高亮块滑到当前画面
 
   // 右边：选中画面的候选
   const g = shots.find(x => x.key === curShot);
@@ -569,13 +725,15 @@ export function renderVideoReview() {
   const allDone = !left;
   stopClip(); // 重画会换掉播放器：先停掉，口播声音不会留在后台继续放
   host.innerHTML = `<section class="vr-shot" data-vr-shot="${esc(String(g.key))}">
-      <h4>${rangeText(g.lead)}${g.cands[0]?.label ? ` · ${esc(g.cands[0].label)}` : ''}</h4>
-      ${vo ? `<p class="vr-vo">${vo}</p>` : ''}
+      <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4>
+      ${vo ? `<p class="vr-vo">${vo}</p>` : ''}</div>
       ${open.map(cardHTML).join('')}
       ${done.length ? `<div class="vr-done-list">${done.map(doneHTML).join('')}</div>` : ''}
       ${!open.length && allDone ? `<p class="vr-empty small">这一批都审完了。通过的已经挂在表格的画面上；要换的已经写回清单，Claude 读得到。</p>` : ''}
     </section>`;
   paintVoHighlight(open.find(c => c.id === curCand) || open[0] || null);
+  paintMotion(host, g, open);
+  host.querySelector('.vr-shot-head')?.classList.toggle('stuck', host.scrollTop > 2);
   for (const c of open) {
     const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
     if (!strip) continue;
@@ -585,6 +743,33 @@ export function renderVideoReview() {
   }
   // 截图只给右边这几个候选：换了画面，没轮到的截图任务取消
   for (let i = queue.length - 1; i >= 0; i--) if (!open.some(c => c.id === queue[i].c.id)) queue.splice(i, 1);
+}
+/* 审核页的动效：通过 / 不要 / 换一个 的底色块滑到选中的那个按钮上（第一次选时弹出来）。
+   当前候选的蓝框不做滑动，直接切换（滑动的框看着晃）。 */
+const decisionMemo = new Map(); // 候选 id → 上次的结果
+function paintMotion(host, g, open) {
+  const sec = host.querySelector('.vr-shot');
+  if (!sec) return;
+  for (const c of open) {
+    const card = sec.querySelector(`[data-vr-id="${c.id}"]`);
+    const on = card?.querySelector('.vr-btn.on[data-vr-d]');
+    const before = decisionMemo.has(c.id) ? decisionMemo.get(c.id) : c.decision || ''; // 第一次看到：不算变化
+    decisionMemo.set(c.id, c.decision || '');
+    if (!on) continue;
+    const row = on.parentElement;
+    const prevBtn = before && before !== c.decision ? row.querySelector(`.vr-btn.${before}[data-vr-d]`) : null;
+    const from = prevBtn
+      ? { x: prevBtn.offsetLeft, y: prevBtn.offsetTop, w: prevBtn.offsetWidth, h: prevBtn.offsetHeight }
+      : null;
+    const pill = glide(row, on, 'vr-dpill', { from, pop: before !== (c.decision || '') });
+    pill.dataset.d = c.decision;
+  }
+}
+function stamp(id) {
+  const card = $(`#vrList [data-vr-id="${id}"]`);
+  if (!card) return;
+  pop(card.querySelector('.vr-tag'), { scale: 1.7, duration: 460 });
+  card.animate?.([{ transform: 'scale(0.985)' }, { transform: 'none' }], { duration: 380, easing: SPRING });
 }
 function cardHTML(c) {
   const d = c.decision || '';
@@ -634,9 +819,20 @@ function pump() {
     });
   }
 }
+/* 截好的帧最多留 60 个候选的（每个 6 张），更早看过的先丢，重新看到时再截 */
+const FRAME_KEEP = 60;
+function trimFrames() {
+  if (frames.size <= FRAME_KEEP) return;
+  const onScreen = new Set([...document.querySelectorAll('#vrList [data-vr-id]')].map(el => el.dataset.vrId));
+  for (const id of frames.keys()) {
+    if (frames.size <= FRAME_KEEP) break;
+    if (!onScreen.has(id)) frames.delete(id);
+  }
+}
 async function grab(c) {
   const cells = [];
   frames.set(c.id, cells);
+  trimFrames();
   const v = document.createElement('video');
   v.muted = true;
   v.preload = 'auto';
@@ -663,7 +859,8 @@ async function grab(c) {
     return;
   }
   for (let i = 0; i < 6; i++) {
-    const t = c.in + 0.5 + ((c.out - c.in - 1) * i) / 5;
+    // 片段均匀分成 6 段，各取中点（片段不足 1 秒也不会取到入点之前）
+    const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / 6;
     v.currentTime = Math.max(0, t);
     await new Promise(r => {
       let done = false;
@@ -773,9 +970,9 @@ export function initVideoReview() {
         <span class="vr-spacer"></span>
         <button class="btn" id="vrSaveAll" hidden title="把已通过、还没保存的片段都截下来存到本地">保存已通过的片段</button>
         <button class="btn" id="vrImport">导入候选清单…</button>
-        <button class="text-button" id="vrClose" aria-label="关闭视频审核">✕</button>
+        <button class="text-button" id="vrClose" aria-label="回到表格" title="回到表格 (⌘T)">✕</button>
       </div>
-      <div class="vr-dirline"><span id="vrDir"></span><button class="vr-link" id="vrPickDir">更换保存位置</button><span class="vr-spacer"></span><span class="vr-keys"><kbd>1</kbd> 通过 · <kbd>2</kbd> 不要 · <kbd>3</kbd> 换一个 · <kbd>↑</kbd><kbd>↓</kbd> 换候选 · <kbd>←</kbd><kbd>→</kbd> 换画面 · <kbd>空格</kbd> 播放这段</span></div>
+      <div class="vr-dirline" id="vrDirLine"><span id="vrDir"></span><span id="vrSync" class="vr-sync" role="status" hidden></span><button class="vr-link" id="vrPickDir">更换保存位置</button><span class="vr-spacer"></span><span class="vr-keys"><kbd>1</kbd> 通过 · <kbd>2</kbd> 不要 · <kbd>3</kbd> 换一个 · <kbd>↑</kbd><kbd>↓</kbd> 换候选 · <kbd>←</kbd><kbd>→</kbd> 换画面 · <kbd>空格</kbd> 播放这段</span></div>
       <div class="vr-body">
         <nav id="vrNav" class="vr-nav" aria-label="这一批的画面"></nav>
         <div id="vrList"></div>
@@ -786,7 +983,6 @@ export function initVideoReview() {
   $('#vrMask').addEventListener('click', e => {
     if (e.target.id === 'vrMask') closeVideoReview();
   });
-  $('#btnVideoReview').onclick = () => openVideoReview();
   $('#vrImport').onclick = () => runCommand('import:file');
   $('#vrSaveAll').onclick = () => saveAllApproved();
   $('#vrPickDir').onclick = () => ensureMediaDir(true);
@@ -811,6 +1007,12 @@ export function initVideoReview() {
     closeVideoReview();
     if (c) runCommand('nav:jump', c.rowId);
   });
+  // 往下翻候选时，钉在顶上的原文下沿加一道淡影，看得出下面还有内容在滚
+  $('#vrList').addEventListener(
+    'scroll',
+    e => e.currentTarget.querySelector('.vr-shot-head')?.classList.toggle('stuck', e.currentTarget.scrollTop > 2),
+    { passive: true },
+  );
   $('#vrList').addEventListener('click', e => {
     const t = e.target;
     const card = t.closest('.vr-cand');
@@ -863,10 +1065,22 @@ export function initVideoReview() {
     paintProgress(token);
   });
   // 下载完整原片的进度：提示条里显示百分比
-  nat.onDownloadProgress(({ got, total }) => {
-    if (total) toast(`正在下载完整原片… ${Math.floor((got / total) * 100)}%`);
+  nat.onDownloadProgress(({ url, got, total }) => {
+    if (total && got < total)
+      toast(
+        `正在下载完整原片… ${Math.floor((got / total) * 100)}%`,
+        { label: '取消', cb: () => native('cancelDownload')(url) },
+        'info',
+      );
   });
   on('rows', renderVideoReview); // 撤销 / 重做 / 切项目后按钮和列表跟着刷新
+  // 撤销 / 重做改回了审核结果：清单文件也跟着改回去（内容没变就不写）
+  on('history', () => {
+    if (state.candidates.length) writeBack();
+  });
+  $('#vrDirLine').addEventListener('click', e => {
+    if (e.target.closest('#vrRetrySync')) flushWriteBack().then(() => renderVideoReview());
+  });
   on('project-loaded', () => {
     curBatch = curShot = curCand = null;
     touched.clear();
@@ -874,6 +1088,8 @@ export function initVideoReview() {
   });
   setTimeout(tagOldSavedClips, 0); // 启动时的项目在这之前就载入了
   registerCommand('video:open', openVideoReview);
+  registerCommand('video:close', closeVideoReview);
+  addEventListener('resize', () => $('#vrMask').classList.contains('show') && placeReviewPage());
   registerCommand('video:import', (doc, path) => importCandidates(doc, path));
   refreshVideoReviewButton();
 }
