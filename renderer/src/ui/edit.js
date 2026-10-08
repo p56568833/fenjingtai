@@ -187,6 +187,16 @@ function selectOnClick(id, e) {
 export function initEdit() {
   const rows = document.querySelector('#rows');
 
+  // 画面描述被截成 4 行时，悬停提示「点开看全文」（只在悬停时量一次，不用跟着内容同步）
+  rows.addEventListener('mouseover', e => {
+    const n = e.target.closest('.note');
+    if (!n || n === document.activeElement) return;
+    const clamped = n.scrollHeight > n.clientHeight + 2;
+    n.classList.toggle('clamped', clamped);
+    if (clamped) n.title = '点击展开全文';
+    else n.removeAttribute('title');
+  });
+
   rows.addEventListener('click', e => {
     if (e.target.closest('[data-detail]')) return;
     const selection = e.target.closest('.row-select');

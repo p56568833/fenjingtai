@@ -1,5 +1,5 @@
 /* 1.5 视频审核自测：导入候选清单（不新建项目）、按句号对上画面、通过 → 主画面 + 片段 + 画面描述来源行、
-   同一画面第二个通过的放备选、撤回、不要 / 清除、写回候选清单、只保存那几秒、完整原片要确认、撤销、切项目保留。
+   同一画面再通过的也当主画面、撤回、不要 / 清除、写回候选清单、只保存那几秒、完整原片要确认、撤销、切项目保留。
    原生能力全部用 window.fjtHooks 替身，不碰网络和磁盘。 */
 import { state, update } from '../app/state.js';
 import * as storage from '../app/storage.js';
@@ -191,8 +191,8 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   const a2 = cand('A2').assetId;
   t(
-    '同一画面再通过一个视频：放备选，不顶掉已通过的主画面',
-    us(0).find(x => x.assetId === a2)?.role === 'alt' && us(0).find(x => x.assetId === a1.id)?.role === 'main',
+    '同一画面再通过一个视频：也当主画面，已通过的主画面不被顶掉',
+    us(0).find(x => x.assetId === a2)?.role === 'main' && us(0).find(x => x.assetId === a1.id)?.role === 'main',
   );
   undo();
   await pause(30);

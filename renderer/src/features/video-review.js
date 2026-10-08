@@ -127,10 +127,7 @@ export function setDecision(id, d) {
     }
     c.assetId = r.assetId;
     const names = r.demoted.map(x => state.assets[x]?.name || '素材');
-    msg =
-      r.role === 'main'
-        ? `已挂成主画面（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`
-        : '这个画面已经有通过的主画面视频，新通过的先放备选，可在「画面与素材」里调整';
+    msg = `已挂成主画面（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
   }
   c.decision = next;
   if (next) c.decidedAt = Date.now();
@@ -165,19 +162,52 @@ async function ensureMediaDir(force = false) {
   return dir;
 }
 const busy = new Set();
+/* 截取进度：id → 0–1（主进程按 ffmpeg 的 -progress 回报）。只原地改按钮文字和进度条，不重画整个窗口 */
+const prog = new Map();
+let batchRun = null; // 「保存已通过的片段」进行中：{ i, n, id }
+const pctOf = id => Math.round((prog.get(id) || 0) * 100);
+const saveLabel = id => (busy.has(id) ? (prog.has(id) ? `正在截取… ${pctOf(id)}%` : '正在连接视频…') : '保存这几秒');
+const saveBtn = (id, extra = '') =>
+  `<button class="vr-mini primary${busy.has(id) ? ' saving' : ''}" data-vr-save="${id}" ${busy.has(id) ? 'disabled' : ''} style="--p:${pctOf(id)}%"${extra}>${saveLabel(id)}</button>`;
+function saveAllLabel() {
+  if (!batchRun) return null;
+  const p = batchRun.id && prog.has(batchRun.id) ? ` · ${pctOf(batchRun.id)}%` : '';
+  return `正在保存 ${batchRun.i}/${batchRun.n}${p}`;
+}
+function paintProgress(id) {
+  document.querySelectorAll(`[data-vr-save="${id}"]`).forEach(b => {
+    b.textContent = saveLabel(id);
+    b.style.setProperty('--p', pctOf(id) + '%');
+  });
+  const all = $('#vrSaveAll');
+  const label = saveAllLabel();
+  if (all && label) {
+    all.textContent = label;
+    all.style.setProperty('--p', (batchRun.id && batchRun.id === id ? pctOf(id) : 0) + '%');
+  }
+}
 export async function saveSegment(id, { quiet = false } = {}) {
   const c = state.candidates.find(x => x.id === id);
   if (!c || c.decision !== 'ok' || busy.has(id)) return null;
   const dir = await ensureMediaDir();
   if (!dir) return null;
   busy.add(id);
+  prog.delete(id);
   renderVideoReview();
   let r;
   try {
     renumber();
-    r = await native('saveVideoSegment')({ url: c.url, start: c.in, end: c.out, dir, name: fileTitle(c, state.rows) });
+    r = await native('saveVideoSegment')({
+      url: c.url,
+      start: c.in,
+      end: c.out,
+      dir,
+      name: fileTitle(c, state.rows),
+      token: id,
+    });
   } finally {
     busy.delete(id);
+    prog.delete(id);
   }
   if (!r || !r.ok) {
     renderVideoReview();
@@ -262,16 +292,25 @@ export async function saveAllApproved() {
     return;
   }
   if (!(await ensureMediaDir())) return;
+  if (batchRun) return;
   let ok = 0,
     fail = 0;
-  for (const c of list) {
-    toast(`正在保存 ${ok + fail + 1}/${list.length}：${c.title}`);
-    const r = await saveSegment(c.id, { quiet: true });
-    if (r?.ok) ok++;
-    else {
-      fail++;
-      if (r?.needFfmpeg) return;
+  batchRun = { i: 0, n: list.length, id: null };
+  try {
+    for (const c of list) {
+      batchRun.i = ok + fail + 1;
+      batchRun.id = c.id;
+      paintProgress(c.id);
+      const r = await saveSegment(c.id, { quiet: true });
+      if (r?.ok) ok++;
+      else {
+        fail++;
+        if (r?.needFfmpeg) return;
+      }
     }
+  } finally {
+    batchRun = null;
+    renderVideoReview();
   }
   toast(`已保存 ${ok} 段${fail ? `，${fail} 段失败（可以单独重试）` : ''}`);
 }
@@ -477,8 +516,10 @@ export function renderVideoReview() {
     ? `${left ? `还剩 <b>${left}</b> 个待审` : '<b>这一批审完了</b>'} / 共 ${bc.length} 个${ok.length ? ` · 已通过 ${ok.length} 个 · <button class="vr-link" id="vrSeeOk">在表格里看</button>` : ''}`
     : '';
   const saveAll = $('#vrSaveAll');
-  saveAll.hidden = !unsaved;
-  saveAll.textContent = `保存已通过的片段（${unsaved}）`;
+  saveAll.hidden = !unsaved && !batchRun;
+  saveAll.disabled = !!batchRun;
+  saveAll.classList.toggle('saving', !!batchRun);
+  saveAll.textContent = saveAllLabel() || `保存已通过的片段（${unsaved}）`;
   $('#vrDir').textContent = state.mediaDir ? `保存到：${state.mediaDir}` : '还没选保存位置（第一次保存时会问）';
 
   // 左边：按章节列画面
@@ -539,12 +580,11 @@ export function renderVideoReview() {
 }
 function cardHTML(c) {
   const d = c.decision || '';
-  const saving = busy.has(c.id);
   const actions =
     d === 'ok'
       ? c.savedPath
         ? `<span class="vr-saved">已保存：${esc(assetName(c.savedPath))}</span><button class="vr-mini" data-vr-reveal="${c.id}">在访达中显示</button>`
-        : `<button class="vr-mini primary" data-vr-save="${c.id}" ${saving ? 'disabled' : ''}>${saving ? '正在截取…' : '保存这几秒'}</button>`
+        : saveBtn(c.id)
       : '';
   return `<article class="vr-cand ${d ? 'd-' + d : ''}${c.id === curCand ? ' focus' : ''}" data-vr-id="${c.id}">
     <div class="vr-head"><b>${esc(c.key || '·')}</b><strong>${esc(c.title)}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
@@ -565,12 +605,7 @@ function cardHTML(c) {
 /* 审过的候选收成一行：结果、意见、撤回（再点同一个结果 = 撤回） */
 function doneHTML(c) {
   const d = c.decision;
-  const save =
-    d === 'ok'
-      ? c.savedPath
-        ? `<span class="vr-saved">已保存</span>`
-        : `<button class="vr-mini primary" data-vr-save="${c.id}" ${busy.has(c.id) ? 'disabled' : ''}>${busy.has(c.id) ? '正在截取…' : '保存这几秒'}</button>`
-      : '';
+  const save = d === 'ok' ? (c.savedPath ? `<span class="vr-saved">已保存</span>` : saveBtn(c.id)) : '';
   return `<div class="vr-done d-${d}" data-vr-id="${c.id}"><span class="vr-tag d-${d}">${DECISION[d]}</span><b>${esc(c.key || '·')}</b><span class="vr-done-title">${esc(c.title)}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
 }
 
@@ -667,22 +702,32 @@ function play(id) {
   const card = document.querySelector(`[data-vr-id="${id}"]`);
   if (!c || !card) return;
   const v = card.querySelector('.vr-player');
+  const btn = card.querySelector('[data-vr-play]');
   stopAll();
   v.hidden = false;
-  if (!v.getAttribute('src')) v.src = c.url.split('#')[0];
+  // 播放器是 preload="none"：只设 src 不会开始加载，原来要再点一下播放器的 ▶ 才动。这里直接 load + play
+  v.preload = 'auto';
+  if (!v.getAttribute('src')) {
+    v.src = c.url.split('#')[0];
+    v.load();
+  }
   v.ontimeupdate = () => {
     if (v.currentTime >= c.out) {
       v.pause();
       v.currentTime = c.in;
     }
   };
+  // 缓冲时按钮上写「载入中…」，开始播了再变回「重播这段」，不会以为没反应
+  v.onwaiting = () => (btn.textContent = '载入中…');
+  v.onplaying = () => (btn.textContent = '↻ 重播这段');
+  v.onerror = () => (btn.textContent = '播放失败 · 再试一次');
   const go = () => {
     v.currentTime = c.in;
     v.play().catch(() => {});
   };
+  btn.textContent = '载入中…';
   if (v.readyState >= 1) go();
   else v.addEventListener('loadedmetadata', go, { once: true });
-  card.querySelector('[data-vr-play]').textContent = '↻ 重播这段';
 }
 
 /* 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放 / 暂停这段。在意见框里打字时不抢键 */
@@ -814,6 +859,12 @@ export function initVideoReview() {
   $('#vrList').addEventListener('input', e => {
     const n = e.target.closest('[data-vr-note]');
     if (n) setNote(n.dataset.vrNote, n.value);
+  });
+  // 「保存这几秒」的截取进度：按钮上显示百分比和进度条
+  nat.onSegmentProgress(({ token, p }) => {
+    if (!busy.has(token)) return;
+    prog.set(token, p);
+    paintProgress(token);
   });
   // 下载完整原片的进度：提示条里显示百分比
   nat.onDownloadProgress(({ got, total }) => {

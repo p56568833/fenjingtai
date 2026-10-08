@@ -1,6 +1,6 @@
 import { buildPrintDoc, planDocument, fmtLong } from '../renderer/src/core/print-doc.js';
 import assert from 'node:assert/strict';
-import { lineTag, fileTitle, hasLineTag } from '../renderer/src/core/candidates.js';
+import { lineTag, fileTitle, hasLineTag, attachCandidate } from '../renderer/src/core/candidates.js';
 import { parseAny, splitSentences } from '../renderer/src/core/parse.js';
 import {
   groupRows,
@@ -1066,5 +1066,22 @@ test('视频片段文件名带句号：按画面现在的句子范围，找不�
   assert.equal(fileTitle({ rowId: 2, title: '牛津邓恩病理学院' }, rows), '第125-127句_牛津邓恩病理学院');
   assert.equal(hasLineTag('/a/第125-127句_x_0m01s-0m05s.mp4'), true);
   assert.equal(hasLineTag('/a/x_0m01s-0m05s.mp4'), false);
+});
+test('视频审核通过一律当主画面：占位照片让位，已通过的视频不被顶掉', () => {
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '甲', groupId: 'g', assetUsages: [{ assetId: 'p', role: 'main' }] },
+    { id: 2, kind: 'line', no: 2, text: '乙', groupId: 'g', assetUsages: [{ assetId: 'p', role: 'main' }] },
+  ];
+  const reg = { p: { id: 'p', kind: 'image', path: '/x/照片.jpg', name: '照片.jpg' } };
+  const mk = (id, url) => ({ id, rowId: 1, url, title: id, in: 1, out: 5, license: '', page: '' });
+  const a = attachCandidate(mk('c1', 'https://x/a.mp4'), rows, reg);
+  const b = attachCandidate(mk('c2', 'https://x/b.mp4'), rows, reg);
+  const role = id => rows[0].assetUsages.find(u => u.assetId === id)?.role;
+  assert.equal(a.role, 'main');
+  assert.equal(b.role, 'main');
+  assert.equal(role(a.assetId), 'main', '先通过的仍是主画面');
+  assert.equal(role(b.assetId), 'main', '后通过的也是主画面');
+  assert.equal(role('p'), 'alt', '占位照片让位成备选');
+  assert.deepEqual(b.demoted, [], '第二次通过不再降级任何素材');
 });
 console.log(`${count} 项数据回归通过`);

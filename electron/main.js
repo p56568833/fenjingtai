@@ -380,7 +380,14 @@ ipcMain.handle('dialog:pick-folder', async (_e, current) => {
 });
 ipcMain.handle('video:has-ffmpeg', () => !!videoTools.findFfmpeg());
 /* 只保存入点到出点那几秒（ffmpeg 按需读取在线视频，不下整片） */
-ipcMain.handle('video:save-segment', (_e, req) => videoTools.saveSegment(req || {}));
+ipcMain.handle('video:save-segment', (e, req) =>
+  videoTools.saveSegment(req || {}, {
+    // 截取进度（0–1）：界面上的「正在截取… 37%」和进度条
+    onProgress: p => {
+      if (!e.sender.isDestroyed()) e.sender.send('video:segment-progress', { token: req?.token, p });
+    },
+  }),
+);
 /* 下载完整原片：只在用户明确点了「下载完整原片」并确认后调用 */
 ipcMain.handle('video:download-original', (e, req) =>
   videoTools.downloadOriginal(req || {}, {

@@ -69,17 +69,14 @@ export function planImport(doc, srcFile, rows, existing = []) {
   return { added, updated, skipped };
 }
 
-/* 通过：挂到画面上。规则：这个画面还没有「来自视频审核的主画面」→ 设成主画面（原来的主画面照片自动让位成备选）；
-   已经有一个通过的视频当主画面 → 新通过的先放备选，避免互相顶掉，可在面板里调整 */
+/* 通过：挂到画面上，一律当主画面（不是主画面的由用户在面板里点成备选，比反过来少点很多次）。
+   原来的占位主画面（照片等，非视频审核来的）让位成备选；别的已通过视频继续当主画面，同一句上几个主画面平分时间 */
 export function attachCandidate(c, rows, registry) {
   const row = rows.find(r => r.id === c.rowId);
   if (!row) return { error: '找不到这个画面（句子可能被删了）' };
   const members = shotMembers(rows, row);
   const asset = ensureAsset(registry, remotePath(c), { kind: 'video', name: c.title });
   asset.source = { candidate: c.id, url: c.url, page: c.page, license: c.license };
-  const videoMain = usageList(row).some(
-    u => u.role === 'main' && !u.off && u.assetId !== asset.id && registry[u.assetId]?.source?.candidate,
-  );
   for (const m of members) {
     let u = usageList(m).find(x => x.assetId === asset.id);
     if (!u) {
@@ -89,15 +86,13 @@ export function attachCandidate(c, rows, registry) {
     u.clip = { in: c.in, out: c.out };
     delete u.off;
   }
-  const role = videoMain ? 'alt' : 'main';
-  applyRole(members, asset.id, role);
-  // 通过的视频顶替原来的占位主画面（照片等）：同一句上的旧主画面让位成备选
-  const demoted = role === 'main' ? resolveMainConflicts(members, asset.id) : [];
+  applyRole(members, asset.id, 'main');
+  const demoted = resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate);
   const line = noteLine(c);
   if (!(row.note || '').includes(line))
     setShotField(rows, row, 'note', (row.note ? row.note.replace(/\s+$/, '') + '\n' : '') + line);
   syncMirror(members, registry);
-  return { assetId: asset.id, role, demoted };
+  return { assetId: asset.id, role: 'main', demoted };
 }
 /* 撤回通过：把这个视频从画面上拿掉，画面描述里那一行也删掉 */
 export function detachCandidate(c, rows, registry) {

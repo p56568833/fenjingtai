@@ -51,6 +51,9 @@ function segmentArgs(url, start, end, out) {
     '-hide_banner',
     '-loglevel',
     'error',
+    '-nostats',
+    '-progress',
+    'pipe:1', // 机器可读的进度（out_time_us=…）写到 stdout，界面据此显示百分比
     '-y',
     '-ss',
     String(Math.max(0, Number(start))),
@@ -79,10 +82,27 @@ function segmentArgs(url, start, end, out) {
     out,
   ];
 }
-function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000 } = {}) {
+/* 从 ffmpeg -progress 输出里取已处理到的秒数（out_time_us / out_time_ms 都是微秒，out_time 是 HH:MM:SS.xx） */
+function progressSeconds(chunk) {
+  let sec = null;
+  for (const line of String(chunk).split(/\r?\n/)) {
+    const m = line.match(/^out_time_(?:us|ms)=(\d+)/);
+    if (m) sec = +m[1] / 1e6;
+    else {
+      const t = line.match(/^out_time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+      if (t) sec = +t[1] * 3600 + +t[2] * 60 + +t[3];
+    }
+  }
+  return sec;
+}
+function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000, onProgress } = {}) {
   return new Promise(resolve => {
     let err = '';
-    const p = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const p = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    p.stdout.on('data', d => {
+      const sec = progressSeconds(d);
+      if (sec != null && onProgress) onProgress(sec);
+    });
     const timer = setTimeout(() => {
       p.kill('SIGKILL');
       resolve({ ok: false, error: '截取超时（10 分钟），网络太慢或视频太大' });
@@ -112,7 +132,10 @@ const isHttpUrl = u => {
     return false;
   }
 };
-async function saveSegment({ url, start, end, dir, name }, { ffmpeg = findFfmpeg(), run = runFfmpeg } = {}) {
+async function saveSegment(
+  { url, start, end, dir, name },
+  { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress } = {},
+) {
   if (!isHttpUrl(url)) return { ok: false, error: '只支持在线视频链接' };
   if (!(Number(end) > Number(start))) return { ok: false, error: '出点必须晚于入点' };
   if (!dir || !path.isAbsolute(dir) || !fs.existsSync(dir)) return { ok: false, error: '保存位置不存在，请重新选择' };
@@ -124,7 +147,10 @@ async function saveSegment({ url, start, end, dir, name }, { ffmpeg = findFfmpeg
     };
   const out = uniquePath(dir, segmentFileBase(name, start, end), '.mp4');
   const tmp = out + '.part.mp4';
-  const r = await run(ffmpeg, segmentArgs(url.split('#')[0], start, end, tmp));
+  const dur = Math.max(0.1, Number(end) - Number(start));
+  const r = await run(ffmpeg, segmentArgs(url.split('#')[0], start, end, tmp), {
+    onProgress: sec => onProgress?.(Math.max(0, Math.min(1, sec / dur))),
+  });
   if (!r.ok) {
     try {
       fs.rmSync(tmp, { force: true });
@@ -270,6 +296,7 @@ module.exports = {
   saveSegment,
   downloadFile,
   renameWithLineTag,
+  progressSeconds,
   downloadOriginal,
   writeReview,
 };

@@ -43,6 +43,7 @@ export const downloadOriginalVideo = call('downloadOriginalVideo');
 export const tagSavedClip = call('tagSavedClip');
 export const writeCandidateReview = call('writeCandidateReview');
 export const revealAsset = call('revealAsset');
+export const onSegmentProgress = cb => n()?.onSegmentProgress?.(cb);
 export const onDownloadProgress = cb => n()?.onDownloadProgress?.(cb);
 
 /* 菜单 / 系统 */

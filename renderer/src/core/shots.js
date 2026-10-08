@@ -63,8 +63,9 @@ export function applyRole(members, assetId, role) {
   }
   return [];
 }
-/* 让 keepId 独占：和它在同一句上出现的其他主画面降为备选（只有视频审核「通过的视频替换占位照片」时用） */
-export function resolveMainConflicts(members, keepId) {
+/* 让 keepId 独占：和它在同一句上出现的其他主画面降为备选（只有视频审核「通过的视频替换占位照片」时用）。
+   spare(id) 为真的主画面不动（视频审核里：别的已通过视频继续当主画面） */
+export function resolveMainConflicts(members, keepId, spare = () => false) {
   const demoted = new Set();
   const others = [
     ...new Set(
@@ -74,7 +75,7 @@ export function resolveMainConflicts(members, keepId) {
           .map(u => u.assetId),
       ),
     ),
-  ].filter(id => id !== keepId);
+  ].filter(id => id !== keepId && !spare(id));
   for (const id of others) {
     const clash = members.some(m => onRow(m, keepId) && onRow(m, id));
     if (!clash) continue;

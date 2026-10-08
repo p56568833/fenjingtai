@@ -5166,3 +5166,30 @@ body.multi-mode .shared-scene-body {
     display: none;
   }
 }
+
+/* 画面描述太长时只显示前 4 行，末尾省略号；点进去编辑时展开全文（右侧面板也能看全文） */
+.rows:not(.ck) .note:not(:focus) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  /* overflow 只裁到内边距外沿：把下内边距换成透明下边框，第 5 行就不会从底部露出半截 */
+  padding-bottom: 0;
+  border-bottom: 7px solid transparent;
+}
+.rows:not(.ck) .note.clamped:not(:focus) {
+  cursor: pointer;
+}
+
+/* 视频审核：「保存这几秒 / 保存已通过的片段」截取中，按钮底色按进度填充 */
+.vr-mini.saving,
+#vrSaveAll.saving {
+  background-image: linear-gradient(to right, rgba(59, 116, 232, 0.28) var(--p, 0%), transparent var(--p, 0%));
+  opacity: 1;
+  cursor: progress;
+}
+.vr-mini.primary.saving {
+  background-color: rgba(59, 116, 232, 0.45);
+  background-image: linear-gradient(to right, var(--accent) var(--p, 0%), transparent var(--p, 0%));
+}

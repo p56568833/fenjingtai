@@ -202,6 +202,14 @@ test('视频片段文件名：中文安全、带入出点，重名不覆盖', ()
   ]);
   assert.equal(args.at(-1), '/o.mp4');
 });
+test('截取进度：从 ffmpeg -progress 输出里读出已处理秒数，参数里带 -progress pipe:1', () => {
+  assert.equal(vt.progressSeconds('frame=10\nout_time_us=2500000\nout_time=00:00:02.500000\nprogress=continue\n'), 2.5);
+  assert.equal(vt.progressSeconds('out_time=00:01:03.50\n'), 63.5);
+  assert.equal(vt.progressSeconds('progress=continue\n'), null);
+  const args = vt.segmentArgs('https://x/v.mp4', 1, 2, '/o.mp4');
+  assert.equal(args[args.indexOf('-progress') + 1], 'pipe:1');
+});
+
 test('旧片段补句号：同文件夹改名、已带句号不动、只认视频、重名不覆盖', () => {
   const dir = tmp();
   const a = path.join(dir, '福特肉类加工_1m41s-1m50s.mp4');
