@@ -114,7 +114,7 @@ function readScriptFile(file) {
     if (st.size > MAX_BYTES) return { error: '文件太大（超过 30MB），不像是稿子' };
     const buf = fs.readFileSync(file);
     const content = ext === 'docx' ? docxToText(buf) : decodeText(buf);
-    return { name: path.basename(file), ext, content };
+    return { name: path.basename(file), ext, content, path: file }; // path：视频候选清单要回写审核结果
   } catch (e) {
     return { error: '读取失败：' + (e && e.message ? e.message : e) };
   }

@@ -18,10 +18,10 @@ await page.goto(page.url().replace(/[?].*$/, ''));
 await sleep(1800);
 // 前序脚本（ux-check 删项目）可能留下空项目：没句子就补一份示例稿再验
 await page.evaluate(async () => {
-  const { state } = await import('./src/state.js');
+  const { state } = await import('./src/app/state.js');
   if (state.rows.some(r => r.kind === 'line')) return;
-  const { demoProject } = await import('./src/demo.js');
-  const storage = await import('./src/storage.js');
+  const { demoProject } = await import('./src/core/demo.js');
+  const storage = await import('./src/app/storage.js');
   const d = demoProject();
   storage.createProject(d.title, d.rows);
 });
@@ -96,8 +96,8 @@ await shot('narrow-inspector');
 /* 4. 长文件名不破坏布局 */
 if (fixDir) {
   await page.evaluate(async dir => {
-    const { addRefsToShot } = await import('./src/assets.js');
-    const { state } = await import('./src/state.js');
+    const { addRefsToShot } = await import('./src/app/asset-actions.js');
+    const { state } = await import('./src/app/state.js');
     const r = state.rows.find(x => x.kind === 'line');
     addRefsToShot(r, [
       dir + '/a-very-long-file-name-that-should-not-break-the-layout-图片素材名字特别长用来验证布局不被撑坏.png',
@@ -124,8 +124,8 @@ if (fixDir) {
 
 /* 5. 导出 → 回读：片段范围不丢（MD 元数据 / 素材清单 / CSV） */
 const rt = await page.evaluate(async () => {
-  const { buildAnnotatedMd, buildAssetListMd, buildCsv } = await import('./src/export-doc.js');
-  const { parseAny } = await import('./src/parse.js');
+  const { buildAnnotatedMd, buildAssetListMd, buildCsv } = await import('./src/core/export-doc.js');
+  const { parseAny } = await import('./src/core/parse.js');
   const rows = [
     {
       id: 1,
@@ -161,7 +161,7 @@ const pos = await page.evaluate(() => {
   return +mid.dataset.id;
 });
 await page.evaluate(id => {
-  import('./src/state.js').then(m => {
+  import('./src/app/state.js').then(m => {
     m.state.sel = id;
     m.state.multi = null;
     m.update('selection');
@@ -185,9 +185,9 @@ await page.setViewport({ width: 1440, height: 940 });
 await page.click('#viewToggle button[data-v="table"]'); // 行计数只在表格视图有意义
 await sleep(400);
 await page.evaluate(async () => {
-  const { parseAny } = await import('./src/parse.js');
-  const storage = await import('./src/storage.js');
-  const { update } = await import('./src/state.js');
+  const { parseAny } = await import('./src/core/parse.js');
+  const storage = await import('./src/app/storage.js');
+  const { update } = await import('./src/app/state.js');
   let txt = '';
   for (let s = 0; s < 20; s++) {
     txt += `## 第${s}章\n`;
@@ -215,8 +215,8 @@ t(
   `rows=${await page.evaluate(() => document.querySelectorAll('.row').length)}`,
 );
 await page.evaluate(async () => {
-  const storage = await import('./src/storage.js');
-  const { state } = await import('./src/state.js');
+  const storage = await import('./src/app/storage.js');
+  const { state } = await import('./src/app/state.js');
   const mine = storage
     .allProjects()
     .filter(p => p.title === '长稿布局测试')

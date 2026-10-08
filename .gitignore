@@ -8,3 +8,5 @@ dist/
 *.command
 安装日志.txt
 .install-status
+# 临时输出（渲染的样片等）不进仓库
+Claude outputs/

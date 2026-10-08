@@ -4,5 +4,6 @@ export function shouldIgnore(p) {
   if (!p) return false;
   if (p === '/package.json') return false;
   if (!/^\/(electron|renderer)(\/|$)/.test(p)) return true;
-  return /(^|\/)\.DS_Store$/.test(p) || /selftest\.js$/.test(p);
+  // 自测代码（renderer/src/test/）只在开发环境用，发布版不接受 --selftest，不进安装包
+  return /(^|\/)\.DS_Store$/.test(p) || /selftest\.js$/.test(p) || /^\/renderer\/src\/test(\/|$)/.test(p);
 }

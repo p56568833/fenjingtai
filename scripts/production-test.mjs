@@ -1,5 +1,6 @@
+import { buildPrintDoc, planDocument, fmtLong } from '../renderer/src/core/print-doc.js';
 import assert from 'node:assert/strict';
-import { parseAny, splitSentences } from '../renderer/src/parse.js';
+import { parseAny, splitSentences } from '../renderer/src/core/parse.js';
 import {
   groupRows,
   shots,
@@ -10,7 +11,7 @@ import {
   reconcileDraft,
   validGroup,
   normalizeGroups,
-} from '../renderer/src/production.js';
+} from '../renderer/src/core/shots.js';
 let count = 0;
 function test(name, fn) {
   fn();
@@ -62,13 +63,12 @@ test('分组不可跨章节或不连续', () => {
   assert.equal(validGroup(rows, [rows[0].id, rows[2].id]), false);
   assert.equal(validGroup(rows, [rows[2].id, rows[3].id]), true);
 });
-test('交稿检查区分类型完成与素材完成', () => {
+test('交稿检查：B roll 缺画面描述才提醒，不再看制作状态', () => {
   const rows = lines('甲。乙。');
   rows[0].type = 'a';
   rows[1].type = 'real';
-  assert.deepEqual(checkDelivery(rows)[0].issues, ['缺画面描述', '素材未就绪']);
+  assert.deepEqual(checkDelivery(rows)[0].issues, ['缺画面描述']);
   rows[1].note = '全景';
-  rows[1].status = 'ready';
   assert.equal(checkDelivery(rows).length, 0);
 });
 test('JSON导入修复重复ID并兼容旧类型', () => {
@@ -149,8 +149,8 @@ import {
   countAssetShots,
   usageList,
   clipText,
-} from '../renderer/src/assets.js';
-import { fmtTime, parseTime } from '../renderer/src/util.js';
+} from '../renderer/src/core/asset-model.js';
+import { fmtTime, parseTime } from '../renderer/src/core/text.js';
 import {
   sameGroupSelection,
   groupExtendNextPlan,
@@ -158,7 +158,7 @@ import {
   groupDropLast,
   groupSplitAt,
   groupSplitAtPlan,
-} from '../renderer/src/production.js';
+} from '../renderer/src/core/shots.js';
 
 test('素材类型识别：图片/视频/链接/不支持', () => {
   assert.equal(kindOf('/a/b/图.PNG'), 'image');
@@ -301,7 +301,7 @@ test('加入有差异的句子先出差异报告，无差异直接可执行', ()
   const fields = plan.diffs.map(d => d.field);
   assert.ok(fields.includes('画面描述'));
   assert.ok(fields.includes('素材片段'));
-  assert.ok(fields.includes('制作状态'));
+  assert.ok(!fields.includes('制作状态'), '1.5 起不再比较制作状态');
   assert.ok(fields.includes('素材'));
   // 合并执行：描述两行都留、片段取组内、素材并入、状态按规则落
   groupExtendNext(rows, rows[0].groupId);
@@ -412,8 +412,8 @@ test('项目 JSON 交换完整回读素材库与片段范围', () => {
 });
 
 /* ── 1.3：剪映字幕对齐 / 时长估算 ── */
-const { parseSubtitles, alignScript, fmtTc } = await import('../renderer/src/subtitle-align.js');
-const { speechUnits } = await import('../renderer/src/util.js');
+const { parseSubtitles, alignScript, fmtTc } = await import('../renderer/src/core/subtitle-align.js');
+const { speechUnits } = await import('../renderer/src/core/text.js');
 test('SRT / VTT 解析：带小时、逗号或点毫秒、样式标签、BOM', () => {
   const cues = parseSubtitles(
     '﻿1\r\n01:00:01,5 --> 01:00:03,250\r\n<i>第一句</i>\r\n\r\n2\r\n01:00:04,000 --> 01:00:05,000\r\n{\\an8}第二句\r\n',
@@ -500,5 +500,554 @@ test('交稿检查：字幕里没找到的句子提示核对', () => {
     checkDelivery(rows).map(x => x.issues),
     [['字幕里没找到这句']],
   );
+});
+
+/* ── 合入的 1.3.1 PDF 分镜脚本 / 1.4 素材角色与位置 ── */
+test('PDF：共用画面的几句合为一个镜头，原文逐句保留', () => {
+  const rows = parseAny('## 开场\n甲句。乙句。丙句。\n## 正文\n丁句。');
+  const ls = rows.filter(r => r.kind === 'line');
+  ls.forEach((r, i) => (r.no = i + 1));
+  ls[0].type = 'real';
+  ls[0].note = '航拍';
+  groupRows(rows, [ls[0].id, ls[1].id]);
+  const plan = planDocument(rows, 4.5);
+  assert.equal(plan.chapters.length, 2);
+  assert.equal(plan.shots.length, 3);
+  assert.equal(plan.shots[0].lines.length, 2);
+  assert.deepEqual(
+    plan.shots[0].lines.map(l => l.text),
+    ['甲句。', '乙句。'],
+  );
+  assert.equal(plan.shots[0].note, '航拍');
+  assert.deepEqual(
+    plan.chapters.map(c => [c.first, c.last]),
+    [
+      [1, 2],
+      [3, 3],
+    ],
+  );
+});
+test('PDF：内容转义、不再显示制作状态、空章节跳过', () => {
+  const rows = [
+    { id: 1, kind: 'section', text: '空章' },
+    { id: 2, kind: 'section', text: '<b>章</b>' },
+    { id: 3, kind: 'line', no: 1, text: '<script>x</script>。', type: 'a', status: 'todo', note: '' },
+    {
+      id: 4,
+      kind: 'line',
+      no: 2,
+      text: '乙。',
+      type: 'fx',
+      status: 'ready',
+      note: '字卡',
+      assets: '/Users/me/私密/图.png\nhttps://example.com/v/clip.mp4',
+    },
+  ];
+  const doc = buildPrintDoc({ title: '标题 & <测试>', rows }, { date: '2026年1月1日' });
+  assert.ok(!doc.html.includes('<script>x'));
+  assert.ok(doc.html.includes('&lt;b&gt;章&lt;/b&gt;'));
+  assert.ok(!doc.html.includes('空章'));
+  assert.equal((doc.html.match(/class="status /g) || []).length, 0);
+  assert.ok(!doc.html.includes('已就绪'));
+  assert.ok(!doc.html.includes('/Users/me'), '本机路径不进 PDF');
+  assert.ok(doc.html.includes('href="https://example.com/v/clip.mp4"'));
+  assert.ok(doc.footer.includes('标题 &amp; &lt;测试&gt;'));
+  assert.equal(doc.landscape, false);
+});
+test('PDF：选项关闭封面与素材', () => {
+  const rows = parseAny('甲。乙。');
+  rows.forEach((r, i) => {
+    r.no = i + 1;
+    r.type = 'real';
+    r.assets = '/a/b.png';
+  });
+  const doc = buildPrintDoc({ title: 't', rows }, { cover: false, assets: false, landscape: true });
+  assert.ok(!doc.html.includes('class="cover"'));
+  assert.ok(!doc.html.includes('class="status '));
+  assert.ok(!doc.html.includes('class="assets"'));
+  assert.equal(doc.landscape, true);
+  assert.ok(!doc.html.includes('class="ch"'), '无章节的稿子不出章节标题');
+});
+test('PDF：时长格式', () => {
+  assert.equal(fmtLong(42), '42 秒');
+  assert.equal(fmtLong(120), '2 分钟');
+  assert.equal(fmtLong(372), '6 分 12 秒');
+});
+test('PDF：当前素材库、视频片段和字幕时长完整保留', () => {
+  const registry = { v: { path: '/Users/me/private/clip.mp4', kind: 'video' } };
+  const rows = [
+    {
+      id: 1,
+      kind: 'line',
+      text: 'GPT explains this.',
+      type: 'real',
+      assetUsages: [{ assetId: 'v', clip: { in: 12, out: 18, needsAdjust: true } }],
+      time: { start: 31, end: 36, st: 'ok' },
+    },
+  ];
+  const plan = planDocument(rows, 4.5, registry);
+  assert.equal(plan.seconds, 5);
+  assert.equal(plan.timed, true);
+  const doc = buildPrintDoc({ title: '新结构', rows, assets: registry });
+  assert.ok(doc.html.includes('clip.mp4 · 片段 00:12–00:18 · 片段待调整'));
+  assert.ok(doc.html.includes('00:31 · 5.0s'));
+  assert.ok(!doc.html.includes('/Users/me/private'));
+  assert.ok(doc.html.includes('时长采用剪映字幕的真实时间'));
+});
+test('PDF：未对齐英文时长沿用软件的按词估算', () => {
+  const plan = planDocument([{ kind: 'line', text: 'This is a test.' }], 4.5);
+  assert.equal(plan.seconds, (4 * 1.8) / 4.5);
+  assert.equal(plan.timed, false);
+});
+
+/* ── 1.4 素材角色与位置 ── */
+import {
+  applyRole,
+  applySpan,
+  spanText,
+  usageSpan,
+  normalizeUsageSpans,
+  mainCoverage,
+} from '../renderer/src/core/shots.js';
+import * as ED from '../renderer/src/core/export-doc.js';
+const roleRows = () => {
+  const rows = lines('甲。乙。丙。');
+  rows.forEach((r, i) => {
+    r.no = i + 1;
+    r.type = 'real';
+  });
+  return rows;
+};
+test('合并画面时素材保留原来所在的句子，解除后各回各句', () => {
+  const rows = roleRows();
+  rows[0].assetUsages = [{ assetId: 'as-a', role: 'main' }];
+  rows[2].assetUsages = [{ assetId: 'as-c', role: 'main' }];
+  groupRows(
+    rows,
+    rows.map(r => r.id),
+  );
+  assert.deepEqual(
+    rows.map(r => usageList(r).map(u => u.assetId)),
+    [
+      ['as-a', 'as-c'],
+      ['as-a', 'as-c'],
+      ['as-a', 'as-c'],
+    ],
+  );
+  assert.equal(spanText(rows, 'as-a'), '第 1 句');
+  assert.equal(spanText(rows, 'as-c'), '第 3 句');
+  // 两个主画面不在同一句，可以共存
+  assert.equal(usageList(rows[0])[1].role, 'main');
+  rows.forEach(r => delete r.groupId);
+  normalizeUsageSpans(rows);
+  assert.deepEqual(
+    rows.map(r => usageList(r).map(u => u.assetId)),
+    [['as-a'], [], ['as-c']],
+  );
+});
+test('设主画面：1.8 起一段可以有多个主画面，不再互相挤成备选', () => {
+  const rows = roleRows();
+  groupRows(
+    rows,
+    rows.map(r => r.id),
+  );
+  rows.forEach(
+    r =>
+      (r.assetUsages = [
+        { assetId: 'x', role: 'main' },
+        { assetId: 'y', role: 'alt' },
+      ]),
+  );
+  assert.deepEqual(applyRole(rows, 'y', 'main'), []);
+  assert.ok(rows.every(r => usageList(r)[0].role === 'main' && usageList(r)[1].role === 'main'));
+  applySpan(rows, 'y', 1, 2);
+  assert.deepEqual(usageSpan(rows, 'y'), { from: 1, to: 2, whole: false });
+  applySpan(rows, 'x', 0, 0);
+  assert.deepEqual(mainCoverage(rows), { anyRole: true, hasMain: true, full: true });
+  assert.ok(!checkDelivery(rows)[0]?.issues.some(x => x.includes('主画面')));
+  applyRole(rows, 'y', 'overlay');
+  assert.ok(checkDelivery(rows)[0].issues.includes('部分句子没有主画面'));
+  applyRole(rows, 'x', 'alt');
+  assert.ok(checkDelivery(rows)[0].issues.includes('未指定主画面'));
+});
+test('旧项目没有角色时交稿检查不新增提醒', () => {
+  const rows = roleRows();
+  rows[0].note = '画面';
+  rows[0].status = 'ready';
+  rows[0].assetUsages = [{ assetId: 'x' }];
+  assert.ok(!(checkDelivery(rows).find(x => x.id === rows[0].id)?.issues || []).some(x => x.includes('主画面')));
+});
+test('加入下一句：组内整段素材顺延，下一句自带的只在下一句', () => {
+  const rows = roleRows();
+  groupRows(rows, [rows[0].id, rows[1].id]);
+  rows[0].assetUsages = [{ assetId: 'g', role: 'main' }];
+  rows[1].assetUsages = [{ assetId: 'g', role: 'main' }];
+  rows[2].assetUsages = [{ assetId: 'n', role: 'main' }];
+  groupExtendNext(rows, rows[0].groupId);
+  assert.equal(spanText(rows, 'g'), '整段');
+  assert.equal(spanText(rows, 'n'), '第 3 句');
+  // 第 3 句上有两个主画面：1.8 起都保留，预览里平分这句的时间
+  assert.equal(usageList(rows[2]).find(u => u.assetId === 'n').role, 'main');
+});
+test('素材清单只列要用的，CSV 逐句只列这句出现的，MD 回读保留角色与位置', () => {
+  const rows = roleRows();
+  const registry = {};
+  const a = ensureAsset(registry, '/tmp/主.png'),
+    b = ensureAsset(registry, '/tmp/叠.png'),
+    c = ensureAsset(registry, '/tmp/备.mp4');
+  groupRows(
+    rows,
+    rows.map(r => r.id),
+  );
+  rows.forEach(
+    r =>
+      (r.assetUsages = [
+        { assetId: a.id, role: 'main' },
+        { assetId: b.id, role: 'overlay' },
+        { assetId: c.id, role: 'alt' },
+      ]),
+  );
+  applySpan(rows, b.id, 1, 1);
+  rows.forEach(r => (r.note = '画面'));
+  const md = ED.buildAssetListMd({ title: 't', rows, issues: [], registry, speechRate: 4.5 });
+  assert.ok(md.includes('【主画面】主.png（整段）'));
+  assert.ok(md.includes('【叠加】叠.png（第 2 句 · 整段）'));
+  assert.ok(!md.includes('备.mp4') && md.includes('另有备选 1 个'));
+  const csv = ED.buildCsv({ title: 't', rows, registry });
+  const csvRows = csv.split('\n');
+  assert.ok(!csvRows[1].includes('叠.png') && csvRows[2].includes('【叠加】叠.png'));
+  const annotated = ED.buildAnnotatedMd({ title: 't', rows, issues: [], registry });
+  const back = parseAny(annotated);
+  const p = { rows: back };
+  hydrateProjectAssets(p);
+  const bl = back.filter(r => r.kind === 'line');
+  bl.forEach((r, i) => (r.no = i + 1));
+  const reg = p.assets;
+  const idOf = path => Object.values(reg).find(x => x.path === path).id;
+  assert.equal(usageList(bl[0]).find(u => u.assetId === idOf('/tmp/叠.png')).off, true);
+  assert.equal(spanText(bl, idOf('/tmp/叠.png')), '第 2 句');
+  assert.equal(usageList(bl[1]).find(u => u.assetId === idOf('/tmp/备.mp4')).role, 'alt');
+});
+test('PDF 不排备选，共用画面写明出现在哪几句', () => {
+  const rows = roleRows();
+  const registry = {};
+  const a = ensureAsset(registry, '/tmp/主.png'),
+    c = ensureAsset(registry, '/tmp/备.mp4');
+  groupRows(
+    rows,
+    rows.map(r => r.id),
+  );
+  rows.forEach(
+    r =>
+      (r.assetUsages = [
+        { assetId: a.id, role: 'main' },
+        { assetId: c.id, role: 'alt' },
+      ]),
+  );
+  applySpan(rows, a.id, 0, 1);
+  const plan = planDocument(rows, 4.5, registry);
+  const shot = plan.shots[0];
+  assert.deepEqual(shot.assets, ['/tmp/主.png']);
+  assert.equal(shot.clipLabels.get('/tmp/主.png'), '第 1–2 句 · 主画面');
+});
+
+/* ── 1.3.2：自定义类型 / 时间轴 / 导出细节 ── */
+const { normalizeTypes, typeIndex, newTypeId } = await import('../renderer/src/core/types.js');
+const { buildTimeline, lineAt, spanOf } = await import('../renderer/src/core/timeline.js');
+const { buildCsv, buildAnnotatedMd, buildAssetListMd } = await import('../renderer/src/core/export-doc.js');
+const { safeFileName } = await import('../renderer/src/core/text.js');
+const { pruneTypingJunk, usagesFromText } = await import('../renderer/src/core/asset-model.js');
+const { mdTypes } = await import('../renderer/src/core/parse.js');
+
+test('类型表清洗：去重、补默认值、封顶 9 个，空表退回默认五类', () => {
+  assert.equal(normalizeTypes(null).length, 5);
+  assert.equal(normalizeTypes([]).length, 5);
+  const t = normalizeTypes([
+    { id: 'a', label: '口播' },
+    { id: 'a', label: '重复' },
+    { id: 'bad id', label: 'x' },
+    { id: 'none', label: '保留字' },
+    ...Array.from({ length: 12 }, (_, i) => ({ id: 'k' + i, label: 'K' + i })),
+  ]);
+  assert.equal(t.length, 9);
+  assert.equal(t[0].label, '口播');
+  assert.ok(/^#[0-9a-f]{6}$/.test(t[1].color));
+  assert.equal(newTypeId([{ id: 't1' }, { id: 't2' }]), 't3');
+});
+test('类型索引：快捷键、是否需要画面、未知类型按需要画面处理', () => {
+  const ti = typeIndex([
+    { id: 'talk', label: '口播', visual: false },
+    { id: 'map', label: '地图', visual: true },
+  ]);
+  assert.equal(ti.keyToType('1'), 'talk');
+  assert.equal(ti.keyToType('2'), 'map');
+  assert.equal(ti.keyToType('0'), null);
+  assert.equal(ti.isTypeKey('3'), false);
+  assert.equal(ti.needsVisual('talk'), false);
+  assert.equal(ti.needsVisual('ghost'), true);
+  assert.equal(ti.label(null), '未标注');
+});
+test('自定义类型：交稿检查按「是否需要画面」判断，不再写死 A roll', () => {
+  const types = [
+    { id: 'talk', label: '口播', visual: false },
+    { id: 'map', label: '地图', visual: true },
+  ];
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '甲。', type: 'talk' },
+    { id: 2, kind: 'line', no: 2, text: '乙。', type: 'map' },
+  ];
+  const issues = checkDelivery(rows, types);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].id, 2);
+  assert.deepEqual(issues[0].issues, ['缺画面描述']);
+  assert.equal(normalizeProjectRows([{ kind: 'line', text: '甲', type: 'talk' }], types)[0].type, 'talk');
+  assert.equal(normalizeProjectRows([{ kind: 'line', text: '甲', type: 'talk' }])[0].type, null);
+});
+test('带批注 MD 带着自定义类型表来回不丢', () => {
+  const types = normalizeTypes([
+    { id: 'talk', label: '口播', full: '口播 · 出镜', color: '#123456', visual: false },
+    { id: 'map', label: '地图', full: '地图动画', visual: true },
+  ]);
+  const rows = [
+    { id: 1, kind: 'section', text: '开场' },
+    { id: 2, kind: 'line', text: '第一句。', type: 'talk', note: '' },
+    { id: 3, kind: 'line', text: '第二句。', type: 'map', note: '路线图\n第二行' },
+  ];
+  const md = buildAnnotatedMd({ title: '测试', rows, types });
+  const back = mdTypes(md);
+  assert.equal(back[0].color, '#123456');
+  const parsed = parseAny(md).filter(r => r.kind === 'line');
+  assert.deepEqual(
+    parsed.map(r => [r.type, r.note]),
+    [
+      ['talk', ''],
+      ['map', '路线图\n第二行'],
+    ],
+  );
+});
+test('时间轴：有口播音频没字幕时按字数比例铺满音频时长', () => {
+  const lines = [
+    { id: 1, text: '一二三四五六七八九十' },
+    { id: 2, text: '一二三四五' },
+  ];
+  const rate = buildTimeline(lines, { speechRate: 5 });
+  assert.equal(rate.source, 'rate');
+  assert.equal(rate.times.get(1).end, 2);
+  const fit = buildTimeline(lines, { voiceDuration: 30, speechRate: 5 });
+  assert.equal(fit.source, 'fit');
+  assert.equal(fit.times.get(1).end, 20);
+  assert.equal(fit.times.get(2).start, 20);
+  assert.equal(fit.times.get(2).end, 30);
+  assert.equal(fit.rate, 0.5);
+  assert.equal(lineAt(fit, [1, 2], 25), 2);
+  assert.equal(lineAt(fit, [1, 2], 3), 1);
+  assert.deepEqual(spanOf(fit, [1, 2]), { start: 0, end: 30 });
+});
+test('时间轴：字幕时间优先；对齐后新加的句子夹在前后之间按字数分', () => {
+  const lines = [
+    { id: 1, text: '甲乙', time: { start: 1, end: 2, st: 'ok' } },
+    { id: 2, text: '新加的句子' },
+    { id: 3, text: '丙丁', time: { start: 5, end: 6, st: 'low' } },
+  ];
+  const tl = buildTimeline(lines, { voiceDuration: 60 });
+  assert.equal(tl.source, 'srt');
+  assert.deepEqual(tl.times.get(2), { start: 2, end: 5, src: 'gap' });
+  assert.equal(tl.times.get(3).st, 'low');
+  assert.equal(tl.total, 60);
+});
+test('CSV：共用画面写成人话、防公式注入；有口播音频时带开始结束时间', () => {
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '=SUM(1)', type: 'real', groupId: 'shot-x' },
+    { id: 2, kind: 'line', no: 2, text: '第二句', type: 'real', groupId: 'shot-x' },
+  ];
+  const csv = buildCsv({ title: 't', rows, voiceDuration: 10 });
+  assert.ok(csv.includes('"第 1–2 句"'));
+  assert.ok(!csv.includes('shot-x'));
+  assert.ok(csv.includes(`"'=SUM(1)"`));
+  assert.ok(csv.includes('开始时间') && csv.includes('按音频推算'));
+  const list = buildAssetListMd({ title: 't', rows, voiceDuration: 10 });
+  assert.ok(list.includes('按口播音频时长推算'));
+});
+test('导出文件名：去掉 / : 等会被当成路径的字符', () => {
+  assert.equal(safeFileName('A/B:测试?'), 'A-B-测试-');
+  assert.equal(safeFileName('  '), '未命名项目');
+});
+test('素材路径打字残留：只清没被引用、且是别的路径前缀的条目', () => {
+  const reg = {};
+  for (let i = 1; i <= 8; i++) usagesFromText(reg, [], '/a/b.mp4'.slice(0, i));
+  const keep = Object.values(reg).find(a => a.path === '/a/b.mp4').id;
+  const other = usagesFromText(reg, [], '/x/独立素材.png')[0].assetId;
+  const removed = pruneTypingJunk(reg, new Set([keep]));
+  assert.equal(removed, 7);
+  assert.deepEqual(Object.keys(reg).sort(), [keep, other].sort());
+});
+
+/* ── 1.6：合并后的交叉点 ── */
+const { firstVisualUsage } = await import('../renderer/src/core/asset-model.js');
+test('连播预览取这句出现的主画面：备选、叠加、不在这句的都不上屏', () => {
+  const reg = {
+    m: { id: 'm', kind: 'image', path: '/a/主.png' },
+    o: { id: 'o', kind: 'image', path: '/a/叠.png' },
+    x: { id: 'x', kind: 'video', path: '/a/备.mp4' },
+    n: { id: 'n', kind: 'video', path: '/a/后.mp4' },
+  };
+  const row = {
+    assetUsages: [
+      { assetId: 'x', role: 'alt' },
+      { assetId: 'o', role: 'overlay' },
+      { assetId: 'n', role: 'main', off: true },
+      { assetId: 'm', role: 'main' },
+    ],
+  };
+  assert.equal(firstVisualUsage(reg, row).asset.id, 'm');
+  row.assetUsages[3].off = true;
+  assert.equal(firstVisualUsage(reg, row), null);
+  assert.equal(firstVisualUsage(reg, { assetUsages: [{ assetId: 'n' }] }).asset.id, 'n', '未分配的也算');
+});
+test('PDF 按自定义类型排版：类型名、颜色，不需要配画面的不写「画面待定」', () => {
+  const types = [
+    { id: 'talk', label: '口播', full: '口播出镜', color: '#112233', visual: false },
+    { id: 'map', label: '地图', full: '地图动画', color: '#445566', visual: true },
+  ];
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '甲。', type: 'talk' },
+    { id: 2, kind: 'line', no: 2, text: '乙。', type: 'map' },
+  ];
+  const doc = buildPrintDoc({ title: 't', rows, types }, { date: 'd' });
+  assert.ok(doc.html.includes('口播出镜') && doc.html.includes('地图动画'));
+  assert.ok(doc.html.includes('--tc:#445566'));
+  assert.equal((doc.html.match(/画面待定/g) || []).length, 1);
+  const fit = planDocument(rows, 4.5, {}, { types, voiceDuration: 10 });
+  assert.equal(fit.source, 'fit');
+  assert.equal(Math.round(fit.seconds), 10);
+});
+
+/* ── 1.8：一个镜头多个主画面 + 手动出现时间 ── */
+const { layoutShot, itemAt, clampSpan } = await import('../renderer/src/core/shot-layout.js');
+const L8 = () => {
+  // 三句，每句 9 个字 → 语速 4.5 字/秒 时每句 2 秒，整段 6 秒
+  const rows = [1, 2, 3].map(i => ({ id: i, kind: 'line', no: i, text: '一二三四五六七八九', type: 'real' }));
+  rows.forEach(r => (r.groupId = 'g8'));
+  return rows;
+};
+const REG8 = {
+  a: { id: 'a', kind: 'image', path: '/a/甲.png', name: '甲' },
+  b: { id: 'b', kind: 'video', path: '/a/乙.mp4', name: '乙', durationSec: 3 },
+  c: { id: 'c', kind: 'image', path: '/a/丙.png', name: '丙' },
+};
+const tl8 = rows => buildTimeline(rows, { speechRate: 4.5 });
+const spans = lay => lay.items.map(it => [it.assetId, +it.start.toFixed(2), +it.end.toFixed(2)]);
+const setUs = (rows, us) =>
+  rows.forEach(r => (r.assetUsages = us.map(u => ({ ...u, ...(u.at ? { at: { ...u.at } } : {}) }))));
+test('镜头排布：一个主画面铺满整段；两个都是整段时平分', () => {
+  const rows = L8();
+  setUs(rows, [{ assetId: 'a', role: 'main' }]);
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [['a', 0, 6]]);
+  setUs(rows, [
+    { assetId: 'a', role: 'main' },
+    { assetId: 'b', role: 'main' },
+  ]);
+  const lay = layoutShot(REG8, rows, tl8(rows));
+  assert.deepEqual(spans(lay), [
+    ['a', 0, 3],
+    ['b', 3, 6],
+  ]);
+  assert.deepEqual(
+    lay.items.map(i => i.n),
+    [1, 2],
+  );
+  assert.equal(lay.timed, false);
+});
+test('镜头排布：按句子范围各占各的，叠加和备选不上屏', () => {
+  const rows = L8();
+  setUs(rows, [
+    { assetId: 'a', role: 'main' },
+    { assetId: 'b', role: 'main' },
+    { assetId: 'c', role: 'alt' },
+  ]);
+  rows[1].assetUsages[0].off = true;
+  rows[2].assetUsages[0].off = true; // 甲只在第 1 句
+  rows[0].assetUsages[1].off = true; // 乙在第 2–3 句
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [
+    ['a', 0, 2],
+    ['b', 2, 6],
+  ]);
+});
+test('镜头排布：手动秒数照放，空着的地方是空白，超出口播的标出来', () => {
+  const rows = L8();
+  setUs(rows, [
+    { assetId: 'a', role: 'main', at: { start: 1, end: 3.5, of: 1 } },
+    { assetId: 'b', role: 'main', at: { start: 4, end: 7, of: 1 } },
+  ]);
+  const lay = layoutShot(REG8, rows, tl8(rows));
+  assert.equal(lay.timed, true);
+  assert.deepEqual(spans(lay), [
+    ['a', 1, 3.5],
+    ['b', 4, 7],
+  ]);
+  assert.equal(itemAt(lay, 0.5), null, '0–1 秒空白');
+  assert.equal(itemAt(lay, 2).assetId, 'a');
+  assert.equal(itemAt(lay, 3.7), null, '3.5–4 秒空白');
+  assert.equal(itemAt(lay, 5.9).assetId, 'b');
+  assert.equal(lay.items[1].over, true, '乙到 7 秒，口播只有 6 秒');
+});
+test('镜头排布：镜头第一句变了（拆分 / 往前并句）手动秒数作废，退回按句子', () => {
+  const rows = L8();
+  setUs(rows, [{ assetId: 'a', role: 'main', at: { start: 1, end: 2, of: 99 } }]);
+  const lay = layoutShot(REG8, rows, tl8(rows));
+  assert.equal(lay.timed, false);
+  assert.deepEqual(spans(lay), [['a', 0, 6]]);
+});
+test('镜头排布：调过秒数后新加的主画面放进末尾空着的时间；没空就分最后一个的后一半', () => {
+  const rows = L8();
+  setUs(rows, [
+    { assetId: 'a', role: 'main', at: { start: 0, end: 4, of: 1 } },
+    { assetId: 'b', role: 'main' },
+  ]);
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [
+    ['a', 0, 4],
+    ['b', 4, 6],
+  ]);
+  setUs(rows, [
+    { assetId: 'a', role: 'main', at: { start: 0, end: 6, of: 1 } },
+    { assetId: 'b', role: 'main' },
+  ]);
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [
+    ['a', 0, 3],
+    ['b', 3, 6],
+  ]);
+});
+test('镜头排布：没有主画面时退回第一个未分配的画面（旧项目）', () => {
+  const rows = L8();
+  setUs(rows, [{ assetId: 'c' }, { assetId: 'a' }]);
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [['c', 0, 6]]);
+});
+test('拖动约束：不出口播、不压前后画面、最短 0.2 秒、平移保持长度', () => {
+  const items = [
+    { start: 0, end: 2 },
+    { start: 3, end: 5 },
+  ];
+  assert.deepEqual(clampSpan(items, 1, 1, 5, 6, 'start'), { start: 2, end: 5 });
+  assert.deepEqual(clampSpan(items, 0, 0, 4, 6, 'end'), { start: 0, end: 3 });
+  assert.deepEqual(clampSpan(items, 1, 5, 7, 6, 'move'), { start: 4, end: 6 });
+  assert.deepEqual(clampSpan(items, 1, 4.95, 5, 6, 'start'), { start: 4.8, end: 5 });
+});
+test('手动出现时间随项目保存、载入不丢', () => {
+  const p = {
+    assets: { a: { id: 'a', kind: 'image', path: '/a/甲.png' } },
+    rows: [
+      {
+        id: 1,
+        kind: 'line',
+        text: '甲',
+        assetUsages: [{ assetId: 'a', role: 'main', at: { start: 1, end: 2.5, of: 1 } }],
+      },
+    ],
+  };
+  hydrateProjectAssets(p);
+  assert.deepEqual(p.rows[0].assetUsages[0].at, { start: 1, end: 2.5, of: 1 });
+  p.rows[0].assetUsages[0].at = { start: 2, end: 1, of: 1 };
+  hydrateProjectAssets(p);
+  assert.equal(p.rows[0].assetUsages[0].at, undefined, '不合法的时间丢掉');
 });
 console.log(`${count} 项数据回归通过`);

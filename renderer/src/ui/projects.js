@@ -1,0 +1,253 @@
+/* 多项目管理：顶栏「项目」菜单（列表 / 新建 / 切换 / 删除 / 最近删除 / 从备份恢复）+ 标题改名 */
+import { state, update } from '../app/state.js';
+import * as storage from '../app/storage.js';
+import { clearUndo } from '../app/undo.js';
+import { renameProject } from '../app/actions.js';
+import { demoProject } from '../core/demo.js';
+import * as native from '../platform/native.js';
+import { toast, confirmModal, esc } from './dom.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor } from './popover.js';
+import { armAnimation } from './anim.js';
+import { registerCommand, runCommand } from './commands.js';
+
+const timeAgo = t => {
+  const s = (Date.now() - t) / 1000;
+  if (s < 60) return '刚刚';
+  if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+  return Math.floor(s / 86400) + ' 天前';
+};
+const lineCount = p => (p.rows || []).filter(r => r.kind === 'line').length;
+const FOLDER =
+  '<svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+
+/* 换了项目（切换 / 新建 / 删除当前 / 恢复）后的统一收尾 */
+function afterProjectChange(msg) {
+  clearUndo();
+  armAnimation();
+  update('rows');
+  if (msg) toast(msg);
+}
+
+function openProjectsMenu(anchor) {
+  const list = storage
+    .allProjects()
+    .map(p => {
+      const cur = p.id === state.projectId;
+      return `<div class="pop-item" data-proj="${esc(p.id)}">${FOLDER}
+      <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}</span></span>
+      ${cur ? '<span class="chk">✓</span>' : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.2A2 2 0 0 0 9.3 20h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v5M14 11v5"/></svg></button>`}
+    </div>`;
+    })
+    .join('');
+  const trashN = storage.trashList().length;
+  openMenu(
+    anchor,
+    `
+    <div class="p-title">项目（存本机：菜单 文件 → 打开数据文件夹）</div>
+    ${list}
+    <div class="pop-sep"></div>
+    <div class="pop-item" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>新建空项目</span></div>
+    <div class="pop-item" data-projact="demo"><svg class="mi" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3M21 3v6h-6"/></svg><span>新建示例稿项目</span></div>
+    <div class="pop-item" data-projact="types"><svg class="mi" viewBox="0 0 24 24"><circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="7" cy="17" r="3"/><circle cx="17" cy="17" r="3"/></svg><span class="main">本项目的标注类型…<span class="desc">改名字、颜色、快捷键，增删类型</span></span></div>
+    <div class="pop-sep"></div>
+    ${trashN ? `<div class="pop-item" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2m-1 0v14H9V6"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
+    <div class="pop-item" data-projact="backup"><svg class="mi" viewBox="0 0 24 24"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/></svg><span>从自动备份恢复…</span></div>
+  `,
+  );
+  markPopAnchor(anchor);
+}
+
+function openTrashMenu(anchor) {
+  const list = storage.trashList();
+  openMenu(
+    anchor,
+    !list.length
+      ? `<div class="p-title">最近删除是空的</div>`
+      : `<div class="p-title">最近删除（30 天后自动清掉）</div>` +
+          list
+            .map(
+              x =>
+                `<div class="pop-item" data-untrash="${esc(x.project.id)}">${FOLDER}<span class="main"><span>${esc(x.project.title || '未命名')}</span><span class="desc">${lineCount(x.project)} 句 · ${timeAgo(x.deletedAt)}删除 · 点击找回</span></span></div>`,
+            )
+            .join(''),
+  );
+  markPopAnchor(anchor);
+}
+
+async function openBackupMenu(anchor) {
+  const list = await native.listBackups();
+  openMenu(
+    anchor,
+    !list.length
+      ? `<div class="p-title">暂无备份（写盘时每 30 分钟自动备份一份：24 小时内全留，更早的每天留一份、保留 30 天）</div>`
+      : `<div class="p-title">选一个时间点（下一步可选：只取回某个项目，或整库恢复）</div>` +
+          list
+            .map(
+              b =>
+                `<div class="pop-item" data-backup="${esc(b.f)}"><span>${esc(b.f.replace(/^备份-|\.json$/g, ''))}</span><span class="sub">${timeAgo(b.t)}</span></div>`,
+            )
+            .join(''),
+  );
+  markPopAnchor(anchor);
+}
+
+/* 选了一个备份：列出里面的项目，可以只取回一个（作为新项目，不动现有项目），或整库替换 */
+async function openBackupDetail(anchor, file) {
+  const r = await native.restoreBackup(file);
+  if (!r?.ok) return toast('备份读取失败');
+  const projects = Object.values(r.data.projects || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  openMenu(
+    anchor,
+    `<div class="p-title">备份 ${esc(file.replace(/^备份-|\.json$/g, ''))} 里的项目 · 点一个只取回它</div>` +
+      projects
+        .map(
+          p =>
+            `<div class="pop-item" data-backup-one="${esc(p.id)}" data-backup-file="${esc(file)}">${FOLDER}<span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · 当时 ${timeAgo(p.updatedAt || Date.now())}改过 · 作为新项目加回来</span></span></div>`,
+        )
+        .join('') +
+      `<div class="pop-sep"></div><div class="pop-item danger" data-backup-all="${esc(file)}"><span class="main">整库恢复到这个时间点<span class="desc">当前所有项目会被替换（数据损坏时兜底用）</span></span></div>`,
+  );
+  markPopAnchor(anchor);
+}
+
+function confirmDelete(id) {
+  const p = storage.allProjects().find(x => x.id === id);
+  closePop();
+  confirmModal(
+    `删除项目「${p?.title || '未命名'}」？`,
+    '删除后 30 天内可以在「项目 → 最近删除」里找回。',
+    '删除',
+    () => {
+      if (storage.allProjects().length <= 1) return toast('至少保留一个项目');
+      const wasCurrent = id === state.projectId;
+      if (storage.deleteProject(id)) {
+        // 只有删的是当前项目才需要换内容；删别的项目时当前的撤销记录和光标原样保留
+        if (wasCurrent) afterProjectChange();
+        toast('项目已删除，可在「最近删除」找回');
+      }
+    },
+  );
+}
+
+/* 新建空项目：原生菜单「新建项目」和项目菜单共用这一条路 */
+export function newEmptyProject() {
+  storage.createProject('未命名项目', []);
+  afterProjectChange('已新建项目，先给它起个名');
+  const t = document.querySelector('#projTitle');
+  t.textContent = state.title;
+  t.focus();
+  const r = document.createRange();
+  r.selectNodeContents(t);
+  const s = getSelection();
+  s.removeAllRanges();
+  s.addRange(r);
+}
+
+export function initProjects() {
+  registerCommand('project:new', newEmptyProject);
+  document.querySelector('#btnProjects').onclick = e => {
+    e.stopPropagation();
+    if (popOpenFor(e.currentTarget)) return closePop();
+    openProjectsMenu(e.currentTarget);
+  };
+  const btn = () => document.querySelector('#btnProjects');
+
+  document.addEventListener(
+    'click',
+    async e => {
+      if (!document.querySelector('.popover')) return;
+      const del = e.target.closest('[data-projdel]');
+      if (del) {
+        e.stopPropagation();
+        confirmDelete(del.dataset.projdel);
+        return;
+      }
+      const proj = e.target.closest('[data-proj]');
+      if (proj) {
+        const id = proj.dataset.proj;
+        if (id !== state.projectId && storage.switchProject(id)) afterProjectChange(`已切换到「${state.title}」`);
+        closePop();
+        return;
+      }
+      const act = e.target.closest('[data-projact]');
+      if (act) {
+        closePop();
+        const a = act.dataset.projact;
+        if (a === 'new') newEmptyProject();
+        if (a === 'demo') {
+          const d = demoProject();
+          storage.createProject(d.title, d.rows);
+          afterProjectChange('示例稿项目已新建');
+        }
+        if (a === 'types') runCommand('types:edit');
+        if (a === 'trash') setTimeout(() => openTrashMenu(btn()), 0);
+        if (a === 'backup') setTimeout(() => openBackupMenu(btn()), 0);
+        return;
+      }
+      const un = e.target.closest('[data-untrash]');
+      if (un) {
+        closePop();
+        if (storage.restoreFromTrash(un.dataset.untrash)) toast('项目已找回，在「项目」列表里');
+        return;
+      }
+      const bk = e.target.closest('[data-backup]');
+      if (bk) {
+        const f = bk.dataset.backup;
+        closePop();
+        setTimeout(() => openBackupDetail(btn(), f), 0);
+        return;
+      }
+      const one = e.target.closest('[data-backup-one]');
+      if (one) {
+        closePop();
+        const r = await native.restoreBackup(one.dataset.backupFile);
+        const p = r?.ok && r.data.projects?.[one.dataset.backupOne];
+        if (!p) return toast('备份读取失败');
+        storage.importProjectCopy(p);
+        toast(`已把「${p.title || '未命名'}」作为新项目取回，现有项目没动`);
+        return;
+      }
+      const all = e.target.closest('[data-backup-all]');
+      if (all) {
+        const f = all.dataset.backupAll;
+        closePop();
+        confirmModal(
+          '整库恢复到这个备份？',
+          '当前所有项目会被备份里的版本整个替换（用于数据损坏时兜底）。',
+          '整库恢复',
+          async () => {
+            const r = await native.restoreBackup(f);
+            if (r?.ok && storage.restoreLibrary(r.data)) afterProjectChange('已恢复到备份');
+            else toast('备份读取失败');
+          },
+        );
+      }
+    },
+    true,
+  );
+
+  // 项目改名：标题直接编辑；Esc 恢复改名前的标题；清空了就还原
+  const title = document.querySelector('#projTitle');
+  let titleBefore = '';
+  title.addEventListener('focus', () => {
+    titleBefore = state.title;
+  });
+  title.addEventListener('input', () => renameProject(title.textContent.trim()));
+  title.addEventListener('blur', () => {
+    if (!title.textContent.trim()) {
+      title.textContent = titleBefore || '未命名项目';
+      renameProject(title.textContent);
+    }
+  });
+  title.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      title.blur();
+    } else if (e.key === 'Escape') {
+      title.textContent = titleBefore;
+      renameProject(titleBefore);
+      title.blur();
+    }
+  });
+}

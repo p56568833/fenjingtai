@@ -42,6 +42,10 @@ for (const ffmpeg of ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr
       ['-y', '-f', 'lavfi', '-i', 'color=c=blue:s=320x240:d=2', '-pix_fmt', 'yuv420p', path.join(fixDir, '样片.mp4')],
       { stdio: 'ignore' },
     );
+    // 口播音频：8 秒正弦波（测逐句播放、按音频长度推算时间）
+    execFileSync(ffmpeg, ['-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=8', path.join(fixDir, '口播.wav')], {
+      stdio: 'ignore',
+    });
     break;
   } catch {}
 }
@@ -86,11 +90,11 @@ try {
   const page = (await b.pages()).find(p => p.url().includes('renderer/index.html'));
   if (!page) throw new Error('没找到自测页面');
   let result = null;
-  for (let i = 0; i < 80 && !result; i++) {
+  for (let i = 0; i < 360 && !result; i++) {
     result = await page.evaluate(() => window.__SELFTEST_RESULT__ || null);
     if (!result) await sleep(250);
   }
-  if (!result) throw new Error('自测 20 秒内没跑完');
+  if (!result) throw new Error('自测 90 秒内没跑完');
   const line = (ok, name, detail) => `${ok ? '✓' : '✗'} ${name}${detail ? '  — ' + detail : ''}`;
   console.log(`\n自测结果：${result.total - result.failed}/${result.total} 通过\n`);
   for (const c of result.cases) console.log(line(c.ok, c.name, c.ok ? '' : c.detail));

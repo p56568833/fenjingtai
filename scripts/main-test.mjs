@@ -164,16 +164,163 @@ test('readScriptFile：docx / GBK 编码 txt / 不支持的后缀', () => {
 
 /* ── 打包白名单 ── */
 test('打包只带 electron / renderer / package.json，备份与自测文件不进安装包', () => {
-  for (const p of ['/package.json', '/electron/main.js', '/renderer/index.html', '/renderer/src/state.js'])
+  for (const p of ['/package.json', '/electron/main.js', '/renderer/index.html', '/renderer/src/app/state.js'])
     assert.equal(shouldIgnore(p), false, p);
   for (const p of [
     '/备份-2026-09-23/分镜台.app',
     '/分镜台.html',
     '/node_modules/x',
     '/renderer/src/selftest.js',
+    '/renderer/src/test/selftest.js',
+    '/renderer/src/test/workspace-selftest.js',
     '/scripts/test.mjs',
   ])
     assert.equal(shouldIgnore(p), true, p);
+});
+
+/* ── 视频审核（1.5） ── */
+const vt = require('../electron/video-tools.js');
+const atest = async (name, fn) => {
+  await fn();
+  count++;
+  console.log('✓', name);
+};
+test('视频片段文件名：中文安全、带入出点，重名不覆盖', () => {
+  assert.equal(vt.segmentFileBase('福特 1922: 肉类/加工', 101, 110.4), '福特 1922- 肉类-加工_1m41s-1m50s');
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'a.mp4'), '');
+  fs.writeFileSync(path.join(dir, 'a (2).mp4'), '');
+  assert.equal(vt.uniquePath(dir, 'a', '.mp4'), path.join(dir, 'a (3).mp4'));
+  const args = vt.segmentArgs('https://x/v.mp4', 101, 110, '/o.mp4');
+  assert.deepEqual(args.slice(args.indexOf('-ss'), args.indexOf('-ss') + 6), [
+    '-ss',
+    '101',
+    '-i',
+    'https://x/v.mp4',
+    '-t',
+    '9',
+  ]);
+  assert.equal(args.at(-1), '/o.mp4');
+});
+await atest('只保存那几秒：调用 ffmpeg 截取入点到出点，成功后改名；没装 ffmpeg 给出安装提示', async () => {
+  const dir = tmp();
+  let seen = null;
+  const run = async (bin, args) => {
+    seen = { bin, args };
+    fs.writeFileSync(args.at(-1), 'x');
+    return { ok: true };
+  };
+  const r = await vt.saveSegment(
+    { url: 'https://archive.org/download/a/a.mp4#t=1,2', start: 101, end: 110, dir, name: '福特肉类加工' },
+    { ffmpeg: '/bin/ffmpeg', run },
+  );
+  assert.ok(r.ok);
+  assert.equal(path.basename(r.path), '福特肉类加工_1m41s-1m50s.mp4');
+  assert.ok(fs.existsSync(r.path) && !fs.existsSync(r.path + '.part.mp4'));
+  assert.equal(seen.args[seen.args.indexOf('-i') + 1], 'https://archive.org/download/a/a.mp4', '去掉 #t 片段标记');
+  const none = await vt.saveSegment({ url: 'https://x/v.mp4', start: 1, end: 2, dir, name: 'v' }, { ffmpeg: null });
+  assert.equal(none.needFfmpeg, true);
+  assert.match(none.error, /brew install ffmpeg/);
+  const failed = await vt.saveSegment(
+    { url: 'https://x/v.mp4', start: 1, end: 2, dir, name: '失败' },
+    { ffmpeg: '/bin/ffmpeg', run: async (b, a) => (fs.writeFileSync(a.at(-1), 'half'), { ok: false, error: '404' }) },
+  );
+  assert.equal(failed.ok, false);
+  assert.ok(!fs.readdirSync(dir).some(f => f.startsWith('失败')), '失败时不留半截文件');
+  assert.equal(
+    (
+      await vt.saveSegment(
+        { url: 'file:///etc/passwd', start: 1, end: 2, dir, name: 'x' },
+        { ffmpeg: '/bin/ffmpeg', run },
+      )
+    ).ok,
+    false,
+  );
+  assert.equal(
+    (await vt.saveSegment({ url: 'https://x/v.mp4', start: 5, end: 2, dir, name: 'x' }, { ffmpeg: '/bin/ffmpeg', run }))
+      .ok,
+    false,
+  );
+});
+await atest('下载完整原片：跟随跳转，写临时文件再改名，命名「…_完整原片」', async () => {
+  const { EventEmitter, PassThrough } = await import('node:events').then(async m => ({
+    ...m,
+    ...(await import('node:stream')),
+  }));
+  const dir = tmp();
+  const get = u => {
+    const req = new EventEmitter();
+    setImmediate(() => {
+      const res = new PassThrough();
+      if (u.includes('/download/')) {
+        res.statusCode = 302;
+        res.headers = { location: 'https://ia800.us.archive.org/real/a.mp4' };
+      } else {
+        res.statusCode = 200;
+        res.headers = { 'content-length': '5' };
+      }
+      req.emit('response', res);
+      res.end(res.statusCode === 200 ? 'hello' : '');
+    });
+    return req;
+  };
+  const r = await vt.downloadOriginal({ url: 'https://archive.org/download/a/a.mp4', dir, name: '福特' }, { get });
+  assert.ok(r.ok, r.error);
+  assert.equal(path.basename(r.path), '福特_完整原片.mp4');
+  assert.equal(fs.readFileSync(r.path, 'utf8'), 'hello');
+});
+test('审核结果写回候选清单：只改 fenjingtai-candidates 文件，按 句号|编号 对上', () => {
+  const dir = tmp();
+  const f = path.join(dir, '候选.json');
+  fs.writeFileSync(
+    f,
+    JSON.stringify({
+      type: 'fenjingtai-candidates',
+      version: 1,
+      shots: [{ lines: '101-103', cands: [{ key: 'A1' }, { key: 'A2' }] }],
+    }),
+  );
+  const r = vt.writeReview(
+    f,
+    [
+      { key: 'A1', lines: '101-103', decision: 'ok', note: '好', savedPath: '/x.mp4' },
+      { key: 'A2', lines: '9', decision: 'no' },
+    ],
+    { now: () => 'T' },
+  );
+  assert.deepEqual(r, { ok: true, updated: 1 });
+  const doc = JSON.parse(fs.readFileSync(f, 'utf8'));
+  assert.deepEqual(doc.shots[0].cands[0].review, { decision: 'ok', note: '好', savedPath: '/x.mp4', at: 'T' });
+  assert.equal(doc.shots[0].cands[1].review, undefined);
+  assert.equal(doc.reviewedAt, 'T');
+  const other = path.join(dir, '项目.json');
+  fs.writeFileSync(other, '{"v":2}');
+  assert.equal(vt.writeReview(other, []).ok, false);
+  assert.equal(fs.readFileSync(other, 'utf8'), '{"v":2}');
+  assert.equal(vt.writeReview(path.join(dir, 'a.txt'), []).ok, false);
+});
+
+/* ── 增量保存 ── */
+test('增量保存：只改动过的项目被替换，null 删除项目，其余原样保留', () => {
+  const dir = tmp();
+  const store = createStore(() => dir);
+  store.save({
+    v: 2,
+    currentId: 'p1',
+    projects: { p1: { id: 'p1', title: 'A', rows: [] }, p2: { id: 'p2', title: 'B', rows: [] } },
+  });
+  store.savePatch({ currentId: 'p2', settings: { x: 1 }, projects: { p1: { id: 'p1', title: 'A2', rows: [] } } });
+  let disk = JSON.parse(fs.readFileSync(store.paths.LIB(), 'utf8'));
+  assert.equal(disk.projects.p1.title, 'A2');
+  assert.equal(disk.projects.p2.title, 'B');
+  assert.equal(disk.currentId, 'p2');
+  assert.deepEqual(disk.settings, { x: 1 });
+  store.savePatch({ currentId: 'p2', projects: { p1: null } });
+  disk = JSON.parse(fs.readFileSync(store.paths.LIB(), 'utf8'));
+  assert.ok(!disk.projects.p1 && disk.projects.p2);
+  assert.throws(() => store.savePatch({ projects: { p2: null } }), /空的项目库/);
+  store.savePatch({ full: lib('整库') });
+  assert.equal(store.load().projects.p1.title, '整库');
 });
 
 console.log(`${count} 项主进程回归通过`);

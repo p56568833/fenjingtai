@@ -139,11 +139,33 @@ function createStore(dataDir) {
     }
   }
 
+  /* 增量保存：渲染层只发改动过的项目（null = 删除）+ 当前项目 id / 设置 / 回收站；
+     这里并进内存里的整库再整文件原子写。{ full } = 整库替换（恢复备份时）。 */
+  function savePatch(patch) {
+    if (!patch || typeof patch !== 'object') throw new Error('无效的保存内容');
+    if (patch.full) {
+      if (!validLibrary(patch.full)) throw new Error('无效的项目库');
+      return save(patch.full);
+    }
+    const base = load() || { v: 2, projects: {} };
+    const merged = { ...base, projects: { ...base.projects } };
+    if (typeof patch.currentId === 'string') merged.currentId = patch.currentId;
+    if (patch.settings && typeof patch.settings === 'object') merged.settings = patch.settings;
+    if (patch.trash && typeof patch.trash === 'object') merged.trash = patch.trash;
+    for (const [id, p] of Object.entries(patch.projects || {})) {
+      if (p === null) delete merged.projects[id];
+      else if (p && typeof p === 'object' && Array.isArray(p.rows)) merged.projects[id] = p;
+    }
+    if (!Object.keys(merged.projects).length) throw new Error('拒绝写入空的项目库');
+    return save(merged);
+  }
+
   function save(library) {
     fs.mkdirSync(dataDir(), { recursive: true });
     maybeBackup();
     writeAtomic(LIB(), JSON.stringify(library));
     cache = library;
+    loaded = true;
     return true;
   }
 
@@ -161,6 +183,7 @@ function createStore(dataDir) {
   return {
     load,
     save,
+    savePatch,
     listBackups,
     readBackup,
     maybeBackup,

@@ -17,7 +17,8 @@ mkdirSync(staging, { recursive: true });
 for (const item of ['electron', 'renderer', 'package.json'])
   cpSync(path.join(ROOT, item), path.join(staging, item), {
     recursive: true,
-    filter: src => !/selftest\.js$/.test(src) && !/\.DS_Store$/.test(src),
+    filter: src =>
+      !/selftest\.js$/.test(src) && !/[\\/]renderer[\\/]src[\\/]test([\\/]|$)/.test(src) && !/\.DS_Store$/.test(src),
   });
 const version = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 try {

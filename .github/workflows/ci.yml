@@ -1,0 +1,17 @@
+# 每次 push / PR：数据层与主进程回归 + ESLint（含分层规则）+ 格式检查。
+# 桌面交互自测需要起 Electron 窗口，在本机用 npm test 跑。
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always
+      - run: npm run test:data
+      - run: npm run lint
+      - run: npx prettier --check "electron/**/*.js" "renderer/**/*.{js,css,html}" "scripts/**/*.mjs"
