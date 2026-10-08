@@ -501,6 +501,7 @@ export async function runSelfTest() {
   await suite('素材', './assets-selftest.js', 'runAssetTests');
   await suite('共用范围', './group-selftest.js', 'runGroupRangeTests');
   await suite('工作流', './workspace-selftest.js', 'runWorkspaceTests');
+  await suite('面板阅读位置', './inspector-scroll-selftest.js', 'runInspectorScrollTests');
   await suite('1.3 新功能', './features-selftest.js', 'runFeatureTests');
   await suite('1.4 素材角色', './roles-selftest.js', 'runRoleTests');
   await suite('1.5 视频审核', './video-review-selftest.js', 'runVideoReviewTests');

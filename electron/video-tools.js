@@ -45,7 +45,7 @@ function findFfmpeg(extra = []) {
 }
 /* 截取参数：-ss 放在 -i 前面，ffmpeg 只按需读取那一段（mp4 / webm 都支持按范围请求），
    再重新编码保证从入点那一帧开始，而不是跳到前一个关键帧 */
-function segmentArgs(url, start, end, out) {
+function segmentArgs(url, start, end, out, seekAfterInput = false) {
   const dur = Math.max(0.1, Number(end) - Number(start));
   return [
     '-hide_banner',
@@ -55,10 +55,9 @@ function segmentArgs(url, start, end, out) {
     '-progress',
     'pipe:1', // 机器可读的进度（out_time_us=…）写到 stdout，界面据此显示百分比
     '-y',
-    '-ss',
-    String(Math.max(0, Number(start))),
-    '-i',
-    url,
+    ...(seekAfterInput
+      ? ['-i', url, '-ss', String(Math.max(0, Number(start)))]
+      : ['-ss', String(Math.max(0, Number(start))), '-i', url]),
     '-t',
     String(dur),
     '-map',
@@ -98,9 +97,17 @@ function progressSeconds(chunk) {
 function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000, onProgress } = {}) {
   return new Promise(resolve => {
     let err = '';
+    let output = '';
+    let frames = 0;
     const p = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     p.stdout.on('data', d => {
-      const sec = progressSeconds(d);
+      output += d.toString();
+      const end = output.lastIndexOf('\n');
+      if (end < 0) return;
+      const lines = output.slice(0, end + 1);
+      output = output.slice(end + 1);
+      for (const m of lines.matchAll(/^frame=(\d+)/gm)) frames = Math.max(frames, +m[1]);
+      const sec = progressSeconds(lines);
       if (sec != null && onProgress) onProgress(sec);
     });
     const timer = setTimeout(() => {
@@ -116,10 +123,18 @@ function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000, onProgress } = {}) {
     });
     p.on('close', code => {
       clearTimeout(timer);
+      const empty = code === 0 && frames === 0;
       resolve(
-        code === 0
-          ? { ok: true }
-          : { ok: false, error: (err.trim().split('\n').pop() || `ffmpeg 退出码 ${code}`).slice(0, 300) },
+        code === 0 && !empty
+          ? { ok: true, frames }
+          : {
+              ok: false,
+              error: empty
+                ? /HTTP error 429|Too many requests/i.test(err)
+                  ? '视频来源请求过多（HTTP 429），没有截到画面，请稍后再试'
+                  : '没有截到视频画面，请检查片段时间和视频链接'
+                : (err.trim().split('\n').pop() || `ffmpeg 退出码 ${code}`).slice(0, 300),
+            },
       );
     });
   });
@@ -148,9 +163,24 @@ async function saveSegment(
   const out = uniquePath(dir, segmentFileBase(name, start, end), '.mp4');
   const tmp = out + '.part.mp4';
   const dur = Math.max(0.1, Number(end) - Number(start));
-  const r = await run(ffmpeg, segmentArgs(url.split('#')[0], start, end, tmp), {
-    onProgress: sec => onProgress?.(Math.max(0, Math.min(1, sec / dur))),
-  });
+  const attempt = async seekAfterInput => {
+    const result = await run(ffmpeg, segmentArgs(url.split('#')[0], start, end, tmp, seekAfterInput), {
+      onProgress: sec => onProgress?.(Math.max(0, Math.min(1, sec / dur))),
+    });
+    if (!result.ok) return result;
+    let size = 0;
+    try {
+      size = fs.statSync(tmp).size;
+    } catch {}
+    return size >= 1024 ? result : { ok: false, error: '没有截到有效的视频画面' };
+  };
+  let r = await attempt(false);
+  // 一些视频站点拒绝随机跳转请求，却允许从头顺序读取；只在空片段或限流时再试一次。
+  if (!r.ok && /没有截到|HTTP 429|Too many requests/i.test(r.error || '')) {
+    fs.rmSync(tmp, { force: true });
+    onProgress?.(0);
+    r = await attempt(true);
+  }
   if (!r.ok) {
     try {
       fs.rmSync(tmp, { force: true });

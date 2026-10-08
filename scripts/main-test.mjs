@@ -236,7 +236,7 @@ await atest('只保存那几秒：调用 ffmpeg 截取入点到出点，成功�
   let seen = null;
   const run = async (bin, args) => {
     seen = { bin, args };
-    fs.writeFileSync(args.at(-1), 'x');
+    fs.writeFileSync(args.at(-1), Buffer.alloc(2048));
     return { ok: true };
   };
   const r = await vt.saveSegment(
@@ -256,6 +256,28 @@ await atest('只保存那几秒：调用 ffmpeg 截取入点到出点，成功�
   );
   assert.equal(failed.ok, false);
   assert.ok(!fs.readdirSync(dir).some(f => f.startsWith('失败')), '失败时不留半截文件');
+  const empty = await vt.saveSegment(
+    { url: 'https://x/v.mp4', start: 6, end: 28, dir, name: '空视频' },
+    { ffmpeg: '/bin/ffmpeg', run: async (b, a) => (fs.writeFileSync(a.at(-1), Buffer.alloc(262)), { ok: true }) },
+  );
+  assert.equal(empty.ok, false, 'ffmpeg 退出成功但产物只有空容器，不应算保存成功');
+  assert.ok(!fs.readdirSync(dir).some(f => f.startsWith('空视频')), '空视频不留半截文件');
+  const attempts = [];
+  const recovered = await vt.saveSegment(
+    { url: 'https://x/v.webm', start: 6, end: 28, dir, name: '顺序读取恢复' },
+    {
+      ffmpeg: '/bin/ffmpeg',
+      run: async (bin, args) => {
+        attempts.push(args);
+        fs.writeFileSync(args.at(-1), Buffer.alloc(attempts.length === 1 ? 262 : 2048));
+        return { ok: true };
+      },
+    },
+  );
+  assert.equal(recovered.ok, true, '随机跳转只得到空片段时，顺序读取应能恢复');
+  assert.equal(attempts.length, 2);
+  assert.ok(attempts[0].indexOf('-ss') < attempts[0].indexOf('-i'));
+  assert.ok(attempts[1].indexOf('-i') < attempts[1].indexOf('-ss'));
   assert.equal(
     (
       await vt.saveSegment(

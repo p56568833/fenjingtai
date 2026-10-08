@@ -1,8 +1,8 @@
 /* 视频审核：Claude 找好的视频候选在这里过目，通过的自动挂成主画面。
    流程：导入候选清单（JSON，type = fenjingtai-candidates）→ 每个候选截 6 张图 + 只播建议的那几秒
    → 通过 / 不要 / 换一个 + 意见 → 通过的挂到画面上（角色主画面、片段入出点、画面描述追加来源一行）
-   → 审核结果自动写回候选清单文件，Claude 读得到 → 「保存这几秒」只截那一段存到本地；完整原片要单独点。
-   不下载任何文件，直到你点「保存这几秒」或「下载完整原片」。
+   → 审核结果自动写回候选清单文件，Claude 读得到 → 顶部可批量保存已通过片段；完整原片要单独点。
+   不下载任何文件，直到你点「保存已通过的片段」或「下载完整原片」。
 
    1.9 起窗口是一个「收件箱」：
    · 批次：每次导入算一批，默认只看最新一批，顶部写「还剩 N 个待审 / 共 M 个」；旧批次在下拉里。
@@ -25,10 +25,23 @@ import {
   detachCandidate,
   swapToLocal,
   reviewPayload,
+  applyFor,
   lineTag,
   fileTitle,
   hasLineTag,
 } from '../core/candidates.js';
+import {
+  playerHTML,
+  forLineHTML,
+  voHTML,
+  paintVoHighlight,
+  playClip,
+  togglePause,
+  seekTrack,
+  stopAllVideos,
+  stopClip,
+  setVoiceOn,
+} from './clip-player.js';
 import * as nat from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/dom.js';
 import { registerCommand, runCommand } from '../ui/commands.js';
@@ -79,7 +92,11 @@ export function importCandidates(doc, srcFile) {
     batchName: batchNameOf(doc, srcFile, plan),
   };
   for (const { old, next } of plan.updated) {
+    const forChanged = (old.for || '') !== (next.for || '');
     Object.assign(old, next);
+    // 已通过的候选补写了「配哪几句」：素材在表格里的出现范围跟着改
+    const lead = forChanged && old.decision === 'ok' && old.assetId ? rowById(old.rowId) : null;
+    if (lead) applyFor(old, shotMembers(state.rows, lead), old.assetId);
     if (!old.decision) Object.assign(old, batch);
   }
   for (const c of plan.added) Object.assign(c, batch);
@@ -162,23 +179,16 @@ async function ensureMediaDir(force = false) {
   return dir;
 }
 const busy = new Set();
-/* 截取进度：id → 0–1（主进程按 ffmpeg 的 -progress 回报）。只原地改按钮文字和进度条，不重画整个窗口 */
+/* 截取进度：id → 0–1（主进程按 ffmpeg 的 -progress 回报）。只原地改批量按钮，不重画整个窗口 */
 const prog = new Map();
 let batchRun = null; // 「保存已通过的片段」进行中：{ i, n, id }
 const pctOf = id => Math.round((prog.get(id) || 0) * 100);
-const saveLabel = id => (busy.has(id) ? (prog.has(id) ? `正在截取… ${pctOf(id)}%` : '正在连接视频…') : '保存这几秒');
-const saveBtn = (id, extra = '') =>
-  `<button class="vr-mini primary${busy.has(id) ? ' saving' : ''}" data-vr-save="${id}" ${busy.has(id) ? 'disabled' : ''} style="--p:${pctOf(id)}%"${extra}>${saveLabel(id)}</button>`;
 function saveAllLabel() {
   if (!batchRun) return null;
   const p = batchRun.id && prog.has(batchRun.id) ? ` · ${pctOf(batchRun.id)}%` : '';
   return `正在保存 ${batchRun.i}/${batchRun.n}${p}`;
 }
 function paintProgress(id) {
-  document.querySelectorAll(`[data-vr-save="${id}"]`).forEach(b => {
-    b.textContent = saveLabel(id);
-    b.style.setProperty('--p', pctOf(id) + '%');
-  });
   const all = $('#vrSaveAll');
   const label = saveAllLabel();
   if (all && label) {
@@ -312,7 +322,7 @@ export async function saveAllApproved() {
     batchRun = null;
     renderVideoReview();
   }
-  toast(`已保存 ${ok} 段${fail ? `，${fail} 段失败（可以单独重试）` : ''}`);
+  toast(`已保存 ${ok} 段${fail ? `，${fail} 段失败（可再次批量尝试）` : ''}`);
 }
 export function downloadOriginal(id) {
   const c = state.candidates.find(x => x.id === id);
@@ -339,7 +349,7 @@ export function downloadOriginal(id) {
 let curBatch = null; // 正在看的批次
 let curShot = null; // 右边显示的画面（画面第一句的 id）
 let curCand = null; // 键盘焦点所在的候选
-/* 刚审过的候选先展开留在原处（来得及点「保存这几秒」、写意见、撤回），换画面后收成一行 */
+/* 刚审过的候选先展开留在原处（来得及写意见、撤回），换画面后收成一行 */
 const touched = new Set();
 const frames = new Map(); // 候选 id → 已截好的帧（重绘时直接搬过去，不重复请求）
 const pendingCount = () => state.candidates.filter(c => !c.decision).length;
@@ -468,7 +478,7 @@ export const closeVideoReview = () => {
   clearTimeout(advanceTimer);
   purgeRejected();
 };
-const stopAll = () => document.querySelectorAll('#vrList video').forEach(v => v.pause());
+const stopAll = stopAllVideos;
 /* 「不要」的候选关窗口时清掉：结果已经写回清单（Claude 读得到），留着只会越堆越多 */
 async function purgeRejected() {
   if (!state.candidates.some(c => c.decision === 'no')) return;
@@ -555,19 +565,17 @@ export function renderVideoReview() {
   const open = g.cands.filter(c => isPending(c) || touched.has(c.id));
   const done = g.cands.filter(c => !isPending(c) && !touched.has(c.id));
   if (!open.some(c => c.id === curCand)) curCand = open.find(isPending)?.id || open[0]?.id || null;
-  const vo = g.lead
-    ? shotMembers(state.rows, g.lead)
-        .map(m => m.text)
-        .join('')
-    : '';
+  const vo = g.lead ? voHTML(shotMembers(state.rows, g.lead)) : '';
   const allDone = !left;
+  stopClip(); // 重画会换掉播放器：先停掉，口播声音不会留在后台继续放
   host.innerHTML = `<section class="vr-shot" data-vr-shot="${esc(String(g.key))}">
       <h4>${rangeText(g.lead)}${g.cands[0]?.label ? ` · ${esc(g.cands[0].label)}` : ''}</h4>
-      ${vo ? `<p class="vr-vo">${esc(vo)}</p>` : ''}
+      ${vo ? `<p class="vr-vo">${vo}</p>` : ''}
       ${open.map(cardHTML).join('')}
       ${done.length ? `<div class="vr-done-list">${done.map(doneHTML).join('')}</div>` : ''}
       ${!open.length && allDone ? `<p class="vr-empty small">这一批都审完了。通过的已经挂在表格的画面上；要换的已经写回清单，Claude 读得到。</p>` : ''}
     </section>`;
+  paintVoHighlight(open.find(c => c.id === curCand) || open[0] || null);
   for (const c of open) {
     const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
     if (!strip) continue;
@@ -581,17 +589,16 @@ export function renderVideoReview() {
 function cardHTML(c) {
   const d = c.decision || '';
   const actions =
-    d === 'ok'
-      ? c.savedPath
-        ? `<span class="vr-saved">已保存：${esc(assetName(c.savedPath))}</span><button class="vr-mini" data-vr-reveal="${c.id}">在访达中显示</button>`
-        : saveBtn(c.id)
+    d === 'ok' && c.savedPath
+      ? `<span class="vr-saved">已保存：${esc(assetName(c.savedPath))}</span><button class="vr-mini" data-vr-reveal="${c.id}">在访达中显示</button>`
       : '';
   return `<article class="vr-cand ${d ? 'd-' + d : ''}${c.id === curCand ? ' focus' : ''}" data-vr-id="${c.id}">
     <div class="vr-head"><b>${esc(c.key || '·')}</b><strong>${esc(c.title)}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
     <div class="vr-meta">建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）· ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
+    ${forLineHTML(c)}
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
     <div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(6)}</div>
-    <video class="vr-player" controls playsinline muted preload="none" hidden></video>
+    ${playerHTML(c)}
     <div class="vr-row">
       <button class="vr-btn play" data-vr-play="${c.id}">▶ 播放这段</button>
       <button class="vr-btn ok${d === 'ok' ? ' on' : ''}" data-vr-d="ok" data-vr-for="${c.id}">通过 <kbd>1</kbd></button>
@@ -605,7 +612,7 @@ function cardHTML(c) {
 /* 审过的候选收成一行：结果、意见、撤回（再点同一个结果 = 撤回） */
 function doneHTML(c) {
   const d = c.decision;
-  const save = d === 'ok' ? (c.savedPath ? `<span class="vr-saved">已保存</span>` : saveBtn(c.id)) : '';
+  const save = d === 'ok' && c.savedPath ? `<span class="vr-saved">已保存</span>` : '';
   return `<div class="vr-done d-${d}" data-vr-id="${c.id}"><span class="vr-tag d-${d}">${DECISION[d]}</span><b>${esc(c.key || '·')}</b><span class="vr-done-title">${esc(c.title)}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
 }
 
@@ -701,33 +708,8 @@ function play(id) {
   const c = state.candidates.find(x => x.id === id);
   const card = document.querySelector(`[data-vr-id="${id}"]`);
   if (!c || !card) return;
-  const v = card.querySelector('.vr-player');
   const btn = card.querySelector('[data-vr-play]');
-  stopAll();
-  v.hidden = false;
-  // 播放器是 preload="none"：只设 src 不会开始加载，原来要再点一下播放器的 ▶ 才动。这里直接 load + play
-  v.preload = 'auto';
-  if (!v.getAttribute('src')) {
-    v.src = c.url.split('#')[0];
-    v.load();
-  }
-  v.ontimeupdate = () => {
-    if (v.currentTime >= c.out) {
-      v.pause();
-      v.currentTime = c.in;
-    }
-  };
-  // 缓冲时按钮上写「载入中…」，开始播了再变回「重播这段」，不会以为没反应
-  v.onwaiting = () => (btn.textContent = '载入中…');
-  v.onplaying = () => (btn.textContent = '↻ 重播这段');
-  v.onerror = () => (btn.textContent = '播放失败 · 再试一次');
-  const go = () => {
-    v.currentTime = c.in;
-    v.play().catch(() => {});
-  };
-  btn.textContent = '载入中…';
-  if (v.readyState >= 1) go();
-  else v.addEventListener('loadedmetadata', go, { once: true });
+  playClip(card, c, { onState: text => (btn.textContent = text) });
 }
 
 /* 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放 / 暂停这段。在意见框里打字时不抢键 */
@@ -772,9 +754,9 @@ export function videoReviewKey(e) {
   if (e.key === ' ') {
     e.preventDefault();
     if (!curCand) return true;
-    const v = $(`#vrList [data-vr-id="${curCand}"] .vr-player`);
-    if (v && !v.hidden && !v.paused) v.pause();
-    else play(curCand);
+    const card = $(`#vrList [data-vr-id="${curCand}"]`);
+    const c = state.candidates.find(x => x.id === curCand);
+    if (!card || !c || !togglePause(card, c)) play(curCand);
     return true;
   }
   return false;
@@ -835,13 +817,24 @@ export function initVideoReview() {
     if (card && card.dataset.vrId !== curCand) {
       curCand = card.dataset.vrId;
       document.querySelectorAll('#vrList .vr-cand').forEach(el => el.classList.toggle('focus', el === card));
+      paintVoHighlight(state.candidates.find(x => x.id === curCand));
+    }
+    const track = t.closest('[data-vr-track]');
+    if (track) {
+      const c = state.candidates.find(x => x.id === track.dataset.vrTrack);
+      if (c) seekTrack(card, c, track, e.clientX);
+      return;
+    }
+    const pp = t.closest('[data-vr-pp]');
+    if (pp) {
+      const c = state.candidates.find(x => x.id === pp.dataset.vrPp);
+      if (c && !togglePause(card, c)) play(c.id);
+      return;
     }
     const d = t.closest('[data-vr-d]');
     if (d) return setDecision(d.dataset.vrFor, d.dataset.vrD);
     const p = t.closest('[data-vr-play]');
     if (p) return play(p.dataset.vrPlay);
-    const s = t.closest('[data-vr-save]');
-    if (s) return void saveSegment(s.dataset.vrSave);
     const o = t.closest('[data-vr-orig]');
     if (o) return downloadOriginal(o.dataset.vrOrig);
     const pg = t.closest('[data-vr-page]');
@@ -856,11 +849,14 @@ export function initVideoReview() {
       if (c?.savedPath) native('revealAsset')(c.savedPath);
     }
   });
+  $('#vrList').addEventListener('change', e => {
+    if (e.target.matches?.('[data-vr-voice]')) setVoiceOn(e.target.checked); // 「口播声音」开关记住，下次默认照旧
+  });
   $('#vrList').addEventListener('input', e => {
     const n = e.target.closest('[data-vr-note]');
     if (n) setNote(n.dataset.vrNote, n.value);
   });
-  // 「保存这几秒」的截取进度：按钮上显示百分比和进度条
+  // 批量截取进度：顶部按钮显示当前片段的百分比和进度条
   nat.onSegmentProgress(({ token, p }) => {
     if (!busy.has(token)) return;
     prog.set(token, p);

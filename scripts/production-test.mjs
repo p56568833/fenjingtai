@@ -1084,4 +1084,31 @@ test('视频审核通过一律当主画面：占位照片让位，已通过的�
   assert.equal(role('p'), 'alt', '占位照片让位成备选');
   assert.deepEqual(b.demoted, [], '第二次通过不再降级任何素材');
 });
+test('候选写了 for（配哪几句）：通过后只在那几句出现', () => {
+  const rows = [1, 2, 3].map(n => ({
+    id: n,
+    kind: 'line',
+    no: 199 + n,
+    text: '句' + n,
+    groupId: 'g',
+    assetUsages: [],
+  }));
+  const reg = {};
+  const r = attachCandidate(
+    { id: 'c', rowId: 1, url: 'https://x/a.mp4', title: 'a', in: 1, out: 5, for: '202', license: '', page: '' },
+    rows,
+    reg,
+  );
+  const offs = rows.map(m => !!m.assetUsages.find(u => u.assetId === r.assetId)?.off);
+  assert.deepEqual(offs, [true, true, false], '只在第 202 句出现');
+  const all = attachCandidate(
+    { id: 'd', rowId: 1, url: 'https://x/b.mp4', title: 'b', in: 1, out: 5, for: '', license: '', page: '' },
+    rows,
+    reg,
+  );
+  assert.ok(
+    rows.every(m => !m.assetUsages.find(u => u.assetId === all.assetId)?.off),
+    '没写 for：整段出现',
+  );
+});
 console.log(`${count} 项数据回归通过`);

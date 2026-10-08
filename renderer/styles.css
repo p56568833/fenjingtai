@@ -3708,11 +3708,6 @@ body.drop-import::after {
   font-size: 12px;
   cursor: pointer;
 }
-.vr-mini.primary {
-  background: var(--accent);
-  border-color: transparent;
-  color: #fff;
-}
 .vr-mini.ghost {
   border-color: transparent;
   color: var(--text-3);
@@ -5182,14 +5177,160 @@ body.multi-mode .shared-scene-body {
   cursor: pointer;
 }
 
-/* 视频审核：「保存这几秒 / 保存已通过的片段」截取中，按钮底色按进度填充 */
-.vr-mini.saving,
+/* 视频审核：批量保存片段时，顶部按钮底色按进度填充 */
 #vrSaveAll.saving {
   background-image: linear-gradient(to right, rgba(59, 116, 232, 0.28) var(--p, 0%), transparent var(--p, 0%));
   opacity: 1;
   cursor: progress;
 }
-.vr-mini.primary.saving {
-  background-color: rgba(59, 116, 232, 0.45);
-  background-image: linear-gradient(to right, var(--accent) var(--p, 0%), transparent var(--p, 0%));
+
+/* 视频审核：配哪句、整段口播里高亮那几句 */
+.modal p.vr-for {
+  font-size: 12.5px;
+  color: var(--text);
+  margin: 2px 0 6px;
+}
+.modal p.vr-for b {
+  display: inline-block;
+  font-size: 11px;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-right: 6px;
+}
+.modal p.vr-vo span.on {
+  color: var(--text);
+  background: rgba(59, 116, 232, 0.16);
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px rgba(59, 116, 232, 0.16);
+}
+
+/* 视频审核：自制片段播放器（只显示建议片段这几秒）+ 口播字幕 */
+.vr-stage {
+  margin-bottom: 8px;
+}
+.vr-screen {
+  position: relative;
+  background: #000;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
+}
+.vr-screen .vr-player {
+  display: block;
+  margin: 0 auto;
+  border-radius: 0;
+}
+.vr-screen .vr-player[hidden] {
+  display: none;
+}
+.vr-sub {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  bottom: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+.vr-sub span {
+  display: inline;
+  font-size: 17px;
+  line-height: 1.5;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 2px 8px;
+  border-radius: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.vr-wait {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  pointer-events: none;
+}
+.vr-wait[hidden] {
+  display: none;
+}
+.vr-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #15181f;
+  color: #dfe5ee;
+  padding: 7px 10px;
+  border-radius: 0 0 8px 8px;
+  font-size: 12px;
+}
+.vr-pp {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  flex: none;
+}
+.vr-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+.vr-cover {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 4px;
+  background: rgba(59, 116, 232, 0.35);
+}
+.vr-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: 4px;
+  background: #fff;
+}
+.vr-tick {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: #f5c542;
+}
+.vr-tick::after {
+  content: attr(data-no);
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9.5px;
+  color: #f5c542;
+}
+.vr-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.vr-time.short {
+  color: #f5c542;
+}
+.vr-voice {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.vr-voice.off {
+  opacity: 0.6;
+  cursor: default;
 }

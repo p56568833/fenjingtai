@@ -1,7 +1,7 @@
 /* 视频候选清单（纯数据，无 DOM、无应用状态）：解析 Claude 给的候选清单、挂到画面 / 撤回、换成本地文件、写回内容。
    界面与流程在 features/video-review.js。 */
 import { fmtTime, parseTime } from './text.js';
-import { shotMembers, setShotField, applyRole, resolveMainConflicts } from './shots.js';
+import { shotMembers, setShotField, applyRole, applySpan, resolveMainConflicts } from './shots.js';
 import { ensureAsset, usageList, syncMirror, assetName } from './asset-model.js';
 
 export const CANDIDATE_TYPE = 'fenjingtai-candidates';
@@ -54,6 +54,7 @@ export function planImport(doc, srcFile, rows, existing = []) {
         out: tout,
         license: String(raw.license || ''),
         why: String(raw.why || ''),
+        for: raw.for != null ? String(raw.for) : '', // 这段配画面里的哪几句（句号，如 "200" 或 "200-201"）；空 = 整个画面
         srcFile: srcFile || '',
       };
       const old = existing.find(c => c.srcFile === base.srcFile && c.lines === base.lines && c.key === base.key);
@@ -87,12 +88,24 @@ export function attachCandidate(c, rows, registry) {
     delete u.off;
   }
   applyRole(members, asset.id, 'main');
+  applyFor(c, members, asset.id);
   const demoted = resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate);
   const line = noteLine(c);
   if (!(row.note || '').includes(line))
     setShotField(rows, row, 'note', (row.note ? row.note.replace(/\s+$/, '') + '\n' : '') + line);
   syncMirror(members, registry);
   return { assetId: asset.id, role: 'main', demoted };
+}
+/* 写了「配哪几句」（for）：素材只在那几句出现，和面板里「出现在 第 x 句 到 第 y 句」一样；没写 / 对不上 = 整段 */
+export function applyFor(c, members, assetId) {
+  const r = c.for ? parseLines(c.for) : null;
+  const idx = r
+    ? members
+        .map((m, i) => (m.no >= Math.min(r.from, r.to) && m.no <= Math.max(r.from, r.to) ? i : -1))
+        .filter(i => i >= 0)
+    : [];
+  if (idx.length) applySpan(members, assetId, idx[0], idx[idx.length - 1]);
+  else applySpan(members, assetId, 0, members.length - 1);
 }
 /* 撤回通过：把这个视频从画面上拿掉，画面描述里那一行也删掉 */
 export function detachCandidate(c, rows, registry) {

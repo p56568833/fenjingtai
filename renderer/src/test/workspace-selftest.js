@@ -40,6 +40,24 @@ export async function runWorkspaceTests(t) {
     await pause(40);
     const wrap = $('#tableWrap');
     let navigationDetail;
+    const firstLine = state.rows[state.rows.indexOf(sections[0]) + 1];
+    const thirdLine = state.rows[state.rows.indexOf(sections[2]) + 1];
+    state.sel = firstLine.id;
+    update('selection');
+    $(`.row[data-id="${thirdLine.id}"],.as[data-id="${thirdLine.id}"]`).scrollIntoView({ block: 'center' });
+    await pause(80);
+    t(
+      `${view} 浏览到第3章时目录跟着高亮，选中句仍在第1章`,
+      $('.outline-item.active')?.dataset.jump === String(sections[2].id) && state.sel === firstLine.id,
+    );
+    state.sel = thirdLine.id;
+    update('selection');
+    $(`.row[data-id="${firstLine.id}"],.as[data-id="${firstLine.id}"]`).scrollIntoView({ block: 'center' });
+    await pause(80);
+    t(
+      `${view} 浏览回第1章时目录跟着高亮，选中句仍在第3章`,
+      $('.outline-item.active')?.dataset.jump === String(sections[0].id) && state.sel === thirdLine.id,
+    );
     const atChapterStart = section => {
       const si = state.rows.indexOf(section);
       const firstLine = state.rows[si + 1];
@@ -89,6 +107,7 @@ export async function runWorkspaceTests(t) {
     third = first + 2;
   t('章节目录显示所有有内容章节', $$('.outline-item').length === 2);
   setType([first], 'a');
+  t('空画面右上角不再显示加号', !$('.asset-empty'));
   state.sel = first;
   nextUnmarked();
   t('下一个未标注可定位', state.sel === second);

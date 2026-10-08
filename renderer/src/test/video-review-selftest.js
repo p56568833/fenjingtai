@@ -177,7 +177,10 @@ export async function runVideoReviewTests(t) {
       lines()[1].note === lines()[0].note,
     lines()[0].note,
   );
-  t('通过的卡片出现「保存这几秒」', !!card('A1')?.querySelector('[data-vr-save]'));
+  t(
+    '卡片不再显示单独保存按钮，顶部仍可批量保存',
+    !card('A1')?.querySelector('[data-vr-save]') && !$('#vrSaveAll').hidden,
+  );
   await pause(600);
   const last = writes.at(-1);
   t(
@@ -211,10 +214,7 @@ export async function runVideoReviewTests(t) {
   /* 换一个 → 这个画面审完，自动跳到下一个画面 */
   click(btn('A2', 're'));
   await pause(30);
-  t(
-    '换一个记下来，刚审过的卡片先留在原处（来得及写意见、点保存）',
-    cand('A2').decision === 're' && !!card('A2') && !!card('A1')?.querySelector('[data-vr-save]'),
-  );
+  t('换一个记下来，刚审过的卡片先留在原处', cand('A2').decision === 're' && !!card('A2') && !!card('A1'));
   await pause(750);
   t(
     '这个画面审完，自动跳到下一个还有待审的画面',
@@ -251,9 +251,9 @@ export async function runVideoReviewTests(t) {
       !$('#vrFilter'),
   );
 
-  /* 保存这几秒 */
+  /* 顶部批量保存已通过的片段 */
   ffmpegMissing = true;
-  click(card('A1').querySelector('[data-vr-save]'));
+  click('#vrSaveAll');
   await pause(60);
   t(
     '没装 ffmpeg：弹窗说明怎么装，素材不变',
@@ -263,10 +263,10 @@ export async function runVideoReviewTests(t) {
   );
   click('#mCancel');
   ffmpegMissing = false;
-  click(card('A1').querySelector('[data-vr-save]'));
+  click('#vrSaveAll');
   await pause(80);
   t(
-    '保存这几秒：只截建议片段，存到选好的文件夹',
+    '批量保存：只截建议片段，存到选好的文件夹',
     saves.length === 1 &&
       saves[0].start === 101 &&
       saves[0].end === 110 &&

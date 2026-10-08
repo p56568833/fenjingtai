@@ -1,6 +1,6 @@
 /* 素材的可视化：表格素材卡片 / 行徽标 / 右面板条目 / 缩略图（三态：无缩略图、格式不支持、文件失联）。
    数据在 core/asset-model.js（素材库 + 使用记录 + 片段），这里只负责长什么样。 */
-import { state, rowById, types, timeline } from '../app/state.js';
+import { state, rowById, timeline } from '../app/state.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
 import { shots, shotMembers, usageSpan, spanText, roleLabel, ROLES, ROLE_ORDER } from '../core/shots.js';
@@ -61,10 +61,7 @@ const roleClass = role => (role in ROLES ? `role-${role}` : 'role-none');
 export function assetCards(r) {
   const registry = state.assets || {};
   const usages = usageList(r);
-  if (!usages.length)
-    return r.type && types().needsVisual(r.type)
-      ? `<button class="row-act asset-empty" data-detail="${r.id}" title="还没关联素材 · 点开「画面与素材」添加" aria-label="还没关联素材，点开添加"><svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14"/></svg></button>`
-      : '';
+  if (!usages.length) return '';
   const members = shotMembers(state.rows, r);
   const list = orderedUsages(r);
   const alts = list.filter(x => x.u.role === 'alt');

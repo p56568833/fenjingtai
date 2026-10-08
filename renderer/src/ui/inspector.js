@@ -19,6 +19,7 @@ import * as native from '../platform/native.js';
 import { esc, toast } from './dom.js';
 import { sharedScenes, assetRefs, hydrateAssetCards, inspectorAssets, refreshThumb, missingPaths } from './badges.js';
 import { registerCommand, runCommand } from './commands.js';
+import { preserveReadingPosition } from './reading-position.js';
 
 const $ = s => document.querySelector(s);
 let detailOpen = false;
@@ -72,8 +73,12 @@ function voiceBlock(members) {
 
 export function renderInspector(force = false) {
   const panel = $('#inspector');
-  panel.hidden = !detailOpen;
-  document.querySelector('.workspace').classList.toggle('has-inspector', detailOpen);
+  const changeLayout = () => {
+    panel.hidden = !detailOpen;
+    document.querySelector('.workspace').classList.toggle('has-inspector', detailOpen);
+  };
+  if (panel.hidden !== !detailOpen) preserveReadingPosition(changeLayout);
+  else changeLayout();
   $('#btnDetail').setAttribute('aria-expanded', String(detailOpen));
   $('#btnDetail').classList.toggle('active', detailOpen);
   if (!detailOpen) return;
