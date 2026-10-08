@@ -1,5 +1,6 @@
 import { buildPrintDoc, planDocument, fmtLong } from '../renderer/src/core/print-doc.js';
 import assert from 'node:assert/strict';
+import { lineTag, fileTitle, hasLineTag } from '../renderer/src/core/candidates.js';
 import { parseAny, splitSentences } from '../renderer/src/core/parse.js';
 import {
   groupRows,
@@ -1049,5 +1050,21 @@ test('手动出现时间随项目保存、载入不丢', () => {
   p.rows[0].assetUsages[0].at = { start: 2, end: 1, of: 1 };
   hydrateProjectAssets(p);
   assert.equal(p.rows[0].assetUsages[0].at, undefined, '不合法的时间丢掉');
+});
+test('视频片段文件名带句号：按画面现在的句子范围，找不到画面退回清单 lines', () => {
+  const rows = [
+    { id: 1, kind: 'section', text: '段' },
+    { id: 2, kind: 'line', no: 125, text: '甲', groupId: 'g' },
+    { id: 3, kind: 'line', no: 126, text: '乙', groupId: 'g' },
+    { id: 4, kind: 'line', no: 127, text: '丙', groupId: 'g' },
+    { id: 5, kind: 'line', no: 128, text: '丁' },
+  ];
+  assert.equal(lineTag({ rowId: 2, lines: '1-3' }, rows), '第125-127句');
+  assert.equal(lineTag({ rowId: 5 }, rows), '第128句');
+  assert.equal(lineTag({ rowId: 99, lines: '40-42' }, rows), '第40-42句');
+  assert.equal(lineTag({ rowId: 99 }, rows), '');
+  assert.equal(fileTitle({ rowId: 2, title: '牛津邓恩病理学院' }, rows), '第125-127句_牛津邓恩病理学院');
+  assert.equal(hasLineTag('/a/第125-127句_x_0m01s-0m05s.mp4'), true);
+  assert.equal(hasLineTag('/a/x_0m01s-0m05s.mp4'), false);
 });
 console.log(`${count} 项数据回归通过`);

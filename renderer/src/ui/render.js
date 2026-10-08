@@ -13,7 +13,42 @@ function syncTitle() {
   if (t && document.activeElement !== t && t.textContent !== state.title) t.textContent = state.title;
 }
 
+/* 整表重建会换掉所有行：屏幕外的新行只按 contain-intrinsic-size 占位（72px），和原来的真实行高对不上，
+   scrollTop 不变的话视口会「闪现」到很远的地方。重建前记下一句锚点（优先当前选中句）离视口顶部的距离，
+   重建后把它放回原处；下一帧行高展开后再校准一次。切项目 / 切视图不保持（各自有定位逻辑）。 */
+const ROW_SEL = '.row[data-id],.as[data-id]';
+let lastRendered = null;
+
+function captureAnchor() {
+  const wrap = document.querySelector('#tableWrap');
+  const key = `${state.projectId}|${state.view}`;
+  if (!wrap || lastRendered !== key) return null;
+  const box = wrap.getBoundingClientRect();
+  const inView = el => {
+    const r = el.getBoundingClientRect();
+    return r.bottom > box.top && r.top < box.bottom;
+  };
+  let el =
+    state.sel != null ? document.querySelector(`.row[data-id="${state.sel}"],.as[data-id="${state.sel}"]`) : null;
+  if (!el || !inView(el)) el = [...document.querySelectorAll(ROW_SEL)].find(inView) || null;
+  if (!el) return null;
+  return { wrap, id: el.dataset.id, top: el.getBoundingClientRect().top };
+}
+
+function restoreAnchor(a) {
+  if (!a) return;
+  const fix = () => {
+    const el = document.querySelector(`.row[data-id="${a.id}"],.as[data-id="${a.id}"]`);
+    if (!el) return;
+    const d = el.getBoundingClientRect().top - a.top;
+    if (Math.abs(d) >= 1) a.wrap.scrollTop += d;
+  };
+  fix();
+  requestAnimationFrame(fix);
+}
+
 export function renderAll() {
+  const anchor = captureAnchor();
   document.body.classList.toggle('reading', state.view === 'check');
   if (state.filter !== 'all') {
     const visible = new Set(visibleLineIds());
@@ -33,6 +68,8 @@ export function renderAll() {
   else renderTable();
   emit('workspace');
   renderSelectionOnly();
+  restoreAnchor(anchor);
+  lastRendered = `${state.projectId}|${state.view}`;
   // 这里不滚动：滚动交给明确的交互（键盘导航 / 搜索跳转 / 切视图），否则打字、筛选、撤销都会拽视口
 }
 

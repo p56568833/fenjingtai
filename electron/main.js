@@ -389,6 +389,8 @@ ipcMain.handle('video:download-original', (e, req) =>
     },
   }),
 );
+/* 旧版本保存的片段：文件名补上对应的句号 */
+ipcMain.handle('video:tag-saved', (_e, p, tag) => videoTools.renameWithLineTag(p, tag));
 /* 审核结果写回候选清单（只认 type = fenjingtai-candidates 的 JSON） */
 ipcMain.handle('candidates:write-back', (_e, file, results) => videoTools.writeReview(file, results));
 ipcMain.handle('assets:reveal', (_e, p) => {

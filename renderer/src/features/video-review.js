@@ -11,11 +11,11 @@
      「不要」的关窗口时自动清掉（结果已写回清单，再导入同一份清单也不会回来）。
    · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
 import { state, update, rowById, renumber, on } from '../app/state.js';
-import { persist } from '../app/storage.js';
+import { persist, markProjectDirty } from '../app/storage.js';
 import { snapshot } from '../app/undo.js';
 import { invalidateProbe } from '../app/asset-actions.js';
 import { shotMembers } from '../core/shots.js';
-import { assetName } from '../core/asset-model.js';
+import { assetName, syncMirror } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
 import {
   CANDIDATE_TYPE,
@@ -25,6 +25,9 @@ import {
   detachCandidate,
   swapToLocal,
   reviewPayload,
+  lineTag,
+  fileTitle,
+  hasLineTag,
 } from '../core/candidates.js';
 import * as nat from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/dom.js';
@@ -171,7 +174,8 @@ export async function saveSegment(id, { quiet = false } = {}) {
   renderVideoReview();
   let r;
   try {
-    r = await native('saveVideoSegment')({ url: c.url, start: c.in, end: c.out, dir, name: c.title });
+    renumber();
+    r = await native('saveVideoSegment')({ url: c.url, start: c.in, end: c.out, dir, name: fileTitle(c, state.rows) });
   } finally {
     busy.delete(id);
   }
@@ -193,6 +197,64 @@ export async function saveSegment(id, { quiet = false } = {}) {
   if (!quiet) toast(`已保存：${assetName(r.path)}`, { label: '在访达中显示', cb: () => native('revealAsset')(r.path) });
   return r;
 }
+/* 旧版本保存的片段文件名只有视频标题：载入项目时在原文件夹里补上句号（第125-127句_…），
+   素材库路径、候选记录、候选清单一起改。找不到文件的跳过，不进撤销（改的是磁盘上的文件名） */
+let tagging = false,
+  tagAgain = false;
+export async function tagOldSavedClips() {
+  if (tagging) {
+    tagAgain = true; // 正在改上一个项目的：改完再看一遍当前项目
+    return 0;
+  }
+  const pid = state.projectId;
+  const todo = state.candidates.filter(c => c.savedPath && !hasLineTag(c.savedPath));
+  if (!todo.length) return 0;
+  tagging = true;
+  const { rows, assets, candidates } = state;
+  const moved = new Map(); // 旧路径 → 新路径
+  try {
+    renumber();
+    for (const c of todo) {
+      const old = c.savedPath;
+      if (!moved.has(old)) {
+        const tag = lineTag(c, rows);
+        if (!tag) continue;
+        const r = await native('tagSavedClip')(old, tag);
+        if (!r?.ok || !r.path || r.path === old) continue;
+        moved.set(old, r.path);
+      }
+    }
+  } finally {
+    tagging = false;
+    if (tagAgain) {
+      tagAgain = false;
+      setTimeout(tagOldSavedClips, 0);
+    }
+  }
+  if (!moved.size) return 0;
+  for (const c of candidates) if (moved.has(c.savedPath)) c.savedPath = moved.get(c.savedPath);
+  for (const a of Object.values(assets || {}))
+    if (moved.has(a.path)) {
+      a.path = moved.get(a.path);
+      a.name = assetName(a.path);
+    }
+  if (state.projectId !== pid) {
+    markProjectDirty(pid); // 中途切了项目：改的是原项目的数据，单独标记写盘
+    return moved.size;
+  }
+  syncMirror(rows, assets);
+  invalidateProbe();
+  persist();
+  update('rows');
+  writeBack();
+  const first = [...moved.values()][0];
+  toast(`已给 ${moved.size} 个保存过的视频片段补上句号，例如「${assetName(first)}」`, {
+    label: '在访达中显示',
+    cb: () => native('revealAsset')(first),
+  });
+  return moved.size;
+}
+
 export async function saveAllApproved() {
   const list = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath);
   if (!list.length) {
@@ -224,7 +286,8 @@ export function downloadOriginal(id) {
       const dir = await ensureMediaDir();
       if (!dir) return;
       toast('开始下载完整原片…');
-      const r = await native('downloadOriginalVideo')({ url: c.url, dir, name: c.title });
+      renumber();
+      const r = await native('downloadOriginalVideo')({ url: c.url, dir, name: fileTitle(c, state.rows) });
       if (r?.ok)
         toast(`原片已下载：${assetName(r.path)}`, { label: '在访达中显示', cb: () => native('revealAsset')(r.path) });
       else toast('下载失败：' + (r?.error || '未知原因'));
@@ -760,7 +823,9 @@ export function initVideoReview() {
   on('project-loaded', () => {
     curBatch = curShot = curCand = null;
     touched.clear();
+    setTimeout(tagOldSavedClips, 0);
   });
+  setTimeout(tagOldSavedClips, 0); // 启动时的项目在这之前就载入了
   registerCommand('video:open', openVideoReview);
   registerCommand('video:import', (doc, path) => importCandidates(doc, path));
   refreshVideoReviewButton();

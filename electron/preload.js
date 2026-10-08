@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('native', {
   hasFfmpeg: () => ipcRenderer.invoke('video:has-ffmpeg'),
   saveVideoSegment: req => ipcRenderer.invoke('video:save-segment', req),
   downloadOriginalVideo: req => ipcRenderer.invoke('video:download-original', req),
+  tagSavedClip: (p, tag) => ipcRenderer.invoke('video:tag-saved', p, tag),
   onDownloadProgress: cb => ipcRenderer.on('video:download-progress', (_e, p) => cb(p)),
   writeCandidateReview: (file, results) => ipcRenderer.invoke('candidates:write-back', file, results),
   revealAsset: p => ipcRenderer.invoke('assets:reveal', p),

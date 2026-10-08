@@ -202,6 +202,27 @@ test('视频片段文件名：中文安全、带入出点，重名不覆盖', ()
   ]);
   assert.equal(args.at(-1), '/o.mp4');
 });
+test('旧片段补句号：同文件夹改名、已带句号不动、只认视频、重名不覆盖', () => {
+  const dir = tmp();
+  const a = path.join(dir, '福特肉类加工_1m41s-1m50s.mp4');
+  fs.writeFileSync(a, 'x');
+  const r = vt.renameWithLineTag(a, '第125-127句');
+  assert.ok(r.ok);
+  assert.equal(r.path, path.join(dir, '第125-127句_福特肉类加工_1m41s-1m50s.mp4'));
+  assert.ok(fs.existsSync(r.path) && !fs.existsSync(a));
+  assert.equal(vt.renameWithLineTag(r.path, '第125-127句').unchanged, true);
+  const b = path.join(dir, 'b.mp4');
+  fs.writeFileSync(b, 'x');
+  fs.writeFileSync(path.join(dir, '第3句_b.mp4'), 'old');
+  assert.equal(path.basename(vt.renameWithLineTag(b, '第3句').path), '第3句_b (2).mp4');
+  assert.equal(fs.readFileSync(path.join(dir, '第3句_b.mp4'), 'utf8'), 'old');
+  const doc = path.join(dir, 'c.txt');
+  fs.writeFileSync(doc, 'x');
+  assert.equal(vt.renameWithLineTag(doc, '第1句').ok, false);
+  assert.equal(vt.renameWithLineTag(path.join(dir, '不存在.mp4'), '第1句').ok, false);
+  assert.equal(vt.renameWithLineTag(path.join(dir, 'x.mp4'), '../第1句').ok, false);
+});
+
 await atest('只保存那几秒：调用 ffmpeg 截取入点到出点，成功后改名；没装 ffmpeg 给出安装提示', async () => {
   const dir = tmp();
   let seen = null;

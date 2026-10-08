@@ -9,8 +9,8 @@ import { usageList } from '../core/asset-model.js';
 import { addRefsToShot } from '../app/asset-actions.js';
 import { setType } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
-import { flushWriteBack } from '../features/video-review.js';
-import { parseLines, parseClock, planImport } from '../core/candidates.js';
+import { flushWriteBack, tagOldSavedClips } from '../features/video-review.js';
+import { parseLines, parseClock, planImport, lineTag } from '../core/candidates.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -277,11 +277,12 @@ export async function runVideoReviewTests(t) {
   const a1now = state.assets[cand('A1').assetId];
   t(
     '保存后素材换成本地片段文件，不再需要入出点',
-    a1now.path === '/tmp/视频素材/福特肉类加工 1922_1m41s-1m50s.mp4' &&
+    a1now.path === '/tmp/视频素材/第1-3句_福特肉类加工 1922_1m41s-1m50s.mp4' &&
       us(0).find(x => x.assetId === a1.id) &&
       !us(0).find(x => x.assetId === a1.id).clip,
     a1now.path,
   );
+  t('保存的文件名带上对应的句号：第1-3句_标题', saves[0].name === '第1-3句_福特肉类加工 1922', saves[0].name);
   t('画面描述里的原片来源还在', lines()[0].note.includes('archive.org/details/fc-fc-485'));
   t('收起的那一行显示已保存', card('A1').textContent.includes('已保存'));
 
@@ -326,6 +327,30 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t('Esc 关闭审核窗口', !$('#vrMask').classList.contains('show'));
   click('#closeDetail');
+
+  /* 旧版本保存的片段：载入时文件名补上句号，素材路径和候选记录一起改 */
+  const oldPath = '/tmp/视频素材/福特肉类加工 1922_1m41s-1m50s.mp4';
+  cand('A1').savedPath = oldPath;
+  state.assets[cand('A1').assetId].path = oldPath;
+  const tagCalls = [];
+  window.fjtHooks.tagSavedClip = async (p, tag) => (
+    tagCalls.push({ p, tag }),
+    { ok: true, path: p.replace(/[^/]+$/, n => `${tag}_${n}`) }
+  );
+  t('句号按画面现在的句子范围算', lineTag(cand('A1'), state.rows) === '第1-3句');
+  const tagged = await tagOldSavedClips();
+  const newPath = '/tmp/视频素材/第1-3句_福特肉类加工 1922_1m41s-1m50s.mp4';
+  t(
+    '旧片段改名补上句号：候选记录和素材库路径一起换成新名字',
+    tagged === 1 &&
+      tagCalls.length === 1 &&
+      tagCalls[0].tag === '第1-3句' &&
+      cand('A1').savedPath === newPath &&
+      state.assets[cand('A1').assetId].path === newPath,
+    JSON.stringify(tagCalls),
+  );
+  t('已经带句号的不再改', (await tagOldSavedClips()) === 0 && tagCalls.length === 1);
+  delete window.fjtHooks.tagSavedClip;
 
   /* 保存与切项目 */
   storage.switchProject(original);

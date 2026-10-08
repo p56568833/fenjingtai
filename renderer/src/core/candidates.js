@@ -131,6 +131,28 @@ export function swapToLocal(c, localPath, rows, registry) {
   syncMirror(rows, registry);
   return true;
 }
+/* 文件名里的句号：按这个画面现在的句子范围（第125-127句 / 第125句）；画面找不到时退回清单里写的 lines */
+export function lineTag(c, rows) {
+  const row = rows.find(r => r.id === c.rowId);
+  const nos = row
+    ? shotMembers(rows, row)
+        .map(m => m.no)
+        .filter(n => n > 0)
+    : [];
+  let from, to;
+  if (nos.length) {
+    from = Math.min(...nos);
+    to = Math.max(...nos);
+  } else {
+    const r = parseLines(c.lines);
+    if (!r || !(r.from > 0)) return '';
+    ({ from, to } = r);
+  }
+  return from === to ? `第${from}句` : `第${from}-${to}句`;
+}
+export const fileTitle = (c, rows) => [lineTag(c, rows), c.title].filter(Boolean).join('_');
+export const hasLineTag = p => /^第\d+(?:-\d+)?句_/.test(assetName(p));
+
 /* 写回候选清单的内容：每个来源文件一份 */
 export function reviewPayload(cands) {
   const byFile = new Map();

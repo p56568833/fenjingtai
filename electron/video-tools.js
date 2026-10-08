@@ -196,6 +196,32 @@ async function downloadOriginal({ url, dir, name }, opts = {}) {
   return downloadFile(clean, dest, opts);
 }
 
+/* ── 已保存的片段补上句号 ──
+   旧版本保存的文件名只有视频标题，看不出对应哪一句：在同一文件夹里改名成「第125-127句_原文件名」。
+   只改名不移动，只认视频文件，已经带句号的不再改；重名加 (2)、(3)… 不覆盖 */
+const LINE_TAG_RE = /^第\d+(?:-\d+)?句_/;
+const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv']);
+function renameWithLineTag(oldPath, tag) {
+  if (typeof oldPath !== 'string' || !path.isAbsolute(oldPath)) return { ok: false, error: '路径无效' };
+  if (!/^第\d+(?:-\d+)?句$/.test(String(tag || ''))) return { ok: false, error: '句号无效' };
+  const ext = path.extname(oldPath);
+  const base = path.basename(oldPath, ext);
+  if (!VIDEO_EXT.has(ext.toLowerCase())) return { ok: false, error: '不是视频文件' };
+  if (LINE_TAG_RE.test(base)) return { ok: true, path: oldPath, unchanged: true };
+  try {
+    if (!fs.statSync(oldPath).isFile()) return { ok: false, error: '文件不存在' };
+  } catch {
+    return { ok: false, error: '文件不存在' };
+  }
+  const dest = uniquePath(path.dirname(oldPath), `${tag}_${base}`, ext);
+  try {
+    fs.renameSync(oldPath, dest);
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+  return { ok: true, path: dest };
+}
+
 /* ── 候选清单回写 ──
    results: [{ key, lines, decision, note, savedPath }]；按 key（同时核对 lines）找到候选，写进它的 review 字段。
    只改 type 为 fenjingtai-candidates 的 .json 文件，其他文件一律拒绝 */
@@ -243,6 +269,7 @@ module.exports = {
   segmentArgs,
   saveSegment,
   downloadFile,
+  renameWithLineTag,
   downloadOriginal,
   writeReview,
 };

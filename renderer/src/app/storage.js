@@ -150,6 +150,13 @@ async function doSave(version) {
   }
 }
 
+/* 不是当前项目的数据被改了（后台任务跑到一半切了项目）：标记那个项目待写盘 */
+export function markProjectDirty(id) {
+  if (!library?.projects?.[id]) return;
+  dirtyIds.add(id);
+  schedule();
+}
+
 export function archiveCurrentCopy(label) {
   syncFromState();
   const p = current();

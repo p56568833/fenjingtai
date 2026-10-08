@@ -1,7 +1,7 @@
 {
   "name": "fenjingtai",
   "productName": "分镜台",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "口播稿逐句分镜标注工具",
   "main": "electron/main.js",
   "scripts": {
