@@ -191,7 +191,31 @@ export async function runRelease110Tests(t) {
     );
     $('#updateMask').classList.remove('show');
     $('#btnUpdate').click();
+    await pause(20);
     t('已下载时点击顶栏仍先打开详情，不直接安装', $('#updateMask').classList.contains('show') && installs.length === 0);
+    /* 下好 9.9.9 之后又发了 9.9.10：点开时重新检查，改成直接下最新的一版，说明里列出跳过的每一版 */
+    const checkBefore = window.fjtHooks.checkUpdate;
+    window.fjtHooks.checkUpdate = async () => ({
+      ...(await checkBefore()),
+      version: '9.9.10',
+      versions: ['9.9.10', '9.9.9'],
+      notes: '【分镜台 9.9.10】\n新的\n\n【分镜台 9.9.9】\n修了很多问题',
+    });
+    $('#updateMask').classList.remove('show');
+    $('#btnUpdate').click();
+    await pause(20);
+    t(
+      '下好旧一版后又发了新版：点开显示最新版，按钮回到「下载并更新」，写明包含 2 个版本',
+      $('#updTitle').textContent.includes('9.9.10') &&
+        $('#updGo').textContent === '下载并更新' &&
+        $('#updMeta').textContent.includes('包含 2 个版本') &&
+        $('#updNotes').textContent.includes('分镜台 9.9.9') &&
+        $('#updButtonLabel').textContent === '更新',
+    );
+    window.fjtHooks.downloadUpdate = async () => ({ ok: true, version: '9.9.10', verified: true });
+    $('#updGo').click();
+    await pause(40);
+    t('下最新的一版', $('#updGo').textContent === '重启并更新');
     $('#updGo').click();
     await pause(20);
     t('点「重启并更新」交给主进程换新版', installs.length === 1);

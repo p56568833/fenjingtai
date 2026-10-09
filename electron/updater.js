@@ -68,12 +68,23 @@ function pickManifest(manifest, { current, arch }) {
   if (!/^\d+\.\d+/.test(version)) return null;
   if (compareVersions(version, current) <= 0) return { available: false, latest: version };
   const asset = (Array.isArray(manifest.assets) ? manifest.assets : []).find(a => a && a.name === assetName(arch));
+  // 隔了好几版：把中间每一版的说明都带上（新的在前），一次更新到最新时知道改了什么
+  const skipped = (Array.isArray(manifest.history) ? manifest.history : [])
+    .filter(h => h && /^\d+\.\d+/.test(String(h.version || '')) && typeof h.notes === 'string')
+    .filter(h => compareVersions(h.version, current) > 0 && compareVersions(h.version, version) <= 0)
+    .sort((a, b) => compareVersions(b.version, a.version));
+  const versions = skipped.length ? skipped.map(h => String(h.version)) : [version];
+  const notes =
+    skipped.length > 1
+      ? skipped.map(h => `【分镜台 ${h.version}】\n${h.notes.trim()}`).join('\n\n')
+      : String(manifest.notes || '');
   const url = /^https:\/\//i.test(String(asset?.url || '')) ? asset.url : '';
   const sha256 = /^[0-9a-f]{64}$/i.test(String(asset?.sha256 || '')) ? asset.sha256.toLowerCase() : '';
   return {
     available: true,
     version,
-    notes: String(manifest.notes || '').slice(0, 6000),
+    notes: notes.slice(0, 12000),
+    versions,
     page: /^https:\/\//i.test(String(manifest.page || '')) ? manifest.page : RELEASES_PAGE,
     url,
     size: url ? Number(asset.size) || 0 : 0,

@@ -492,6 +492,20 @@ export async function runVideoReviewTests(t) {
       !$('#vrList .vr-cand') &&
       !$('#vrFilter'),
   );
+  click($(`#vrList .vr-done[data-vr-id="${cand('A1').id}"] .vr-done-title`));
+  await pause(30);
+  t(
+    '点审过的一行展开成完整卡片看画面，审核结果不变',
+    !!$(`#vrList .vr-cand[data-vr-id="${cand('A1').id}"]`) &&
+      cand('A1').decision === 'ok' &&
+      !!$(`#vrList [data-vr-fold="${cand('A1').id}"]`),
+  );
+  click(`#vrList [data-vr-fold="${cand('A1').id}"]`);
+  await pause(30);
+  t(
+    '「收起」收回成一行',
+    !!$(`#vrList .vr-done[data-vr-id="${cand('A1').id}"]`) && !$(`#vrList .vr-cand[data-vr-id="${cand('A1').id}"]`),
+  );
 
   /* 顶部批量保存已通过的片段 */
   ffmpegMissing = true;

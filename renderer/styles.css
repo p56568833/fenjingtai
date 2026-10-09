@@ -6684,3 +6684,15 @@ body.dark .vr-cov.miss {
   color: var(--text-3);
   font-size: 12px;
 }
+
+/* 审过的一行：点开能看完整卡片（审核结果不变） */
+.vr-done {
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+.vr-done:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline-2));
+  background: var(--card);
+}

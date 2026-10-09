@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { shouldIgnore } from './package-filter.mjs';
-import { extractNotes, writeManifest } from './release-manifest.mjs';
+import { extractNotes, notesHistory, writeManifest } from './release-manifest.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -86,9 +86,10 @@ try {
   const zips = [];
   for (const arch of ['arm64', 'x64']) zips.push(await buildOne(arch));
   const { version } = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  const notes = extractNotes(readFileSync(path.join(ROOT, 'UPDATE-NOTES.md'), 'utf8'), version);
+  const notesMd = readFileSync(path.join(ROOT, 'UPDATE-NOTES.md'), 'utf8');
+  const notes = extractNotes(notesMd, version);
   if (!notes) console.warn(`⚠️ UPDATE-NOTES.md 里没找到「# 分镜台 ${version}」这一节，软件里的更新说明会是空的`);
-  const manifest = writeManifest(RELEASE_DIR, { version, notes, zips });
+  const manifest = writeManifest(RELEASE_DIR, { version, notes, zips, history: notesHistory(notesMd) });
   console.log(`[清单] ${manifest}（软件内更新先读它，不占 GitHub API 次数）`);
   console.log(`\n全部完成，发布物在 ${RELEASE_DIR}（arm64 = M 系列芯片，x64 = Intel 芯片）`);
   console.log(`发布：GitHub Release 的 tag 写 v${version}，把目录里的 2 个 zip、2 个 dmg 和 latest.json 全部上传。`);

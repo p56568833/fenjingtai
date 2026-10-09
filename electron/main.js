@@ -521,6 +521,9 @@ handle('update:download', async e => {
     sendUpdate(e, { phase: 'verify' });
     const p = updater.prepareUpdate(d.path, { parent: where.parent, version: info.version });
     if (!p.ok) return p;
+    // 之前下好的旧一版（下好后又发了新版）：换掉，临时文件夹一起清掉
+    if (update.prepared && update.prepared.stage !== p.stage)
+      fs.rmSync(update.prepared.stage, { recursive: true, force: true });
     update.prepared = { ...p, target: where.app, version: info.version };
     return { ok: true, version: info.version, verified: d.verified };
   } finally {

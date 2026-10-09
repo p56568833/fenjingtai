@@ -1,4 +1,5 @@
-/* 应用内更新：启动后（以及每隔 6 小时）查一次 GitHub 上有没有新版本；
+/* 应用内更新：启动后（以及每隔 1 小时）查一次 GitHub 上有没有新版本；点开更新窗口、开始下载前都会再查一次，
+   保证直接装最新的一版（隔了好几版也是一步到位，更新说明里列出中间每一版）；下好了旧一版、又发了新版时，改下新版。
    有新版本时顶栏出现蓝色下载图标「更新」按钮，点开看更新说明 → 下载并校验 → 「重启并更新」：
    分镜台先存盘退出，换上新版后自动重新打开。项目数据不在应用里，更新不会动它。 */
 import * as native from '../platform/native.js';
@@ -11,8 +12,8 @@ let phase = 'idle'; // idle | downloading | ready | installing
 let checking = false;
 const mb = n => (n > 0 ? `${(n / 1048576).toFixed(n > 104857600 ? 0 : 1)} MB` : '');
 
-export async function checkUpdate({ manual = false } = {}) {
-  if (checking) return;
+export async function checkUpdate({ manual = false, open = manual } = {}) {
+  if (checking || phase === 'downloading' || phase === 'installing') return;
   checking = true;
   let r;
   try {
@@ -29,10 +30,11 @@ export async function checkUpdate({ manual = false } = {}) {
     if (manual) toast(`已经是最新版本（${r.current}）`, null, 'ok');
     return;
   }
+  // 下好的是旧一版、现在有更新的：回到「下载并更新」，下最新的
+  phase = r.ready || (phase === 'ready' && info?.version === r.version) ? 'ready' : 'idle';
   info = r;
-  if (r.ready) phase = 'ready';
   paintButton();
-  if (manual) openUpdate();
+  if (open) showUpdate();
 }
 
 function paintButton() {
@@ -51,7 +53,9 @@ function paintButton() {
 function renderUpdate(progress = null) {
   if (!info) return;
   $('#updTitle').textContent = `分镜台 ${info.version} 可以更新了`;
-  $('#updMeta').textContent = `现在用的是 ${info.current}${info.size ? ` · 更新包 ${mb(info.size)}` : ''}`;
+  const n = info.versions?.length || 1;
+  $('#updMeta').textContent =
+    `现在用的是 ${info.current}${n > 1 ? ` · 一次更新到最新，包含 ${n} 个版本的改动` : ''}${info.size ? ` · 更新包 ${mb(info.size)}` : ''}`;
   $('#updNotes').textContent = info.notes || '这一版没有写更新说明。';
   const reason = $('#updReason');
   reason.hidden = info.canInstall;
@@ -79,8 +83,16 @@ function renderUpdate(progress = null) {
   $('#updPage').hidden = info.canInstall && phase !== 'idle'; // 不能自动更新时，给一个手动下载的入口
 }
 
-export function openUpdate() {
-  if (!info) return checkUpdate({ manual: true });
+/* 点「更新」：先再查一次，确保显示和下载的是现在最新的一版（应用开着期间可能又发了新版） */
+export async function openUpdate() {
+  if (phase === 'idle' || phase === 'ready') {
+    const had = !!info;
+    await checkUpdate({ manual: !had, open: false });
+    if (!info) return;
+  }
+  showUpdate();
+}
+function showUpdate() {
   renderUpdate();
   $('#updateMask').classList.add('show');
 }
@@ -98,6 +110,8 @@ async function go() {
     }
     return;
   }
+  await checkUpdate(); // 下载前再确认一次是不是最新的一版（窗口可能开了很久）
+  if (phase === 'ready') return renderUpdate(); // 最新的一版其实已经下好了
   phase = 'downloading';
   renderUpdate();
   paintButton();
@@ -141,9 +155,10 @@ export function initUpdate() {
     if (phase === 'downloading') renderUpdate(p);
   });
   registerCommand('update:check', () => checkUpdate({ manual: true }));
-  // 启动 4 秒后安静地查一次（没网、被限流都不打扰），之后每 6 小时查一次
+  // 启动 4 秒后安静地查一次（没网、被限流都不打扰），之后每小时查一次（读 latest.json 不占 GitHub API 次数）；
+  // 已经下好旧一版的也照查，有更新的就改成下最新的
   setTimeout(() => checkUpdate(), 4000);
-  setInterval(() => phase === 'idle' && checkUpdate(), 6 * 3600 * 1000);
+  setInterval(() => checkUpdate(), 3600 * 1000);
 }
 
 export const updateKey = e => {

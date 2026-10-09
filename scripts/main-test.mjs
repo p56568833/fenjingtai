@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { shouldIgnore } from './package-filter.mjs';
-import { buildManifest, extractNotes } from './release-manifest.mjs';
+import { buildManifest, extractNotes, notesHistory } from './release-manifest.mjs';
 
 const require = createRequire(import.meta.url);
 const { createStore, retentionKeep } = require('../electron/data-store.js');
@@ -571,6 +571,35 @@ test('更新：latest.json 清单 → 按芯片挑 zip（Intel 拿 x64），格�
   assert.equal(up.pickManifest(http, { current: '1.0.0', arch: 'x64' }).url, '', '只认 https 下载地址');
   for (const bad of [null, 'x', {}, { version: '' }, { version: 'abc' }])
     assert.equal(up.pickManifest(bad, { current: '1.0.0', arch: 'x64' }), null);
+});
+test('更新：隔了好几版也一步更新到最新，说明里列出中间每一版（新的在前）', () => {
+  const md =
+    '# 分镜台 1.10.5\n\n五\n\n---\n\n# 分镜台 1.10.4\n\n四\n\n---\n\n# 分镜台 1.10.3\n\n三\n\n---\n\n# 分镜台 1.10.2\n\n二\n';
+  const history = notesHistory(md);
+  assert.deepEqual(
+    history.map(h => h.version),
+    ['1.10.5', '1.10.4', '1.10.3', '1.10.2'],
+  );
+  assert.equal(notesHistory(md, 2).length, 2, '最多带几版');
+  const m = buildManifest({
+    version: '1.10.5',
+    notes: '五',
+    history,
+    files: [{ name: 'FenJingTai-mac-arm64.zip', size: 1, sha256: 'a'.repeat(64) }],
+  });
+  const from2 = up.pickManifest(m, { current: '1.10.2', arch: 'arm64' });
+  assert.equal(from2.version, '1.10.5', '直接给最新版，不是下一版');
+  assert.match(from2.url, /v1\.10\.5\/FenJingTai-mac-arm64\.zip$/);
+  assert.deepEqual(from2.versions, ['1.10.5', '1.10.4', '1.10.3']);
+  assert.ok(
+    from2.notes.indexOf('【分镜台 1.10.5】') < from2.notes.indexOf('【分镜台 1.10.3】') && !from2.notes.includes('二'),
+    '中间每一版的说明都在，已经装了的那版不列',
+  );
+  const from4 = up.pickManifest(m, { current: '1.10.4', arch: 'arm64' });
+  assert.equal(from4.notes, '五', '只差一版：照旧只显示这一版的说明');
+  assert.deepEqual(from4.versions, ['1.10.5']);
+  const old = up.pickManifest({ ...m, history: undefined }, { current: '1.10.2', arch: 'arm64' });
+  assert.equal(old.notes, '五', '旧清单没有 history 也能用');
 });
 test('更新：从 UPDATE-NOTES.md 取出某一版的说明，节与节之间以 --- 或下一个一级标题为界', () => {
   const md = '# 分镜台 1.10.3\n\n第一段\n\n**小标题**\n\n- 一条\n\n---\n\n# 分镜台 1.10.2\n\n旧的\n';

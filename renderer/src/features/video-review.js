@@ -17,7 +17,7 @@ import { persist, markProjectDirty, projectById, allProjects } from '../app/stor
 import { snapshot } from '../app/undo.js';
 import { invalidateProbe, probePaths, isMissing } from '../app/asset-actions.js';
 import { shotMembers } from '../core/shots.js';
-import { assetName, syncMirror, usageList, referencedAssetIds } from '../core/asset-model.js';
+import { assetName, syncMirror, usageList, referencedAssetIds, fileUrl } from '../core/asset-model.js';
 import { preview } from '../ui/badges.js';
 import { fmtTime } from '../core/text.js';
 import {
@@ -1086,10 +1086,11 @@ function cardHTML(c) {
       <button class="vr-btn re${d === 're' ? ' on' : ''}" data-vr-d="re" data-vr-for="${c.id}">换一个 <kbd>3</kbd></button>
       <input class="vr-note" data-vr-note="${c.id}" placeholder="意见（可选）：比如要更近景的、换成冷藏车外景…" value="${esc(c.note || '')}">
     </div>
-    <div class="vr-row vr-after">${actions}<button class="vr-mini ghost" data-vr-orig="${c.id}">下载完整原片</button></div>
+    <div class="vr-row vr-after">${actions}<button class="vr-mini ghost" data-vr-orig="${c.id}">下载完整原片</button>${d ? `<button class="vr-mini" data-vr-fold="${c.id}" title="收成一行，审核结果不变">收起</button>` : ''}</div>
   </article>`;
 }
-/* 审过的候选收成一行：结果、意见、撤回（再点同一个结果 = 撤回）。
+/* 审过的候选收成一行：结果、意见、撤回（再点同一个结果 = 撤回）；点这一行（撤回以外的地方）展开成完整卡片看画面，
+   审核结果不变，「收起」或换画面后再收回去。
    通过的露一帧画面（已保存的用 macOS 系统缩略图，秒出、不另存文件），一眼看出通过的是什么；
    英文 key 只留给 Claude 读（清单里照旧），界面不显示 */
 function doneHTML(c) {
@@ -1099,7 +1100,7 @@ function doneHTML(c) {
     d === 'ok'
       ? `<div class="vr-done-thumbs"><div class="vr-cell ld">${c.savedPath ? '载入中…' : '保存后显示画面'}</div></div>`
       : '';
-  return `<div class="vr-done d-${d}${thumbs ? ' has-thumbs' : ''}" data-vr-id="${c.id}">${thumbs}<span class="vr-tag d-${d}">${DECISION[d]}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
+  return `<div class="vr-done d-${d}${thumbs ? ' has-thumbs' : ''}" data-vr-id="${c.id}" title="点开查看画面（审核结果不变）">${thumbs}<span class="vr-tag d-${d}">${DECISION[d]}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
 }
 
 /* 截图：同时最多 2 个视频在截，每个候选在建议片段里均匀取 6 帧 */
@@ -1130,7 +1131,8 @@ function trimFrames() {
     if (!onScreen.has(id)) frames.delete(id);
   }
 }
-async function grab(c) {
+async function grab(orig) {
+  let c = mediaOf(orig);
   const cells = [];
   frames.set(c.id, cells);
   trimFrames();
@@ -1147,7 +1149,12 @@ async function grab(c) {
       );
   };
   try {
-    await loadMeta(v);
+    await loadMeta(v).catch(e => {
+      if (!c.local) throw e;
+      c = orig; // 本地文件读不了（被移走 / 删了）：退回在线地址
+      v.src = c.url.split('#')[0];
+      return loadMeta(v);
+    });
   } catch {
     frames.delete(c.id);
     const strip = document.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
@@ -1158,7 +1165,7 @@ async function grab(c) {
   for (let i = 0; i < 6; i++) {
     // 片段均匀分成 6 段，各取中点（片段不足 1 秒也不会取到入点之前）
     const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / 6;
-    cells.push({ cell: await frameAt(v, t, fmtTime(t)) });
+    cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in)) }); // 角标写原片里的时间
     place();
   }
   v.removeAttribute('src');
@@ -1228,12 +1235,16 @@ function loadingCell(text = '载入中…') {
   d.textContent = text;
   return d;
 }
+/* 播放 / 截图用的片段：已经保存到本地的直接用本地文件（秒开、不用联网），本地片段从 0 秒开始；
+   没保存的用在线地址的建议入出点 */
+const mediaOf = c =>
+  c?.savedPath ? { ...c, url: fileUrl(c.savedPath), in: 0, out: Math.max(0.1, c.out - c.in), local: true } : c;
 function play(id) {
   const c = state.candidates.find(x => x.id === id);
   const card = document.querySelector(`[data-vr-id="${id}"]`);
   if (!c || !card) return;
   const btn = card.querySelector('[data-vr-play]');
-  playClip(card, c, { onState: text => (btn.textContent = text) });
+  playClip(card, mediaOf(c), { onState: text => (btn.textContent = text) });
 }
 
 /* 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放 / 暂停这段。在意见框里打字时不抢键 */
@@ -1279,7 +1290,7 @@ export function videoReviewKey(e) {
     if (!curCand) return true;
     const card = $(`#vrList [data-vr-id="${curCand}"]`);
     const c = state.candidates.find(x => x.id === curCand);
-    if (!card || !c || !togglePause(card, c)) play(curCand);
+    if (!card || !c || !togglePause(card, mediaOf(c))) play(curCand);
     return true;
   }
   return false;
@@ -1344,17 +1355,32 @@ export function initVideoReview() {
     const track = t.closest('[data-vr-track]');
     if (track) {
       const c = state.candidates.find(x => x.id === track.dataset.vrTrack);
-      if (c) seekTrack(card, c, track, e.clientX);
+      if (c) seekTrack(card, mediaOf(c), track, e.clientX);
       return;
     }
     const pp = t.closest('[data-vr-pp]');
     if (pp) {
       const c = state.candidates.find(x => x.id === pp.dataset.vrPp);
-      if (c && !togglePause(card, c)) play(c.id);
+      if (c && !togglePause(card, mediaOf(c))) play(c.id);
       return;
     }
     const d = t.closest('[data-vr-d]');
     if (d) return setDecision(d.dataset.vrFor, d.dataset.vrD);
+    const fold = t.closest('[data-vr-fold]');
+    if (fold) {
+      stopAll();
+      touched.delete(fold.dataset.vrFold);
+      return renderVideoReview();
+    }
+    const doneRow = t.closest('.vr-done[data-vr-id]');
+    if (doneRow && !t.closest('button')) {
+      const id = doneRow.dataset.vrId;
+      touched.add(id); // 和刚审过的一样展开显示
+      curCand = id;
+      renderVideoReview();
+      $(`#vrList .vr-cand[data-vr-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+      return;
+    }
     const p = t.closest('[data-vr-play]');
     if (p) return play(p.dataset.vrPlay);
     const o = t.closest('[data-vr-orig]');
