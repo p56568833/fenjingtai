@@ -54,6 +54,7 @@ function openProjectsMenu(anchor) {
     ${list}
     <div class="pop-sep"></div>
     <div class="pop-item pi-even" data-projact="rename"><svg class="mi" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4-1 12-12-3-3L5 16Z"/></svg><span>重命名当前项目…</span></div>
+    <div class="pop-item pi-even" data-projact="retag"><svg class="mi" viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7"/><path d="m16 15 2 2 4-4"/></svg><span class="main">按现在的句号重命名素材文件…<span class="desc">改稿后句子编号变了，文件名里的「第N句」跟着改</span></span></div>
     <div class="pop-item pi-even" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">新建空项目<span class="desc">⌘N · 也可以直接把稿子文件拖进窗口</span></span></div>
     <div class="pop-sep"></div>
     ${trashN ? `<div class="pop-item pi-even" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="${TRASH_PATH}"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
@@ -219,6 +220,7 @@ export function initProjects() {
         const a = act.dataset.projact;
         if (a === 'new') newEmptyProject();
         if (a === 'rename') openProjectName();
+        if (a === 'retag') runCommand('assets:retag');
         if (a === 'types') runCommand('types:edit');
         if (a === 'folder') native.openDataFolder();
         if (a === 'projects') setTimeout(() => openProjectsMenu(btn()), 0);

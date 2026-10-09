@@ -223,23 +223,33 @@ export function applyFor(c, members, assetId) {
 }
 /* 撤回通过：把这个视频从画面上拿掉，画面描述里那一行也删掉 */
 export function detachCandidate(c, rows, registry) {
-  const row = rows.find(r => r.id === c.rowId);
-  if (!row) return;
-  const members = shotMembers(rows, row);
   const id = c.assetId;
-  for (const m of members) if (id) m.assetUsages = usageList(m).filter(u => u.assetId !== id);
+  const own = rows.find(r => r.id === c.rowId && r.kind === 'line');
+  // 原来那句还在：就处理它所在的画面；找不到（句子被删了 / 旧数据）：到用着这个视频的每个画面里摘掉
+  const owners = own
+    ? [own]
+    : id
+      ? rows.filter(r => r.kind === 'line' && usageList(r).some(u => u.assetId === id))
+      : [];
   const line = noteLine(c);
-  if ((row.note || '').includes(line))
-    setShotField(
-      rows,
-      row,
-      'note',
-      row.note
-        .split('\n')
-        .filter(l => l !== line)
-        .join('\n'),
-    );
-  syncMirror(members, registry);
+  const touched = [];
+  for (const row of owners) {
+    const members = shotMembers(rows, row);
+    if (touched.includes(members[0])) continue;
+    touched.push(members[0]);
+    for (const m of members) if (id) m.assetUsages = usageList(m).filter(u => u.assetId !== id);
+    if ((row.note || '').includes(line))
+      setShotField(
+        rows,
+        row,
+        'note',
+        row.note
+          .split('\n')
+          .filter(l => l !== line)
+          .join('\n'),
+      );
+    syncMirror(members, registry);
+  }
 }
 /* 保存了那几秒：素材换成本地文件（已经是剪好的片段，不再需要入出点），原链接留在画面描述里 */
 export function swapToLocal(c, localPath, rows, registry) {

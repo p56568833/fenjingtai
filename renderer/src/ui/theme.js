@@ -18,11 +18,15 @@ const setPref = v => {
 export const themePref = getPref;
 
 /* 比例坐标避开高分屏 / 界面缩放下 View Transition 的像素裁剪坐标偏移。
-   新画面从 CSS 的零半径开始，ready 后直接启动，不再暂停后等两帧。
-   连续点击只更新最终目标并结束当前动画，避免反复截取整窗和旧回调覆盖新主题。 */
+   二次方缓出：立即起步、均匀减速；连点在同一份截图上反向播放，保持圆边连续。 */
 let targetDark;
 let activeTransition = null;
-let rippleFinishedAt = -Infinity;
+
+function steerRipple(current) {
+  if (!current.animation) return; // 截图准备期间由 ready 回调处理最新目标。
+  current.animation.playbackRate = targetDark === current.dark ? 1 : -1;
+  current.animation.play();
+}
 
 function ripple() {
   const b = document.querySelector('#btnTheme')?.getBoundingClientRect();
@@ -35,30 +39,35 @@ function ripple() {
   const root = document.documentElement;
   root.style.setProperty('--theme-origin', origin);
   root.classList.add('theme-vt');
-  const current = { vt: null, animation: null, skipped: false };
+  const current = { vt: null, animation: null, dark: null, skipped: false };
   activeTransition = current;
   const cleanup = () => {
     if (activeTransition !== current) return;
+    apply(targetDark); // 反播结束时恢复旧主题；截图存续期间不改新画面，避免闪色。
     current.animation?.cancel(); // fill:both 的 WAAPI 动画不会随伪元素销毁自动释放。
     activeTransition = null;
-    rippleFinishedAt = performance.now();
     root.classList.remove('theme-vt');
     root.style.removeProperty('--theme-origin');
   };
   try {
-    current.vt = document.startViewTransition(() => apply(targetDark));
+    current.vt = document.startViewTransition(() => {
+      current.dark = targetDark;
+      apply(current.dark);
+    });
     current.vt.ready
       .then(() => {
         if (current.skipped || activeTransition !== current) return;
         current.animation = root.animate(
           { clipPath: [`circle(0% at ${origin})`, `circle(${radius}% at ${origin})`] },
           {
-            duration: 420,
-            easing: 'cubic-bezier(0.25, 0, 0.2, 1)',
+            duration: 380,
+            // x(t)≈t，y(t)≈1-(1-t)²；在合成动画中执行，不用逐帧改 DOM。
+            easing: 'cubic-bezier(0.333333, 0.666667, 0.666667, 1)',
             fill: 'both',
             pseudoElement: '::view-transition-new(root)',
           },
         );
+        steerRipple(current);
       })
       .catch(() => current.vt.skipTransition());
     current.vt.finished.then(cleanup, cleanup);
@@ -70,24 +79,19 @@ function ripple() {
 function switchTo(dark) {
   targetDark = dark;
   if (activeTransition) {
-    activeTransition.skipped = true;
-    activeTransition.vt.skipTransition();
-    apply(dark);
+    if (reduced() || document.hidden) {
+      activeTransition.skipped = true;
+      activeTransition.vt.skipTransition();
+      apply(dark);
+    } else steerRipple(activeTransition);
     return;
   }
   if (document.body.classList.contains('dark') === dark) {
     apply(dark); // 跟随系统时仍更新按钮提示。
     return;
   }
-  if (
-    typeof document.startViewTransition === 'function' &&
-    !reduced() &&
-    !document.hidden &&
-    performance.now() - rippleFinishedAt >= 200
-  )
-    ripple();
+  if (typeof document.startViewTransition === 'function' && !reduced() && !document.hidden) ripple();
   else {
-    // 动画刚结束的快速连点也直接响应，给整窗截图资源留出释放时间。
     const root = document.documentElement;
     root.classList.add('theme-vt');
     apply(dark);
@@ -139,7 +143,15 @@ export function initTheme() {
   targetDark = pref === 'dark' || (pref === 'system' && media.matches);
   apply(targetDark);
   media.addEventListener('change', e => getPref() === 'system' && switchTo(e.matches));
-  document.querySelector('#btnTheme').onclick = toggleTheme;
+  const button = document.querySelector('#btnTheme');
+  button.onclick = toggleTheme;
+  // 整窗快照在部分 Chromium 版本中会把点击命中到 html。
+  // 仅接回主题按钮区域的点击，保证动画中仍能反向，不重复触发普通按钮点击。
+  document.documentElement.addEventListener('click', e => {
+    if (!activeTransition || e.target !== document.documentElement) return;
+    const b = button.getBoundingClientRect();
+    if (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom) toggleTheme();
+  });
   registerCommand('theme:toggle', toggleTheme);
   registerCommand('theme:system', followSystem);
   registerCommand('view:density', toggleDensity);

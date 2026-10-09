@@ -173,18 +173,14 @@ body.dark .topbar {
 .logo .mark {
   width: 34px;
   height: 34px;
-  border-radius: 11px;
+  flex: none;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #3f7dff, #8b5cf6);
-  box-shadow:
-    0 4px 16px rgba(94, 110, 255, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
-.logo .mark svg {
-  width: 19px;
-  height: 19px;
-  fill: #fff;
+.logo .mark img {
+  display: block;
+  width: 34px;
+  height: 34px;
 }
 .logo .name {
   font-size: 17px;
@@ -849,9 +845,7 @@ body.dark .searchbar {
   border: 1px solid transparent;
   border-left: 1px solid var(--hairline-2);
   border-radius: 0 9px 9px 0;
-  transition:
-    background 0.13s,
-    border-color 0.13s;
+  transition: none;
 }
 body.dark .note {
   color: #bcc5d6;
@@ -1484,7 +1478,6 @@ select:focus-visible {
 [hidden] {
   display: none !important;
 }
-.logo .mark,
 .btn.primary {
   background: #416c9d;
   box-shadow: none;
@@ -5182,7 +5175,7 @@ body.multi-mode .shared-scene-body {
   -webkit-line-clamp: 4;
   line-clamp: 4;
   overflow: hidden;
-  /* overflow 只裁到内边距外沿：把下内边距换成透明下边框，第 5 行就不会从底部露出半截 */
+  /* 下留白只在收起时改为透明边框，编辑时保留原来的完整圆角细框。 */
   padding-bottom: 0;
   border-bottom: 7px solid transparent;
 }
@@ -5891,6 +5884,13 @@ body.dark .pop-glide {
 
 /* 18 · 深浅色水波：比例坐标适配高分屏与界面缩放；截图就绪前隐藏新画面。
    不叠加浏览器默认的整窗变换或界面自己的颜色过渡。 */
+html.theme-vt::view-transition,
+html.theme-vt::view-transition-group(root),
+html.theme-vt::view-transition-image-pair(root),
+html.theme-vt::view-transition-old(root),
+html.theme-vt::view-transition-new(root) {
+  pointer-events: none;
+}
 html.theme-vt::view-transition-group(root),
 html.theme-vt::view-transition-old(root),
 html.theme-vt::view-transition-new(root) {
@@ -6695,4 +6695,200 @@ body.dark .vr-cov.miss {
 .vr-done:hover {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline-2));
   background: var(--card);
+}
+
+/* ═════════ 1.10.7 右侧面板：素材卡按钮带图标、最后一个素材下面不画线、视频候选入口更醒目；审核页顶栏去掉进度和分隔线 ═════════ */
+.inspector-asset .asset-actions {
+  gap: 5px;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.inspector-asset .asset-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 74px;
+  padding: 4px 9px 4px 7px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--text-2);
+  font-size: 11.5px;
+  font-weight: 550;
+}
+.inspector-asset .asset-mini svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.inspector-asset .asset-mini:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--hairline-2));
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+.asset-list > .inspector-asset:last-of-type {
+  border-bottom: 0;
+}
+.inspector .vr-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 2px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.inspector .vr-open:hover {
+  background: color-mix(in srgb, var(--accent) 14%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.inspector .vr-open svg {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.inspector .vr-open > svg {
+  width: 17px;
+  height: 17px;
+}
+.inspector .vr-open b {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+}
+.vr-open-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vr-open-go svg {
+  width: 11px;
+  height: 11px;
+}
+.vr-body {
+  border-top: 0;
+  padding-top: 0;
+}
+
+/* 输入状态直接切换，不在进入 / 退出编辑时渐变边框和底色。 */
+:is(input, textarea, [contenteditable]) {
+  transition: none;
+}
+
+/* ═════════ 项目打包（ZIP）：导出二选一、导入选位置、进度条 ═════════ */
+.modal.pack-modal {
+  width: 480px;
+}
+.pack-opt {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.pack-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.pack-opt input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.pack-opt b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.pack-opt small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.pack-modal #packImpInfo {
+  margin-bottom: 14px;
+  color: var(--text);
+}
+.pack-dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+}
+.pack-dest-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pack-dest code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+}
+.pack-dest .btn {
+  flex: none;
+}
+.pack-modal .pack-hint {
+  margin: 8px 0 16px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pack-progress {
+  margin: 4px 0 16px;
+}
+.pack-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+.pack-bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+.pack-status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }

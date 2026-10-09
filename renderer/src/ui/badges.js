@@ -101,6 +101,14 @@ function roleControls(u, index) {
   return `<div class="asset-role" role="group" aria-label="素材角色">${chips}</div>`;
 }
 
+/* 右侧面板素材卡右边的小按钮：图标 + 文字 */
+const ICON_CLIP =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg>';
+const ICON_OPEN =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
+const ICON_FIND =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>';
+
 export function inspectorAssets(r, { missing } = {}) {
   const registry = state.assets || {};
   const usages = usageList(r);
@@ -109,7 +117,7 @@ export function inspectorAssets(r, { missing } = {}) {
   const cands = (state.candidates || []).filter(c => ids.has(c.rowId));
   const todo = cands.filter(c => !c.decision).length;
   const vr = cands.length
-    ? `<button class="asset-mini vr-open" data-vr-open="${r.id}">视频候选 ${cands.length} 个${todo ? ` · ${todo} 个待审` : ''} · 去审核</button>`
+    ? `<button class="vr-open${todo ? ' has-todo' : ''}" data-vr-open="${r.id}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10.5 5-3v9l-5-3"/></svg><span class="vr-open-main">视频候选 ${cands.length} 个</span>${todo ? `<b>${todo} 个待审</b>` : ''}<span class="vr-open-go">去审核<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4.5 3 3 3-3 3"/></svg></span></button>`
     : '';
   if (!usages.length) return vr + '<p class="asset-none">尚未关联素材</p>';
   // 每个上屏画面的编号和出现秒数（相对这段口播开头）
@@ -149,9 +157,9 @@ export function inspectorAssets(r, { missing } = {}) {
         <span class="asset-caption"><strong>${esc(a.name || baseName(path))}</strong><small>${esc(stateLine)}</small></span>
       </button>
       <div class="asset-actions">
-        ${kind === 'video' && !gone ? `<button class="asset-mini" data-clip-usage="${index}">片段</button>` : ''}
-        ${gone ? `<button class="asset-mini" data-relocate-usage="${index}">重新定位</button>` : ''}
-        <button class="asset-mini" data-sys-open="${esc(path)}">系统打开</button>
+        ${kind === 'video' && !gone ? `<button class="asset-mini" data-clip-usage="${index}" title="设置用视频里的哪一段（入点 / 出点）">${ICON_CLIP}<span>片段</span></button>` : ''}
+        ${gone ? `<button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button>` : ''}
+        <button class="asset-mini" data-sys-open="${esc(path)}" title="用系统默认的应用打开（访达 / QuickTime 等）">${ICON_OPEN}<span>打开</span></button>
       </div>
       ${roleControls(u, index)}
     </div>`;
@@ -440,13 +448,13 @@ export function refreshThumb(path) {
   });
 }
 
-/* ── 行徽标：片段待调整 / 待核对 + 素材卡片（只在内容变了时重画） ── */
+/* ── 行徽标：片段待调整 + 素材卡片（只在内容变了时重画） ── */
 let missingSet = new Set(); // 文件失联探测结果（与「无缩略图」「格式不支持」分开统计）
 export const missingPaths = () => missingSet;
 
 function statusText(r) {
   const clipTodo = usageList(r).some(u => u.clip && u.clip.needsAdjust);
-  return [clipTodo ? '片段待调整' : '', r.needsReview ? '待核对' : ''].filter(Boolean).join(' · ');
+  return clipTodo ? '片段待调整' : '';
 }
 
 /* 素材卡片变化的动效：新挂上的素材弹进来；主画面 / 备选换了角色的轻轻跳一下。

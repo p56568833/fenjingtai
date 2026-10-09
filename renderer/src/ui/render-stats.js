@@ -63,13 +63,16 @@ export function renderStats() {
   const lines = state.rows.filter(r => r.kind === 'line');
   const counts = { none: 0 };
   for (const r of lines) counts[r.type || 'none'] = (counts[r.type || 'none'] || 0) + 1;
+  const shotGroups = shots(state.rows);
+  const shotCounts = { none: 0 };
+  for (const [r] of shotGroups) shotCounts[r.type || 'none'] = (shotCounts[r.type || 'none'] || 0) + 1;
   renderSegbar(lines);
   document.querySelector('#filters').innerHTML = filterList()
     // 「未标注」为 0 时不占位置（正在用这个筛选时除外）
     .filter(f => f.id !== 'none' || counts.none || state.filter === 'none')
     .map(
       f =>
-        `<button class="chip-filter ${state.filter === f.id ? 'active' : ''}${f.id !== 'all' && !counts[f.id] ? ' empty' : ''}" data-f="${f.id}" aria-pressed="${state.filter === f.id}"><span class="dot" style="background:${f.color}"></span>${esc(f.label)}<span class="n">${f.id === 'all' ? lines.length : counts[f.id] || 0}</span></button>`,
+        `<button class="chip-filter ${state.filter === f.id ? 'active' : ''}${f.id !== 'all' && !shotCounts[f.id] ? ' empty' : ''}" data-f="${f.id}" aria-pressed="${state.filter === f.id}"><span class="dot" style="background:${f.color}"></span>${esc(f.label)}<span class="n">${f.id === 'all' ? shotGroups.length : shotCounts[f.id] || 0}</span></button>`,
     )
     .join('');
   const filters = document.querySelector('#filters');
@@ -88,7 +91,7 @@ export function renderStats() {
   }
   prevCounts = nextCounts;
   const ti = types();
-  const visualShots = shots(state.rows).filter(g => g[0].type && ti.needsVisual(g[0].type));
+  const visualShots = shotGroups.filter(g => g[0].type && ti.needsVisual(g[0].type));
   // 看「有没有挂上要用的素材」（主画面 / 叠加 / 未分配，不算备选）
   const done = lines.length - counts.none,
     linked = visualShots.filter(g => g.some(m => linkedUsages(m).length)).length;

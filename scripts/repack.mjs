@@ -3,6 +3,7 @@ import { createPackageWithOptions } from '@electron/asar';
 import { cpSync, existsSync, readFileSync, mkdirSync, renameSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
+import { installAppIcon } from './app-icon.mjs';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const staging = path.join(ROOT, 'dist', '.asar-staging');
@@ -27,6 +28,7 @@ try {
     const asar = path.join(app, 'Contents', 'Resources', 'app.asar');
     await createPackageWithOptions(staging, asar + '.new', { dot: true });
     renameSync(asar + '.new', asar);
+    installAppIcon(app);
     const plist = path.join(app, 'Contents', 'Info.plist');
     for (const key of ['CFBundleShortVersionString', 'CFBundleVersion'])
       run('/usr/bin/plutil', ['-replace', key, '-string', version, plist]);

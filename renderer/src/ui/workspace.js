@@ -5,7 +5,7 @@ import { repairPunctuationAction } from '../app/actions.js';
 import { repairCandidates } from '../core/shots.js';
 import { toast, confirmModal } from './dom.js';
 import { closePop } from './popover.js';
-import { renderOutline, initOutline } from './outline.js';
+import { renderOutline, initOutline, beginOutlineJump } from './outline.js';
 import { renderToolbar, initToolbar } from './toolbar.js';
 import { renderInspector, initInspector, isInspectorOpen, openInspectorFor } from './inspector.js';
 import { initReview } from './review.js';
@@ -16,12 +16,14 @@ import { registerCommand } from './commands.js';
 
 const $ = s => document.querySelector(s);
 let lastProject = null;
+let cancelJump = null;
 
 export { openInspectorFor };
 export { openReview } from './review.js';
 
 export function jumpTo(id) {
   if (!rowById(id)) return;
+  cancelJump?.();
   closePop();
   const filtered = state.filter !== 'all';
   state.filter = 'all';
@@ -33,13 +35,31 @@ export function jumpTo(id) {
   else update('selection');
   // 章节标题会吸顶，当前坐标不是章节起点；定位首句也能让浏览器展开屏幕外的正文。
   const el = document.querySelector(`.row[data-id="${state.sel}"],.as[data-id="${state.sel}"]`);
+  const releaseOutline = beginOutlineJump(state.sel);
   // 跳过去后不再给那句闪一圈光（切章节时整组画面框会「散开」一下，看着晃）；选中底色已经标出是哪句
   el?.scrollIntoView({ block: 'center' });
-  const selectedId = state.sel;
-  requestAnimationFrame(() => {
-    // content-visibility 展开后行高可能变化，下一帧校准；新导航或项目切换后不再滚旧目标。
-    if (state.sel === selectedId && el?.isConnected) el.scrollIntoView({ block: 'center' });
-  });
+  const selectedId = state.sel,
+    project = state.projectId,
+    view = state.view;
+  let frame = 0,
+    remaining = 3;
+  const cancel = () => {
+    cancelAnimationFrame(frame);
+    for (const event of ['wheel', 'pointerdown', 'keydown']) document.removeEventListener(event, cancel, true);
+    if (cancelJump === cancel) cancelJump = null;
+    releaseOutline();
+  };
+  cancelJump = cancel;
+  for (const event of ['wheel', 'pointerdown', 'keydown']) document.addEventListener(event, cancel, true);
+  const settle = () => {
+    // 长稿占位块展开后继续校准几帧；新导航、切项目 / 视图或用户开始操作立即结束。
+    if (state.sel !== selectedId || state.projectId !== project || state.view !== view || !el?.isConnected)
+      return cancel();
+    el.scrollIntoView({ block: 'center' });
+    if (--remaining) frame = requestAnimationFrame(settle);
+    else cancel();
+  };
+  frame = requestAnimationFrame(settle);
   rememberCursor();
 }
 

@@ -9,10 +9,7 @@
       content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: blob: https: http:; media-src 'self' file: blob: https: http:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"
     />
     <title>分镜台</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>"
-    />
+    <link rel="icon" type="image/svg+xml" href="./assets/brand-mark.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -21,12 +18,8 @@
     <!-- ═════════ 顶栏 ═════════ -->
     <header class="topbar">
       <div class="logo">
-        <div class="mark">
-          <svg viewBox="0 0 24 24">
-            <path
-              d="M20.6 4.6 4.9 8.2c-.9.2-1.5 1-1.4 1.9l.1.9h17.1l-1-6.4ZM2.9 12.9V18a2 2 0 0 0 2 2h14.2a2 2 0 0 0 2-2v-5.1H2.9Z"
-            />
-          </svg>
+        <div class="mark" aria-hidden="true">
+          <img src="./assets/brand-mark.svg" width="34" height="34" alt="" draggable="false" />
         </div>
         <span class="name">分镜台</span>
       </div>

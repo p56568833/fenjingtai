@@ -58,9 +58,12 @@ export function removeUsage(row, index) {
   const usages = usageList(row);
   if (index < 0 || index >= usages.length) return;
   snapshot('移除素材关联');
-  const rest = usages.filter((_, i) => i !== index);
+  const gone = usages[index].assetId;
+  // 共用画面每句各存一份记录（off = 这条素材不在这一句出现）：只从每句自己的记录里删掉这一个，别的不动
   eachMember(row, m => {
-    m.assetUsages = rest.map(cloneUsage);
+    m.assetUsages = usageList(m)
+      .filter(u => u.assetId !== gone)
+      .map(cloneUsage);
   });
   syncMirror(shotMembers(state.rows, row), state.assets);
   persist();

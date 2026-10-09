@@ -87,7 +87,6 @@ export function buildAnnotatedMd({ title, rows, issues = [], registry = {}, type
         displayNote: (r.note || '').replace(/\n/g, ' / '),
         assets: r.assets || '',
         status: r.status || 'todo',
-        needsReview: !!r.needsReview,
         assetUsages: embedUsages(r, registry),
         ...(r.time ? { time: r.time } : {}),
       }),
@@ -172,7 +171,6 @@ export function buildCsv(ctx) {
       '画面/备注',
       '共用画面',
       '素材引用',
-      '待核对',
     ],
   ];
   for (const r of rows) {
@@ -194,7 +192,6 @@ export function buildCsv(ctx) {
       r.note || '',
       r.groupId ? labels.get(r.groupId) || '' : '',
       usageLines(r, registry, missing).join('；'),
-      r.needsReview ? '是' : '',
     ]);
   }
   return '\uFEFF' + table.map(r => r.map(cell).join(',')).join('\n');

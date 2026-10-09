@@ -255,8 +255,10 @@ export async function runVideoReviewTests(t) {
       !card('B1'),
   );
   t(
-    '顶部写着这一批的进度',
-    $('#vrSummary').textContent.includes('还剩 3 个待审') && $$('#vrNav [data-vr-batch]').length === 1,
+    '进度只写在左栏批次卡片上，顶栏不再重复',
+    !$('#vrSummary') &&
+      $('#vrNav .vr-bprogress')?.textContent.includes('3 待审') &&
+      $$('#vrNav [data-vr-batch]').length === 1,
   );
   t(
     '左栏顶上固定当前批次卡片（第几批、待审数、进度条、「⋯」），下面列出这一批的全部画面',
@@ -475,11 +477,8 @@ export async function runVideoReviewTests(t) {
       .every(r => r.type === 'real') && lines()[3].type == null,
   );
   t(
-    '整批审完：顶部正中只写「共 N 个 · 已通过 M 个」，不再写「这一批审完了」，也没有快捷键提示行',
-    /共 \d+ 个/.test($('#vrSummary').textContent) &&
-      !$('#vrSummary').textContent.includes('审完') &&
-      !$('.vr-keys') &&
-      !$('#vrList').textContent.includes('这一批都审完了'),
+    '整批审完：右边不再写「这一批审完了」，也没有快捷键提示行',
+    !$('.vr-keys') && !$('#vrList').textContent.includes('这一批都审完了'),
   );
   key('ArrowLeft');
   await pause(30);

@@ -126,9 +126,9 @@ const mergeUsages = memberLists => {
     }
   return [...seen.values()];
 };
-/* 共用画面的共享字段（描述 / 类型 / 状态 / 待核对）统一从这里写：组内每句一起改，保证一致。
+/* 共用画面的共享字段（描述 / 类型 / 状态）统一从这里写：组内每句一起改，保证一致。
    返回被改到的句子，调用方据此刷界面。素材使用记录要逐句拷贝，走 assets.js 的 eachMember。 */
-export const SHARED_FIELDS = ['note', 'type', 'status', 'needsReview'];
+export const SHARED_FIELDS = ['note', 'type', 'status'];
 export function setShotField(rows, row, key, value) {
   const members = shotMembers(rows, row);
   for (const m of members) m[key] = value;
@@ -165,7 +165,7 @@ export function unlinkedShots(rows, types = DEFAULT_TYPES) {
   const ti = typeIndex(types);
   return shots(rows).filter(g => g[0].type && ti.needsVisual(g[0].type) && !g.some(m => linkedUsages(m).length));
 }
-/* 交稿检查。默认是「分镜方案」检查：类型、画面描述、主画面、片段、改稿、字幕；
+/* 交稿检查。默认是「分镜方案」检查：类型、画面描述、主画面、片段、字幕；
    opts.assets = true 时再加「素材交付」检查：需要画面却没关联素材、素材文件失联（opts.missing = 失联路径集合，opts.registry = 素材库） */
 export function checkDelivery(rows, types = DEFAULT_TYPES, opts = {}) {
   const ti = typeIndex(types);
@@ -183,7 +183,6 @@ export function checkDelivery(rows, types = DEFAULT_TYPES, opts = {}) {
       if (cov.anyRole && !cov.hasMain) issues.push('未指定主画面');
       else if (cov.anyRole && !cov.full) issues.push('部分句子没有主画面');
     }
-    if (group.some(x => x.needsReview)) issues.push('稿件更新待核对');
     if (group.some(x => x.time && x.time.st === 'est')) issues.push('字幕里没找到这句');
     if (opts.assets && r.type && ti.needsVisual(r.type)) {
       if (!group.some(m => linkedUsages(m).length)) issues.push('还没关联素材');
@@ -305,7 +304,6 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
         : {}),
       ...(typeof r.groupId === 'string' && GROUP_ID.test(r.groupId) ? { groupId: r.groupId } : {}),
       para: !!r.para,
-      needsReview: !!r.needsReview,
       ...(validTime(r.time)
         ? {
             time: {
@@ -338,7 +336,7 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
   }
   return result;
 }
-/* Conservative draft update: repeated sentences stay unconfirmed instead of inheriting a wrong shot. */
+/* Conservative draft update: only unique, unchanged sentences inherit their shot; repeated or edited ones start blank. */
 export function reconcileDraft(oldRows, newRows) {
   const key = r => r.text.trim();
   const oldMap = new Map(),
@@ -353,7 +351,7 @@ export function reconcileDraft(oldRows, newRows) {
       kept++;
       return { ...matches[0], para: r.para };
     }
-    return { ...r, id: next++, ...(r.kind === 'line' ? { needsReview: true } : {}) };
+    return { ...r, id: next++ };
   });
   for (const group of shots(oldRows).filter(g => g[0].groupId)) {
     const ids = group.map(r => r.id),
@@ -368,14 +366,13 @@ export function reconcileDraft(oldRows, newRows) {
     ) {
       matched.forEach(r => {
         delete r.groupId;
-        r.needsReview = true;
       });
     }
   }
   return {
     rows: result,
     kept,
-    review: result.filter(r => r.needsReview).length,
+    review: result.filter(r => r.kind === 'line').length - kept,
     removed: oldRows.filter(r => r.kind === 'line' && !result.some(x => x.id === r.id)).length,
   };
 }

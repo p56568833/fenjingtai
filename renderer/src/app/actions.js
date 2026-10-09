@@ -137,6 +137,8 @@ export function mergeToPrev(id) {
     };
   else delete prev.time;
   if (!prev.type) prev.type = cur.type;
+  // 挂在被并掉那句上的视频候选改挂到合并后的句子，审核页的撤回、改名还能找到它
+  for (const c of state.candidates || []) if (c.rowId === cur.id) c.rowId = prev.id;
   state.rows.splice(i, 1);
   state.multi = null;
   state.sel = prev.id;
@@ -453,7 +455,7 @@ export function repairPunctuationAction() {
   return fixes.length;
 }
 
-/* ── 画面信息（右侧面板）：描述 / 状态 / 待核对，整组同步 ── */
+/* ── 画面信息（右侧面板）：描述 / 状态，整组同步 ── */
 export function setShotNote(row, note, { session } = {}) {
   if (!row || (row.note || '') === note) return false;
   if (!session || !session.snapped) {
@@ -464,13 +466,6 @@ export function setShotNote(row, note, { session } = {}) {
   persist();
   emit('notes', { ids: members.map(x => x.id) });
   return true;
-}
-export function markReviewed(row) {
-  if (!row) return;
-  snapshot('核对改稿');
-  setShotField(state.rows, row, 'needsReview', false);
-  persist();
-  update('rows');
 }
 
 /* ── 语速 ── */

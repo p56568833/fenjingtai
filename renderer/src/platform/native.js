@@ -42,10 +42,20 @@ export const saveVideoSegment = call('saveVideoSegment');
 export const downloadOriginalVideo = call('downloadOriginalVideo');
 export const cancelDownload = call('cancelDownload');
 export const tagSavedClip = call('tagSavedClip');
+export const retagLineFile = call('retagLineFile');
 export const writeCandidateReview = call('writeCandidateReview');
 export const revealAsset = call('revealAsset');
 export const onSegmentProgress = cb => n()?.onSegmentProgress?.(cb);
 export const onDownloadProgress = cb => n()?.onDownloadProgress?.(cb);
+
+/* 项目打包（ZIP） */
+export const packSizes = call('packSizes');
+export const packExport = call('packExport');
+export const packInspect = call('packInspect');
+export const packPickDest = call('packPickDest');
+export const packExtract = call('packExtract');
+export const packCancel = call('packCancel');
+export const onPackProgress = cb => n()?.onPackProgress?.(cb);
 
 /* 应用内更新 */
 export const checkUpdate = call('checkUpdate');

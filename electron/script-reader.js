@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 
-const SCRIPT_EXTS = ['md', 'markdown', 'txt', 'docx', 'json', 'srt', 'vtt'];
+const SCRIPT_EXTS = ['md', 'markdown', 'txt', 'docx', 'json', 'srt', 'vtt', 'zip'];
 const MAX_BYTES = 30 * 1024 * 1024;
 
 function decodeText(buf) {
@@ -111,6 +111,8 @@ function readScriptFile(file) {
   try {
     const st = fs.statSync(file);
     if (!st.isFile()) return { error: '这不是一个文件' };
+    // 打包的项目（ZIP）可能有几个 GB：不读进内存，只把路径交给界面，由主进程边读边解压
+    if (ext === 'zip') return { name: path.basename(file), ext, content: '', path: file, size: st.size };
     if (st.size > MAX_BYTES) return { error: '文件太大（超过 30MB），不像是稿子' };
     const buf = fs.readFileSync(file);
     const content = ext === 'docx' ? docxToText(buf) : decodeText(buf);

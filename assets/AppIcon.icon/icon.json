@@ -1,0 +1,41 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.13725,0.68235,1.00000,1.00000",
+      "srgb:0.00000,0.23137,0.80392,1.00000"
+    ]
+  },
+  "groups": [
+    {
+      "name": "Approved blue-white artwork",
+      "layers": [
+        {
+          "name": "ApprovedArtwork",
+          "image-name": "ApprovedArtwork.png",
+          "glass": false,
+          "opacity": 1,
+          "position": {
+            "scale": 1.3,
+            "translation-in-points": [
+              0,
+              -2
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "none",
+        "opacity": 0
+      },
+      "specular": false,
+      "blur-material": null,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

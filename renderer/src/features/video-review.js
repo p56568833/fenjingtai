@@ -398,7 +398,19 @@ export async function tagOldSavedClips() {
     }
   }
   if (!moved.size) return 0;
-  // 别的项目（比如「改稿前」副本）也可能引用同一个文件：一起改成新路径，不留失联
+  applyMovedPaths(pid, moved, { rows, assets, candidates });
+  if (state.projectId !== pid) return moved.size;
+  const first = [...moved.values()][0];
+  toast(`已给 ${moved.size} 个保存过的视频片段补上句号，例如「${assetName(first)}」`, {
+    label: '在访达中显示',
+    cb: () => native('revealAsset')(first),
+  });
+  return moved.size;
+}
+
+/* 文件改了名（旧路径 → 新路径）：当前项目、其他项目（比如「改稿前」副本）的素材库和候选记录一起改，
+   候选清单跟着写回，不留失联。不进撤销（改的是磁盘上的文件名） */
+function applyMovedPaths(pid, moved, { rows, assets, candidates }) {
   for (const p of allProjects()) {
     if (p.id === pid) continue;
     let hit = false;
@@ -426,19 +438,92 @@ export async function tagOldSavedClips() {
     }
   if (state.projectId !== pid) {
     markProjectDirty(pid); // 中途切了项目：改的是原项目的数据，单独标记写盘
-    return moved.size;
+    return;
   }
   syncMirror(rows, assets);
   invalidateProbe();
   persist();
   update('rows');
   writeBack();
-  const first = [...moved.values()][0];
-  toast(`已给 ${moved.size} 个保存过的视频片段补上句号，例如「${assetName(first)}」`, {
-    label: '在访达中显示',
-    cb: () => native('revealAsset')(first),
-  });
-  return moved.size;
+}
+
+/* 改稿后句子编号变了，文件名里的「第N-M句」还是旧的：手动执行一次，按现在的句号重命名。
+   每个带句号的本地素材取它第一次出现的那个画面的句子范围；表格上没用到的，按候选记录的画面算；
+   都找不到的不动。只在用户点了才做（不自动改：打开旧项目时不会把文件名改回去） */
+export function retagPlan(rows, assets, candidates) {
+  renumber();
+  const tagOf = members => {
+    const nos = members.map(m => m.no).filter(n => n > 0);
+    if (!nos.length) return '';
+    const from = Math.min(...nos),
+      to = Math.max(...nos);
+    return from === to ? `第${from}句` : `第${from}-${to}句`;
+  };
+  const first = new Map(); // assetId → 句号
+  const seen = new Set();
+  for (const r of rows) {
+    if (r.kind !== 'line') continue;
+    const members = shotMembers(rows, r);
+    const key = r.groupId || `line-${r.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    for (const m of members)
+      for (const u of usageList(m)) if (!first.has(u.assetId)) first.set(u.assetId, tagOf(members));
+  }
+  const plan = new Map(); // 旧路径 → 句号
+  const local = p => typeof p === 'string' && p.startsWith('/') && hasLineTag(p);
+  for (const a of Object.values(assets || {})) {
+    if (!local(a.path) || plan.has(a.path)) continue;
+    let tag = first.get(a.id);
+    if (!tag) {
+      const c = candidates.find(x => x.savedPath === a.path);
+      tag = c ? lineTag(c, rows) : '';
+    }
+    if (tag && !assetName(a.path).startsWith(`${tag}_`)) plan.set(a.path, tag);
+  }
+  for (const c of candidates) {
+    if (!local(c.savedPath) || plan.has(c.savedPath)) continue;
+    if (Object.values(assets || {}).some(a => a.path === c.savedPath)) continue;
+    const tag = lineTag(c, rows);
+    if (tag && !assetName(c.savedPath).startsWith(`${tag}_`)) plan.set(c.savedPath, tag);
+  }
+  return plan;
+}
+let retagging = false;
+export function retagLineFiles() {
+  if (retagging) return;
+  const pid = state.projectId;
+  const { rows, assets, candidates } = state;
+  const plan = retagPlan(rows, assets, candidates);
+  if (!plan.size) return toast('素材文件名里的句号都是最新的', null, 'ok');
+  const [p0, t0] = [...plan.entries()][0];
+  const example = `${assetName(p0)} → ${assetName(p0).replace(/^第\d+(?:-\d+)?句_/, `${t0}_`)}`;
+  confirmModal(
+    '按现在的句号重命名素材文件',
+    `有 ${plan.size} 个本地素材文件名里的句号已经过时，将在原文件夹里改名，例如：\n${example}\n\n所有项目里用到这些文件的地方和候选清单会一起更新。打开旧项目时不会自动改回去。`,
+    '重命名',
+    async () => {
+      retagging = true;
+      const moved = new Map();
+      let failed = 0;
+      try {
+        for (const [old, tag] of plan) {
+          const r = await native('retagLineFile')(old, tag);
+          if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
+          else if (!r?.ok) failed++;
+        }
+      } finally {
+        retagging = false;
+      }
+      if (moved.size) applyMovedPaths(pid, moved, { rows, assets, candidates });
+      toast(
+        [`已重命名 ${moved.size} 个文件`, failed ? `${failed} 个找不到或改不了，没动` : ''].filter(Boolean).join('；'),
+        null,
+        failed ? 'warn' : 'ok',
+      );
+    },
+    { danger: false },
+  );
 }
 
 /* 保存过的片段换回本地文件（见 core/candidates.js 的 staleOnlineClips）。本地文件还在就直接换上；
@@ -941,15 +1026,8 @@ export function renderVideoReview() {
   const all = batches();
   const batch = curBatchObj();
   const shots = shotsOf(batch);
-  const bc = batch?.cands || [];
-  const left = bc.filter(isPending).length;
-  const ok = bc.filter(c => c.decision === 'ok');
+  // 这一批的进度只在左栏批次卡片上写（待审数 + 进度条），顶栏不再重复
   const unsaved = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath).length;
-  // 顶栏：这一批的进度。还有待审时先写剩几个；审完就只剩「共 N 个 · 已通过 M 个」
-  $('#vrSummary').innerHTML = batch
-    ? `${left ? `还剩 <b>${left}</b> 个待审<i></i>` : ''}共 <b>${bc.length}</b> 个${ok.length ? `<i></i>已通过 <b class="ok">${ok.length}</b> 个<i></i><button class="vr-link" id="vrSeeOk">在表格里看</button>` : ''}`
-    : '';
-  $('#vrSummary').hidden = !batch;
   const saveAll = $('#vrSaveAll');
   saveAll.hidden = !unsaved && !batchRun;
   saveAll.disabled = !!batchRun;
@@ -962,6 +1040,8 @@ export function renderVideoReview() {
   sync.hidden = !fails.length;
   if (fails.length)
     sync.innerHTML = `${fails.length} 份清单没写回：${esc(fails[0][1])} <button class="vr-link" id="vrRetrySync">重试</button>`;
+  // 没有保存任务或写回提醒时，正文直接从页面顶端开始，不保留空的标题栏。
+  $('#reviewPage .vr-top').hidden = saveAll.hidden && sync.hidden;
 
   // 左栏：批次 → 画面
   const nav = $('#vrNav');
@@ -1299,10 +1379,8 @@ export function videoReviewKey(e) {
 export function initVideoReview() {
   $('#tablePage').insertAdjacentHTML(
     'afterend',
-    `<main class="workspace-page vr-page" id="reviewPage" aria-labelledby="vrTitle" hidden>
-      <div class="vr-top">
-        <h3 id="vrTitle">视频审核</h3>
-        <div id="vrSummary" class="vr-summary" role="status"></div>
+    `<main class="workspace-page vr-page" id="reviewPage" aria-label="视频审核" hidden>
+      <div class="vr-top" hidden>
         <span id="vrSync" class="vr-sync" role="status" hidden></span>
         <div class="vr-top-r">
           <button class="btn" id="vrSaveAll" hidden title="把已通过、还没保存的片段都截下来存到本地">保存已通过的片段</button>
@@ -1330,13 +1408,6 @@ export function initVideoReview() {
     if (!b) return;
     const key = curShots().find(g => String(g.key) === b.dataset.vrGoto)?.key;
     if (key != null) selectShot(key);
-  });
-  $('#vrSummary').addEventListener('click', e => {
-    if (!e.target.closest('#vrSeeOk')) return;
-    // 通过的结果在表格的画面上：切到表格，跳到这一批第一个通过的画面
-    const c = (curBatchObj()?.cands || []).find(x => x.decision === 'ok');
-    closeVideoReview();
-    if (c) runCommand('nav:jump', c.rowId);
   });
   // 往下翻候选时，钉在顶上的画面标题下沿加一道淡影，看得出下面还有内容在滚
   $('#vrList').addEventListener(
@@ -1458,5 +1529,6 @@ export function initVideoReview() {
   registerCommand('video:close', closeVideoReview);
   registerCommand('video:key', videoReviewKey);
   registerCommand('video:import', (doc, path) => importCandidates(doc, path));
+  registerCommand('assets:retag', retagLineFiles);
   refreshVideoReviewButton();
 }

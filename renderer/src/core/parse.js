@@ -114,7 +114,6 @@ export function parseAnnotatedMd(text, types = DEFAULT_TYPES) {
           if (typeof value.assets === 'string') last.assets = value.assets;
           if (Array.isArray(value.assetUsages)) last.assetUsages = value.assetUsages; // 自包含素材记录（含片段范围），载入时并进素材库
           if (['todo', 'making', 'ready'].includes(value.status)) last.status = value.status;
-          last.needsReview = !!value.needsReview;
           if (value.time && Number.isFinite(+value.time.start) && Number.isFinite(+value.time.end))
             last.time = value.time;
         }

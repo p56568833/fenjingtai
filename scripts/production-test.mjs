@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { lineTag, fileTitle, hasLineTag, attachCandidate } from '../renderer/src/core/candidates.js';
 import { parseAny, splitSentences } from '../renderer/src/core/parse.js';
+import { packPlan, toPacked, fromPacked, isPackRel } from '../renderer/src/core/pack.js';
 import {
   groupRows,
   shots,
@@ -85,7 +86,7 @@ test('JSON导入修复重复ID并兼容旧类型', () => {
   assert.notEqual(rows[0].id, rows[1].id);
   assert.equal(rows[0].type, null);
 });
-test('改稿只继承唯一原文匹配，重复与修改需核对', () => {
+test('改稿只继承唯一原文匹配，重复与修改句不继承标注', () => {
   const old = lines('甲。乙。乙。丙。');
   old[0].note = '保留';
   old[3].type = 'a';
@@ -96,12 +97,12 @@ test('改稿只继承唯一原文匹配，重复与修改需核对', () => {
   assert.equal(result.rows[3].type, 'a');
   assert.equal(new Set(result.rows.map(r => r.id)).size, 4);
 });
-test('改稿改变镜头成员后解除分组并要求核对', () => {
+test('改稿改变镜头成员后解除分组', () => {
   const old = lines('甲。乙。丙。');
   groupRows(old, [old[0].id, old[1].id]);
   const result = reconcileDraft(old, lines('甲。新句。丙。'));
   assert.equal(result.rows[0].groupId, undefined);
-  assert.equal(result.rows[0].needsReview, true);
+  assert.equal(result.rows[0].needsReview, undefined);
 });
 test('完整镜头组在改稿中保留', () => {
   const old = lines('甲。乙。丙。');
@@ -1452,5 +1453,83 @@ test('1.10.4 保存过的片段又挂成了在线地址（撤回后再通过）�
   );
   c.decision = '';
   assert.equal(staleOnlineClips([c], rows, reg).length, 0, '没通过的不管');
+});
+test('项目打包：只带用到的本地文件，重名加 (2)，路径换成包内相对路径，导入后换回新位置', () => {
+  const project = {
+    title: '打包测试',
+    rows: [
+      {
+        id: 1,
+        kind: 'line',
+        text: '甲。',
+        assets: '/A/片段.mp4\n/B/片段.mp4',
+        assetUsages: [
+          { assetId: 'a1', role: 'main' },
+          { assetId: 'a2', role: 'alt' },
+        ],
+      },
+      { id: 2, kind: 'line', text: '乙。', assetUsages: [{ assetId: 'a3' }] },
+    ],
+    assets: {
+      a1: { id: 'a1', kind: 'video', path: '/A/片段.mp4', name: '片段.mp4' },
+      a2: { id: 'a2', kind: 'video', path: '/B/片段.mp4', name: '片段.mp4' },
+      a3: { id: 'a3', kind: 'image', path: 'https://x.org/a.jpg', name: 'a.jpg' },
+      a4: { id: 'a4', kind: 'video', path: '/C/没用到.mp4', name: '没用到.mp4' },
+    },
+    candidates: [
+      { id: 'c1', rowId: 1, assetId: 'a1', savedPath: '/A/片段.mp4', srcFile: '/L/清单.json', decision: 'ok' },
+    ],
+    voice: { path: '/V/口播.m4a', name: '口播.m4a' },
+    mediaDir: '/A',
+  };
+  const files = packPlan(project);
+  assert.deepEqual(
+    [...files],
+    [
+      ['/A/片段.mp4', '素材/片段.mp4'],
+      ['/B/片段.mp4', '素材/片段 (2).mp4'],
+      ['/L/清单.json', '候选清单/清单.json'],
+      ['/V/口播.m4a', '口播/口播.m4a'],
+    ],
+  );
+  assert.equal(packPlan(project, { includeAlt: false }).has('/B/片段.mp4'), false);
+  const packed = toPacked(project, files);
+  assert.equal(packed.assets.a1.path, '素材/片段.mp4');
+  assert.equal(packed.assets.a2.path, '素材/片段 (2).mp4');
+  assert.equal(packed.assets.a3.path, 'https://x.org/a.jpg', '在线素材不动');
+  assert.equal(packed.assets.a4.path, '/C/没用到.mp4', '没打包的保持原路径');
+  assert.equal(packed.candidates[0].savedPath, '素材/片段.mp4');
+  assert.equal(packed.candidates[0].srcFile, '候选清单/清单.json');
+  assert.equal(packed.voice.path, '口播/口播.m4a');
+  assert.equal(packed.rows[0].assets, '素材/片段.mp4\n素材/片段 (2).mp4');
+  assert.equal(packed.mediaDir, undefined);
+  assert.equal(project.assets.a1.path, '/A/片段.mp4', '原项目不被改动');
+  const back = fromPacked(packed, '/Users/b/影片/分镜台素材/打包测试/');
+  assert.equal(back.assets.a2.path, '/Users/b/影片/分镜台素材/打包测试/素材/片段 (2).mp4');
+  assert.equal(back.assets.a3.path, 'https://x.org/a.jpg');
+  assert.equal(back.assets.a4.path, '/C/没用到.mp4');
+  assert.equal(back.candidates[0].srcFile, '/Users/b/影片/分镜台素材/打包测试/候选清单/清单.json');
+  assert.equal(back.voice.path, '/Users/b/影片/分镜台素材/打包测试/口播/口播.m4a');
+  assert.equal(back.mediaDir, '/Users/b/影片/分镜台素材/打包测试/素材');
+  assert.equal(back.pack, undefined);
+  for (const bad of ['../x.mp4', '素材/../../x', '/abs', 'https://a/b', '', 'a\\b'])
+    assert.equal(isPackRel(bad), false, bad);
+});
+test('撤回通过：候选记着的那句已经不在（被删 / 并掉），到用着这个视频的画面里摘掉', () => {
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '甲', groupId: 'g', note: '', assetUsages: [] },
+    { id: 2, kind: 'line', no: 2, text: '乙', groupId: 'g', note: '', assetUsages: [] },
+    { id: 3, kind: 'line', no: 3, text: '丙', note: '', assetUsages: [] },
+  ];
+  const reg = {};
+  const c = { id: 'c', rowId: 2, url: 'https://x/a.mp4', title: 'a', in: 1, out: 5, license: '', page: '' };
+  c.assetId = attachCandidate(c, rows, reg).assetId;
+  rows.splice(1, 1); // 第 2 句被删掉了，候选还记着它
+  c.rowId = 99;
+  detachCandidate(c, rows, reg);
+  assert.ok(
+    rows.every(r => !r.assetUsages.some(u => u.assetId === c.assetId)),
+    '视频从画面上摘掉了',
+  );
 });
 console.log(`${count} 项数据回归通过`);

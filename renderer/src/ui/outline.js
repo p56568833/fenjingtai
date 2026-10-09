@@ -7,15 +7,16 @@ let outlineOpen = true;
 let lastKey = '';
 let items = [];
 let frame = 0;
+let jumpTarget = null;
 
 function syncActiveOutline() {
   frame = 0;
   if (!outlineOpen || !items.length) return;
+  let active = jumpTarget?.project === state.projectId && jumpTarget.view === state.view ? jumpTarget.id : null;
+  if (active !== null) return showActiveOutline(active);
   const wrap = document.querySelector('#tableWrap');
-  const outline = document.querySelector('#outline');
   const box = wrap.getBoundingClientRect();
   const probe = box.top + box.height * 0.5;
-  let active = null;
   for (const item of items) {
     const anchor = item.sectionId
       ? document.querySelector(`${state.view === 'check' ? '.ck-sec' : '.section-row'}[data-sid="${item.sectionId}"]`)
@@ -24,6 +25,11 @@ function syncActiveOutline() {
     if (active === null || anchor.getBoundingClientRect().top <= probe) active = item.jump;
     else break;
   }
+  showActiveOutline(active);
+}
+
+function showActiveOutline(active) {
+  const outline = document.querySelector('#outline');
   for (const button of outline.querySelectorAll('.outline-item')) {
     button.classList.toggle('active', +button.dataset.jump === active);
   }
@@ -34,6 +40,25 @@ function syncActiveOutline() {
   const row = selected.getBoundingClientRect();
   if (row.top < view.top) outline.scrollTop += row.top - view.top;
   else if (row.bottom > view.bottom) outline.scrollTop += row.bottom - view.bottom;
+}
+
+/* 明确跳转时先显示目标章节，正文展开、滚动校准期间不让旧坐标覆盖它。
+   结束后恢复按浏览位置高亮；旧跳转的结束回调不能释放新跳转。 */
+export function beginOutlineJump(id) {
+  const index = state.rows.findIndex(r => r.id === id);
+  const section = state.rows.slice(0, index + 1).findLast(r => r.kind === 'section');
+  const target = {
+    id: section?.id ?? state.rows.find(r => r.kind === 'line')?.id,
+    project: state.projectId,
+    view: state.view,
+  };
+  jumpTarget = target;
+  if (outlineOpen) showActiveOutline(target.id);
+  return () => {
+    if (jumpTarget !== target) return;
+    jumpTarget = null;
+    scheduleActiveOutline();
+  };
 }
 
 function scheduleActiveOutline() {

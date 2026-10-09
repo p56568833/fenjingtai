@@ -2,8 +2,8 @@ import { state, update, currentSelection, types } from '../app/state.js';
 import { shotMembers, shots, checkDelivery } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
 import { undo, clearUndo } from '../app/undo.js';
-import { setType, setNote, markSentences } from '../app/actions.js';
-import { addRefsToShot, setShotRefsFromText } from '../app/asset-actions.js';
+import { setType, setNote, markSentences, mergeToPrev } from '../app/actions.js';
+import { addRefsToShot, setShotRefsFromText, removeUsage } from '../app/asset-actions.js';
 import { renderInspector } from '../ui/inspector.js';
 import { previewImport } from '../ui/import-export.js';
 import { jumpTo, nextUnmarked, openReview } from '../ui/workspace.js';
@@ -84,14 +84,31 @@ export async function runWorkspaceTests(t) {
         await pause(40);
       }
       click(`#outline [data-jump="${section.id}"] span`);
-      await pause(60);
+      t(`${view} 点击第${index + 1}章立即切换目录高亮`, $('.outline-item.active')?.dataset.jump === String(section.id));
+      await pause(100);
       t(`${view} 目录跳到第${index + 1}章开头`, atChapterStart(section), navigationDetail);
     }
+    for (const index of [2, 0, 1, 2]) click(`#outline [data-jump="${sections[index].id}"] span`);
+    await pause(120);
+    t(
+      `${view} 连续快速切章只停在最后点击的章节`,
+      atChapterStart(sections[2]) && $('.outline-item.active')?.dataset.jump === String(sections[2].id),
+      navigationDetail,
+    );
+    // 用户滚轮操作必须覆盖尚未完成的跳转校准，不能下一帧又被拉回首句。
+    jumpTo(sections[1].id);
+    await pause(120);
+    jumpTo(sections[1].id);
+    wrap.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
+    wrap.scrollTop += 240;
+    const position = wrap.scrollTop;
+    await pause(120);
+    t(`${view} 跳转后开始滚动会取消迟后校准`, Math.abs(wrap.scrollTop - position) <= 2);
     state.filter = 'a';
     state.multi = [state.sel];
     update('rows');
     click(`#outline [data-jump="${sections[2].id}"]`);
-    await pause(60);
+    await pause(100);
     t(
       `${view} 目录跳转解除筛选并清空多选`,
       state.filter === 'all' && state.multi === null && atChapterStart(sections[2]),
@@ -472,12 +489,12 @@ export async function runWorkspaceTests(t) {
     storage.allProjects().some(p => p.title === '新版工作流测试 · 改稿前'),
   );
   t(
-    '改动句子被标为待核对',
-    state.rows.some(r => r.text === '新句。' && r.needsReview),
+    '改动句子不再标待核对',
+    state.rows.some(r => r.text === '新句。' && !r.needsReview && !r.type),
   );
   t(
     '改稿后的镜头组仍可导出',
-    shots(state.rows).length > 0 && checkDelivery(state.rows).some(x => x.issues.includes('稿件更新待核对')),
+    shots(state.rows).length > 0 && !checkDelivery(state.rows).some(x => x.issues.includes('稿件更新待核对')),
   );
   // Save references without invoking system dialogs; verify native disk round trip.
   storage.persist(true);
@@ -541,6 +558,28 @@ export async function runWorkspaceTests(t) {
   t('1.10 操作条上有类型按钮', $$('#selTypes [data-sel-type]').length === types().list.length + 1);
   state.multi = null;
   update('selection');
+
+  // 共用画面里移除一个素材：其余素材的逐句位置（off）不能被选中那一句的记录覆盖
+  storage.createProject('移除与合并测试', parseAny('甲。乙。丙。丁。'));
+  const [s1, s2, s3, s4] = state.rows.filter(r => r.kind === 'line');
+  s1.groupId = s2.groupId = 'shot-selftest-remove';
+  addRefsToShot(s1, ['/tmp/甲图.png', '/tmp/乙图.png']);
+  const idA = s1.assetUsages[0].assetId;
+  s2.assetUsages.find(u => u.assetId === idA).off = true; // 甲图只在第 1 句出现
+  removeUsage(s1, 1); // 从第 1 句移除乙图
+  t(
+    '共用画面移除素材不改其余素材的逐句位置',
+    s1.assetUsages.length === 1 &&
+      s2.assetUsages.length === 1 &&
+      !s1.assetUsages[0].off &&
+      s2.assetUsages[0].off === true,
+    JSON.stringify([s1.assetUsages, s2.assetUsages]),
+  );
+  // 合并句子：挂在被并掉那句上的视频候选改挂到合并后的句子
+  state.candidates = [{ id: 'vc-selftest-merge', rowId: s4.id, decision: 'ok', url: 'https://x/a.mp4', in: 1, out: 2 }];
+  mergeToPrev(s4.id);
+  t('合并句子后视频候选跟到合并后的句子', state.candidates[0].rowId === s3.id);
+
   const created = storage
     .allProjects()
     .filter(p => p.id !== original)

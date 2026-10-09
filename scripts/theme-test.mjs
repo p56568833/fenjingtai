@@ -167,20 +167,101 @@ try {
     console.log(`✓ 连续点击 ${count} 次：最终主题准确，仅一次整窗切换`);
   }
   await pause(220);
+  // 真正点按钮：截图层不能拦住鼠标；反向沿同一圆边收回，不跳到整窗新主题。
+  const beforeReverse = await page.evaluate(() => document.body.classList.contains('dark'));
+  await page.click('#btnTheme');
+  await page.evaluate(async () => {
+    await window.__themeVt.ready;
+    const a = document.documentElement
+      .getAnimations({ subtree: true })
+      .find(a => a.effect?.pseudoElement === '::view-transition-new(root)');
+    a.pause();
+    a.currentTime = 160;
+    window.__reverseAnimation = a;
+    window.__reverseStarts = window.__themeTransitions;
+  });
+  await page.click('#btnTheme');
+  const reverse = await page.evaluate(() => ({
+    rate: window.__reverseAnimation.playbackRate,
+    time: window.__reverseAnimation.currentTime,
+    captures: window.__themeTransitions - window.__reverseStarts,
+  }));
+  assert.equal(reverse.rate, -1, '鼠标再次点击可反向播放');
+  assert.ok(reverse.time > 0 && reverse.time <= 160, '反向从当前圆边继续');
+  assert.equal(reverse.captures, 0, '反向不重新截图');
+  await page.evaluate(() => window.__themeVt.finished);
+  assert.equal(await page.evaluate(() => document.body.classList.contains('dark')), beforeReverse);
+  console.log('✓ 中途鼠标切回：同一圆边连续收回，最终主题准确');
+
+  // 反播过程中再点一次，继续向外展开；同一动画和截图可往返。
+  const reforward = await page.evaluate(async () => {
+    const before = document.body.classList.contains('dark');
+    const starts = window.__themeTransitions;
+    document.querySelector('#btnTheme').click();
+    await window.__themeVt.ready;
+    const a = document.documentElement
+      .getAnimations({ subtree: true })
+      .find(a => a.effect?.pseudoElement === '::view-transition-new(root)');
+    a.pause();
+    a.currentTime = 220;
+    document.querySelector('#btnTheme').click();
+    a.pause();
+    a.currentTime = 120;
+    document.querySelector('#btnTheme').click();
+    const time = a.currentTime;
+    const rate = a.playbackRate;
+    await window.__themeVt.finished;
+    return {
+      expected: !before,
+      actual: document.body.classList.contains('dark'),
+      captures: window.__themeTransitions - starts,
+      time,
+      rate,
+    };
+  });
+  assert.equal(reforward.rate, 1);
+  assert.equal(reforward.time, 120);
+  assert.equal(reforward.captures, 1);
+  assert.equal(reforward.actual, reforward.expected);
+  console.log('✓ 展开 / 收回 / 再展开：圆边连续，无重复截图');
+
   const repeated = await page.evaluate(async () => {
     document.querySelector('#btnTheme').click();
     await window.__themeVt.finished;
     const starts = window.__themeTransitions;
     const before = document.body.classList.contains('dark');
     document.querySelector('#btnTheme').click();
+    await window.__themeVt.finished;
     return {
       captures: window.__themeTransitions - starts,
       changed: document.body.classList.contains('dark') !== before,
     };
   });
-  assert.equal(repeated.captures, 0);
+  assert.equal(repeated.captures, 1);
   assert.equal(repeated.changed, true);
-  console.log('✓ 动画结束后快速再切换：立即响应，不重复截图');
+  console.log('✓ 动画结束后立即再切换：正常播放过渡，不突然跳色');
+  const timing = await page.evaluate(async () => {
+    const started = performance.now();
+    document.querySelector('#btnTheme').click();
+    await window.__themeVt.ready;
+    const preparation = performance.now() - started;
+    const frames = [];
+    let watching = true;
+    const sample = time => {
+      frames.push(time);
+      if (watching) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+    await window.__themeVt.finished;
+    watching = false;
+    const gaps = frames.slice(1).map((time, i) => time - frames[i]);
+    return {
+      preparation: Math.round(preparation),
+      frames: frames.length,
+      maxGap: Math.round(Math.max(0, ...gaps)),
+    };
+  });
+  console.log(`✓ 正常切换采样：准备 ${timing.preparation} ms，${timing.frames} 帧，最大帧间隔 ${timing.maxGap} ms`);
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   const reduced = await page.evaluate(async () => {
     const before = document.body.classList.contains('dark');

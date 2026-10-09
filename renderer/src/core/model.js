@@ -14,7 +14,6 @@
    @property {AssetUsage[]} [assetUsages]
    @property {string} [assets]      旧版素材文本镜像（一行一个路径），由 assetUsages 生成，仅为兼容
    @property {boolean} [para]       原稿换行处（原文视图分段用）
-   @property {boolean} [needsReview] 改稿后待核对
    @property {{start:number,end:number,conf:number,st:'ok'|'low'|'est'}} [time]  剪映字幕对齐结果（秒）
 
    @typedef {Object} AssetUsage  某个画面对某个素材的使用

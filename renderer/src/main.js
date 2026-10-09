@@ -33,6 +33,7 @@ import { initPlaythrough, closePlaythrough, playthroughKey } from './features/pl
 import { initTypeEditor } from './features/type-editor.js';
 import { initPdfExport } from './features/pdf-export.js';
 import { initVideoReview } from './features/video-review.js';
+import { initProjectPack } from './features/project-pack.js';
 import { initUpdate, updateKey } from './features/update.js';
 import { initMotion } from './ui/motion.js';
 
@@ -212,6 +213,7 @@ async function boot() {
   initTypeEditor();
   initPdfExport();
   initVideoReview();
+  initProjectPack();
   initHelp();
   initUpdate();
   registerModals();

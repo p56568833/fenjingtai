@@ -396,6 +396,30 @@ function renameWithLineTag(oldPath, tag) {
   return { ok: true, path: dest };
 }
 
+/* 句号过时了（改稿后句子编号变了）：把文件名开头的「第N-M句」换成现在的句号。
+   只改名不移动；文件名本来就带句号的才改，任何类型都行（视频片段、手动放进来的图、动画）；重名加 (2)… 不覆盖 */
+function retagLineFile(oldPath, tag) {
+  if (typeof oldPath !== 'string' || !path.isAbsolute(oldPath)) return { ok: false, error: '路径无效' };
+  if (!/^第\d+(?:-\d+)?句$/.test(String(tag || ''))) return { ok: false, error: '句号无效' };
+  const ext = path.extname(oldPath);
+  const base = path.basename(oldPath, ext);
+  if (!LINE_TAG_RE.test(base)) return { ok: false, error: '文件名里没有句号' };
+  const next = base.replace(LINE_TAG_RE, `${tag}_`);
+  if (next === base) return { ok: true, path: oldPath, unchanged: true };
+  try {
+    if (!fs.statSync(oldPath).isFile()) return { ok: false, error: '文件不存在' };
+  } catch {
+    return { ok: false, error: '文件不存在' };
+  }
+  const dest = uniquePath(path.dirname(oldPath), next, ext);
+  try {
+    fs.renameSync(oldPath, dest);
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+  return { ok: true, path: dest };
+}
+
 /* ── 候选清单回写 ──
    results: [{ key, lines, decision, note, savedPath }]；按 key（同时核对 lines）找到候选，写进它的 review 字段。
    只改 type 为 fenjingtai-candidates 的 .json 文件，其他文件一律拒绝 */
@@ -461,6 +485,7 @@ module.exports = {
   saveSegment,
   downloadFile,
   renameWithLineTag,
+  retagLineFile,
   progressSeconds,
   downloadOriginal,
   writeReview,

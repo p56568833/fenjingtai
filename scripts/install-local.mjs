@@ -8,6 +8,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, utimes
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { installAppIcon } from './app-icon.mjs';
 import { fileURLToPath } from 'node:url';
 
 if (process.platform !== 'darwin') throw new Error('只能在 macOS 上安装');
@@ -35,7 +36,7 @@ try {
   const asar = path.join(app, 'Contents', 'Resources', 'app.asar');
   rmSync(asar, { force: true });
   await createPackageWithOptions(stage, asar, { dot: true });
-  cpSync(path.join(ROOT, 'assets/icon.icns'), path.join(app, 'Contents/Resources/electron.icns'));
+  installAppIcon(app);
   // 3. 版本号 + 重新 ad-hoc 签名并校验
   const plist = path.join(app, 'Contents', 'Info.plist');
   for (const key of ['CFBundleShortVersionString', 'CFBundleVersion'])

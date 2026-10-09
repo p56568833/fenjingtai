@@ -12,6 +12,7 @@ import { buildManifest, extractNotes, notesHistory } from './release-manifest.mj
 const require = createRequire(import.meta.url);
 const { createStore, retentionKeep } = require('../electron/data-store.js');
 const { readScriptFile, docxToText } = require('../electron/script-reader.js');
+const pack = require('../electron/project-pack.js');
 
 let count = 0;
 const test = (name, fn) => {
@@ -230,6 +231,18 @@ test('旧片段补句号：同文件夹改名、已带句号不动、只认视�
   assert.equal(vt.renameWithLineTag(doc, '第1句').ok, false);
   assert.equal(vt.renameWithLineTag(path.join(dir, '不存在.mp4'), '第1句').ok, false);
   assert.equal(vt.renameWithLineTag(path.join(dir, 'x.mp4'), '../第1句').ok, false);
+  // 改稿后句号过时：换成现在的句号，任何类型都行；没有句号的、句号没变的不动；重名不覆盖
+  const old = path.join(dir, '第101-103句_屠宰场.jpg');
+  fs.writeFileSync(old, 'img');
+  const moved = vt.retagLineFile(old, '第118-120句');
+  assert.equal(moved.path, path.join(dir, '第118-120句_屠宰场.jpg'));
+  assert.ok(fs.existsSync(moved.path) && !fs.existsSync(old));
+  assert.equal(vt.retagLineFile(moved.path, '第118-120句').unchanged, true);
+  assert.equal(vt.retagLineFile(b, '第9句').ok, false);
+  fs.writeFileSync(path.join(dir, '第7句_b.mp4'), 'taken');
+  assert.equal(path.basename(vt.retagLineFile(path.join(dir, '第3句_b.mp4'), '第7句').path), '第7句_b (2).mp4');
+  assert.equal(vt.retagLineFile(path.join(dir, '第1句_不存在.mp4'), '第2句').ok, false);
+  assert.equal(vt.retagLineFile(moved.path, '第1句/..').ok, false);
 });
 
 await atest('只保存那几秒：调用 ffmpeg 截取入点到出点，成功后改名；没装 ffmpeg 给出安装提示', async () => {
@@ -762,6 +775,192 @@ test('更新：换新版的脚本先等应用退出，换不上就把旧版放�
   assert.equal(calls[0].cmd, '/bin/bash');
   assert.deepEqual(calls[0].args.slice(1), ['123', '/A/new.app', '/A/分镜台.app', '/A/.s']);
   assert.equal(calls[0].opts.detached, true);
+});
+
+await atest('项目打包 ZIP：不压缩写入、读回一致；ZIP64 结构也能读；带外层文件夹', async () => {
+  const dir = tmp();
+  const big = path.join(dir, '视频 一.mp4');
+  fs.writeFileSync(big, Buffer.alloc(3 * 1024 * 1024 + 7, 7));
+  fs.writeFileSync(path.join(dir, 'b.jpg'), 'img');
+  for (const forceZip64 of [false, true]) {
+    const zip = path.join(dir, forceZip64 ? 'p64.zip' : 'p.zip');
+    let last = null;
+    const r = await pack.writeZip(
+      zip,
+      [
+        { name: '礼来/分镜台项目.json', data: '{"v":4,"title":"礼来"}' },
+        { name: '礼来/素材/视频 一.mp4', file: big },
+        { name: '礼来/素材/b.jpg', file: path.join(dir, 'b.jpg') },
+      ],
+      { forceZip64, onProgress: (d, t) => (last = [d, t]) },
+    );
+    assert.ok(r.ok && fs.existsSync(zip) && !fs.existsSync(zip + '.part'));
+    assert.equal(last[0], last[1]);
+    const info = await pack.inspectPack(zip);
+    assert.equal(info.root, '礼来/');
+    assert.equal(JSON.parse(info.project).title, '礼来');
+    const dest = pack.uniqueDir(dir, '解压');
+    fs.mkdirSync(dest);
+    const out = await pack.extractPack(zip, dest);
+    assert.equal(out.files, 3);
+    assert.ok(fs.readFileSync(path.join(dest, '素材', '视频 一.mp4')).equals(fs.readFileSync(big)));
+    assert.equal(fs.readFileSync(path.join(dest, '素材', 'b.jpg'), 'utf8'), 'img');
+    assert.deepEqual(fs.readdirSync(dest).sort(), ['分镜台项目.json', '素材']);
+  }
+  assert.equal(path.basename(pack.uniqueDir(dir, '解压')), '解压 (3)');
+});
+
+await atest('项目打包 ZIP：0 字节的文件也能打包、解压', async () => {
+  const dir = tmp();
+  const empty = path.join(dir, '空.txt');
+  fs.writeFileSync(empty, '');
+  const zip = path.join(dir, 'e.zip');
+  await pack.writeZip(zip, [
+    { name: 'p/分镜台项目.json', data: '{}' },
+    { name: 'p/素材/空.txt', file: empty },
+    { name: 'p/素材/有.txt', data: 'x' },
+  ]);
+  const dest = path.join(dir, 'out');
+  fs.mkdirSync(dest);
+  const r = await pack.extractPack(zip, dest);
+  assert.equal(r.files, 3);
+  assert.equal(fs.statSync(path.join(dest, '素材', '空.txt')).size, 0);
+  assert.equal(fs.readFileSync(path.join(dest, '素材', '有.txt'), 'utf8'), 'x');
+});
+
+await atest('项目打包 ZIP：deflate 压缩的包也能读；../、绝对路径、符号链接、没有项目文件的一律拒收', async () => {
+  const dir = tmp();
+  // 手工拼一个 deflate 条目 + 一个不安全路径的条目
+  const mk = (entries, { symlink = false } = {}) => {
+    const parts = [],
+      central = [];
+    let off = 0;
+    for (const [name, text, method] of entries) {
+      const raw = Buffer.from(text);
+      const data = method === 8 ? zlib.deflateRawSync(raw) : raw;
+      const nb = Buffer.from(name);
+      const h = Buffer.alloc(30);
+      h.writeUInt32LE(0x04034b50, 0);
+      h.writeUInt16LE(20, 4);
+      h.writeUInt16LE(0x0800, 6);
+      h.writeUInt16LE(method, 8);
+      h.writeUInt32LE(pack.crc32(raw), 14);
+      h.writeUInt32LE(data.length, 18);
+      h.writeUInt32LE(raw.length, 22);
+      h.writeUInt16LE(nb.length, 26);
+      parts.push(h, nb, data);
+      const c = Buffer.alloc(46);
+      c.writeUInt32LE(0x02014b50, 0);
+      c.writeUInt16LE(20, 6);
+      c.writeUInt16LE(0x0800, 8);
+      c.writeUInt16LE(method, 10);
+      c.writeUInt32LE(pack.crc32(raw), 16);
+      c.writeUInt32LE(data.length, 20);
+      c.writeUInt32LE(raw.length, 24);
+      c.writeUInt16LE(nb.length, 28);
+      c.writeUInt32LE(((symlink && name.endsWith('link') ? 0o120777 : 0o100644) << 16) >>> 0, 38);
+      c.writeUInt32LE(off, 42);
+      central.push(c, nb);
+      off += 30 + nb.length + data.length;
+    }
+    const cd = Buffer.concat(central);
+    const e = Buffer.alloc(22);
+    e.writeUInt32LE(0x06054b50, 0);
+    e.writeUInt16LE(entries.length, 8);
+    e.writeUInt16LE(entries.length, 10);
+    e.writeUInt32LE(cd.length, 12);
+    e.writeUInt32LE(off, 16);
+    return Buffer.concat([...parts, cd, e]);
+  };
+  const good = path.join(dir, 'good.zip');
+  fs.writeFileSync(
+    good,
+    mk([
+      ['分镜台项目.json', '{"title":"x"}', 8],
+      ['素材/a.txt', 'hello hello hello', 8],
+      ['__MACOSX/._a', 'junk', 0],
+    ]),
+  );
+  const dest = path.join(dir, 'out');
+  fs.mkdirSync(dest);
+  await pack.extractPack(good, dest);
+  assert.equal(fs.readFileSync(path.join(dest, '素材', 'a.txt'), 'utf8'), 'hello hello hello');
+  assert.equal(fs.existsSync(path.join(dest, '__MACOSX')), false);
+  const reject = async (buf, re) => {
+    const f = path.join(dir, 'bad.zip');
+    fs.writeFileSync(f, buf);
+    await assert.rejects(pack.inspectPack(f), re);
+  };
+  await reject(
+    mk([
+      ['分镜台项目.json', '{}', 0],
+      ['../evil.txt', 'x', 0],
+    ]),
+    /不安全/,
+  );
+  await reject(
+    mk([
+      ['分镜台项目.json', '{}', 0],
+      ['a/../../evil.txt', 'x', 0],
+    ]),
+    /不安全/,
+  );
+  await reject(
+    mk(
+      [
+        ['分镜台项目.json', '{}', 0],
+        ['素材/link', '/etc/passwd', 0],
+      ],
+      { symlink: true },
+    ),
+    /符号链接/,
+  );
+  await reject(mk([['素材/a.txt', 'x', 0]]), /没有分镜台项目/);
+  await reject(Buffer.from('not a zip at all'), /不是有效的 ZIP/);
+  assert.equal(pack.safeEntryName('/abs'), null);
+  assert.equal(pack.safeEntryName('a\\b'), null);
+});
+
+await atest('项目打包 ZIP：取消后不留 .part；解压中途取消报「已取消」', async () => {
+  const dir = tmp();
+  const f = path.join(dir, 'a.bin');
+  fs.writeFileSync(f, Buffer.alloc(9 * 1024 * 1024, 1));
+  const ac = new AbortController();
+  const zip = path.join(dir, 'c.zip');
+  await assert.rejects(
+    pack.writeZip(
+      zip,
+      [
+        { name: 'p/分镜台项目.json', data: '{}' },
+        { name: 'p/a.bin', file: f },
+      ],
+      {
+        signal: ac.signal,
+        onProgress: () => ac.abort(),
+      },
+    ),
+    e => e.canceled === true,
+  );
+  assert.equal(fs.existsSync(zip) || fs.existsSync(zip + '.part'), false);
+  await pack.writeZip(zip, [
+    { name: 'p/分镜台项目.json', data: '{}' },
+    { name: 'p/a.bin', file: f },
+  ]);
+  const ac2 = new AbortController();
+  const dest = path.join(dir, 'x');
+  fs.mkdirSync(dest);
+  await assert.rejects(
+    pack.extractPack(zip, dest, { signal: ac2.signal, onProgress: () => ac2.abort() }),
+    e => e.canceled === true,
+  );
+  await assert.rejects(pack.writeZip(zip, [{ name: '../x', data: '' }]), /不合法/);
+  await assert.rejects(
+    pack.writeZip(zip, [
+      { name: 'a', data: '' },
+      { name: 'a', data: '' },
+    ]),
+    /重名/,
+  );
 });
 
 console.log(`${count} 项主进程回归通过`);

@@ -5,11 +5,12 @@
    不占 GitHub API 匿名额度），统一落在临时 .noindex 目录，文件名用 ASCII 方便直链。
    用法：npm run package */
 import { packager } from '@electron/packager';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { installAppIcon } from './app-icon.mjs';
 import { shouldIgnore } from './package-filter.mjs';
 import { extractNotes, notesHistory, writeManifest } from './release-manifest.mjs';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +46,7 @@ async function buildOne(arch) {
   if (!APP.endsWith('.app')) APP = path.join(APP, '分镜台.app');
   if (!existsSync(APP)) throw new Error('打包产物缺失: ' + APP);
 
-  copyFileSync(path.join(ROOT, 'assets/icon.icns'), path.join(APP, 'Contents/Resources/electron.icns'));
+  installAppIcon(APP);
   const plist = path.join(APP, 'Contents/Info.plist');
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIdentifier', '-string', 'com.andychen.fenjingtai', plist]);
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleName', '-string', '分镜台', plist]);

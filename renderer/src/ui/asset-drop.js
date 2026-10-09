@@ -16,9 +16,9 @@ const inVoiceZone = el => !!(el && el.closest && el.closest(VOICE_ZONE));
 /* 拖进窗口的是稿子 / 字幕 / 项目文件时，不当素材，直接导入：
    MD / TXT / Word → 分句预览；SRT / VTT → 对齐剪映字幕；项目 JSON → 新项目。
    想把 txt / md 当素材关联，拖到右侧「画面与素材」面板即可。 */
-export const SCRIPT_EXT = /\.(md|markdown|txt|docx|json|srt|vtt)$/i;
+export const SCRIPT_EXT = /\.(md|markdown|txt|docx|json|srt|vtt|zip)$/i;
 const SCRIPT_MIME =
-  /^(text\/(plain|markdown|x-markdown|vtt)|application\/(json|x-subrip|vnd\.openxmlformats-officedocument\.wordprocessingml\.document))$/i;
+  /^(text\/(plain|markdown|x-markdown|vtt)|application\/(json|zip|x-zip-compressed|x-subrip|vnd\.openxmlformats-officedocument\.wordprocessingml\.document))$/i;
 const looksLikeScript = dt => {
   const items = [...(dt?.items || [])].filter(i => i.kind === 'file');
   return items.length > 0 && items.every(i => SCRIPT_MIME.test(i.type));

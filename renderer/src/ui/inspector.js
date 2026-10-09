@@ -2,7 +2,7 @@
    画面描述输入即保存；添加和移除素材集中在列表下方。
    角色和位置的改动只刷面板和素材卡，不重建整张表（长稿视口不跳）。 */
 import { state, on, emit, update, rowById, types, timeline } from '../app/state.js';
-import { setShotNote, markReviewed } from '../app/actions.js';
+import { setShotNote } from '../app/actions.js';
 import { removeUsage, addRefsToShot, setUsageRole, autoAssignRoles } from '../app/asset-actions.js';
 import { usageList } from '../core/asset-model.js';
 import { ROLES, shotMembers } from '../core/shots.js';
@@ -107,8 +107,7 @@ export function renderInspector(force = false) {
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
       <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button></div>
     </section>
-    <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
-    ${r.needsReview ? '<button class="btn" id="confirmReviewed">已核对这段改稿</button>' : ''}`;
+    <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>`;
   hydrateAssetCards();
   markNoteClamp();
 }
@@ -116,9 +115,8 @@ export function renderInspector(force = false) {
 function markNoteClamp() {
   const note = $('#detailNote');
   if (!note) return;
-  requestAnimationFrame(() => {
-    if (document.activeElement !== note) note.classList.toggle('clamped', note.scrollHeight > note.clientHeight + 2);
-  });
+  // 收起与淡出提示在同一帧完成，避免先露出完整底部、下一帧再盖上渐变。
+  if (document.activeElement !== note) note.classList.toggle('clamped', note.scrollHeight > note.clientHeight + 2);
 }
 
 /* 原文视图的选区卡 / 行菜单：打开右侧面板看这个画面的素材 */
@@ -240,10 +238,6 @@ export function initInspector() {
     if (vr) return runCommand('voice:play-shot', +vr.dataset.voiceRange);
     const sp = e.target.closest('[data-sync-preview]');
     if (sp) return runCommand('playthrough:shot', +sp.dataset.syncPreview);
-    if (e.target.closest('#confirmReviewed')) {
-      markReviewed(r);
-      renderInspector(true);
-    }
   });
 
   panel.addEventListener('focusin', e => {
