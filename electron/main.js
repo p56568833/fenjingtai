@@ -426,14 +426,20 @@ handle('dialog:pick-folder', async (_e, current) => {
 });
 handle('video:has-ffmpeg', () => !!videoTools.findFfmpeg());
 /* 只保存入点到出点那几秒（ffmpeg 按需读取在线视频，不下整片） */
-handle('video:save-segment', (e, req) =>
-  videoTools.saveSegment(req || {}, {
+handle('video:save-segment', async (e, req) => {
+  // ffmpeg 不读系统代理：按这条地址问一下 Electron 该走哪个代理（和界面预览走同一条路），再交给 ffmpeg
+  let proxy = null;
+  try {
+    if (req?.url) proxy = videoTools.proxyFromRule(await e.sender.session.resolveProxy(String(req.url)));
+  } catch {}
+  return videoTools.saveSegment(req || {}, {
+    proxy,
     // 截取进度（0–1）：界面上的「正在截取… 37%」和进度条
     onProgress: p => {
       if (!e.sender.isDestroyed()) e.sender.send('video:segment-progress', { token: req?.token, p });
     },
-  }),
-);
+  });
+});
 /* 下载完整原片：只在用户明确点了「下载完整原片」并确认后调用；同一个地址同时只下一份，可以取消 */
 const downloads = new Map(); // url → AbortController
 handle('video:download-original', async (e, req) => {

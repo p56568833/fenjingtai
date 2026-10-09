@@ -120,20 +120,6 @@ body.dark::before {
 body.dark::after {
   opacity: 0;
 }
-/* 主题切换瞬间：所有元素统一过渡这三类属性，300ms 后由 JS 撤掉，不干扰日常微交互 */
-body.theming,
-body.theming *,
-body.theming *::before,
-body.theming *::after {
-  transition:
-    background-color 0.3s ease,
-    color 0.3s ease,
-    border-color 0.3s ease,
-    box-shadow 0.3s ease,
-    fill 0.3s ease,
-    stroke 0.3s ease,
-    opacity 0.3s ease !important;
-}
 ::-webkit-scrollbar {
   width: 11px;
   height: 11px;
@@ -5070,12 +5056,6 @@ body.multi-mode .shared-scene-body {
 .vr-dirline {
   margin: 8px 0 10px;
 }
-.vr-keys {
-  font-size: 11px;
-  color: var(--text-3);
-  white-space: nowrap;
-}
-.vr-keys kbd,
 .vr-btn kbd {
   font-family: var(--mono);
   font-size: 10px;
@@ -5243,9 +5223,6 @@ body.multi-mode .shared-scene-body {
 @media (max-width: 1000px) {
   .vr-body {
     grid-template-columns: 180px minmax(0, 1fr);
-  }
-  .vr-keys {
-    display: none;
   }
 }
 
@@ -5963,17 +5940,27 @@ body.dark .pop-glide {
   transform-origin: right center;
 }
 
-/* 18 · 深浅色水波：关掉浏览器默认的交叉淡变，只留圆形展开 */
-::view-transition-old(root),
-::view-transition-new(root) {
+/* 18 · 深浅色水波：比例坐标适配高分屏与界面缩放；截图就绪前隐藏新画面。
+   不叠加浏览器默认的整窗变换或界面自己的颜色过渡。 */
+html.theme-vt::view-transition-group(root),
+html.theme-vt::view-transition-old(root),
+html.theme-vt::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
 }
-::view-transition-old(root) {
+html.theme-vt,
+html.theme-vt *,
+html.theme-vt *::before,
+html.theme-vt *::after {
+  transition: none !important;
+}
+html.theme-vt::view-transition-old(root) {
   z-index: 1;
 }
-::view-transition-new(root) {
+html.theme-vt::view-transition-new(root) {
   z-index: 2;
+  clip-path: circle(0% at var(--theme-origin, 100% 0%));
+  will-change: clip-path;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -6155,4 +6142,605 @@ body.dark .vr-page p.vr-vo {
   max-height: 32vh;
   overflow-y: auto;
   margin-bottom: 12px;
+}
+
+/* ═════════ 1.10.4 视频审核顶栏：批次 + 删除 · 保存 / 导入；第二行 保存位置 · 进度（正中）· 写回状态；
+   审过的「通过」露两帧 ═════════ */
+.vr-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+.vr-top-l,
+.vr-top-r {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.vr-top-l {
+  flex: 1 1 auto;
+}
+.vr-top-r {
+  flex: none;
+  margin-left: auto;
+}
+.vr-top-l .vr-batch {
+  min-width: 150px;
+  flex: 0 1 auto;
+}
+.vr-dirline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  overflow: visible;
+}
+.vr-dir-l,
+.vr-dir-r {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.vr-dir-l #vrPickDir {
+  flex: none;
+}
+.vr-dir-r {
+  justify-content: flex-end;
+}
+.vr-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  justify-self: center;
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-2);
+  background: var(--card);
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.vr-summary b {
+  margin: 0 3px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.vr-summary b.ok {
+  color: var(--c-real);
+}
+.vr-summary i {
+  width: 3px;
+  height: 3px;
+  margin: 0 9px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.vr-summary .vr-link {
+  margin: 0;
+}
+.vr-del-batch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 5px 11px 5px 9px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, #e5484d 32%, transparent);
+  background: color-mix(in srgb, #e5484d 6%, transparent);
+  color: #c73338;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.vr-del-batch svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.vr-del-batch:hover:not(:disabled) {
+  background: color-mix(in srgb, #e5484d 13%, transparent);
+  border-color: color-mix(in srgb, #e5484d 55%, transparent);
+}
+.vr-del-batch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+body.dark .vr-del-batch {
+  color: #ff7a7e;
+}
+/* 审过的一行：标题和原来的英文 key 一样醒目（key 不再显示） */
+.vr-done-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.vr-done.has-thumbs {
+  padding: 8px 10px 8px 8px;
+  gap: 12px;
+}
+.vr-done-thumbs {
+  display: grid;
+  grid-template-columns: 132px;
+  flex: none;
+}
+.vr-done-thumbs .vr-cell {
+  font-size: 11px;
+}
+.vr-done-thumbs .vr-cell.ld {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text-3);
+}
+.vr-done-thumbs .vr-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+@media (max-width: 1000px) {
+  .vr-done-thumbs {
+    grid-template-columns: 108px;
+  }
+}
+
+/* ═════════ 1.10.4 右侧面板画面描述 · 项目菜单 ═════════ */
+/* 画面描述平时只露 4 行，末尾淡出提示还有；点进去编辑展开全文（最多 60% 窗口高，再多就滚动） */
+.inspector #detailNote:not(:focus) {
+  max-height: calc(4lh + 20px);
+  overflow: hidden;
+}
+.inspector #detailNote.clamped:not(:focus) {
+  cursor: pointer;
+}
+/* 超出 4 行：底部淡出一截（盖在输入框里面，不碰边框），点进去就没了 */
+.inspector .detail-note-block {
+  position: relative;
+}
+.inspector .detail-note-block:has(#detailNote.clamped:not(:focus))::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 1px;
+  height: 2.4em;
+  border-radius: 0 0 5px 5px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--bg) 80%);
+}
+.inspector .detail-listen {
+  margin: 4px 0 2px;
+}
+/* 项目菜单：每一项一样高（有没有第二行说明都一样），文字上下居中 */
+.pop-item.pi-even {
+  min-height: 54px;
+}
+
+/* ═════════ 1.10.4 视频审核：左栏顶上固定当前批次卡片；右边按句子排，每句下面挂配它的候选 ═════════
+   批次：卡片写第 N 批 · 日期 · 待审数 / 名称 / 进度条，点它在菜单里换批次；「⋯」里是保存位置和删除。
+   右边：一句一行（句号在左、句尾标这句有没有画面），候选直接挂在句子下面；前后句淡色露一行。 */
+.vr-top {
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.vr-top h3 {
+  font-size: 19px;
+}
+.vr-top .vr-sync {
+  margin-left: 0;
+}
+.vr-body {
+  grid-template-columns: 264px minmax(0, 1fr);
+  gap: 20px;
+  padding-top: 14px;
+}
+.vr-nav {
+  padding-right: 12px;
+}
+
+/* 左栏：批次 */
+.vr-bh {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.vr-bh:hover {
+  background: var(--row-hover);
+}
+.vr-batch-head {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 6px 10px 11px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.vr-batch-head:focus-visible,
+.vr-batch-more:focus-visible,
+.vr-batch-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+.vr-bline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.vr-bline b {
+  font-size: 13.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+.vr-bdate {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.vr-bline .vr-nav-n,
+.vr-bdone {
+  margin-left: auto;
+}
+.vr-bdone {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-real);
+  white-space: nowrap;
+}
+.vr-bname {
+  font-size: 12px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-bbar {
+  display: flex;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.vr-bbar i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  transition: width 0.3s;
+}
+.vr-bbar i.ok {
+  background: var(--c-real);
+}
+.vr-batch-more {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin: 6px 6px 0 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.vr-batch-more:hover,
+.vr-batch-more.pop-open {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+.vr-batch-add {
+  width: 100%;
+  margin: 6px 0 4px;
+  padding: 8px 11px;
+  border: 1px dashed var(--hairline-2);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.vr-batch-add:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.popover .vr-pop-path {
+  max-width: 280px;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+
+/* 右边：画面标题（钉在顶上）+ 要的画面 */
+.vr-shot-head {
+  background: var(--bg);
+  margin-bottom: 0;
+}
+.vr-shot-head::after {
+  background: linear-gradient(var(--bg), transparent);
+}
+.vr-shot h4 {
+  margin: 0 0 6px;
+}
+.vr-page p.vr-need {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.vr-need b {
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+}
+
+/* 一句一行 */
+.vr-line {
+  border-top: 1px solid var(--hairline);
+  padding: 10px 0 2px;
+}
+.vr-line-text {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0 12px;
+  padding: 5px 10px 5px 0;
+  border-radius: 8px;
+  transition: background-color 0.2s;
+}
+.vr-line-no {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: right;
+}
+.vr-page .vr-line-text p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.vr-line.hl > .vr-line-text {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.vr-line.hl > .vr-line-text .vr-line-no {
+  color: var(--accent);
+  font-weight: 700;
+}
+.vr-cov {
+  align-self: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.vr-cov.ok {
+  color: #12945f;
+  background: color-mix(in srgb, #12945f 12%, transparent);
+}
+.vr-cov.part {
+  color: #b26a06;
+  background: color-mix(in srgb, #d9820b 14%, transparent);
+  cursor: help;
+}
+.vr-cov.wait {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.vr-cov.has {
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.vr-cov.miss {
+  color: #c73338;
+  background: color-mix(in srgb, #e5484d 10%, transparent);
+}
+body.dark .vr-cov.ok {
+  color: #3ecf8e;
+}
+body.dark .vr-cov.part {
+  color: #f0a43a;
+}
+body.dark .vr-cov.miss {
+  color: #ff7a7e;
+}
+/* 候选挂在句子下面，和句子文字左对齐 */
+.vr-line-cands {
+  margin: 8px 0 8px 52px;
+}
+.vr-line-cands .vr-done-list {
+  margin-top: 0;
+}
+.vr-line-cands .vr-cand + .vr-done-list {
+  margin-top: 2px;
+}
+.vr-page p.vr-span {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--accent);
+}
+.vr-line.whole .vr-line-no {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.vr-page .vr-line.whole .vr-line-text p {
+  font-size: 13px;
+  color: var(--text-2);
+}
+/* 前后句：淡色一行，只作衔接参考 */
+.vr-page p.vr-ctx {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 0 12px;
+  margin: 0;
+  padding: 8px 10px 8px 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.vr-ctx > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-ctx.after {
+  border-top: 1px solid var(--hairline);
+}
+@media (max-width: 1000px) {
+  .vr-body {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+  .vr-line-cands {
+    margin-left: 0;
+  }
+}
+
+/* 左栏顶上的当前批次卡片：钉住不随画面列表滚动 */
+.vr-picker {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding-bottom: 12px;
+  background: var(--bg);
+}
+.vr-picker .vr-bh {
+  background: var(--card);
+  border-color: var(--hairline-2);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+.vr-picker .vr-bh:hover {
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline-2));
+}
+body.dark .vr-picker .vr-bh {
+  box-shadow: none;
+}
+.vr-picker .vr-bline b {
+  font-size: 15px;
+  color: var(--accent);
+}
+.vr-bswitch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.vr-bswitch em {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 650;
+  color: var(--accent);
+}
+.vr-bswitch svg {
+  width: 11px;
+  height: 11px;
+  margin-left: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.2s;
+}
+.vr-batch-head:hover .vr-bswitch {
+  color: var(--accent);
+}
+.vr-batch-head.pop-open .vr-bswitch svg {
+  transform: rotate(180deg);
+}
+/* 画面列表：和批次卡片左对齐，字大一号；审完的也不再变灰 */
+.vr-shots .vr-nav-sec {
+  margin: 6px 8px 6px;
+}
+.vr-nav-shot {
+  padding: 9px 10px;
+  margin-bottom: 2px;
+  font-size: 13.5px;
+  border-radius: 8px;
+}
+.vr-nav-shot small {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.vr-nav-shot.done:not(.on) {
+  color: var(--text);
+}
+.vr-nav-shot.on small {
+  color: color-mix(in srgb, var(--accent) 70%, var(--text-2));
+}
+.vrnav-glide {
+  border-radius: 8px;
+}
+.vr-nav-done {
+  font-size: 11.5px;
+}
+/* 换批次的菜单 */
+.vr-bpick-list {
+  min-width: 290px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.vr-bpick .main > span:first-child {
+  font-weight: 650;
+}
+.vr-bpick-date {
+  margin-left: 8px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.vr-bpick-st {
+  flex: none;
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--c-real);
+}
+.vr-bpick-st.wait {
+  color: var(--accent);
+}
+.vr-bpick .chk {
+  margin-left: 6px;
+}
+.vr-bpick.cur {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.vr-batch-add.ghost {
+  margin-top: 0;
+  border-color: transparent;
+  color: var(--text-3);
+  font-size: 12px;
 }

@@ -40,7 +40,7 @@ function openProjectsMenu(anchor) {
     .allProjects()
     .map(p => {
       const cur = p.id === state.projectId;
-      return `<div class="pop-item" data-proj="${esc(p.id)}">${FOLDER}
+      return `<div class="pop-item pi-even" data-proj="${esc(p.id)}">${FOLDER}
       <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}</span></span>
       ${cur ? '<span class="chk">✓</span>' : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${TRASH_PATH}"/></svg></button>`}
     </div>`;
@@ -53,11 +53,11 @@ function openProjectsMenu(anchor) {
     <div class="p-title p-title-row"><span>项目 · ${storage.allProjects().length} 个</span><button class="p-title-link" data-projact="folder" title="项目数据存在这台电脑上，点开看数据文件夹">数据文件夹</button></div>
     ${list}
     <div class="pop-sep"></div>
-    <div class="pop-item" data-projact="rename"><svg class="mi" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4-1 12-12-3-3L5 16Z"/></svg><span>重命名当前项目…</span></div>
-    <div class="pop-item" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">新建空项目<span class="desc">⌘N · 也可以直接把稿子文件拖进窗口</span></span></div>
+    <div class="pop-item pi-even" data-projact="rename"><svg class="mi" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4-1 12-12-3-3L5 16Z"/></svg><span>重命名当前项目…</span></div>
+    <div class="pop-item pi-even" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">新建空项目<span class="desc">⌘N · 也可以直接把稿子文件拖进窗口</span></span></div>
     <div class="pop-sep"></div>
-    ${trashN ? `<div class="pop-item" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="${TRASH_PATH}"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
-    <div class="pop-item" data-projact="backup"><svg class="mi" viewBox="0 0 24 24"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/></svg><span>从自动备份恢复…</span></div>
+    ${trashN ? `<div class="pop-item pi-even" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="${TRASH_PATH}"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
+    <div class="pop-item pi-even" data-projact="backup"><svg class="mi" viewBox="0 0 24 24"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/></svg><span>从自动备份恢复…</span></div>
   `,
   );
   markPopAnchor(anchor);

@@ -17,35 +17,88 @@ const setPref = v => {
 };
 export const themePref = getPref;
 
-/* 深浅色切换：以太阳 / 月亮按钮为圆心，新颜色像水波一样一圈圈扩散铺满窗口（View Transitions）。
-   不支持或开了「减少动态效果」时，退回到全界面统一淡变。 */
-function ripple(dark) {
+/* 比例坐标避开高分屏 / 界面缩放下 View Transition 的像素裁剪坐标偏移。
+   新画面从 CSS 的零半径开始，ready 后直接启动，不再暂停后等两帧。
+   连续点击只更新最终目标并结束当前动画，避免反复截取整窗和旧回调覆盖新主题。 */
+let targetDark;
+let activeTransition = null;
+let rippleFinishedAt = -Infinity;
+
+function ripple() {
   const b = document.querySelector('#btnTheme')?.getBoundingClientRect();
   const x = b ? b.left + b.width / 2 : innerWidth - 40;
   const y = b ? b.top + b.height / 2 : 30;
   const r = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
-  const vt = document.startViewTransition(() => apply(dark));
-  vt.ready
-    .then(() =>
-      document.documentElement.animate(
-        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
-        { duration: 620, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', pseudoElement: '::view-transition-new(root)' },
-      ),
-    )
-    .catch(() => {});
+  // circle 的百分比半径以视口对角线 / √2 为基准，留少量余量覆盖边角。
+  const radius = (r / (Math.hypot(innerWidth, innerHeight) / Math.SQRT2)) * 100 + 1;
+  const origin = `${(x / innerWidth) * 100}% ${(y / innerHeight) * 100}%`;
+  const root = document.documentElement;
+  root.style.setProperty('--theme-origin', origin);
+  root.classList.add('theme-vt');
+  const current = { vt: null, animation: null, skipped: false };
+  activeTransition = current;
+  const cleanup = () => {
+    if (activeTransition !== current) return;
+    current.animation?.cancel(); // fill:both 的 WAAPI 动画不会随伪元素销毁自动释放。
+    activeTransition = null;
+    rippleFinishedAt = performance.now();
+    root.classList.remove('theme-vt');
+    root.style.removeProperty('--theme-origin');
+  };
+  try {
+    current.vt = document.startViewTransition(() => apply(targetDark));
+    current.vt.ready
+      .then(() => {
+        if (current.skipped || activeTransition !== current) return;
+        current.animation = root.animate(
+          { clipPath: [`circle(0% at ${origin})`, `circle(${radius}% at ${origin})`] },
+          {
+            duration: 420,
+            easing: 'cubic-bezier(0.25, 0, 0.2, 1)',
+            fill: 'both',
+            pseudoElement: '::view-transition-new(root)',
+          },
+        );
+      })
+      .catch(() => current.vt.skipTransition());
+    current.vt.finished.then(cleanup, cleanup);
+  } catch {
+    apply(targetDark);
+    cleanup();
+  }
 }
 function switchTo(dark) {
-  if (typeof document.startViewTransition === 'function' && !reduced()) ripple(dark);
-  else apply(dark, true);
+  targetDark = dark;
+  if (activeTransition) {
+    activeTransition.skipped = true;
+    activeTransition.vt.skipTransition();
+    apply(dark);
+    return;
+  }
+  if (document.body.classList.contains('dark') === dark) {
+    apply(dark); // 跟随系统时仍更新按钮提示。
+    return;
+  }
+  if (
+    typeof document.startViewTransition === 'function' &&
+    !reduced() &&
+    !document.hidden &&
+    performance.now() - rippleFinishedAt >= 200
+  )
+    ripple();
+  else {
+    // 动画刚结束的快速连点也直接响应，给整窗截图资源留出释放时间。
+    const root = document.documentElement;
+    root.classList.add('theme-vt');
+    apply(dark);
+    // 无动画 / 减少动态效果时也不让各元素自行慢慢变色。
+    requestAnimationFrame(() => {
+      if (!activeTransition) root.classList.remove('theme-vt');
+    });
+  }
 }
 
-function apply(dark, animate = false) {
-  if (animate) {
-    // 切换时挂 theming 类让全 UI 统一过渡，切完撤掉，避免各元素时长不一「一部分先亮」
-    document.body.classList.add('theming');
-    clearTimeout(apply._t);
-    apply._t = setTimeout(() => document.body.classList.remove('theming'), 360);
-  }
+function apply(dark) {
   document.body.classList.toggle('dark', dark);
   document.querySelector('#iconSun').style.display = dark ? 'none' : '';
   document.querySelector('#iconMoon').style.display = dark ? '' : 'none';
@@ -54,7 +107,7 @@ function apply(dark, animate = false) {
 }
 
 export function toggleTheme() {
-  const dark = !document.body.classList.contains('dark');
+  const dark = !(targetDark ?? document.body.classList.contains('dark'));
   setPref(dark ? 'dark' : 'light');
   switchTo(dark);
 }
@@ -83,8 +136,9 @@ export function toggleDensity() {
 export function initTheme() {
   document.body.classList.toggle('compact', getDensity());
   const pref = getPref();
-  apply(pref === 'dark' || (pref === 'system' && media.matches));
-  media.addEventListener('change', e => getPref() === 'system' && apply(e.matches, true));
+  targetDark = pref === 'dark' || (pref === 'system' && media.matches);
+  apply(targetDark);
+  media.addEventListener('change', e => getPref() === 'system' && switchTo(e.matches));
   document.querySelector('#btnTheme').onclick = toggleTheme;
   registerCommand('theme:toggle', toggleTheme);
   registerCommand('theme:system', followSystem);

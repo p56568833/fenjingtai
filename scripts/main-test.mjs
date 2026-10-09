@@ -421,7 +421,27 @@ test('1.10 片段保存：同名同时保存各占一个文件名；流媒体播
   assert.ok(vt.isPlaylist('https://x/live/index.m3u8?a=1'));
   assert.ok(!vt.isPlaylist('https://x/v.mp4'));
   const args = vt.segmentArgs('https://x/v.mp4', 1, 2, '/o.mp4');
-  assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'http,https,tls,tcp,crypto');
+  assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'http,https,tls,tcp,crypto,httpproxy');
+});
+await atest('截取走系统代理：PROXY 项交给 ffmpeg（环境变量 http_proxy），直连 / 只有 SOCKS 不设', async () => {
+  assert.equal(vt.proxyFromRule('PROXY 127.0.0.1:7890'), 'http://127.0.0.1:7890');
+  assert.equal(vt.proxyFromRule('SOCKS5 127.0.0.1:7891; PROXY proxy.lan:8080; DIRECT'), 'http://proxy.lan:8080');
+  assert.equal(vt.proxyFromRule('PROXY [::1]:7890'), 'http://[::1]:7890');
+  for (const none of ['DIRECT', 'SOCKS5 127.0.0.1:7891', '', null, 'PROXY bad host:1', 'PROXY h:99999999'])
+    assert.equal(vt.proxyFromRule(none), null, String(none));
+  const dir = tmp();
+  const envs = [];
+  const run = async (bin, args, opts) => {
+    envs.push(opts.env);
+    fs.writeFileSync(args.at(-1), Buffer.alloc(2048));
+    return { ok: true };
+  };
+  const req = { url: 'https://x/v.mp4', start: 1, end: 2, dir, name: '代理' };
+  assert.ok((await vt.saveSegment(req, { ffmpeg: '/bin/ffmpeg', run, proxy: 'http://127.0.0.1:7890' })).ok);
+  assert.equal(envs[0].http_proxy, 'http://127.0.0.1:7890');
+  assert.equal(envs[0].PATH, process.env.PATH, '其余环境变量照旧');
+  assert.ok((await vt.saveSegment({ ...req, name: '直连' }, { ffmpeg: '/bin/ffmpeg', run })).ok);
+  assert.equal(envs[1], undefined, '直连时不改 ffmpeg 的环境');
 });
 await atest('1.10 两个同名片段并发保存都成功、互不覆盖；m3u8 直接拒绝', async () => {
   const dir = tmp();

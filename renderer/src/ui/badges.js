@@ -157,7 +157,11 @@ export function inspectorAssets(r, { missing } = {}) {
     </div>`;
       })
       .join('') +
-    `<p class="asset-path-hint">原路径：${usages.map(u => esc(usagePath(state.assets || {}, u))).join('<br>')}</p>`
+    // 原路径只给失联的文件留着（找回 / 重新定位时要看）；文件好好的就不再列一长串路径
+    (() => {
+      const lost = usages.map(u => usagePath(state.assets || {}, u)).filter(p => missing?.has(p));
+      return lost.length ? `<p class="asset-path-hint">原路径：${lost.map(esc).join('<br>')}</p>` : '';
+    })()
   );
 }
 

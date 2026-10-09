@@ -83,8 +83,9 @@ function segmentArgs(url, start, end, out, seekAfterInput = false) {
     'pipe:1', // 机器可读的进度（out_time_us=…）写到 stdout，界面据此显示百分比
     '-y',
     // 只允许走网络协议：候选清单来自网上，不让 m3u8 之类的播放列表再去引用本机文件
+    // httpproxy：走系统代理时 https 要先经代理建隧道（见 proxyFromRule）
     '-protocol_whitelist',
-    'http,https,tls,tcp,crypto',
+    'http,https,tls,tcp,crypto,httpproxy',
     ...(seekAfterInput
       ? ['-i', url, '-ss', String(Math.max(0, Number(start)))]
       : ['-ss', String(Math.max(0, Number(start))), '-i', url]),
@@ -124,12 +125,12 @@ function progressSeconds(chunk) {
   }
   return sec;
 }
-function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000, onProgress } = {}) {
+function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000, onProgress, env } = {}) {
   return new Promise(resolve => {
     let err = '';
     let output = '';
     let frames = 0;
-    const p = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], ...(env ? { env } : {}) });
     p.stdout.on('data', d => {
       output += d.toString();
       const end = output.lastIndexOf('\n');
@@ -177,6 +178,17 @@ const isHttpUrl = u => {
     return false;
   }
 };
+/* 系统代理 → ffmpeg 认得的代理地址。ffmpeg 是单独的命令行程序，不会自己读 macOS 的系统代理：
+   用 VPN / 代理软件的「系统代理」模式时，界面里能预览（Chromium 走系统代理），截取却连不上。
+   rule 是 Electron session.resolveProxy 的结果，如 "PROXY 127.0.0.1:7890; SOCKS5 127.0.0.1:7891; DIRECT"；
+   ffmpeg 只支持 HTTP 代理，取第一个 PROXY 项；直连或只有 SOCKS 时返回 null */
+function proxyFromRule(rule) {
+  for (const part of String(rule || '').split(';')) {
+    const m = part.trim().match(/^PROXY\s+([\w.-]+|\[[0-9a-f:]+\]):(\d{1,5})$/i);
+    if (m) return `http://${m[1]}:${m[2]}`;
+  }
+  return null;
+}
 /* 流媒体播放列表（HLS / DASH）可以再引用任意地址，不直接交给 ffmpeg */
 const isPlaylist = u => {
   try {
@@ -187,7 +199,7 @@ const isPlaylist = u => {
 };
 async function saveSegment(
   { url, start, end, dir, name },
-  { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress } = {},
+  { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress, proxy = null } = {},
 ) {
   if (!isHttpUrl(url)) return { ok: false, error: '只支持在线视频链接' };
   if (isPlaylist(url)) return { ok: false, error: '这是流媒体播放列表（m3u8 / mpd），请换成直接的视频文件地址' };
@@ -210,6 +222,7 @@ async function saveSegment(
   const attempt = async seekAfterInput => {
     const result = await run(ffmpeg, segmentArgs(url.split('#')[0], start, end, tmp, seekAfterInput), {
       onProgress: sec => onProgress?.(Math.max(0, Math.min(1, sec / dur))),
+      ...(proxy ? { env: { ...process.env, http_proxy: proxy, https_proxy: proxy } } : {}),
     });
     if (!result.ok) return result;
     let size = 0;
@@ -444,6 +457,7 @@ module.exports = {
   isPlaylist,
   findFfmpeg,
   segmentArgs,
+  proxyFromRule,
   saveSegment,
   downloadFile,
   renameWithLineTag,

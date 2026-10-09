@@ -1,5 +1,10 @@
 import { buildPrintDoc, planDocument, fmtLong } from '../renderer/src/core/print-doc.js';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { lineTag, fileTitle, hasLineTag, attachCandidate } from '../renderer/src/core/candidates.js';
 import { parseAny, splitSentences } from '../renderer/src/core/parse.js';
 import {
@@ -1113,7 +1118,20 @@ test('候选写了 for（配哪几句）：通过后只在那几句出现', () =
 });
 /* ── 1.10：项目 JSON 往返 / 候选更新失效 / 交稿检查两种目标 ── */
 const { buildProjectJson } = await import('../renderer/src/core/export-doc.js');
-const { sanitizeProjectCandidates, planImport, CANDIDATE_TYPE } = await import('../renderer/src/core/candidates.js');
+const {
+  sanitizeProjectCandidates,
+  planImport,
+  CANDIDATE_TYPE,
+  validateCandidateDoc,
+  staleOnlineClips,
+  remotePath,
+  swapToLocal,
+  detachCandidate,
+} = await import('../renderer/src/core/candidates.js');
+const { CANDIDATE_SPEC, CANDIDATE_EXAMPLE } = await import('../renderer/src/core/candidate-spec.js');
+/* 合规范（v2）的最小候选清单 */
+const v2 = shots => ({ type: CANDIDATE_TYPE, version: 2, project: '测试', batch: '测试批', shots });
+const v2cand = c => ({ title: '标题', license: '版权未核实', why: '测试', ...c });
 const { unlinkedShots } = await import('../renderer/src/core/shots.js');
 test('1.10 项目 JSON 导入：id 合法就原样保留，手动秒数和候选都不失效', () => {
   const src = [
@@ -1182,6 +1200,7 @@ test('1.10 项目 JSON 带上视频候选和保存位置，导回来审核结果
       batchId: 'vb-1',
       batchName: '第一章',
       batchAt: 5,
+      batchNo: 7,
     },
     {
       id: 'vc-2',
@@ -1212,6 +1231,7 @@ test('1.10 项目 JSON 带上视频候选和保存位置，导回来审核结果
   assert.equal(back[0].decision, 'ok');
   assert.equal(back[0].savedPath, '/m/a.mp4');
   assert.equal(back[0].batchName, '第一章');
+  assert.equal(back[0].batchNo, 7, '项目 JSON 回读保留批次编号，删除旧批次后不重排');
   assert.equal(back[1].decision, 'no');
   assert.equal(back[1].note, '太远');
   const noAsset = sanitizeProjectCandidates(json.candidates, { rowIds: new Set([12]), assets: {} });
@@ -1232,10 +1252,7 @@ test('1.10 同一份清单里的候选换了链接或片段：回到待审，旧
     assetId: 'v',
     savedPath: '/m/a.mp4',
   };
-  const doc = {
-    type: CANDIDATE_TYPE,
-    shots: [{ lines: '1', cands: [{ key: 'A', url: 'https://x/a.mp4', in: 2, out: 6 }] }],
-  };
+  const doc = v2([{ lines: '1', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: 2, out: 6 })] }]);
   const plan = planImport(doc, '/c.json', rows, [old]);
   assert.equal(plan.updated.length, 1);
   const { next, changed } = plan.updated[0];
@@ -1244,10 +1261,9 @@ test('1.10 同一份清单里的候选换了链接或片段：回到待审，旧
   assert.equal(next.assetId, undefined);
   assert.equal(next.savedPath, undefined);
   const same = planImport(
-    {
-      type: CANDIDATE_TYPE,
-      shots: [{ lines: '1', cands: [{ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, why: '新理由' }] }],
-    },
+    v2([
+      { lines: '1', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, why: '新理由' })] },
+    ]),
     '/c.json',
     rows,
     [old],
@@ -1278,5 +1294,163 @@ test('1.10 交稿检查：方案检查不管素材；勾上素材交付后列出
     full.map(x => x.issues),
     [['还没关联素材'], ['素材文件失联'], ['还没关联素材']],
   );
+});
+test('1.10.4 候选清单的「要的画面」和「只覆盖一部分」导入后保留，项目 JSON 往返不丢', () => {
+  const rows = [{ id: 1, kind: 'line', no: 1, text: '甲' }];
+  const plan = planImport(
+    v2([
+      {
+        lines: '1',
+        label: '总部',
+        need: '两家总部航拍',
+        cands: [
+          v2cand({
+            key: 'A',
+            url: 'https://x/a.mp4',
+            in: 1,
+            out: 5,
+            coverage: 'partial',
+            limitations: '只拍到一家',
+          }),
+          v2cand({ key: 'B', url: 'https://x/b.mp4', in: 1, out: 5 }),
+        ],
+      },
+    ]),
+    '/c.json',
+    rows,
+    [],
+  );
+  const [a, b] = plan.added;
+  assert.equal(a.need, '两家总部航拍');
+  assert.equal(a.coverage, 'partial');
+  assert.equal(a.limits, '只拍到一家');
+  assert.equal(b.coverage, '', '没写 coverage 不算部分覆盖');
+  const back = sanitizeProjectCandidates(JSON.parse(JSON.stringify([a])), { rowIds: new Set([1]) });
+  assert.equal(back[0].need, '两家总部航拍');
+  assert.equal(back[0].coverage, 'partial');
+  assert.equal(back[0].limits, '只拍到一家');
+});
+test('1.10.4 候选清单格式 v2 是硬性规定：规范里的示例本身合格，「候选清单格式.md」和软件里的规范一字不差', () => {
+  assert.deepEqual(validateCandidateDoc(CANDIDATE_EXAMPLE), []);
+  const md = fs.readFileSync(path.join(ROOT, '候选清单格式.md'), 'utf8');
+  assert.equal(md, CANDIDATE_SPEC, '改了 core/candidate-spec.js 后要重新生成 候选清单格式.md');
+  const rows = [1, 2, 3].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n }));
+  assert.equal(
+    planImport(CANDIDATE_EXAMPLE, '/e.json', rows, []).error,
+    undefined,
+    '示例能正常导入（对不上的句子只是跳过）',
+  );
+});
+test('1.10.4 不合格式的候选清单整份拒收，并写出每一处错在哪', () => {
+  const rows = [{ id: 1, kind: 'line', no: 1, text: '甲' }];
+  const bad = {
+    type: CANDIDATE_TYPE,
+    version: 1,
+    title: '旧写法',
+    shots: [
+      {
+        lines: '1–2',
+        cands: [
+          { key: 'A', title: 'a', url: 'https://x/page', in: '1:41', out: 2, coverageStatus: 'partial' },
+          { key: 'A', title: 'b', url: 'ftp://x/b.mp4', in: 5, out: 3, license: '', why: '理由', for: '9' },
+          {
+            key: 'C',
+            title: 'c',
+            url: 'https://x/c.mp4',
+            in: 1,
+            out: 4,
+            license: '公有',
+            why: '理由',
+            coverage: 'partial',
+          },
+        ],
+      },
+    ],
+  };
+  const plan = planImport(bad, '/bad.json', rows, []);
+  assert.ok(plan.error && Array.isArray(plan.errors), '整份拒收');
+  assert.equal(plan.added, undefined, '一个候选都不导入');
+  const all = plan.errors.join('\n');
+  for (const want of [
+    'version 必须是数字 2（这是旧格式 version 1',
+    'project 必须写',
+    'batch 必须写',
+    '不认识的字段「title」',
+    'lines 必须是文字句号',
+    'label 必须写',
+    'in 必须是秒数',
+    '不认识的字段「coverageStatus」',
+    'key "A" 在这个画面里重复了',
+    'url 必须是能直接播放的视频文件地址',
+    'out 必须大于 in',
+    'license 必须写',
+    'coverage 是 "partial" 时必须写 limitations',
+  ])
+    assert.ok(all.includes(want), '缺少提示：' + want);
+  const ok = v2([
+    {
+      lines: '1',
+      label: '甲',
+      extra: { 备注: '随便写' },
+      cands: [
+        v2cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, for: '1', extra: { checked: true } }),
+        v2cand({ key: 'B', url: 'https://x/b.mp4', in: 1, out: 5, review: { decision: 'ok', note: '' } }),
+      ],
+    },
+  ]);
+  ok.extra = { anything: [1, 2] };
+  ok.reviewedAt = '2026-10-09T03:22:44.412Z';
+  assert.deepEqual(validateCandidateDoc(ok), [], 'extra 随便写；分镜台写回的 review / reviewedAt 不算错');
+  const outOfRange = v2([
+    { lines: '1-2', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, for: '3' })] },
+  ]);
+  assert.ok(validateCandidateDoc(outOfRange).some(e => e.includes('必须在这个画面的 lines "1-2" 范围内')));
+  assert.ok(
+    validateCandidateDoc(
+      v2([{ lines: '1', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: '1', out: 5 })] }]),
+    ).length,
+    '秒数带引号也不行',
+  );
+});
+test('1.10.4 保存过的片段又挂成了在线地址（撤回后再通过）：能找出来换回本地文件', () => {
+  const rows = [1, 2].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n, groupId: 'g', assetUsages: [] }));
+  const reg = {};
+  const c = {
+    id: 'c1',
+    rowId: 1,
+    url: 'https://x/a.mp4',
+    title: 'a',
+    in: 13.5,
+    out: 22,
+    for: '',
+    license: '',
+    page: '',
+  };
+  const r1 = attachCandidate(c, rows, reg);
+  c.assetId = r1.assetId;
+  c.decision = 'ok';
+  c.savedPath = '/m/第1-2句_a_0m14s-0m22s.mp4';
+  assert.deepEqual(
+    staleOnlineClips([c], rows, reg).map(x => x.asset.id),
+    [r1.assetId],
+    '挂着在线地址、却已保存 → 找出来',
+  );
+  swapToLocal(c, c.savedPath, rows, reg);
+  assert.equal(staleOnlineClips([c], rows, reg).length, 0, '换成本地文件后不再算');
+  // 撤回再通过：按在线地址新建了素材，候选上的「已保存」还在
+  detachCandidate(c, rows, reg);
+  const r2 = attachCandidate(c, rows, reg);
+  c.assetId = r2.assetId;
+  assert.equal(reg[r2.assetId].path, remotePath(c));
+  const stale = staleOnlineClips([c], rows, reg);
+  assert.equal(stale.length, 1);
+  swapToLocal(c, c.savedPath, rows, reg);
+  assert.equal(reg[r2.assetId].path, c.savedPath);
+  assert.ok(
+    rows.every(m => !m.assetUsages.find(u => u.assetId === r2.assetId)?.clip),
+    '换成本地后不再带入出点',
+  );
+  c.decision = '';
+  assert.equal(staleOnlineClips([c], rows, reg).length, 0, '没通过的不管');
 });
 console.log(`${count} 项数据回归通过`);

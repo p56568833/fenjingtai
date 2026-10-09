@@ -1,0 +1,125 @@
+/* 候选清单格式规范（v2，硬性规定）：给找素材的 AI 看的说明 + 完整示例。
+   这是唯一来源：审核页「复制格式规范」复制的是它，仓库根目录的「候选清单格式.md」由它生成（测试会核对两者一致），
+   导入时的格式检查在 core/candidates.js 的 validateCandidateDoc。改规范时三处一起改。 */
+import { CANDIDATE_TYPE, CANDIDATE_VERSION } from './candidates.js';
+
+export const CANDIDATE_EXAMPLE = {
+  type: CANDIDATE_TYPE,
+  version: CANDIDATE_VERSION,
+  project: '第四期礼来稿子2 · 推荐分镜',
+  batch: '礼来 · 代号LY3298176',
+  createdAt: '2026-10-09T11:02:05+08:00',
+  shots: [
+    {
+      lines: '251-252',
+      label: '礼来与诺和诺德总部；初代GLP-1产品',
+      need: '礼来印第安纳波利斯总部与诺和诺德丹麦总部航拍；第一代 GLP-1 药笔实物',
+      cands: [
+        {
+          key: 'novo-hq-aerial',
+          title: '诺和诺德丹麦总部 · 航拍与公司旗帜',
+          url: 'https://video.novonordisk.com/attachment/64968577/81312411/94df1431e5d982056448d89ec3afe3e3/video_hd/sites-novo-nordisk-hq-flags-7-video.mp4',
+          page: 'https://video.novonordisk.com/video/81312411/sites-novo-nordisk-hq-flags',
+          in: 8,
+          out: 20,
+          for: '251',
+          license: 'Novo Nordisk 官方媒体库，允许新闻报道等非商业用途；其他用途需核实授权',
+          why: '已抽帧：公司旗帜前景、白色环形总部及绿地，可与礼来总部照片对切',
+          coverage: 'full',
+        },
+        {
+          key: 'victoza-box-252',
+          title: 'Victoza 药盒实拍',
+          url: 'https://farmaciasdelpacifico.mx/wp-content/uploads/2025/06/InShot_20251103_163437009.mp4',
+          page: 'https://farmaciasdelpacifico.mx/producto/victoza-6mg-ml-liraglutida-caja-con-2-jeringas-prellenadas/',
+          in: 0,
+          out: 7,
+          for: '252',
+          license: '来源方版权保留，未核实转载许可',
+          why: '药房原始视频：镜头移动拍摄 Victoza 药盒，可读 Victoza 与 Novo Nordisk 标识',
+          coverage: 'partial',
+          limitations: '只覆盖诺和诺德一侧；礼来的 Byetta 还没有找到核实过的实拍视频',
+          extra: { checkedAt: '2026-10-09', sourceDurationSec: 21.42 },
+        },
+      ],
+    },
+  ],
+};
+
+export const CANDIDATE_SPEC = `# 分镜台候选清单格式 v${CANDIDATE_VERSION}
+
+给找视频素材的 AI 看：按这份规范写候选清单（一个 .json 文件），分镜台才会导入。
+**这是硬性规定**：导入时逐项检查，只要有一处不合格，整份清单都不导入，并列出每一处错在哪。
+
+## 总规则
+
+1. 文件是一个 UTF-8 编码的 JSON 对象，扩展名 \`.json\`。
+2. 只能用下面表格里列出的字段，字段名大小写一致。**规范外的内容（核验记录、备注、检索过程等）一律放进 \`extra\`**，其他位置出现不认识的字段会被拒收。\`extra\` 可以写在顶层、画面和候选三处，内容随意，分镜台不读。
+3. 一个画面（shot）对应稿子里的一句或连续几句；同一画面可以有多个候选（cand）。
+4. 句号、秒数的写法见下，不要写成别的样子。
+
+## 顶层
+
+| 字段 | 必填 | 写法 |
+| --- | --- | --- |
+| \`type\` | 是 | 固定写 \`"${CANDIDATE_TYPE}"\` |
+| \`version\` | 是 | 固定写数字 \`${CANDIDATE_VERSION}\` |
+| \`project\` | 是 | 分镜台里的项目名（文字） |
+| \`batch\` | 是 | 这一批的名字，比如 \`"礼来 · 第二三章"\`，导入后显示成「第 N 批 · 名字」 |
+| \`createdAt\` | 否 | 生成时间，ISO 格式，如 \`"2026-10-09T11:02:05+08:00"\` |
+| \`shots\` | 是 | 画面数组，至少一个 |
+| \`extra\` | 否 | 规范外的任何内容 |
+
+## 画面（shots 里的每一项）
+
+| 字段 | 必填 | 写法 |
+| --- | --- | --- |
+| \`lines\` | 是 | 稿子里的句号，**文字**：一句写 \`"251"\`，连续几句写 \`"251-252"\`（半角减号，不加空格）。以分镜台表格里显示的句号为准 |
+| \`label\` | 是 | 这个画面的简短名字，如 \`"礼来与诺和诺德总部"\` |
+| \`need\` | 否 | 这个画面需要什么画面（审核时显示在标题下面） |
+| \`cands\` | 是 | 候选数组，至少一个 |
+| \`extra\` | 否 | 规范外的任何内容 |
+
+## 候选（cands 里的每一项）
+
+| 字段 | 必填 | 写法 |
+| --- | --- | --- |
+| \`key\` | 是 | 候选编号，同一个画面里不能重复，如 \`"novo-hq-aerial"\`。审核结果按 lines + key 写回，导入后不要改 |
+| \`title\` | 是 | 中文标题，说清拍的是什么，如 \`"诺和诺德丹麦总部 · 航拍与公司旗帜"\`。不要在标题里写句号或「只覆盖…」，这些有专门字段 |
+| \`url\` | 是 | **能直接播放的视频文件地址**（mp4 / webm 等），http 或 https。不能是网页地址 |
+| \`page\` | 否 | 视频所在的网页地址（原片页面），http 或 https |
+| \`in\` | 是 | 建议片段的开始，**秒数（数字）**，如 \`8\` 或 \`101.5\`。不要写 \`"1:41"\` 或 \`"8"\` |
+| \`out\` | 是 | 建议片段的结束，秒数（数字），必须大于 \`in\` |
+| \`for\` | 否 | 这段只配画面里的哪几句，写法同 \`lines\`（如 \`"252"\`），必须在本画面 \`lines\` 范围内。不写 = 配整个画面 |
+| \`license\` | 是 | 版权情况；不清楚就写 \`"版权未核实"\` |
+| \`why\` | 是 | 为什么选它：画面里实际看到了什么、和口播哪里对得上 |
+| \`coverage\` | 否 | \`"full"\`（默认）或 \`"partial"\`。这段只覆盖了口播要的一部分时写 \`"partial"\` |
+| \`limitations\` | \`coverage\` 为 \`"partial"\` 时必填 | 缺了哪部分，如 \`"只覆盖诺和诺德一侧"\` |
+| \`extra\` | 否 | 规范外的任何内容（核验方式、分辨率、原片时长……） |
+
+## 分镜台会写回的字段（不要自己写）
+
+审核后分镜台会往这份文件里写回：每个候选的 \`review\`（\`{ "decision": "ok" | "no" | "re" | "", "note": "意见", "savedPath": "本地片段路径", "at": "时间" }\`）和顶层的 \`reviewedAt\`。
+读到它们就知道哪些通过了、哪些要换（\`"re"\` = 换一个，看 \`note\` 里的意见）。改写清单时**原样保留**这两个字段，新生成的清单不要写。
+
+## 改版与重新导入
+
+- 同一份文件改完再导入：按 \`lines\` + \`key\` 对上原来的候选，只更新不重复。
+- \`url\`、\`in\`、\`out\` 任一项变了，算新版本，回到待审；只改说明文字（\`title\`、\`why\`、\`license\` 等）不影响审核结果。
+- 补新候选用新的 \`key\`；要换掉的候选不要删，直接加新的。
+
+## 交出去之前自查
+
+- [ ] \`type\`、\`version\`、\`project\`、\`batch\`、\`shots\` 都写了，\`version\` 是数字 ${CANDIDATE_VERSION}
+- [ ] 每个画面都有 \`lines\`（文字，如 \`"251-252"\`）、\`label\`、\`cands\`
+- [ ] 每个候选都有 \`key\`、\`title\`、\`url\`、\`in\`、\`out\`、\`license\`、\`why\`；\`in\` / \`out\` 是数字秒数且 \`out\` > \`in\`
+- [ ] \`url\` 是视频文件本身，不是网页
+- [ ] 写了 \`"coverage": "partial"\` 的都写了 \`limitations\`
+- [ ] 除了表格里的字段，别的内容都在 \`extra\` 里
+
+## 完整示例
+
+\`\`\`json
+${JSON.stringify(CANDIDATE_EXAMPLE, null, 2)}
+\`\`\`
+`;

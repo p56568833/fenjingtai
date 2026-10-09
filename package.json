@@ -1,12 +1,13 @@
 {
   "name": "fenjingtai",
   "productName": "分镜台",
-  "version": "1.10.3",
+  "version": "1.10.4",
   "description": "口播稿逐句分镜标注工具",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
     "test": "node scripts/production-test.mjs && node scripts/main-test.mjs && node scripts/test.mjs",
+    "test:theme": "node scripts/theme-test.mjs",
     "test:data": "node scripts/production-test.mjs && node scripts/main-test.mjs",
     "lint": "eslint .",
     "format": "prettier --write \"electron/**/*.js\" \"renderer/**/*.{js,css,html}\" \"scripts/**/*.mjs\"",

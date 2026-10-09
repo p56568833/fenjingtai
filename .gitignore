@@ -10,3 +10,6 @@ dist/
 .install-status
 # 临时输出（渲染的样片等）不进仓库
 Claude outputs/
+
+# 用户项目的补充素材与候选清单属于工作数据
+/素材补充/

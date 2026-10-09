@@ -13,7 +13,6 @@ import { rowBadges, refreshMissing, resetMissing } from './badges.js';
 import { renderStats } from './render-stats.js';
 import { preserveReadingPosition } from './reading-position.js';
 import { registerCommand } from './commands.js';
-import { flash } from './motion.js';
 
 const $ = s => document.querySelector(s);
 let lastProject = null;
@@ -34,17 +33,12 @@ export function jumpTo(id) {
   else update('selection');
   // 章节标题会吸顶，当前坐标不是章节起点；定位首句也能让浏览器展开屏幕外的正文。
   const el = document.querySelector(`.row[data-id="${state.sel}"],.as[data-id="${state.sel}"]`);
-  // 目标本来就在眼前（比如标完自动跳下一句）就不闪了，只有真的「跳过去」才闪
-  const box = $('#tableWrap')?.getBoundingClientRect();
-  const at = el?.getBoundingClientRect();
-  const far = !!(box && at && (at.top < box.top || at.bottom > box.bottom));
+  // 跳过去后不再给那句闪一圈光（切章节时整组画面框会「散开」一下，看着晃）；选中底色已经标出是哪句
   el?.scrollIntoView({ block: 'center' });
   const selectedId = state.sel;
   requestAnimationFrame(() => {
     // content-visibility 展开后行高可能变化，下一帧校准；新导航或项目切换后不再滚旧目标。
     if (state.sel === selectedId && el?.isConnected) el.scrollIntoView({ block: 'center' });
-    const now = document.querySelector(`.row[data-id="${selectedId}"],.as[data-id="${selectedId}"]`);
-    if (far && state.sel === selectedId) flash(now); // 跳过去的那句荡开一圈光：告诉你「是这句」
   });
   rememberCursor();
 }

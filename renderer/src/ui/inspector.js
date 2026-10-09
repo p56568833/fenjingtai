@@ -103,15 +103,22 @@ export function renderInspector(force = false) {
   panel.innerHTML = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}</div>
     <section class="detail-assets">
       <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span><span class="spacer"></span>${voice.sync}</div>
-      ${voice.meta}
+      ${voice.meta}${voice.listen ? `<div class="detail-listen">${voice.listen}</div>` : ''}
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
       <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button></div>
     </section>
     <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
-    <div class="detail-label detail-excerpt-title">原文${members.length > 1 ? `<small>${members.length} 句</small>` : ''}<span class="spacer"></span>${voice.listen}</div>
-    <p class="detail-excerpt">${esc(members.map(x => x.text).join(''))}</p>
     ${r.needsReview ? '<button class="btn" id="confirmReviewed">已核对这段改稿</button>' : ''}`;
   hydrateAssetCards();
+  markNoteClamp();
+}
+/* 画面描述和表格里一样：平时只露前 4 行（超出的末尾淡出），点进去编辑时展开全文 */
+function markNoteClamp() {
+  const note = $('#detailNote');
+  if (!note) return;
+  requestAnimationFrame(() => {
+    if (document.activeElement !== note) note.classList.toggle('clamped', note.scrollHeight > note.clientHeight + 2);
+  });
 }
 
 /* 原文视图的选区卡 / 行菜单：打开右侧面板看这个画面的素材 */
@@ -241,6 +248,9 @@ export function initInspector() {
 
   panel.addEventListener('focusin', e => {
     if (e.target.id === 'detailNote') session = { snapped: false };
+  });
+  panel.addEventListener('focusout', e => {
+    if (e.target.id === 'detailNote') markNoteClamp(); // 编辑完收回 4 行
   });
   panel.addEventListener('input', e => {
     const r = panelRow();

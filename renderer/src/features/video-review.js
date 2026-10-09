@@ -5,20 +5,24 @@
    不下载任何文件，直到你点「保存已通过的片段」或「下载完整原片」。
 
    审核页是一个「收件箱」，和表格共用顶栏：
-   · 批次：每次导入算一批，默认只看最新一批，顶部写「还剩 N 个待审 / 共 M 个」；旧批次在下拉里。
-   · 左边按章节列出这一批的画面（带待审数 / 已审完），右边只显示选中画面的候选；截图只给右边这几个候选截。
+   · 批次：每次导入算一批。左栏顶上固定一张当前批次卡片（第 N 批 · 日期 · 待审数 · 进度条），点它在菜单里
+     换批次 / 导入新批次；卡片的「⋯」里是更换保存位置、删除此批次。卡片下面是这一批的全部画面。
+   · 右边按句子排：每句原文下面直接挂配它的候选，句尾标这句有没有画面（有 / 只覆盖一部分 / 待审 / 还缺）；
+     截图只给右边这几个候选截。
    · 审完就走：审过的候选收成一行（能撤回），不再有「已通过」页——通过的结果在表格的画面上看；
      「不要」的离开审核页时自动清掉（结果已写回清单，再导入同一份清单也不会回来）。
    · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
 import { state, update, rowById, renumber, on } from '../app/state.js';
 import { persist, markProjectDirty, projectById, allProjects } from '../app/storage.js';
 import { snapshot } from '../app/undo.js';
-import { invalidateProbe } from '../app/asset-actions.js';
+import { invalidateProbe, probePaths, isMissing } from '../app/asset-actions.js';
 import { shotMembers } from '../core/shots.js';
-import { assetName, syncMirror } from '../core/asset-model.js';
+import { assetName, syncMirror, usageList, referencedAssetIds } from '../core/asset-model.js';
+import { preview } from '../ui/badges.js';
 import { fmtTime } from '../core/text.js';
 import {
   CANDIDATE_TYPE,
+  CANDIDATE_VERSION,
   DECISION,
   planImport,
   attachCandidate,
@@ -29,12 +33,11 @@ import {
   lineTag,
   fileTitle,
   hasLineTag,
+  staleOnlineClips,
 } from '../core/candidates.js';
 import {
   playerHTML,
-  forLineHTML,
-  voHTML,
-  paintVoHighlight,
+  targetLines,
   playClip,
   togglePause,
   seekTrack,
@@ -48,6 +51,8 @@ import { setView, syncViewToggle } from '../ui/render.js';
 import { slideIn } from '../ui/anim.js';
 import { glide, roll, pop, SPRING } from '../ui/motion.js';
 import { registerCommand, runCommand } from '../ui/commands.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/popover.js';
+import { CANDIDATE_SPEC } from '../core/candidate-spec.js';
 
 export { CANDIDATE_TYPE };
 const $ = s => document.querySelector(s);
@@ -122,7 +127,8 @@ export function importCandidates(doc, srcFile) {
   renumber();
   const plan = planImport(doc, srcFile, state.rows, state.candidates);
   if (plan.error) {
-    toast(plan.error);
+    if (plan.errors) showFormatErrors(plan.errors, srcFile);
+    else toast(plan.error);
     return null;
   }
   if (!plan.added.length && !plan.updated.length) {
@@ -135,6 +141,7 @@ export function importCandidates(doc, srcFile) {
     batchId: 'vb-' + Date.now().toString(36),
     batchAt: Date.now(),
     batchName: batchNameOf(doc, srcFile, plan),
+    batchNo: Math.max(0, ...batches().map(b => b.number)) + 1,
   };
   let reset = 0;
   for (const { old, next, changed } of plan.updated) {
@@ -171,6 +178,39 @@ export function importCandidates(doc, srcFile) {
   if (reset) writeBack();
   return plan;
 }
+
+/* 格式不对的清单整份不导入：弹窗逐条写出错在哪；「复制给 AI」把全部错误连同格式规范一起复制，
+   粘贴给找素材的 AI 让它照着改 */
+const SPEC_NAME = `《分镜台候选清单格式 v${CANDIDATE_VERSION}》`;
+function showFormatErrors(errors, srcFile) {
+  const shown = errors.slice(0, 8);
+  const more = errors.length > shown.length ? `\n…还有 ${errors.length - shown.length} 处` : '';
+  const name = assetName(srcFile || '') || '这份清单';
+  confirmModal(
+    '候选清单格式不对，没有导入',
+    `「${name}」没有按${SPEC_NAME}写，共 ${errors.length} 处问题，整份都没有导入：\n\n· ${shown.join('\n· ')}${more}\n\n点「复制给 AI」，会把全部问题和格式规范一起复制下来，粘贴给找素材的 AI，让它改好再导入。`,
+    '复制给 AI',
+    () =>
+      copyText(
+        `这份视频候选清单（${name}）没有通过分镜台的格式检查，整份没有导入。请按下面的规范逐条改好，输出完整的 JSON 文件：\n\n${errors.map(e => '- ' + e).join('\n')}\n\n---\n\n${CANDIDATE_SPEC}`,
+        '已复制问题和格式规范，粘贴给 AI 即可',
+      ),
+    { cancelText: '关闭', danger: false },
+  );
+}
+async function copyText(text, okMsg) {
+  try {
+    await (window.fjtHooks?.copyText || (t => navigator.clipboard.writeText(t)))(text);
+    toast(okMsg, null, 'ok');
+  } catch {
+    toast('复制失败，请再试一次', null, 'error');
+  }
+}
+export const copyCandidateSpec = () =>
+  copyText(
+    `请按下面的规范把找到的视频素材写成候选清单（.json），不合规范的分镜台不会导入。\n\n${CANDIDATE_SPEC}`,
+    `已复制${SPEC_NAME}，发给找素材的 AI 即可`,
+  );
 
 /* 批次名：清单里写了 batch / title 就用它，否则用涉及的章节名，再不行用文件名 */
 function batchNameOf(doc, srcFile, plan) {
@@ -213,6 +253,7 @@ export function setDecision(id, d) {
   persist();
   update('rows');
   writeBack();
+  if (next === 'ok') relinkSavedClips(); // 这一段以前保存过（自己或重复批次里的同一段）：直接换成本地文件，不再挂在线地址
   if (next) advanceAfterDecision(c);
   renderVideoReview();
   if (next) stamp(c.id);
@@ -400,7 +441,60 @@ export async function tagOldSavedClips() {
   return moved.size;
 }
 
+/* 保存过的片段换回本地文件（见 core/candidates.js 的 staleOnlineClips）。本地文件还在就直接换上；
+   文件已经被删掉的，清掉「已保存」，「保存已通过的片段」会重新截。不进撤销（只是把数据改回应有的样子） */
+let relinking = null;
+export function relinkSavedClips({ quiet = false } = {}) {
+  relinking ||= (async () => {
+    const pid = state.projectId;
+    const stale = staleOnlineClips(state.candidates, state.rows, state.assets);
+    if (!stale.length) return 0;
+    const info = await probePaths(stale.map(x => x.cand.savedPath));
+    if (state.projectId !== pid) return 0;
+    let fixed = 0,
+      gone = 0;
+    for (const { asset, cand } of stale) {
+      // 等待期间撤回了 / 换了片段：这个不动
+      if (!state.candidates.includes(cand) || state.assets[asset.id] !== asset || !cand.savedPath) continue;
+      const got = info[cand.savedPath];
+      if (got && !isMissing(got)) {
+        // 候选原来记着的素材已经不在表格上了（撤回时拿掉的）：改记成现在挂着的这个，以后撤回能拿对
+        if (!referencedAssetIds(state.rows).has(cand.assetId)) cand.assetId = asset.id;
+        if (swapToLocal({ assetId: asset.id }, cand.savedPath, state.rows, state.assets)) fixed++;
+      } else if (isMissing(got)) {
+        delete cand.savedPath;
+        gone++;
+      }
+    }
+    if (!fixed && !gone) return 0;
+    invalidateProbe();
+    persist();
+    update('rows');
+    writeBack();
+    if (!quiet || gone)
+      toast(
+        [
+          fixed ? `${fixed} 个已保存的片段换回了本地文件` : '',
+          gone ? `${gone} 个片段的本地文件找不到了，点「保存已通过的片段」重新保存` : '',
+        ]
+          .filter(Boolean)
+          .join('；'),
+        null,
+        gone ? 'warn' : 'ok',
+      );
+    return fixed;
+  })().finally(() => (relinking = null));
+  return relinking;
+}
+
+/* 载入项目时：先给旧文件名补句号，再把保存过却还挂在线地址的片段换回本地文件（顺序不能反：补句号会改文件名） */
+const tidySavedClips = () =>
+  tagOldSavedClips()
+    .catch(() => 0)
+    .then(() => relinkSavedClips());
+
 export async function saveAllApproved() {
+  await relinkSavedClips({ quiet: true }); // 已经存在本地的先换上，不重复下载
   const list = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath);
   if (!list.length) {
     toast('没有待保存的已通过片段');
@@ -410,6 +504,7 @@ export async function saveAllApproved() {
   if (batchRun) return;
   let ok = 0,
     fail = 0;
+  const reasons = new Map(); // 失败原因 → 段数：批量时不逐条弹提示，最后汇总告诉用户为什么失败
   batchRun = { i: 0, n: list.length, id: null };
   const pid = state.projectId;
   try {
@@ -423,13 +518,22 @@ export async function saveAllApproved() {
       else {
         fail++;
         if (r?.needFfmpeg) return;
+        const why = r?.error || '未知原因';
+        reasons.set(why, (reasons.get(why) || 0) + 1);
       }
     }
   } finally {
     batchRun = null;
     renderVideoReview();
   }
-  toast(`已保存 ${ok} 段${fail ? `，${fail} 段失败（可再次批量尝试）` : ''}`);
+  if (!fail) return toast(`已保存 ${ok} 段`, null, 'ok');
+  const [top, n] = [...reasons].sort((a, b) => b[1] - a[1])[0] || ['未知原因', fail];
+  const more = reasons.size > 1 ? `等 ${reasons.size} 种原因` : '';
+  toast(
+    `已保存 ${ok} 段，${fail} 段失败（可再次批量尝试）。${n < fail || more ? `主要原因（${n} 段）` : '原因'}：${top}${more ? '，' + more : ''}`,
+    null,
+    ok ? 'warn' : 'error',
+  );
 }
 export function downloadOriginal(id) {
   const c = state.candidates.find(x => x.id === id);
@@ -518,7 +622,45 @@ function batches() {
       map.set(id, { id, name: c.batchId ? c.batchName || '视频候选' : '之前导入的', at: c.batchAt || 0, cands: [] });
     map.get(id).cands.push(c);
   }
-  return [...map.values()].sort((a, b) => b.at - a.at);
+  const all = [...map.values()].sort((a, b) => b.at - a.at);
+  return all.map((b, i) => ({
+    ...b,
+    number: b.cands.find(c => Number.isSafeInteger(c.batchNo) && c.batchNo > 0)?.batchNo || all.length - i,
+  }));
+}
+const batchLabel = b => `${b.id === 'legacy' ? '' : `第 ${b.number} 批 · `}${b.name}`;
+
+function confirmDeleteBatch() {
+  const batch = curBatchObj();
+  if (!batch || batchRun || batch.cands.some(c => busy.has(c.id))) return;
+  const pid = state.projectId;
+  const ids = new Set(batch.cands.map(c => c.id));
+  confirmModal(
+    '删除这个批次？',
+    `将从视频审核中移除「${batchLabel(batch)}」的 ${ids.size} 个候选。\n\n已通过并挂到表格的素材、已下载文件和原候选清单都会保留。删除后可用 ⌘Z 撤销。`,
+    '删除此批次',
+    () => {
+      if (state.projectId !== pid) return;
+      const removed = state.candidates.filter(c => ids.has(c.id));
+      if (!removed.length || batchRun || removed.some(c => busy.has(c.id))) return;
+      snapshot('删除视频审核批次');
+      // 保留其他批次原来的编号，删除第 7 批后第 8 批仍是第 8 批。
+      for (const b of batches()) for (const c of b.cands) c.batchNo = b.number;
+      writeBack(); // 未写完的审核意见照常写回，不把删除批次改成「不要」。
+      stopAll();
+      clearTimeout(advanceTimer);
+      for (let i = queue.length - 1; i >= 0; i--) if (ids.has(queue[i].c.id)) queue.splice(i, 1);
+      for (const c of removed) {
+        frames.delete(c.id);
+        touched.delete(c.id);
+      }
+      state.candidates = state.candidates.filter(c => !ids.has(c.id));
+      curShot = curCand = null;
+      persist();
+      update('rows');
+      toast(`已删除「${batchLabel(batch)}」的 ${removed.length} 个候选 · ⌘Z 可撤销`);
+    },
+  );
 }
 /* 一批里的画面：按稿子顺序，带章节名和待审数 */
 function shotsOf(batch) {
@@ -579,7 +721,7 @@ let advanceTimer = null;
 function advanceAfterDecision(c) {
   const g = curGroup();
   if (!g || !g.cands.includes(c)) return;
-  const next = g.cands.find(x => x !== c && isPending(x));
+  const next = layoutShot(g).order.find(x => x !== c && isPending(x)); // 按界面上从上到下的顺序
   if (next) {
     curCand = next.id;
     return;
@@ -639,45 +781,57 @@ const rangeText = lead => {
   return members.length > 1 ? `第 ${members[0].no}–${members[members.length - 1].no} 句` : `第 ${members[0].no} 句`;
 };
 
-export function renderVideoReview() {
-  refreshVideoReviewButton();
-  const host = $('#vrList');
-  if (!host || state.view !== 'review') return;
-  pickDefaults(null);
-  const all = batches();
-  const batch = curBatchObj();
-  const shots = shotsOf(batch);
-  // 顶部：批次 + 进度
-  $('#vrBatch').innerHTML = all
-    .map((b, i) => {
-      const p = b.cands.filter(isPending).length;
-      return `<option value="${esc(b.id)}"${b.id === curBatch ? ' selected' : ''}>${b.id === 'legacy' ? '' : `第 ${all.length - i} 批 · `}${esc(b.name)}${b.at ? ` · ${fmtDay(b.at)}` : ''}${p ? ` · ${p} 待审` : ' · 已审完'}</option>`;
-    })
-    .join('');
-  $('#vrBatch').hidden = all.length < 1;
-  const bc = batch?.cands || [];
-  const left = bc.filter(isPending).length;
-  const ok = bc.filter(c => c.decision === 'ok');
-  const unsaved = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath).length;
-  $('#vrSummary').innerHTML = batch
-    ? `${left ? `还剩 <b>${left}</b> 个待审` : '<b>这一批审完了</b>'} / 共 ${bc.length} 个${ok.length ? ` · 已通过 ${ok.length} 个 · <button class="vr-link" id="vrSeeOk">在表格里看</button>` : ''}`
-    : '';
-  const saveAll = $('#vrSaveAll');
-  saveAll.hidden = !unsaved && !batchRun;
-  saveAll.disabled = !!batchRun;
-  saveAll.classList.toggle('saving', !!batchRun);
-  saveAll.textContent = saveAllLabel() || `保存已通过的片段（${unsaved}）`;
-  $('#vrDir').textContent = state.mediaDir ? `保存到：${state.mediaDir}` : '还没选保存位置（第一次保存时会问）';
-  const mine = new Set(state.candidates.map(c => c.srcFile).filter(Boolean));
-  const fails = writeBackFailures().filter(([f]) => mine.has(f));
-  const sync = $('#vrSync');
-  sync.hidden = !fails.length;
-  if (fails.length)
-    sync.innerHTML = `${fails.length} 份清单没写回：${esc(fails[0][1])} <button class="vr-link" id="vrRetrySync">重试</button>`;
+/* 批次在左栏的显示名：机器名的下划线换成「·」、去掉末尾 8 位日期（日期另外显示）；完整名字在悬停提示里 */
+const prettyBatch = name =>
+  String(name || '')
+    .replace(/[_\s-]*\d{8}$/, '')
+    .replace(/_+/g, ' · ')
+    .trim() || String(name || '');
+const fmtDate = t => {
+  if (!t) return '';
+  const d = new Date(t);
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+};
+const batchNo = b => (b.id === 'legacy' ? '之前导入的' : `第 ${b.number} 批`);
 
-  // 左边：按章节列画面
+/* 只覆盖一部分：清单写了 coverageStatus: "partial"；旧清单没有这个字段时，看标题里有没有「只覆盖 / 部分覆盖」 */
+const isPartial = c => c.coverage === 'partial' || (!c.coverage && /只覆盖|部分覆盖/.test(c.title || ''));
+
+/* 一个画面按句子排：每个候选挂在它「配」的第一句下面；画面不止一句、又没写配哪句的，归到「整段」 */
+function layoutShot(g) {
+  const members = g?.lead ? shotMembers(state.rows, g.lead) : [];
+  const whole = [];
+  const byNo = new Map();
+  for (const c of g?.cands || []) {
+    const t = targetLines(c);
+    const no = members.length > 1 && t.whole ? null : t.target[0]?.no;
+    if (no == null || !members.some(m => m.no === no)) whole.push(c);
+    else {
+      if (!byNo.has(no)) byNo.set(no, []);
+      byNo.get(no).push(c);
+    }
+  }
+  return { members, whole, byNo, order: [...whole, ...members.flatMap(m => byNo.get(m.no) || [])] };
+}
+/* 展开着的候选（待审的 + 这次刚审过的），按界面上从上到下的顺序——↑↓ 换候选也按这个顺序走 */
+const openOf = g => layoutShot(g).order.filter(c => isPending(c) || touched.has(c.id));
+
+/* 这句有没有画面：看这个画面所有批次的候选；都没有时再看表格里这句挂没挂别的素材 */
+function coverageOf(row, shotCands) {
+  const hits = shotCands.filter(c => targetLines(c).target.some(r => r.id === row.id));
+  const ok = hits.filter(c => c.decision === 'ok');
+  if (ok.some(c => !isPartial(c))) return { cls: 'ok', text: '✓ 有画面' };
+  if (ok.length) return { cls: 'part', text: '只覆盖一部分', tip: ok.map(c => c.limits || c.title).join('\n') };
+  if (hits.some(isPending)) return { cls: 'wait', text: '待审' };
+  if (usageList(row).some(u => !u.off)) return { cls: 'has', text: '表格里有其他素材' };
+  if (hits.some(c => c.decision === 're')) return { cls: 'miss', text: '等新候选' };
+  return { cls: 'miss', text: '还缺画面' };
+}
+
+/* 左栏：顶上固定一张「当前批次」卡片（点它在菜单里换批次），下面是这一批的全部画面（按章节） */
+function navHTML(all, shots) {
   let sec = null;
-  $('#vrNav').innerHTML = shots
+  const shotsHTML = shots
     .map(g => {
       const head = g.section !== sec ? `<div class="vr-nav-sec">${esc(g.section || '（没有章节）')}</div>` : '';
       sec = g.section;
@@ -692,34 +846,186 @@ export function renderVideoReview() {
       return `${head}<button class="vr-nav-shot${g.key === curShot ? ' on' : ''}${g.pending ? '' : ' done'}" data-vr-goto="${esc(String(g.key))}"><span>${rangeText(g.lead)}${label}</span>${status}</button>`;
     })
     .join('');
-  $('#vrNav').querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
-  glide($('#vrNav'), $('#vrNav').querySelector('.vr-nav-shot.on'), 'vrnav-glide'); // 左边的高亮块滑到当前画面
+  const b = all.find(x => x.id === curBatch);
+  if (!b)
+    return `<button class="vr-batch-add" id="vrImport" title="把 Claude 找好的候选清单（.json）导进来；也可以直接拖进窗口">＋ 导入候选清单…</button>
+      <button class="vr-batch-add ghost" id="vrCopySpec" title="候选清单必须按这份规范写才能导入">复制格式规范（发给找素材的 AI）</button>`;
+  const n = b.cands.length;
+  const pending = b.cands.filter(isPending).length;
+  const okN = b.cands.filter(c => c.decision === 'ok').length;
+  const okPct = n ? (okN / n) * 100 : 0;
+  const restPct = n ? ((n - pending - okN) / n) * 100 : 0;
+  const status = pending
+    ? `<span class="vr-nav-n">${pending} 待审</span>`
+    : `<span class="vr-bdone">✓ 审完 ${okN}/${n}</span>`;
+  const name = b.id === 'legacy' ? '' : prettyBatch(b.name);
+  const others = all.filter(x => x !== b);
+  const otherPending = others.reduce((s, x) => s + x.cands.filter(isPending).length, 0);
+  const tip = `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}\n点击切换批次（共 ${all.length} 批）`;
+  return `<div class="vr-picker">
+      <div class="vr-bh">
+        <button class="vr-batch-head" id="vrBatchPick" data-vr-batch="${esc(b.id)}" title="${esc(tip)}" aria-haspopup="menu">
+          <span class="vr-bline"><b>${batchNo(b)}</b><span class="vr-bdate">${fmtDate(b.at)}</span>${status}</span>
+          ${name ? `<span class="vr-bname">${esc(name)}</span>` : ''}
+          <span class="vr-bbar"><i class="ok" style="width:${okPct.toFixed(1)}%"></i><i style="width:${restPct.toFixed(1)}%"></i></span>
+          <span class="vr-bswitch">${all.length > 1 ? `切换批次 · 共 ${all.length} 批${otherPending ? `<em>其他批次 ${otherPending} 待审</em>` : ''}` : '导入新批次'}<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg></span>
+        </button>
+        <button class="vr-batch-more" id="vrBatchMore" title="这一批的操作：保存位置、删除批次" aria-label="批次操作" aria-haspopup="menu">⋯</button>
+      </div>
+    </div>
+    <div class="vr-shots">${shotsHTML}</div>`;
+}
 
-  // 右边：选中画面的候选
+/* 换批次的菜单：新的在上，每批写待审数 / 审完，当前批次打勾；最下面是导入新批次 */
+function openBatchPicker(anchor) {
+  const all = batches();
+  const items = all
+    .map(b => {
+      const p = b.cands.filter(isPending).length;
+      const okN = b.cands.filter(c => c.decision === 'ok').length;
+      const name = b.id === 'legacy' ? '' : prettyBatch(b.name);
+      return `<div class="pop-item vr-bpick${b.id === curBatch ? ' cur' : ''}" data-vrb="pick" data-id="${esc(b.id)}" title="${esc(batchLabel(b))}"><span class="main"><span>${esc(batchNo(b))}${b.at ? `<span class="vr-bpick-date">${fmtDate(b.at)}</span>` : ''}</span>${name ? `<span class="desc">${esc(name)}</span>` : ''}</span><span class="vr-bpick-st${p ? ' wait' : ''}">${p ? `${p} 待审` : `✓ ${okN}/${b.cands.length}`}</span>${b.id === curBatch ? '<span class="chk">✓</span>' : ''}</div>`;
+    })
+    .join('');
+  openMenu(
+    anchor,
+    `<div class="p-title">选择批次 · 共 ${all.length} 批</div>
+      <div class="vr-bpick-list">${items}</div>
+      <div class="pop-sep"></div>
+      <div class="pop-item" data-vrb="import"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">导入新批次…<span class="desc">Claude 找好的候选清单（.json），也可以直接拖进窗口</span></span></div>
+      <div class="pop-item" data-vrb="spec"><svg class="mi" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span class="main">复制候选清单格式规范<span class="desc">发给找素材的 AI，按 v${CANDIDATE_VERSION} 格式写才能导入</span></span></div>`,
+  );
+  markPopAnchor(anchor);
+  popEl?.querySelector('.vr-bpick.cur')?.scrollIntoView({ block: 'nearest' });
+}
+
+/* 批次「⋯」菜单：保存位置（平时不占主界面）、删除此批次（危险操作收进菜单） */
+function openBatchMenu(anchor) {
+  const batch = curBatchObj();
+  if (!batch) return;
+  const locked = !!batchRun || batch.cands.some(c => busy.has(c.id));
+  openMenu(
+    anchor,
+    `<div class="p-title">${esc(batchNo(batch))}${batch.at ? ` · ${fmtDay(batch.at)}` : ''}</div>
+      <div class="pop-item" data-vrb="dir"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="main">更换保存位置…<span class="desc vr-pop-path">${esc(state.mediaDir || '还没选（第一次保存片段时会问）')}</span></span></div>
+      <div class="pop-sep"></div>
+      <div class="pop-item danger${locked ? ' disabled' : ''}" id="vrDeleteBatch" data-vrb="delete" title="${locked ? '片段保存完成后可以删除批次' : '移除这一批的审核候选，保留表格素材和本地文件'}"><svg class="mi" viewBox="0 0 24 24"><path d="M4 7h16M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/></svg><span class="main">删除此批次<span class="desc">${batch.cands.length} 个候选 · 表格里的素材和本地文件保留</span></span></div>`,
+  );
+  markPopAnchor(anchor);
+}
+function selectBatch(id) {
+  if (id === curBatch) return;
+  curBatch = id;
+  curShot = curCand = null;
+  touched.clear();
+  stopAll();
+  clearTimeout(advanceTimer);
+  renderVideoReview();
+  $('#vrList')?.scrollTo?.({ top: 0 });
+}
+
+/* 当前候选配的那几句：句子左边亮一条主色 */
+function paintLineFocus(c) {
+  const nos = new Set(c ? targetLines(c).target.map(r => r.no) : []);
+  document
+    .querySelectorAll('#vrList .vr-line[data-vo-no]')
+    .forEach(el => el.classList.toggle('hl', nos.has(+el.dataset.voNo)));
+}
+
+export function renderVideoReview() {
+  refreshVideoReviewButton();
+  const host = $('#vrList');
+  if (!host || state.view !== 'review') return;
+  pickDefaults(null);
+  const all = batches();
+  const batch = curBatchObj();
+  const shots = shotsOf(batch);
+  const bc = batch?.cands || [];
+  const left = bc.filter(isPending).length;
+  const ok = bc.filter(c => c.decision === 'ok');
+  const unsaved = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath).length;
+  // 顶栏：这一批的进度。还有待审时先写剩几个；审完就只剩「共 N 个 · 已通过 M 个」
+  $('#vrSummary').innerHTML = batch
+    ? `${left ? `还剩 <b>${left}</b> 个待审<i></i>` : ''}共 <b>${bc.length}</b> 个${ok.length ? `<i></i>已通过 <b class="ok">${ok.length}</b> 个<i></i><button class="vr-link" id="vrSeeOk">在表格里看</button>` : ''}`
+    : '';
+  $('#vrSummary').hidden = !batch;
+  const saveAll = $('#vrSaveAll');
+  saveAll.hidden = !unsaved && !batchRun;
+  saveAll.disabled = !!batchRun;
+  saveAll.classList.toggle('saving', !!batchRun);
+  saveAll.textContent = saveAllLabel() || `保存已通过的片段（${unsaved}）`;
+  saveAll.title = `把已通过、还没保存的片段都截下来存到本地${state.mediaDir ? `\n保存到：${state.mediaDir}` : ''}`;
+  const mine = new Set(state.candidates.map(c => c.srcFile).filter(Boolean));
+  const fails = writeBackFailures().filter(([f]) => mine.has(f));
+  const sync = $('#vrSync');
+  sync.hidden = !fails.length;
+  if (fails.length)
+    sync.innerHTML = `${fails.length} 份清单没写回：${esc(fails[0][1])} <button class="vr-link" id="vrRetrySync">重试</button>`;
+
+  // 左栏：批次 → 画面
+  const nav = $('#vrNav');
+  nav.innerHTML = navHTML(all, shots);
+  nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
+  glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide'); // 左边的高亮块滑到当前画面
+
+  // 右边：选中画面，按句子排
   const g = shots.find(x => x.key === curShot);
   if (!state.candidates.length) {
     host.innerHTML =
-      '<p class="vr-empty">还没有视频候选。让 Claude 找好后，把候选清单（.json）拖进窗口或点「导入候选清单」。</p>';
+      '<p class="vr-empty">还没有视频候选。先点左边「复制格式规范」发给找素材的 AI，让它按规范写好候选清单（.json），再拖进窗口或点「导入候选清单」。</p>';
     return;
   }
   if (!g) {
     host.innerHTML = '<p class="vr-empty">这一批没有候选。</p>';
     return;
   }
-  const open = g.cands.filter(c => isPending(c) || touched.has(c.id));
+  const { members, whole, byNo } = layoutShot(g);
+  const open = openOf(g);
   const done = g.cands.filter(c => !isPending(c) && !touched.has(c.id));
   if (!open.some(c => c.id === curCand)) curCand = open.find(isPending)?.id || open[0]?.id || null;
-  const vo = g.lead ? voHTML(shotMembers(state.rows, g.lead)) : '';
-  const allDone = !left;
+  const shotCands = candidatesForRow(g.lead);
+  const spanOf = c => {
+    const t = targetLines(c);
+    return !t.whole && t.target.length > 1
+      ? `<p class="vr-span">配 第 ${t.target[0].no}–${t.target[t.target.length - 1].no} 句</p>`
+      : '';
+  };
+  const group = list => {
+    const o = list.filter(c => isPending(c) || touched.has(c.id));
+    const d = list.filter(c => !isPending(c) && !touched.has(c.id));
+    if (!o.length && !d.length) return '';
+    return `<div class="vr-line-cands">${o.map(c => spanOf(c) + cardHTML(c)).join('')}${d.length ? `<div class="vr-done-list">${d.map(doneHTML).join('')}</div>` : ''}</div>`;
+  };
+  const lineHTML = m => {
+    const cov = coverageOf(m, shotCands);
+    return `<div class="vr-line" data-vo-no="${m.no}">
+        <div class="vr-line-text"><span class="vr-line-no">${m.no}</span><p>${esc(m.text)}</p><span class="vr-cov ${cov.cls}"${cov.tip ? ` title="${esc(cov.tip)}"` : ''}>${cov.text}</span></div>
+        ${group(byNo.get(m.no) || [])}
+      </div>`;
+  };
+  // 前后各露一句（淡色），判断画面能不能接上
+  const allLines = state.rows.filter(r => r.kind === 'line');
+  const i0 = members.length ? allLines.indexOf(members[0]) : -1;
+  const i1 = members.length ? allLines.indexOf(members[members.length - 1]) : -1;
+  const ctx = (r, where) =>
+    r
+      ? `<p class="vr-ctx ${where}"><span class="vr-line-no">${r.no}</span><span>${where === 'before' ? '上一句' : '下一句'} · ${esc(r.text)}</span></p>`
+      : '';
+  const need = g.cands.find(c => c.need)?.need || '';
   stopClip(); // 重画会换掉播放器：先停掉，口播声音不会留在后台继续放
   host.innerHTML = `<section class="vr-shot" data-vr-shot="${esc(String(g.key))}">
       <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4>
-      ${vo ? `<p class="vr-vo">${vo}</p>` : ''}</div>
-      ${open.map(cardHTML).join('')}
-      ${done.length ? `<div class="vr-done-list">${done.map(doneHTML).join('')}</div>` : ''}
-      ${!open.length && allDone ? `<p class="vr-empty small">这一批都审完了。通过的已经挂在表格的画面上；要换的已经写回清单，Claude 读得到。</p>` : ''}
+      ${need ? `<p class="vr-need"><b>要的画面</b>${esc(need)}</p>` : ''}</div>
+      ${i0 > 0 ? ctx(allLines[i0 - 1], 'before') : ''}
+      ${
+        whole.length
+          ? `<div class="vr-line whole"><div class="vr-line-text"><span class="vr-line-no">整段</span><p>${members.length ? `配${rangeText(g.lead)}全部` : '找不到对应句子'}</p></div>${group(whole)}</div>`
+          : ''
+      }
+      ${members.map(lineHTML).join('')}
+      ${i1 >= 0 && i1 < allLines.length - 1 ? ctx(allLines[i1 + 1], 'after') : ''}
     </section>`;
-  paintVoHighlight(open.find(c => c.id === curCand) || open[0] || null);
+  paintLineFocus(state.candidates.find(c => c.id === curCand) || null);
   paintMotion(host, g, open);
   host.querySelector('.vr-shot-head')?.classList.toggle('stuck', host.scrollTop > 2);
   for (const c of open) {
@@ -729,6 +1035,7 @@ export function renderVideoReview() {
     if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
     else queueFrames(c);
   }
+  for (const c of done) if (c.decision === 'ok' && c.savedPath) paintDoneThumb(c);
   // 截图只给右边这几个候选：换了画面，没轮到的截图任务取消
   for (let i = queue.length - 1; i >= 0; i--) if (!open.some(c => c.id === queue[i].c.id)) queue.splice(i, 1);
 }
@@ -766,9 +1073,8 @@ function cardHTML(c) {
       ? `<span class="vr-saved">已保存：${esc(assetName(c.savedPath))}</span><button class="vr-mini" data-vr-reveal="${c.id}">在访达中显示</button>`
       : '';
   return `<article class="vr-cand ${d ? 'd-' + d : ''}${c.id === curCand ? ' focus' : ''}" data-vr-id="${c.id}">
-    <div class="vr-head"><b>${esc(c.key || '·')}</b><strong>${esc(c.title)}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
+    <div class="vr-head"><strong>${esc(c.title || c.key || '（未命名）')}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
     <div class="vr-meta">建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）· ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
-    ${forLineHTML(c)}
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
     <div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(6)}</div>
     ${playerHTML(c)}
@@ -782,11 +1088,17 @@ function cardHTML(c) {
     <div class="vr-row vr-after">${actions}<button class="vr-mini ghost" data-vr-orig="${c.id}">下载完整原片</button></div>
   </article>`;
 }
-/* 审过的候选收成一行：结果、意见、撤回（再点同一个结果 = 撤回） */
+/* 审过的候选收成一行：结果、意见、撤回（再点同一个结果 = 撤回）。
+   通过的露一帧画面（已保存的用 macOS 系统缩略图，秒出、不另存文件），一眼看出通过的是什么；
+   英文 key 只留给 Claude 读（清单里照旧），界面不显示 */
 function doneHTML(c) {
   const d = c.decision;
   const save = d === 'ok' && c.savedPath ? `<span class="vr-saved">已保存</span>` : '';
-  return `<div class="vr-done d-${d}" data-vr-id="${c.id}"><span class="vr-tag d-${d}">${DECISION[d]}</span><b>${esc(c.key || '·')}</b><span class="vr-done-title">${esc(c.title)}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
+  const thumbs =
+    d === 'ok'
+      ? `<div class="vr-done-thumbs"><div class="vr-cell ld">${c.savedPath ? '载入中…' : '保存后显示画面'}</div></div>`
+      : '';
+  return `<div class="vr-done d-${d}${thumbs ? ' has-thumbs' : ''}" data-vr-id="${c.id}">${thumbs}<span class="vr-tag d-${d}">${DECISION[d]}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
 }
 
 /* 截图：同时最多 2 个视频在截，每个候选在建议片段里均匀取 6 帧 */
@@ -834,11 +1146,7 @@ async function grab(c) {
       );
   };
   try {
-    await new Promise((res, rej) => {
-      v.onloadedmetadata = res;
-      v.onerror = rej;
-      setTimeout(rej, 30000);
-    });
+    await loadMeta(v);
   } catch {
     frames.delete(c.id);
     const strip = document.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
@@ -849,44 +1157,74 @@ async function grab(c) {
   for (let i = 0; i < 6; i++) {
     // 片段均匀分成 6 段，各取中点（片段不足 1 秒也不会取到入点之前）
     const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / 6;
-    v.currentTime = Math.max(0, t);
-    await new Promise(r => {
-      let done = false;
-      const fin = () => {
-        if (!done) {
-          done = true;
-          r();
-        }
-      };
-      const f = () => {
-        v.removeEventListener('seeked', f);
-        if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => setTimeout(fin, 60));
-        setTimeout(fin, 1500);
-      };
-      v.addEventListener('seeked', f);
-      setTimeout(fin, 15000);
-    });
-    const cv = document.createElement('canvas');
-    cv.width = 320;
-    cv.height = Math.round((320 * v.videoHeight) / v.videoWidth) || 240;
-    try {
-      cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
-    } catch {}
-    const cell = document.createElement('div');
-    cell.className = 'vr-cell';
-    const tag = document.createElement('i');
-    tag.textContent = fmtTime(t);
-    cell.append(cv, tag);
-    cells.push({ cell });
+    cells.push({ cell: await frameAt(v, t, fmtTime(t)) });
     place();
   }
   v.removeAttribute('src');
   v.load();
 }
-function loadingCell() {
+const loadMeta = v =>
+  new Promise((res, rej) => {
+    v.onloadedmetadata = res;
+    v.onerror = rej;
+    setTimeout(rej, 30000);
+  });
+/* 跳到 t 秒，等这一帧真的画出来，再画到一张小画布上（右下角标时间） */
+async function frameAt(v, t, label) {
+  v.currentTime = Math.max(0, t);
+  await new Promise(r => {
+    let done = false;
+    const fin = () => {
+      if (!done) {
+        done = true;
+        r();
+      }
+    };
+    const f = () => {
+      v.removeEventListener('seeked', f);
+      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => setTimeout(fin, 60));
+      setTimeout(fin, 1500);
+    };
+    v.addEventListener('seeked', f);
+    setTimeout(fin, 15000);
+  });
+  const cv = document.createElement('canvas');
+  cv.width = 320;
+  cv.height = Math.round((320 * v.videoHeight) / v.videoWidth) || 240;
+  try {
+    cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+  } catch {}
+  const cell = document.createElement('div');
+  cell.className = 'vr-cell';
+  const tag = document.createElement('i');
+  tag.textContent = label;
+  cell.append(cv, tag);
+  return cell;
+}
+
+/* 审过「通过」的那一行：已保存的片段用 macOS 系统缩略图（和表格里的素材缩略图同一套，系统自己缓存，
+   分镜台不另存任何图片；内存里只留最近几十张，关掉软件就没了） */
+function paintDoneThumb(c) {
+  const path = c.savedPath;
+  preview(path).then(url => {
+    const cell = document.querySelector(`#vrList .vr-done[data-vr-id="${c.id}"] .vr-done-thumbs .vr-cell`);
+    const cur = state.candidates.find(x => x.id === c.id);
+    if (!cell || cur?.savedPath !== path) return; // 换了画面 / 片段被换掉：这张不用了
+    if (!url) {
+      cell.textContent = '没有缩略图';
+      return;
+    }
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = url;
+    cell.classList.remove('ld');
+    cell.replaceChildren(img);
+  });
+}
+function loadingCell(text = '载入中…') {
   const d = document.createElement('div');
   d.className = 'vr-cell ld';
-  d.textContent = '载入中…';
+  d.textContent = text;
   return d;
 }
 function play(id) {
@@ -908,8 +1246,7 @@ export function videoReviewKey(e) {
     return e.key !== 'Escape' && !e.metaKey;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
-  const g = curGroup();
-  const open = g ? g.cands.filter(c => isPending(c) || touched.has(c.id)) : [];
+  const open = openOf(curGroup());
   const k = open.findIndex(c => c.id === curCand);
   const move = d => {
     if (!open.length) return;
@@ -953,31 +1290,30 @@ export function initVideoReview() {
     `<main class="workspace-page vr-page" id="reviewPage" aria-labelledby="vrTitle" hidden>
       <div class="vr-top">
         <h3 id="vrTitle">视频审核</h3>
-        <select id="vrBatch" class="vr-batch" aria-label="批次" title="每次导入的候选清单算一批"></select>
-        <span id="vrSummary" class="vr-summary"></span>
-        <span class="vr-spacer"></span>
-        <button class="btn" id="vrSaveAll" hidden title="把已通过、还没保存的片段都截下来存到本地">保存已通过的片段</button>
-        <button class="btn" id="vrImport">导入候选清单…</button>
+        <div id="vrSummary" class="vr-summary" role="status"></div>
+        <span id="vrSync" class="vr-sync" role="status" hidden></span>
+        <div class="vr-top-r">
+          <button class="btn" id="vrSaveAll" hidden title="把已通过、还没保存的片段都截下来存到本地">保存已通过的片段</button>
+        </div>
       </div>
-      <div class="vr-dirline" id="vrDirLine"><span id="vrDir"></span><span id="vrSync" class="vr-sync" role="status" hidden></span><button class="vr-link" id="vrPickDir">更换保存位置</button><span class="vr-spacer"></span><span class="vr-keys"><kbd>1</kbd> 通过 · <kbd>2</kbd> 不要 · <kbd>3</kbd> 换一个 · <kbd>↑</kbd><kbd>↓</kbd> 换候选 · <kbd>←</kbd><kbd>→</kbd> 换画面 · <kbd>空格</kbd> 播放这段</span></div>
       <div class="vr-body">
-        <nav id="vrNav" class="vr-nav" aria-label="这一批的画面"></nav>
+        <nav id="vrNav" class="vr-nav" aria-label="批次和画面"></nav>
         <div id="vrList"></div>
       </div>
     </main>`,
   );
-  $('#vrImport').onclick = () => runCommand('import:file');
   $('#vrSaveAll').onclick = () => saveAllApproved();
-  $('#vrPickDir').onclick = () => ensureMediaDir(true);
-  $('#vrBatch').addEventListener('change', e => {
-    curBatch = e.target.value;
-    curShot = null;
-    curCand = null;
-    touched.clear();
-    renderVideoReview();
-    e.target.blur();
-  });
   $('#vrNav').addEventListener('click', e => {
+    if (e.target.closest('#vrImport')) return runCommand('import:file');
+    if (e.target.closest('#vrCopySpec')) return copyCandidateSpec();
+    const menuBtn = e.target.closest('#vrBatchMore, #vrBatchPick');
+    if (menuBtn) {
+      e.stopPropagation(); // 不让全局「点外面收起菜单」把刚打开的菜单又关掉
+      if (popOpenFor(menuBtn)) closePop();
+      else if (menuBtn.id === 'vrBatchMore') openBatchMenu(menuBtn);
+      else openBatchPicker(menuBtn);
+      return;
+    }
     const b = e.target.closest('[data-vr-goto]');
     if (!b) return;
     const key = curShots().find(g => String(g.key) === b.dataset.vrGoto)?.key;
@@ -990,7 +1326,7 @@ export function initVideoReview() {
     closeVideoReview();
     if (c) runCommand('nav:jump', c.rowId);
   });
-  // 往下翻候选时，钉在顶上的原文下沿加一道淡影，看得出下面还有内容在滚
+  // 往下翻候选时，钉在顶上的画面标题下沿加一道淡影，看得出下面还有内容在滚
   $('#vrList').addEventListener(
     'scroll',
     e => e.currentTarget.querySelector('.vr-shot-head')?.classList.toggle('stuck', e.currentTarget.scrollTop > 2),
@@ -1002,7 +1338,7 @@ export function initVideoReview() {
     if (card && card.dataset.vrId !== curCand) {
       curCand = card.dataset.vrId;
       document.querySelectorAll('#vrList .vr-cand').forEach(el => el.classList.toggle('focus', el === card));
-      paintVoHighlight(state.candidates.find(x => x.id === curCand));
+      paintLineFocus(state.candidates.find(x => x.id === curCand));
     }
     const track = t.closest('[data-vr-track]');
     if (track) {
@@ -1070,15 +1406,27 @@ export function initVideoReview() {
   on('history', () => {
     if (state.candidates.length) writeBack();
   });
-  $('#vrDirLine').addEventListener('click', e => {
+  $('#vrSync').addEventListener('click', e => {
     if (e.target.closest('#vrRetrySync')) flushWriteBack().then(() => renderVideoReview());
+  });
+  // 批次菜单（换批次 / 导入）和「⋯」菜单（保存位置 / 删除）里的项
+  document.addEventListener('click', e => {
+    const it = e.target.closest?.('.popover .pop-item[data-vrb]');
+    if (!it || it.classList.contains('disabled')) return;
+    closePop();
+    const act = it.dataset.vrb;
+    if (act === 'dir') ensureMediaDir(true);
+    else if (act === 'delete') confirmDeleteBatch();
+    else if (act === 'pick') selectBatch(it.dataset.id);
+    else if (act === 'import') runCommand('import:file');
+    else if (act === 'spec') copyCandidateSpec();
   });
   on('project-loaded', () => {
     curBatch = curShot = curCand = null;
     touched.clear();
-    setTimeout(tagOldSavedClips, 0);
+    setTimeout(tidySavedClips, 0);
   });
-  setTimeout(tagOldSavedClips, 0); // 启动时的项目在这之前就载入了
+  setTimeout(tidySavedClips, 0); // 启动时的项目在这之前就载入了
   registerCommand('video:open', openVideoReview);
   registerCommand('video:close', closeVideoReview);
   registerCommand('video:key', videoReviewKey);
