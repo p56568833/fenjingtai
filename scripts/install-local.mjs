@@ -35,6 +35,7 @@ try {
   const asar = path.join(app, 'Contents', 'Resources', 'app.asar');
   rmSync(asar, { force: true });
   await createPackageWithOptions(stage, asar, { dot: true });
+  cpSync(path.join(ROOT, 'assets/icon.icns'), path.join(app, 'Contents/Resources/electron.icns'));
   // 3. 版本号 + 重新 ad-hoc 签名并校验
   const plist = path.join(app, 'Contents', 'Info.plist');
   for (const key of ['CFBundleShortVersionString', 'CFBundleVersion'])

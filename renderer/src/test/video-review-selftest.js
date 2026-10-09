@@ -262,8 +262,8 @@ export async function runVideoReviewTests(t) {
     '左栏顶上固定当前批次卡片（第几批、待审数、进度条、「⋯」），下面列出这一批的全部画面',
     !!curBatchHead() &&
       curBatchHead().textContent.includes('第 1 批') &&
-      curBatchHead().textContent.includes('3 待审') &&
-      !!$('#vrNav .vr-picker #vrBatchPick .vr-bbar') &&
+      $('#vrNav .vr-picker .vr-bprogress').textContent.includes('3 待审') &&
+      !!$('#vrNav .vr-picker .vr-bbar') &&
       $$('#vrNav .vr-shots .vr-nav-shot').length === 2 &&
       !!$('#vrBatchMore') &&
       !$('#vrDeleteBatch'),
@@ -694,7 +694,7 @@ export async function runVideoReviewTests(t) {
     '删旧批次后自动切到剩余批次，第 8 批不改号，待审数量更新',
     curBatchHead()?.dataset.vrBatch === newBatch &&
       curBatchHead().textContent.includes('第 8 批') &&
-      curBatchHead().textContent.includes('新批次') &&
+      $('#vrNav .vr-bname').textContent.includes('新批次') &&
       $('#vtBadge').textContent === '3',
   );
   await flushWriteBack();

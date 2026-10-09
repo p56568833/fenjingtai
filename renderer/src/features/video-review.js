@@ -828,7 +828,7 @@ function coverageOf(row, shotCands) {
   return { cls: 'miss', text: '还缺画面' };
 }
 
-/* 左栏：顶上固定一张「当前批次」卡片（点它在菜单里换批次），下面是这一批的全部画面（按章节） */
+/* 左栏：当前批次标题打开切换菜单，进度独立显示；下面是这一批的全部画面（按章节） */
 function navHTML(all, shots) {
   let sec = null;
   const shotsHTML = shots
@@ -852,25 +852,26 @@ function navHTML(all, shots) {
       <button class="vr-batch-add ghost" id="vrCopySpec" title="候选清单必须按这份规范写才能导入">复制格式规范（发给找素材的 AI）</button>`;
   const n = b.cands.length;
   const pending = b.cands.filter(isPending).length;
-  const okN = b.cands.filter(c => c.decision === 'ok').length;
-  const okPct = n ? (okN / n) * 100 : 0;
-  const restPct = n ? ((n - pending - okN) / n) * 100 : 0;
-  const status = pending
-    ? `<span class="vr-nav-n">${pending} 待审</span>`
-    : `<span class="vr-bdone">✓ 审完 ${okN}/${n}</span>`;
+  const reviewed = n - pending;
+  const reviewedPct = n ? (reviewed / n) * 100 : 0;
+  const status = pending ? `<span class="vr-nav-n">${pending} 待审</span>` : '<span class="vr-bdone">✓ 已审完</span>';
   const name = b.id === 'legacy' ? '' : prettyBatch(b.name);
   const others = all.filter(x => x !== b);
   const otherPending = others.reduce((s, x) => s + x.cands.filter(isPending).length, 0);
   const tip = `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}\n点击切换批次（共 ${all.length} 批）`;
   return `<div class="vr-picker">
-      <div class="vr-bh">
-        <button class="vr-batch-head" id="vrBatchPick" data-vr-batch="${esc(b.id)}" title="${esc(tip)}" aria-haspopup="menu">
-          <span class="vr-bline"><b>${batchNo(b)}</b><span class="vr-bdate">${fmtDate(b.at)}</span>${status}</span>
-          ${name ? `<span class="vr-bname">${esc(name)}</span>` : ''}
-          <span class="vr-bbar"><i class="ok" style="width:${okPct.toFixed(1)}%"></i><i style="width:${restPct.toFixed(1)}%"></i></span>
-          <span class="vr-bswitch">${all.length > 1 ? `切换批次 · 共 ${all.length} 批${otherPending ? `<em>其他批次 ${otherPending} 待审</em>` : ''}` : '导入新批次'}<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg></span>
-        </button>
-        <button class="vr-batch-more" id="vrBatchMore" title="这一批的操作：保存位置、删除批次" aria-label="批次操作" aria-haspopup="menu">⋯</button>
+      <div class="vr-bh${pending ? '' : ' complete'}">
+        <div class="vr-bheader">
+          <button class="vr-batch-head" id="vrBatchPick" data-vr-batch="${esc(b.id)}" title="${esc(tip)}" aria-label="${esc(batchLabel(b))}，切换批次，共 ${all.length} 批" aria-haspopup="menu">
+            <b>${batchNo(b)}</b><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+          </button>
+          <span class="vr-bdate">${fmtDate(b.at)}</span>
+          <button class="vr-batch-more" id="vrBatchMore" title="这一批的操作：保存位置、删除批次" aria-label="批次操作" aria-haspopup="menu">⋯</button>
+        </div>
+        ${name ? `<div class="vr-bname" title="${esc(name)}">${esc(name)}</div>` : ''}
+        <div class="vr-bprogress">${status}<span class="vr-bcount">已审 ${reviewed}/${n}</span></div>
+        <div class="vr-bbar" role="progressbar" aria-label="本批审核进度" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${reviewed}"><i style="width:${reviewedPct.toFixed(1)}%"></i></div>
+        ${otherPending ? `<div class="vr-bother">其他批次还有 ${otherPending} 个待审</div>` : ''}
       </div>
     </div>
     <div class="vr-shots">${shotsHTML}</div>`;

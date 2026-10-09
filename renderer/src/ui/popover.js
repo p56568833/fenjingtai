@@ -255,7 +255,6 @@ export function initPopover() {
       !e.target.closest('.as') &&
       !e.target.closest('#btnImport') &&
       !e.target.closest('#btnExport') &&
-      !e.target.closest('#btnHelp') &&
       !e.target.closest('#btnDur') &&
       !e.target.closest('#btnProjects')
     )

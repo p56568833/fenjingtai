@@ -94,7 +94,6 @@ export function initHelp() {
     `<div class="modal-mask" id="helpMask"><div class="modal wide help-modal"><h3>快捷键与帮助</h3><div id="helpBody" class="help-grid"></div><div class="m-btns"><button class="btn primary" id="helpClose">知道了</button></div></div></div>`,
   );
   registerCommand('help:open', openHelp);
-  $('#btnHelp').onclick = openHelp;
   $('#helpClose').onclick = () => $('#helpMask').classList.remove('show');
   $('#helpMask').addEventListener('click', e => {
     if (e.target.id === 'helpMask') $('#helpMask').classList.remove('show');

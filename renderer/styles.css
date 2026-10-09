@@ -1442,46 +1442,6 @@ body.dark .modal {
   font-weight: 600;
 }
 
-/* footer */
-.footbar {
-  height: 40px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 0 22px;
-  font-size: 11.5px;
-  color: var(--text-3);
-  background: color-mix(in srgb, var(--card) 75%, transparent);
-  backdrop-filter: blur(16px);
-  border-top: 1px solid var(--hairline);
-  position: relative;
-  z-index: 20;
-}
-body.dark .footbar {
-  background: rgba(11, 14, 21, 0.8);
-}
-.footbar kbd {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--text-2);
-  background: rgba(120, 132, 158, 0.12);
-  border: 1px solid var(--hairline-2);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 1px 5px;
-  margin: 0 1px;
-}
-.footbar .sep {
-  color: var(--hairline-2);
-}
-.footbar .right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
 .empty-hint {
   padding: 70px 0;
   text-align: center;
@@ -1923,13 +1883,6 @@ body.dark .note:empty::before {
   line-height: 1.7;
   padding: 12px;
 }
-.footbar {
-  height: 34px;
-  gap: 12px;
-  font-size: 11px;
-  padding: 0 20px;
-  color: var(--text-2);
-}
 .ck-article {
   max-width: 900px;
   padding-bottom: 60px;
@@ -2068,9 +2021,6 @@ body.dark .as-note {
   .row,
   .shared-scene-body {
     --note-width: 190px;
-  }
-  .footbar {
-    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4236,8 +4186,7 @@ body.dark .voice-ok {
 .help-row > span:first-child {
   color: var(--text);
 }
-.help-row kbd,
-#btnHelp kbd {
+.help-row kbd {
   font-family: var(--mono);
   font-size: 10.5px;
   padding: 0 5px;
@@ -6323,7 +6272,7 @@ body.dark .vr-del-batch {
 }
 
 /* ═════════ 1.10.4 视频审核：左栏顶上固定当前批次卡片；右边按句子排，每句下面挂配它的候选 ═════════
-   批次：卡片写第 N 批 · 日期 · 待审数 / 名称 / 进度条，点它在菜单里换批次；「⋯」里是保存位置和删除。
+   批次：标题切换批次，名称和审核进度独立显示；「⋯」里是保存位置和删除。
    右边：一句一行（句号在左、句尾标这句有没有画面），候选直接挂在句子下面；前后句淡色露一行。 */
 .vr-top {
   gap: 14px;
@@ -6346,79 +6295,114 @@ body.dark .vr-del-batch {
 
 /* 左栏：批次 */
 .vr-bh {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: flex-start;
-  border: 1px solid transparent;
+  padding: 11px 12px 12px;
+  border: 1px solid var(--hairline);
   border-radius: 10px;
-  transition:
-    background-color 0.15s,
-    border-color 0.15s;
+  background: var(--card);
 }
-.vr-bh:hover {
-  background: var(--row-hover);
-}
-.vr-batch-head {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 9px 6px 10px 11px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.vr-batch-head:focus-visible,
-.vr-batch-more:focus-visible,
-.vr-batch-add:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  border-radius: 10px;
-}
-.vr-bline {
+.vr-bheader {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-.vr-bline b {
-  font-size: 13.5px;
-  font-weight: 750;
+.vr-batch-head {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 -4px -5px;
+  padding: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.18s;
+}
+.vr-batch-head:hover,
+.vr-batch-head.pop-open {
+  background: var(--row-hover);
+}
+.vr-batch-head b {
+  font-size: 14px;
+  font-weight: 650;
   white-space: nowrap;
 }
+.vr-batch-head svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  fill: none;
+  stroke: var(--text-2);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.2s;
+}
+.vr-batch-head.pop-open svg {
+  transform: rotate(180deg);
+}
+.vr-batch-head:focus-visible,
+.vr-batch-more:focus-visible,
+.vr-batch-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .vr-bdate {
+  margin-left: auto;
   font-size: 11.5px;
-  color: var(--text-3);
+  color: var(--text-2);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.vr-bline .vr-nav-n,
-.vr-bdone {
-  margin-left: auto;
+.vr-bprogress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.vr-bprogress .vr-nav-n {
+  padding: 0;
+  background: transparent;
+  font-size: 11.5px;
 }
 .vr-bdone {
   flex: none;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--c-real);
   white-space: nowrap;
 }
-.vr-bname {
-  font-size: 12px;
+.vr-bcount {
+  font-size: 11px;
   color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.vr-bother {
+  margin-top: 9px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.vr-bname {
+  margin-top: 7px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .vr-bbar {
   display: flex;
   height: 3px;
-  margin-top: 4px;
+  margin-top: 6px;
   border-radius: 2px;
   overflow: hidden;
   background: color-mix(in srgb, var(--text) 8%, transparent);
@@ -6426,17 +6410,17 @@ body.dark .vr-del-batch {
 .vr-bbar i {
   display: block;
   height: 100%;
-  background: color-mix(in srgb, var(--text) 22%, transparent);
+  background: color-mix(in srgb, var(--text-2) 60%, var(--card));
   transition: width 0.3s;
 }
-.vr-bbar i.ok {
+.vr-bh.complete .vr-bbar i {
   background: var(--c-real);
 }
 .vr-batch-more {
   flex: none;
   width: 26px;
   height: 26px;
-  margin: 6px 6px 0 0;
+  margin: -3px -5px -3px 0;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -6446,6 +6430,9 @@ body.dark .vr-del-batch {
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
+  transition:
+    background-color 0.18s,
+    color 0.18s;
 }
 .vr-batch-more:hover,
 .vr-batch-more.pop-open {
@@ -6632,53 +6619,6 @@ body.dark .vr-cov.miss {
   z-index: 3;
   padding-bottom: 12px;
   background: var(--bg);
-}
-.vr-picker .vr-bh {
-  background: var(--card);
-  border-color: var(--hairline-2);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-}
-.vr-picker .vr-bh:hover {
-  background: var(--card);
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline-2));
-}
-body.dark .vr-picker .vr-bh {
-  box-shadow: none;
-}
-.vr-picker .vr-bline b {
-  font-size: 15px;
-  color: var(--accent);
-}
-.vr-bswitch {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: var(--text-3);
-}
-.vr-bswitch em {
-  margin-left: 6px;
-  font-style: normal;
-  font-weight: 650;
-  color: var(--accent);
-}
-.vr-bswitch svg {
-  width: 11px;
-  height: 11px;
-  margin-left: auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transition: transform 0.2s;
-}
-.vr-batch-head:hover .vr-bswitch {
-  color: var(--accent);
-}
-.vr-batch-head.pop-open .vr-bswitch svg {
-  transform: rotate(180deg);
 }
 /* 画面列表：和批次卡片左对齐，字大一号；审完的也不再变灰 */
 .vr-shots .vr-nav-sec {
