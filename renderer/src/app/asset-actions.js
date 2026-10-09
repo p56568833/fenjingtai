@@ -1,6 +1,6 @@
 /* 素材相关的数据操作（会改 state：一次调用 = 一次撤销步）+ 文件探测缓存。
    纯数据规则都在 core/asset-model.js；这里只负责快照、落盘、广播。 */
-import { state, update, emit } from './state.js';
+import { state, emit } from './state.js';
 import { notify } from './events.js';
 import { persist } from './storage.js';
 import { snapshot } from './undo.js';
@@ -25,6 +25,16 @@ function eachMember(row, fn) {
   for (const m of shotMembers(state.rows, row)) fn(m);
 }
 
+/* 素材变化不改句子结构：只原地刷新素材卡、右侧面板和顶部进度。
+   整表重建会让长稿重新计算所有行高并触发 FLIP 动画，看起来像中间内容“飞走”。 */
+function refreshAssets(row = null, { stats = true } = {}) {
+  emit('workspace', {
+    preservePosition: true,
+    rowIds: row ? shotMembers(state.rows, row).map(m => m.id) : null,
+    stats,
+  });
+}
+
 export function addRefsToShot(row, refs) {
   const registry = state.assets;
   const { added, dupes, invalid } = planAddRefs(registry, usageList(row), refs);
@@ -40,7 +50,7 @@ export function addRefsToShot(row, refs) {
     members.forEach(m => m.assetUsages.forEach(u => u.assetId === firstMain.assetId && (u.role = 'alt')));
   syncMirror(members, registry);
   persist();
-  update('rows');
+  refreshAssets(row);
   return { added, dupes, invalid };
 }
 
@@ -54,7 +64,7 @@ export function removeUsage(row, index) {
   });
   syncMirror(shotMembers(state.rows, row), state.assets);
   persist();
-  update('rows');
+  refreshAssets(row);
   notify('已移除关联，本地文件保留 · ⌘Z 可撤销');
 }
 
@@ -78,7 +88,7 @@ export function setShotRefsFromText(row, text) {
   });
   syncMirror(shotMembers(state.rows, row), state.assets);
   persist();
-  update('rows');
+  refreshAssets(row);
   return true;
 }
 
@@ -95,7 +105,7 @@ export function setUsageClip(row, index, clip) {
     });
   });
   persist();
-  update('rows');
+  refreshAssets(row, { stats: false });
   return true;
 }
 
@@ -110,7 +120,7 @@ export function setUsageRole(row, index, role) {
   snapshot('设置素材角色');
   const demoted = applyRole(shotMembers(state.rows, row), u.assetId, role);
   persist();
-  emit('workspace');
+  refreshAssets(row);
   return demoted.map(id => state.assets?.[id]?.name || '素材');
 }
 
@@ -127,7 +137,7 @@ export function autoAssignRoles(row) {
     needMain = false;
   }
   persist();
-  emit('workspace');
+  refreshAssets(row);
   return loose.length;
 }
 
@@ -141,7 +151,7 @@ export function setUsageSpan(row, index, from, to) {
   applySpan(members, u.assetId, from, to);
   const demoted = u.role === 'main' ? applyRole(members, u.assetId, 'main') : [];
   persist();
-  emit('workspace');
+  refreshAssets(row, { stats: false });
   return demoted.map(id => state.assets?.[id]?.name || '素材');
 }
 
@@ -167,7 +177,7 @@ export function setShotTimes(row, entries, label = '调整画面出现时间') {
       u.role = 'main';
     }
   persist();
-  emit('workspace');
+  refreshAssets(row);
   return true;
 }
 
@@ -178,7 +188,7 @@ export function clearShotTimes(row) {
   snapshot('画面时间恢复按句子');
   for (const m of members) for (const u of usageList(m)) delete u.at;
   persist();
-  emit('workspace');
+  refreshAssets(row, { stats: false });
   return true;
 }
 
@@ -206,7 +216,7 @@ export function relocateAsset(assetId, newPath, { durationSec } = {}) {
   syncMirror(state.rows, state.assets);
   invalidateProbe();
   persist();
-  update('rows');
+  refreshAssets();
   return { oldName, asset, adjusted };
 }
 
@@ -232,7 +242,7 @@ export function relinkByNames(missingIds, candidates) {
   syncMirror(state.rows, state.assets);
   invalidateProbe();
   persist();
-  update('rows');
+  refreshAssets();
   return plan.length;
 }
 

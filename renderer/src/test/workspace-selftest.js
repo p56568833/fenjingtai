@@ -3,6 +3,8 @@ import { shotMembers, shots, checkDelivery } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
 import { undo, clearUndo } from '../app/undo.js';
 import { setType, setNote, markSentences } from '../app/actions.js';
+import { addRefsToShot, setShotRefsFromText } from '../app/asset-actions.js';
+import { renderInspector } from '../ui/inspector.js';
 import { previewImport } from '../ui/import-export.js';
 import { jumpTo, nextUnmarked, openReview } from '../ui/workspace.js';
 import { openDurPopover } from '../ui/popover.js';
@@ -261,9 +263,18 @@ export async function runWorkspaceTests(t) {
   );
   key('#detailNote', 'Backspace');
   t('表单退格不会删除句子', state.rows.filter(r => r.kind === 'line').length === 5);
-  input('#detailAssets', '/tmp/参考.png\nhttps://example.com/video');
-  t('打字过程中不建素材条目', !Object.values(state.assets).some(a => a.path === '/tmp/参'));
-  $('#detailAssets').dispatchEvent(new Event('change', { bubbles: true })); // 离开输入框才提交
+  $('#detailNote').blur();
+  const assetRow = () => state.rows.find(r => r.id === first);
+  addRefsToShot(assetRow(), ['/tmp/参考.png', 'https://example.com/video']);
+  renderInspector(true);
+  t(
+    '素材面板已精简指定入口',
+    !$('#locateDetail') && !$('#closeDetail') && !$('#attachFromLib') && !$('#relinkFolder') && !$('#detailAssets'),
+  );
+  t(
+    '移除素材紧邻添加素材，卡片不再放移除按钮',
+    $('#attachAsset').nextElementSibling === $('#removeAsset') && !$('#inspector .asset-actions [data-remove-usage]'),
+  );
   t('面板里不再有制作状态', !$('#detailStatus'));
   t(
     '素材引用同步到整组',
@@ -272,7 +283,6 @@ export async function runWorkspaceTests(t) {
       state.rows.find(r => r.id === first),
     ).every(r => r.assets.includes('参考.png') && r.assetUsages.length === 2),
   );
-  $('#detailAssets').blur();
   await pause(350);
   const center = el => {
     const r = el.getBoundingClientRect();
@@ -295,7 +305,14 @@ export async function runWorkspaceTests(t) {
     '表格直接显示对应素材名称',
     $('.shared-scene .row-assets').textContent.includes('参考.png') && $$('.shared-scene .row-assets').length === 1,
   );
-  click('[data-remove-usage="0"]');
+  click('#removeAsset');
+  t(
+    '多个素材先列出名称，打开菜单不会移除素材',
+    !!$('.popover [data-remove-usage="0"]') &&
+      $('.popover').textContent.includes('参考.png') &&
+      assetRow().assetUsages.length === 2,
+  );
+  click('.popover [data-remove-usage="0"]');
   t(
     '移除单个素材保留其他引用并同步整组',
     shotMembers(
@@ -315,8 +332,8 @@ export async function runWorkspaceTests(t) {
       state.rows.find(r => r.id === first),
     ).every(r => r.assets.includes('参考.png')),
   );
-  input('#detailAssets', '/tmp/参考.png\n/tmp/样片.mp4');
-  $('#detailAssets').dispatchEvent(new Event('change', { bubbles: true }));
+  setShotRefsFromText(assetRow(), '/tmp/参考.png\n/tmp/样片.mp4');
+  renderInspector(true);
   t(
     '视频素材有预览和片段入口',
     !!$('.asset-open[data-preview-usage]') &&
@@ -324,14 +341,17 @@ export async function runWorkspaceTests(t) {
       !!$('.asset-thumb[data-preview-path="/tmp/样片.mp4"]') &&
       [...$$('.inspector-asset')].some(el => el.textContent.includes('视频')),
   );
-  click('[data-remove-usage="0"]');
-  click('[data-remove-usage="0"]');
+  click('#removeAsset');
+  click('.popover [data-remove-usage="0"]');
+  click('#removeAsset');
   t(
     '最后一份素材可移除并显示空状态',
     shotMembers(
       state.rows,
       state.rows.find(r => r.id === first),
-    ).every(r => r.assets === '') && !!$('.asset-none'),
+    ).every(r => r.assets === '') &&
+      !!$('.asset-none') &&
+      $('#removeAsset').disabled,
     'usages=' + state.rows.find(r => r.id === first).assetUsages.length + ' hidden=' + $('#inspector').hidden,
   );
   undo();
@@ -380,7 +400,7 @@ export async function runWorkspaceTests(t) {
 
   state.view = 'table';
   update('rows');
-  click('#closeDetail');
+  click('#btnDetail');
   state.sel = third;
   state.multi = null;
   update('selection');

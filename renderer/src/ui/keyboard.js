@@ -59,8 +59,14 @@ export function initKeyboard() {
       runCommand('help:open');
       return;
     }
-    if (editing) return; // 编辑中的其余按键由 edit.js 处理
     if (composing(e)) return;
+
+    // 审核和表格是同级视图：共用全局快捷键，其余按键交给当前页，不能改动隐藏的表格。
+    if (state.view === 'review') {
+      runCommand('video:key', e);
+      return;
+    }
+    if (editing) return; // 编辑中的其余按键由 edit.js 处理
 
     if (e.key === 'Escape') {
       if (state.multi || state.multiMode) {

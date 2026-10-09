@@ -180,7 +180,7 @@ export async function runRoleTests(t) {
   await stayAfter('长稿：一键整理后仍停在原句原位置', () => click('#autoRoles'));
 
   /* 清场 */
-  click('#closeDetail');
+  click('#btnDetail');
   const created = storage
     .allProjects()
     .filter(p => p.id !== original)

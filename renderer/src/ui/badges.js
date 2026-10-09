@@ -152,7 +152,6 @@ export function inspectorAssets(r, { missing } = {}) {
         ${kind === 'video' && !gone ? `<button class="asset-mini" data-clip-usage="${index}">片段</button>` : ''}
         ${gone ? `<button class="asset-mini" data-relocate-usage="${index}">重新定位</button>` : ''}
         <button class="asset-mini" data-sys-open="${esc(path)}">系统打开</button>
-        <button class="asset-remove" data-remove-usage="${index}" aria-label="移除 ${esc(a.name || baseName(path))}" title="只解除关联，保留本地文件">移除</button>
       </div>
       ${roleControls(u, index)}
     </div>`;

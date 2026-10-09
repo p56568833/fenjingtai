@@ -4,11 +4,11 @@
    → 审核结果自动写回候选清单文件，Claude 读得到 → 顶部可批量保存已通过片段；完整原片要单独点。
    不下载任何文件，直到你点「保存已通过的片段」或「下载完整原片」。
 
-   1.9 起窗口是一个「收件箱」：
+   审核页是一个「收件箱」，和表格共用顶栏：
    · 批次：每次导入算一批，默认只看最新一批，顶部写「还剩 N 个待审 / 共 M 个」；旧批次在下拉里。
    · 左边按章节列出这一批的画面（带待审数 / 已审完），右边只显示选中画面的候选；截图只给右边这几个候选截。
    · 审完就走：审过的候选收成一行（能撤回），不再有「已通过」页——通过的结果在表格的画面上看；
-     「不要」的关窗口时自动清掉（结果已写回清单，再导入同一份清单也不会回来）。
+     「不要」的离开审核页时自动清掉（结果已写回清单，再导入同一份清单也不会回来）。
    · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
 import { state, update, rowById, renumber, on } from '../app/state.js';
 import { persist, markProjectDirty, projectById, allProjects } from '../app/storage.js';
@@ -44,7 +44,7 @@ import {
 } from './clip-player.js';
 import * as nat from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/dom.js';
-import { syncViewToggle } from '../ui/render.js';
+import { setView, syncViewToggle } from '../ui/render.js';
 import { slideIn } from '../ui/anim.js';
 import { glide, roll, pop, SPRING } from '../ui/motion.js';
 import { registerCommand, runCommand } from '../ui/commands.js';
@@ -587,7 +587,7 @@ function advanceAfterDecision(c) {
   clearTimeout(advanceTimer);
   const from = curShot;
   advanceTimer = setTimeout(() => {
-    if (curShot !== from || !$('#vrMask').classList.contains('show')) return;
+    if (curShot !== from || state.view !== 'review') return;
     const shots = curShots();
     if (shots.find(x => x.key === from)?.pending) return renderVideoReview(); // 中途撤销了：留在这个画面
     const i = shots.findIndex(x => x.key === from);
@@ -597,34 +597,22 @@ function advanceAfterDecision(c) {
   }, 600);
 }
 
-/* 视频审核是顶栏下面整块的「页面」：盖住工具条和表格，顶栏照常可用 */
-function placeReviewPage() {
-  const bar = document.querySelector('.topbar');
-  if (bar) $('#vrMask').style.top = `${Math.round(bar.getBoundingClientRect().bottom)}px`;
-}
+/* 审核和表格共用视图状态与布局，不登记弹窗，也不盖在表格上。 */
 export function openVideoReview(rowId = null) {
   touched.clear();
   curCand = null;
   pickDefaults(rowId);
-  placeReviewPage();
-  const wasOpen = $('#vrMask').classList.contains('show');
-  $('#vrMask').classList.add('show');
-  if (!wasOpen) slideIn($('#vrMask .vr-modal'), -1);
-  renderVideoReview();
-  syncViewToggle();
+  const wasOpen = state.view === 'review';
+  setView('review');
+  if (!wasOpen) slideIn($('#reviewPage'), -1);
+  else renderVideoReview();
 }
 export const closeVideoReview = () => {
-  if (!$('#vrMask').classList.contains('show')) return;
-  $('#vrMask').classList.remove('show');
-  stopAll();
-  clearTimeout(advanceTimer);
-  purgeRejected();
-  syncViewToggle();
-  slideIn(document.querySelector('.workspace'), 1);
+  if (state.view === 'review') setView('table');
 };
 const stopAll = stopAllVideos;
-/* 「不要」的候选关窗口时清掉：结果已经写回清单（Claude 读得到），留着只会越堆越多。
-   只清确实写进了清单文件的；写失败的留在项目里（下次关窗口再试），没有来源文件的照旧清掉 */
+/* 「不要」的候选离开审核页时清掉：结果已经写回清单（Claude 读得到），留着只会越堆越多。
+   只清确实写进了清单文件的；写失败的留在项目里（下次离开审核页再试），没有来源文件的照旧清掉 */
 async function purgeRejected() {
   const pid = state.projectId;
   const cands = state.candidates;
@@ -654,7 +642,7 @@ const rangeText = lead => {
 export function renderVideoReview() {
   refreshVideoReviewButton();
   const host = $('#vrList');
-  if (!host || !$('#vrMask').classList.contains('show')) return;
+  if (!host || state.view !== 'review') return;
   pickDefaults(null);
   const all = batches();
   const batch = curBatchObj();
@@ -960,9 +948,9 @@ export function videoReviewKey(e) {
 }
 
 export function initVideoReview() {
-  document.body.insertAdjacentHTML(
-    'beforeend',
-    `<div class="modal-mask" id="vrMask"><div class="modal vr-modal" role="dialog" aria-labelledby="vrTitle">
+  $('#tablePage').insertAdjacentHTML(
+    'afterend',
+    `<main class="workspace-page vr-page" id="reviewPage" aria-labelledby="vrTitle" hidden>
       <div class="vr-top">
         <h3 id="vrTitle">视频审核</h3>
         <select id="vrBatch" class="vr-batch" aria-label="批次" title="每次导入的候选清单算一批"></select>
@@ -970,19 +958,14 @@ export function initVideoReview() {
         <span class="vr-spacer"></span>
         <button class="btn" id="vrSaveAll" hidden title="把已通过、还没保存的片段都截下来存到本地">保存已通过的片段</button>
         <button class="btn" id="vrImport">导入候选清单…</button>
-        <button class="text-button" id="vrClose" aria-label="回到表格" title="回到表格 (⌘T)">✕</button>
       </div>
       <div class="vr-dirline" id="vrDirLine"><span id="vrDir"></span><span id="vrSync" class="vr-sync" role="status" hidden></span><button class="vr-link" id="vrPickDir">更换保存位置</button><span class="vr-spacer"></span><span class="vr-keys"><kbd>1</kbd> 通过 · <kbd>2</kbd> 不要 · <kbd>3</kbd> 换一个 · <kbd>↑</kbd><kbd>↓</kbd> 换候选 · <kbd>←</kbd><kbd>→</kbd> 换画面 · <kbd>空格</kbd> 播放这段</span></div>
       <div class="vr-body">
         <nav id="vrNav" class="vr-nav" aria-label="这一批的画面"></nav>
         <div id="vrList"></div>
       </div>
-    </div></div>`,
+    </main>`,
   );
-  $('#vrClose').onclick = closeVideoReview;
-  $('#vrMask').addEventListener('click', e => {
-    if (e.target.id === 'vrMask') closeVideoReview();
-  });
   $('#vrImport').onclick = () => runCommand('import:file');
   $('#vrSaveAll').onclick = () => saveAllApproved();
   $('#vrPickDir').onclick = () => ensureMediaDir(true);
@@ -1002,7 +985,7 @@ export function initVideoReview() {
   });
   $('#vrSummary').addEventListener('click', e => {
     if (!e.target.closest('#vrSeeOk')) return;
-    // 通过的结果在表格的画面上：关掉窗口，跳到这一批第一个通过的画面
+    // 通过的结果在表格的画面上：切到表格，跳到这一批第一个通过的画面
     const c = (curBatchObj()?.cands || []).find(x => x.decision === 'ok');
     closeVideoReview();
     if (c) runCommand('nav:jump', c.rowId);
@@ -1074,6 +1057,15 @@ export function initVideoReview() {
       );
   });
   on('rows', renderVideoReview); // 撤销 / 重做 / 切项目后按钮和列表跟着刷新
+  on('view', ({ from, view }) => {
+    if (from === 'review') {
+      stopAll();
+      clearTimeout(advanceTimer);
+      purgeRejected();
+      slideIn($('#tablePage'), 1);
+    }
+    if (view === 'review') renderVideoReview();
+  });
   // 撤销 / 重做改回了审核结果：清单文件也跟着改回去（内容没变就不写）
   on('history', () => {
     if (state.candidates.length) writeBack();
@@ -1089,7 +1081,7 @@ export function initVideoReview() {
   setTimeout(tagOldSavedClips, 0); // 启动时的项目在这之前就载入了
   registerCommand('video:open', openVideoReview);
   registerCommand('video:close', closeVideoReview);
-  addEventListener('resize', () => $('#vrMask').classList.contains('show') && placeReviewPage());
+  registerCommand('video:key', videoReviewKey);
   registerCommand('video:import', (doc, path) => importCandidates(doc, path));
   refreshVideoReviewButton();
 }

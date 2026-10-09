@@ -320,7 +320,7 @@ export function cancelLeave(el) {
    记下最近一次点的按钮 / 菜单项；800ms 内打开的弹窗就从它的位置放大出来，关的时候缩回那里。
    没有来源（快捷键打开）时照常用 CSS 的轻微放大。 */
 let lastSource = null;
-const FULLSCREEN = new Set(['vrMask', 'ptMask', 'focusMask', 'previewMask', 'envMask']);
+const FULLSCREEN = new Set(['ptMask', 'focusMask', 'previewMask', 'envMask']);
 
 function rectOf(el) {
   const r = el.getBoundingClientRect();

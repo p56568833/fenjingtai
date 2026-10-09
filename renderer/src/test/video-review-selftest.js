@@ -11,6 +11,9 @@ import { setType } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
 import { flushWriteBack, tagOldSavedClips } from '../features/video-review.js';
 import { parseLines, parseClock, planImport, lineTag } from '../core/candidates.js';
+import { confirmModal } from '../ui/dom.js';
+import { anyModalOpen, topModal, menuAllowed } from '../ui/modal.js';
+import { setView } from '../ui/render.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -128,7 +131,51 @@ export async function runVideoReviewTests(t) {
     cand('A1').rowId === ids[0] && cand('B1').rowId === lines()[3].id && !cand('A3') && !cand('Z1'),
   );
   t('「m:ss」写法的时间换算成秒', cand('A2').in === 15 && cand('A2').out === 30);
-  t('导入后直接打开审核窗口', $('#vrMask').classList.contains('show'));
+  t('导入后直接进入审核页面', !$('#reviewPage').hidden);
+  t(
+    '审核与表格共用视图状态，审核是主页面，表格整页收起',
+    state.view === 'review' &&
+      $('#reviewPage').matches('main') &&
+      $('#tablePage').hidden &&
+      !$('#reviewPage').matches('.modal-mask, .modal, [role="dialog"], [aria-modal]') &&
+      !$('#reviewPage').querySelector('.modal'),
+  );
+  t(
+    '审核不占弹窗栈，顶栏菜单按普通页面开放',
+    !anyModalOpen() &&
+      topModal() === null &&
+      ['import', 'export:json', 'search', 'edit-types', 'import-srt'].every(menuAllowed),
+  );
+  const pageBox = $('#reviewPage').getBoundingClientRect();
+  const headerBox = $('.topbar').getBoundingClientRect();
+  t(
+    '审核页面在顶栏下正常布局并占满剩余空间',
+    Math.abs(pageBox.top - headerBox.bottom) <= 1 &&
+      Math.abs(pageBox.bottom - innerHeight) <= 1 &&
+      getComputedStyle($('#reviewPage')).position === 'static',
+  );
+  $('#vrImport').focus();
+  const tabEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+  $('#vrImport').dispatchEvent(tabEvent);
+  t('审核页不按弹窗方式拦截 Tab', !tabEvent.defaultPrevented);
+  $('#vrImport').blur();
+  setView('table');
+  t('统一视图入口切到表格，审核页收起', state.view === 'table' && $('#reviewPage').hidden && !$('#tablePage').hidden);
+  click('#viewToggle [data-v="review"]');
+  t(
+    '顶栏切回审核，原来的候选和批次仍在',
+    state.view === 'review' && !$('#reviewPage').hidden && state.candidates.length === 3,
+  );
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true }));
+  t(
+    '审核页的全局搜索可用，并切到显示稿件结果的表格页',
+    state.view === 'table' &&
+      !$('#tablePage').hidden &&
+      $('#searchbar').classList.contains('show') &&
+      document.activeElement === $('#searchInput'),
+  );
+  click('#qClose');
+  click('#viewToggle [data-v="review"]');
   t(
     '顶栏「视频审核」显示待审数，并处于选中状态',
     !$('#vtBadge').hidden &&
@@ -161,6 +208,63 @@ export async function runVideoReviewTests(t) {
   importLoadedFile(file);
   await pause(30);
   t('同一份清单再导入只更新，不重复', state.candidates.length === 3);
+
+  /* 审核页直接拖入候选 JSON，不能被误认成弹窗；真正的确认框仍拦截。 */
+  const reads = [];
+  const readBefore = window.fjtHooks.readScriptFile;
+  const droppedDoc = {
+    ...DOC,
+    shots: [{ lines: '4', cands: [{ key: 'DROP', title: '拖入候选', url: 'https://x.org/drop.mp4', in: 1, out: 3 }] }],
+  };
+  window.fjtHooks.readScriptFile = async path => (
+    reads.push(path),
+    { name: '拖入候选.json', ext: 'json', content: JSON.stringify(droppedDoc), path }
+  );
+  const droppedFile = new File([JSON.stringify(droppedDoc)], '拖入候选.json', { type: 'application/json' });
+  Object.defineProperty(droppedFile, 'path', { value: '/tmp/拖入候选.json' });
+  const dropJson = () => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(droppedFile);
+    const event = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer });
+    $('#vrList').dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  try {
+    const prevented = dropJson();
+    await pause(60);
+    t(
+      '审核页直接拖入 JSON：读取文件、追加候选，仍在当前项目审核页',
+      prevented &&
+        reads.length === 1 &&
+        reads[0] === droppedFile.path &&
+        state.projectId === pid &&
+        state.candidates.length === 4 &&
+        cand('DROP')?.rowId === lines()[3].id &&
+        !$('#reviewPage').hidden &&
+        !$('#modalMask').classList.contains('show'),
+    );
+    undo();
+    await pause(30);
+    t('拖入的候选可以撤销，原候选保留', !cand('DROP') && state.candidates.length === 3);
+    confirmModal('拖入测试', '确认框打开时不导入', '继续', () => {});
+    dropJson();
+    await pause(30);
+    t(
+      '审核页上叠着确认框时拦截拖入，不读文件也不修改候选',
+      reads.length === 1 &&
+        state.candidates.length === 3 &&
+        $('#modalMask').classList.contains('show') &&
+        topModal() === 'modalMask' &&
+        !menuAllowed('import'),
+    );
+    click('#mCancel');
+  } finally {
+    if (readBefore) window.fjtHooks.readScriptFile = readBefore;
+    else delete window.fjtHooks.readScriptFile;
+  }
+  // 回到原测试批次，继续检查原候选的审核行为。
+  importLoadedFile(file);
+  await pause(30);
 
   /* 通过 → 主画面 */
   click(btn('A1', 'ok'));
@@ -210,6 +314,9 @@ export async function runVideoReviewTests(t) {
   const note = card('A1').querySelector('[data-vr-note]');
   note.value = '再找个近景';
   note.dispatchEvent(new Event('input', { bubbles: true }));
+  note.focus();
+  note.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  t('审核意见框按回车结束输入，仍留在审核页', document.activeElement !== note && state.view === 'review');
   await pause(1000);
   t(
     '意见写进候选，也写回清单',
@@ -245,6 +352,12 @@ export async function runVideoReviewTests(t) {
   key('2');
   await pause(30);
   t('键盘 2 = 不要', cand('B1').decision === 'no');
+  t(
+    '审核快捷键没有改动表格句子的类型',
+    lines()
+      .slice(0, 3)
+      .every(r => r.type === 'real') && lines()[3].type == null,
+  );
   t('整批审完：顶部写「这一批审完了」', $('#vrSummary').textContent.includes('这一批审完了'));
   key('ArrowLeft');
   await pause(30);
@@ -304,11 +417,11 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t('撤销撤回：通过和画面描述都回来', cand('A1').decision === 'ok' && lines()[0].note.includes('福特肉类加工'));
 
-  /* 「不要」的：关窗口时自动清掉；同一份清单再导入也不会回来 */
-  $('#vrClose').click();
+  /* 「不要」的：离开审核页时自动清掉；同一份清单再导入也不会回来 */
+  $('#viewToggle [data-v="table"]').click();
   await pause(80);
-  t('关掉审核窗口', !$('#vrMask').classList.contains('show'));
-  t('关窗口时「不要」的候选自动清掉', !cand('B1') && state.candidates.length === 2);
+  t('切回表格页面', $('#reviewPage').hidden && state.view === 'table');
+  t('离开审核页时「不要」的候选自动清掉', !cand('B1') && state.candidates.length === 2);
   const again = planImport(
     { ...DOC, shots: [{ ...DOC.shots[1], cands: [{ ...DOC.shots[1].cands[0], review: { decision: 'no' } }] }] },
     '/tmp/视频候选.json',
@@ -325,13 +438,16 @@ export async function runVideoReviewTests(t) {
   click(entry);
   await pause(30);
   t(
-    '从面板进入审核窗口，直接选中这个画面',
-    $('#vrMask').classList.contains('show') && $('#vrNav .vr-nav-shot.on')?.textContent.includes('第 1–3 句'),
+    '从面板进入审核页面，直接选中这个画面',
+    !$('#reviewPage').hidden && $('#vrNav .vr-nav-shot.on')?.textContent.includes('第 1–3 句'),
   );
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await pause(30);
-  t('Esc 关闭审核窗口', !$('#vrMask').classList.contains('show'));
-  click('#closeDetail');
+  t('Esc 不关闭审核页面', !$('#reviewPage').hidden && state.view === 'review');
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true }));
+  await pause(30);
+  t('⌘T 从审核切回表格', $('#reviewPage').hidden && state.view === 'table');
+  click('#btnDetail');
 
   /* 旧版本保存的片段：载入时文件名补上句号，素材路径和候选记录一起改 */
   const oldPath = '/tmp/视频素材/福特肉类加工 1922_1m41s-1m50s.mp4';

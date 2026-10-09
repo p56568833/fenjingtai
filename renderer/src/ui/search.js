@@ -1,6 +1,6 @@
 /* ⌘F 搜索：浮条 + <mark> 高亮 + 其余淡化 + Enter/Shift+Enter 跳转 */
 import { state, rowById, visibleLineIds, emit, qMatch } from '../app/state.js';
-import { renderSelectionOnly } from './render.js';
+import { renderSelectionOnly, setView } from './render.js';
 import { closePop, syncPopToAnchor, popEl } from './popover.js';
 import { leave, cancelLeave, flash, reduced, SPRING } from './motion.js';
 
@@ -9,6 +9,7 @@ function qMatches() {
 }
 
 export function openSearch() {
+  if (state.view === 'review') setView('table'); // 搜索的是稿件句子，直接显示搜索结果所在的页面
   const bar = document.querySelector('#searchbar');
   cancelLeave(bar);
   const was = bar.classList.contains('show');

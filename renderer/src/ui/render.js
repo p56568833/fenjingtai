@@ -12,8 +12,8 @@ import { runCommand } from './commands.js';
 
 function syncTitle() {
   const t = document.querySelector('#projTitle');
-  if (t && document.activeElement !== t && t.textContent !== state.title) t.textContent = state.title;
-  if (t) t.title = `${state.title}（点击改名）`;
+  if (t && t.textContent !== state.title) t.textContent = state.title;
+  if (t) t.title = state.title;
 }
 
 /* 整表重建会换掉所有行：屏幕外的新行只按 contain-intrinsic-size 占位（72px），和原来的真实行高对不上，
@@ -23,6 +23,7 @@ const ROW_SEL = '.row[data-id],.as[data-id]';
 let lastRendered = null;
 
 function captureAnchor() {
+  if (state.view === 'review') return null;
   const wrap = document.querySelector('#tableWrap');
   const key = `${state.projectId}|${state.view}`;
   if (!wrap || lastRendered !== key) return null;
@@ -59,6 +60,10 @@ export function renderAll() {
       ? flipCapture(document.querySelector('#rows'))
       : null;
   document.body.classList.toggle('reading', state.view === 'check');
+  const reviewing = state.view === 'review';
+  document.querySelector('#tablePage').hidden = reviewing;
+  const reviewPage = document.querySelector('#reviewPage');
+  if (reviewPage) reviewPage.hidden = !reviewing;
   if (state.filter !== 'all') {
     const visible = new Set(visibleLineIds());
     if (!visible.has(state.sel)) state.sel = visibleLineIds()[0] ?? null;
@@ -72,7 +77,7 @@ export function renderAll() {
   syncViewToggle();
   renderStats();
   if (state.view === 'check') renderCheck();
-  else renderTable();
+  else if (!reviewing) renderTable();
   emit('workspace');
   renderSelectionOnly();
   restoreAnchor(anchor);
@@ -129,20 +134,22 @@ export function renderSelectionOnly() {
 export function setView(v) {
   if (state.view === v) return;
   flushPendingEdits(); // 先把正在编辑的内容提交掉，重建界面不丢输入
+  const from = state.view;
+  document.activeElement?.blur(); // 离开页面时不把焦点留在已经收起的内容里
   state.view = v;
   closePop();
   armAnimation();
   renderAll();
+  emit('view', { from, view: v });
   // 切完视图把正在处理的句子带到视口中间：位置可预期，不会「莫名跳走」
-  document.querySelector(`[data-id="${state.sel}"]`)?.scrollIntoView({ block: 'center' });
+  if (v !== 'review') document.querySelector(`[data-id="${state.sel}"]`)?.scrollIntoView({ block: 'center' });
 }
 
 /* 顶栏视图切换：视频审核 ↔ 表格。视频审核开着时它是选中项；白色滑块滑到选中按钮底下（CSS 弹簧过渡） */
-const reviewOpen = () => !!document.querySelector('#vrMask.show');
 export function syncViewToggle() {
   const box = document.querySelector('#viewToggle');
   if (!box) return;
-  const active = reviewOpen() ? 'review' : state.view;
+  const active = state.view;
   let on = null;
   box.querySelectorAll('button').forEach(b => {
     const hit = b.dataset.v === active;
@@ -157,10 +164,8 @@ export function syncViewToggle() {
 }
 /* ⌘T / 原生菜单：表格 ↔ 视频审核 */
 export function cycleView() {
-  if (reviewOpen()) {
-    runCommand('video:close');
-    if (state.view !== 'table') setView('table');
-  } else runCommand('video:open');
+  if (state.view === 'review') setView('table');
+  else runCommand('video:open');
 }
 
 /* 标注变了：筛选「全部」下原地刷新颜色和标签，其他筛选下句子可见性会变，整页重建 */

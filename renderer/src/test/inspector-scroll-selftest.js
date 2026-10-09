@@ -1,6 +1,7 @@
 import { state, update } from '../app/state.js';
 import { groupRows } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
+import { addRefsToShot, removeUsage } from '../app/asset-actions.js';
 import { openInspectorFor } from '../ui/inspector.js';
 import * as storage from '../app/storage.js';
 
@@ -47,10 +48,10 @@ export async function runInspectorScrollTests(t) {
       wrap.scrollTop += sentence.getBoundingClientRect().top - wrap.getBoundingClientRect().top - 55;
       await pause(650); // 屏幕外的行首次进入视口时也可能开始入场动画。
       const at = () => sentence.getBoundingClientRect().top - wrap.getBoundingClientRect().top;
-      for (const action of ['打开', '按钮关闭', '再次打开', '面板关闭']) {
+      for (const action of ['打开', '按钮关闭', '再次打开', '再次关闭']) {
         const before = at();
         const width = sentence.getBoundingClientRect().width;
-        $(action === '面板关闭' ? '#closeDetail' : '#btnDetail').click();
+        $('#btnDetail').click();
         const immediate = at();
         await pause(150);
         const drift = Math.abs(at() - before);
@@ -66,7 +67,7 @@ export async function runInspectorScrollTests(t) {
       openInspectorFor(lines[215].id);
       await pause(150);
       t(`${view} 从句子入口打开面板也保持阅读位置`, Math.abs(at() - before) <= 2);
-      $('#closeDetail').click();
+      $('#btnDetail').click();
       await pause(100);
       $('#btnDetail').click();
       // 明确的新导航应覆盖面板的迟后校准。
@@ -76,8 +77,29 @@ export async function runInspectorScrollTests(t) {
       const rect = next.getBoundingClientRect(),
         viewport = wrap.getBoundingClientRect();
       t(`${view} 开面板后的新导航不会被拉回旧句子`, rect.top >= viewport.top && rect.bottom <= viewport.bottom);
-      $('#closeDetail').click();
+      $('#btnDetail').click();
       await pause(100);
+
+      // 增删素材只应原地刷新当前画面的素材卡，不能重建整张表或改变阅读位置。
+      const currentSentence = () => $(`${view === 'table' ? '.sent' : '.as'}[data-id="${lines[214].id}"]`);
+      const positionOf = el => el.getBoundingClientRect().top - wrap.getBoundingClientRect().top;
+      const beforeNode = currentSentence();
+      const beforeAdd = positionOf(beforeNode);
+      addRefsToShot(lines[214], ['/tmp/分镜台-增删素材位置测试.png']);
+      await pause(120);
+      const afterAddNode = currentSentence();
+      t(
+        `${view} 添加素材不重建中间列表且保持位置`,
+        afterAddNode === beforeNode && Math.abs(positionOf(afterAddNode) - beforeAdd) <= 2,
+      );
+      const beforeRemove = positionOf(afterAddNode);
+      removeUsage(lines[214], 0);
+      await pause(120);
+      const afterRemoveNode = currentSentence();
+      t(
+        `${view} 移除素材不重建中间列表且保持位置`,
+        afterRemoveNode === afterAddNode && Math.abs(positionOf(afterRemoveNode) - beforeRemove) <= 2,
+      );
     }
   } finally {
     if (!$('#inspector').hidden) $('#btnDetail').click();

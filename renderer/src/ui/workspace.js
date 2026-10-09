@@ -10,6 +10,8 @@ import { renderToolbar, initToolbar } from './toolbar.js';
 import { renderInspector, initInspector, isInspectorOpen, openInspectorFor } from './inspector.js';
 import { initReview } from './review.js';
 import { rowBadges, refreshMissing, resetMissing } from './badges.js';
+import { renderStats } from './render-stats.js';
+import { preserveReadingPosition } from './reading-position.js';
 import { registerCommand } from './commands.js';
 import { flash } from './motion.js';
 
@@ -75,10 +77,14 @@ function onMissingChanged() {
   if (isInspectorOpen() && !$('#inspector').contains(document.activeElement)) renderInspector(true);
 }
 
-function refresh() {
+function refresh(options = {}) {
+  const { preservePosition = false, rowIds = null, stats = false } = options || {};
   renderOutline();
   renderToolbar();
-  rowBadges();
+  const refreshBadges = () => rowBadges(rowIds);
+  if (preservePosition) preserveReadingPosition(refreshBadges);
+  else refreshBadges();
+  if (stats) renderStats();
   renderInspector();
   renderRepairHint();
   if (lastProject !== state.projectId) {

@@ -6,7 +6,7 @@ import { addRefsToShot } from '../app/asset-actions.js';
 import { kindOf, assetName } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
 import { toast } from './dom.js';
-import { anyModalOpen } from './modal.js';
+import { menuAllowed } from './modal.js';
 import { runCommand } from './commands.js';
 
 /* 口播音频的落点：顶部节奏色条 / 底部口播条 */
@@ -26,7 +26,8 @@ const looksLikeScript = dt => {
 const inInspector = el => !!(el && el.closest && el.closest('#inspector'));
 
 export async function importDroppedFiles(files) {
-  if (anyModalOpen()) {
+  // 页面都能直接导入；真正弹窗打开时，和菜单入口一样暂停导入。
+  if (!menuAllowed('import')) {
     toast('先关掉当前弹窗，再把文件拖进来');
     return false;
   }

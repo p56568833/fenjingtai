@@ -1,14 +1,14 @@
-/* 多项目管理：顶栏「项目」菜单（列表 / 新建 / 切换 / 删除 / 最近删除 / 从备份恢复）+ 标题改名 */
+/* 多项目管理：顶栏「项目」菜单（列表 / 新建 / 切换 / 删除 / 最近删除 / 从备份恢复）+ 菜单内重命名 */
 import { state, update } from '../app/state.js';
 import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
 import { renameProject } from '../app/actions.js';
-import { demoProject } from '../core/demo.js';
 import * as native from '../platform/native.js';
 import { toast, confirmModal, esc } from './dom.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor } from './popover.js';
 import { armAnimation, slideIn } from './anim.js';
 import { registerCommand, runCommand } from './commands.js';
+import { registerModal } from './modal.js';
 
 const timeAgo = t => {
   const s = (Date.now() - t) / 1000;
@@ -23,6 +23,8 @@ const back = (to, label) =>
   `<div class="pop-item pop-back" data-projact="${to}"><svg class="mi" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg><span>${label}</span></div>`;
 const FOLDER =
   '<svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+const TRASH_PATH =
+  'M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.2A2 2 0 0 0 9.3 20h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v5M14 11v5';
 
 /* 换了项目（切换 / 新建 / 删除当前 / 恢复）后的统一收尾 */
 function afterProjectChange(msg) {
@@ -40,7 +42,7 @@ function openProjectsMenu(anchor) {
       const cur = p.id === state.projectId;
       return `<div class="pop-item" data-proj="${esc(p.id)}">${FOLDER}
       <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}</span></span>
-      ${cur ? '<span class="chk">✓</span>' : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.2A2 2 0 0 0 9.3 20h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v5M14 11v5"/></svg></button>`}
+      ${cur ? '<span class="chk">✓</span>' : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${TRASH_PATH}"/></svg></button>`}
     </div>`;
     })
     .join('');
@@ -51,11 +53,11 @@ function openProjectsMenu(anchor) {
     <div class="p-title p-title-row"><span>项目 · ${storage.allProjects().length} 个</span><button class="p-title-link" data-projact="folder" title="项目数据存在这台电脑上，点开看数据文件夹">数据文件夹</button></div>
     ${list}
     <div class="pop-sep"></div>
+    <div class="pop-item" data-projact="rename"><svg class="mi" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4-1 12-12-3-3L5 16Z"/></svg><span>重命名当前项目…</span></div>
     <div class="pop-item" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">新建空项目<span class="desc">⌘N · 也可以直接把稿子文件拖进窗口</span></span></div>
     <div class="pop-sep"></div>
-    ${trashN ? `<div class="pop-item" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2m-1 0v14H9V6"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
+    ${trashN ? `<div class="pop-item" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="${TRASH_PATH}"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
     <div class="pop-item" data-projact="backup"><svg class="mi" viewBox="0 0 24 24"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/></svg><span>从自动备份恢复…</span></div>
-    <div class="pop-item" data-projact="demo"><svg class="mi" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.3M21 3v6h-6"/></svg><span class="main">新建示例稿项目<span class="desc">一份标好的示范稿，看看各种标注长什么样</span></span></div>
   `,
   );
   markPopAnchor(anchor);
@@ -139,21 +141,53 @@ function confirmDelete(id) {
   );
 }
 
-/* 新建空项目：原生菜单「新建项目」和项目菜单共用这一条路 */
+/* 顶部标题只显示；改名通过项目菜单内的独立对话框提交。 */
+let namingProjectId = null;
+const closeProjectName = () => document.querySelector('#projectNameMask').classList.remove('show');
+function openProjectName() {
+  namingProjectId = state.projectId;
+  const input = document.querySelector('#projectNameInput');
+  input.value = state.title;
+  input.setCustomValidity('');
+  document.querySelector('#projectNameMask').classList.add('show');
+  input.focus();
+  input.select();
+}
+function saveProjectName() {
+  const input = document.querySelector('#projectNameInput');
+  if (!input.value.trim()) {
+    input.setCustomValidity('请输入项目名称');
+    input.reportValidity();
+    return;
+  }
+  if (namingProjectId === state.projectId) renameProject(input.value.trim());
+  closeProjectName();
+}
+
+/* 新建空项目：原生菜单和项目菜单共用，随后在对话框中起名。 */
 export function newEmptyProject() {
   storage.createProject('未命名项目', []);
-  afterProjectChange('已新建项目，先给它起个名');
-  const t = document.querySelector('#projTitle');
-  t.textContent = state.title;
-  t.focus();
-  const r = document.createRange();
-  r.selectNodeContents(t);
-  const s = getSelection();
-  s.removeAllRanges();
-  s.addRange(r);
+  afterProjectChange();
+  openProjectName();
 }
 
 export function initProjects() {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `<div class="modal-mask" id="projectNameMask"><div class="modal">
+      <h3>重命名项目</h3>
+      <label for="projectNameInput">项目名称</label>
+      <input class="project-name-input" id="projectNameInput" type="text" required autocomplete="off" />
+      <div class="m-btns"><button class="btn" id="projectNameCancel">取消</button><button class="btn primary" id="projectNameSave">保存</button></div>
+    </div></div>`,
+  );
+  document.querySelector('#projectNameCancel').onclick = closeProjectName;
+  document.querySelector('#projectNameSave').onclick = saveProjectName;
+  document.querySelector('#projectNameInput').oninput = e => e.target.setCustomValidity('');
+  document.querySelector('#projectNameMask').onclick = e => {
+    if (e.target.id === 'projectNameMask') closeProjectName();
+  };
+  registerModal('projectNameMask', { close: closeProjectName, enter: saveProjectName });
   registerCommand('project:new', newEmptyProject);
   document.querySelector('#btnProjects').onclick = e => {
     e.stopPropagation();
@@ -184,11 +218,7 @@ export function initProjects() {
         closePop();
         const a = act.dataset.projact;
         if (a === 'new') newEmptyProject();
-        if (a === 'demo') {
-          const d = demoProject();
-          storage.createProject(d.title, d.rows);
-          afterProjectChange('示例稿项目已新建');
-        }
+        if (a === 'rename') openProjectName();
         if (a === 'types') runCommand('types:edit');
         if (a === 'folder') native.openDataFolder();
         if (a === 'projects') setTimeout(() => openProjectsMenu(btn()), 0);
@@ -237,28 +267,4 @@ export function initProjects() {
     },
     true,
   );
-
-  // 项目改名：标题直接编辑；Esc 恢复改名前的标题；清空了就还原
-  const title = document.querySelector('#projTitle');
-  let titleBefore = '';
-  title.addEventListener('focus', () => {
-    titleBefore = state.title;
-  });
-  title.addEventListener('input', () => renameProject(title.textContent.trim()));
-  title.addEventListener('blur', () => {
-    if (!title.textContent.trim()) {
-      title.textContent = titleBefore || '未命名项目';
-      renameProject(title.textContent);
-    }
-  });
-  title.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      title.blur();
-    } else if (e.key === 'Escape') {
-      title.textContent = titleBefore;
-      renameProject(titleBefore);
-      title.blur();
-    }
-  });
 }

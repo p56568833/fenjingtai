@@ -32,7 +32,7 @@ import { initVoice } from './features/voice.js';
 import { initPlaythrough, closePlaythrough, playthroughKey } from './features/playthrough.js';
 import { initTypeEditor } from './features/type-editor.js';
 import { initPdfExport } from './features/pdf-export.js';
-import { initVideoReview, closeVideoReview, videoReviewKey } from './features/video-review.js';
+import { initVideoReview } from './features/video-review.js';
 import { initUpdate, updateKey } from './features/update.js';
 import { initMotion } from './ui/motion.js';
 
@@ -161,13 +161,6 @@ function registerModals() {
       }
     },
   });
-  // 视频审核现在是一个「页面」（顶栏下面整块），顶栏照常能点；⌘T 切回表格、导入候选清单、检查更新都放行
-  registerModal('vrMask', {
-    close: closeVideoReview,
-    onKey: videoReviewKey,
-    allowMenu: ['undo', 'redo', 'toggle-view', 'import', 'check-update', 'help', 'new-project'],
-    autoFocus: false,
-  });
   registerModal('typeEditorMask', { close: click('#teCancel') });
   registerModal('helpMask', { close: click('#helpClose'), enter: click('#helpClose') });
   registerModal('updateMask', { onKey: updateKey });
@@ -228,7 +221,6 @@ async function boot() {
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.v === 'review') return runCommand('video:open');
-    if (document.querySelector('#vrMask.show')) closeVideoReview();
     setView(b.dataset.v);
   });
   addEventListener('resize', () => syncViewToggle());
@@ -244,7 +236,7 @@ async function boot() {
     'click',
     e => {
       const b = e.target.closest && e.target.closest('button');
-      if (b && !b.closest('#rows, .modal, .searchbar')) b.blur();
+      if (b && !b.closest('#rows, .modal, .vr-page, .searchbar')) b.blur();
     },
     true,
   );

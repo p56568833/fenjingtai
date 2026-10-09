@@ -203,7 +203,7 @@ export async function runAssetTests(t) {
     '失联保留原文件名与原路径',
     $('#inspector').textContent.includes('失踪的视频.mp4') && $('#inspector').textContent.includes('/tmp/fjt-旧目录'),
   );
-  t('提供重新定位与移除关联', !!$('[data-relocate-usage]') && !!$('[data-remove-usage]'));
+  t('提供重新定位与移除关联', !!$('[data-relocate-usage]') && !!$('#removeAsset') && !$('#removeAsset').disabled);
   window.fjtHooks = { ...window.fjtHooks, pickOneAsset: async () => goodMp4 };
   click('[data-relocate-usage]');
   await pause(40);
@@ -246,7 +246,7 @@ export async function runAssetTests(t) {
     countAssetShots(state.rows, Object.values(state.assets).find(a => a.path === longPng).id) === 1,
   );
 
-  if (!$('#inspector').hidden) click('#closeDetail');
+  if (!$('#inspector').hidden) click('#btnDetail');
   await pause(30);
   /* 清场：删掉测试项目 */
   const created = storage

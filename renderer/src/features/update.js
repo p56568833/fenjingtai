@@ -1,5 +1,5 @@
 /* 应用内更新：启动后（以及每隔 6 小时）查一次 GitHub 上有没有新版本；
-   有新版本时顶栏出现「更新到 x.y.z」，点开看更新说明 → 下载并校验 → 「重启并更新」：
+   有新版本时顶栏出现蓝色下载图标「更新」按钮，点开看更新说明 → 下载并校验 → 「重启并更新」：
    分镜台先存盘退出，换上新版后自动重新打开。项目数据不在应用里，更新不会动它。 */
 import * as native from '../platform/native.js';
 import { toast } from '../ui/dom.js';
@@ -40,10 +40,11 @@ function paintButton() {
   if (!b) return;
   b.hidden = !info;
   if (!info) return;
-  b.textContent = phase === 'ready' ? '重启并更新' : `更新到 ${info.version}`;
+  $('#updButtonLabel').textContent = phase === 'ready' ? '重启更新' : '更新';
+  b.setAttribute('aria-label', `查看分镜台 ${info.version} 的更新详情`);
   b.title =
     phase === 'ready'
-      ? `新版本 ${info.version} 已下载好，点一下重启换上`
+      ? `新版本 ${info.version} 已下载好，点开查看并确认重启更新`
       : `分镜台 ${info.version} 已发布，点开看更新内容`;
 }
 
@@ -126,7 +127,7 @@ export function initUpdate() {
       <div class="m-btns"><button class="text-button" id="updPage">打开下载页面</button><span class="spacer"></span><button class="btn" id="updCancel">以后再说</button><button class="btn primary" id="updGo">下载并更新</button></div>
     </div></div>`,
   );
-  $('#btnUpdate').onclick = () => (phase === 'ready' ? go() : openUpdate());
+  $('#btnUpdate').onclick = openUpdate;
   $('#updGo').onclick = go;
   $('#updCancel').onclick = () => {
     if (phase === 'downloading') native.cancelUpdate();

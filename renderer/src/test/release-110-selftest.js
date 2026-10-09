@@ -172,18 +172,23 @@ export async function runRelease110Tests(t) {
     runCommand('update:check');
     await pause(40);
     t(
-      '检查到新版本：顶栏出现「更新到 9.9.9」，弹出更新说明',
+      '检查到新版本：顶栏出现下载图标「更新」按钮，弹出更新说明',
       !$('#btnUpdate').hidden &&
-        $('#btnUpdate').textContent.includes('9.9.9') &&
+        $('#updButtonLabel').textContent === '更新' &&
+        !!$('#btnUpdate svg') &&
+        $('#btnUpdate').title.includes('9.9.9') &&
         $('#updateMask').classList.contains('show') &&
         $('#updNotes').textContent.includes('第二行'),
     );
     $('#updGo').click();
     await pause(40);
     t(
-      '下载校验好后按钮变成「重启并更新」',
-      $('#updGo').textContent === '重启并更新' && $('#btnUpdate').textContent === '重启并更新',
+      '下载校验好后入口显示「重启更新」',
+      $('#updGo').textContent === '重启并更新' && $('#updButtonLabel').textContent === '重启更新',
     );
+    $('#updateMask').classList.remove('show');
+    $('#btnUpdate').click();
+    t('已下载时点击顶栏仍先打开详情，不直接安装', $('#updateMask').classList.contains('show') && installs.length === 0);
     $('#updGo').click();
     await pause(20);
     t('点「重启并更新」交给主进程换新版', installs.length === 1);

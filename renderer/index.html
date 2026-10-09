@@ -34,17 +34,7 @@
       <button class="btn" id="btnProjects" title="项目列表">
         项目<svg class="caret" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
       </button>
-      <div
-        class="proj-title"
-        id="projTitle"
-        contenteditable="true"
-        spellcheck="false"
-        role="textbox"
-        aria-label="项目名称（点击改名）"
-        title="点击改项目名称"
-      >
-        示例稿
-      </div>
+      <div class="proj-title" id="projTitle" title="项目名称">示例稿</div>
 
       <div class="spacer"></div>
 
@@ -67,7 +57,10 @@
         </button>
       </div>
 
-      <button class="btn update-btn" id="btnUpdate" hidden title="有新版本">更新</button>
+      <button class="btn update-btn" id="btnUpdate" hidden title="有新版本" aria-label="查看更新详情">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4" /></svg>
+        <span id="updButtonLabel">更新</span>
+      </button>
       <div class="save-state" id="saveState">
         <div class="dot"></div>
         <span id="saveTxt">已保存</span>
@@ -96,73 +89,75 @@
       </button>
     </header>
 
-    <!-- ═════════ 节奏色条（一句一段，平时细细一条，鼠标移上去才展开） ═════════ -->
-    <div class="stats">
-      <div class="segbar" id="segbar"></div>
-    </div>
+    <div id="tablePage" class="workspace-page">
+      <!-- ═════════ 节奏色条（一句一段，平时细细一条，鼠标移上去才展开） ═════════ -->
+      <div class="stats">
+        <div class="segbar" id="segbar"></div>
+      </div>
 
-    <!-- ═════════ 工具条：目录 / 筛选 / 标注工具（有未标注才出现）/ 进度 / 类型 / 时长 / 面板 ═════════ -->
-    <div class="work-tools">
-      <button class="btn icon-only" id="btnOutline" aria-expanded="true" title="章节目录">
-        <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13" /></svg>
-      </button>
-      <div class="filters" id="filters"></div>
-      <div class="mark-tools" id="markTools">
-        <button class="btn" id="btnNext" title="跳到下一个还没标注的句子">下一个未标注 ↓</button>
-        <button class="btn" id="btnFocus" title="一次只看一句，按数字键标完自动下一句 (⌘E)">专注标注</button>
-        <label class="auto-label" title="标完一句自动跳到下一个未标注"
-          ><input type="checkbox" id="autoAdvance" /> 标完自动跳转</label
-        >
-      </div>
-      <div class="work-right">
-        <button class="text-button repair-hint" id="repairHint" hidden></button>
-        <div class="progress-txt" id="progressTxt"></div>
-        <button class="chip-filter chip-tool" id="btnTypes" title="改本项目的标注类型：名字、颜色、快捷键">
-          类型…
+      <!-- ═════════ 工具条：目录 / 筛选 / 标注工具（有未标注才出现）/ 进度 / 类型 / 时长 / 面板 ═════════ -->
+      <div class="work-tools">
+        <button class="btn icon-only" id="btnOutline" aria-expanded="true" title="章节目录">
+          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13" /></svg>
         </button>
-        <button class="chip-filter chip-tool" id="btnDur" title="全片时长、语速、剪映字幕、口播音频">
-          ⏱ 时长 · 口播
-        </button>
-        <button class="btn" id="btnDetail" aria-expanded="false" title="右侧面板：画面描述、素材、对应的口播">
-          画面与素材
-        </button>
-      </div>
-    </div>
-    <main class="workspace">
-      <nav class="outline" id="outline" aria-label="章节目录"></nav>
-      <div class="table-wrap" id="tableWrap">
-        <div class="table">
-          <div class="thead" id="thead">
-            <div id="selectionHeading" style="text-align: center">#</div>
-            <div>口播内容</div>
-            <div id="durHeading" title="按语速估算；对齐剪映字幕后显示真实时间码">≈时长</div>
-            <div class="h-type">类型 <kbd id="typeKeys">1-5</kbd></div>
-            <div>画面 · 备注</div>
-          </div>
-          <div class="rows" id="rows"></div>
+        <div class="filters" id="filters"></div>
+        <div class="mark-tools" id="markTools">
+          <button class="btn" id="btnNext" title="跳到下一个还没标注的句子">下一个未标注 ↓</button>
+          <button class="btn" id="btnFocus" title="一次只看一句，按数字键标完自动下一句 (⌘E)">专注标注</button>
+          <label class="auto-label" title="标完一句自动跳到下一个未标注"
+            ><input type="checkbox" id="autoAdvance" /> 标完自动跳转</label
+          >
+        </div>
+        <div class="work-right">
+          <button class="text-button repair-hint" id="repairHint" hidden></button>
+          <div class="progress-txt" id="progressTxt"></div>
+          <button class="chip-filter chip-tool" id="btnTypes" title="改本项目的标注类型：名字、颜色、快捷键">
+            类型…
+          </button>
+          <button class="chip-filter chip-tool" id="btnDur" title="全片时长、语速、剪映字幕、口播音频">
+            ⏱ 时长 · 口播
+          </button>
+          <button class="btn" id="btnDetail" aria-expanded="false" title="右侧面板：画面描述、素材、对应的口播">
+            画面与素材
+          </button>
         </div>
       </div>
+      <main class="workspace">
+        <nav class="outline" id="outline" aria-label="章节目录"></nav>
+        <div class="table-wrap" id="tableWrap">
+          <div class="table">
+            <div class="thead" id="thead">
+              <div id="selectionHeading" style="text-align: center">#</div>
+              <div>口播内容</div>
+              <div id="durHeading" title="按语速估算；对齐剪映字幕后显示真实时间码">≈时长</div>
+              <div class="h-type">类型 <kbd id="typeKeys">1-5</kbd></div>
+              <div>画面 · 备注</div>
+            </div>
+            <div class="rows" id="rows"></div>
+          </div>
+        </div>
 
-      <aside class="inspector" id="inspector" hidden aria-label="画面与素材"></aside>
+        <aside class="inspector" id="inspector" hidden aria-label="画面与素材"></aside>
 
-      <!-- 选区操作条：选中两句以上 / 选中共用画面里的句子时才浮出来 -->
-      <div class="select-tools" id="selectTools" hidden>
-        <span class="selection-count" id="selCount" hidden></span>
-        <span class="sel-types" id="selTypes" role="group" aria-label="把选中的句子标成"></span>
-        <button class="btn" id="btnGroup" disabled title="Shift 点选或拖选连续两句以上才能共用">共用一个画面</button>
-        <span class="sel-hint" id="selHint" hidden></span>
-        <button class="text-button" id="btnUngroup" hidden>解除共用</button>
-        <button class="text-button" id="btnClearSel" title="取消勾选 (Esc)">取消</button>
-      </div>
-    </main>
-    <!-- ═════════ 口播条（导入口播音频后出现） ═════════ -->
-    <div class="voice-bar" id="voiceBar" hidden></div>
-    <!-- ═════════ 底栏 ═════════ -->
-    <footer class="footbar">
-      <span>数据保存在本机</span>
-      <div class="spacer"></div>
-      <button class="text-button" id="btnHelp">快捷键与帮助 <kbd>⌘/</kbd></button>
-    </footer>
+        <!-- 选区操作条：选中两句以上 / 选中共用画面里的句子时才浮出来 -->
+        <div class="select-tools" id="selectTools" hidden>
+          <span class="selection-count" id="selCount" hidden></span>
+          <span class="sel-types" id="selTypes" role="group" aria-label="把选中的句子标成"></span>
+          <button class="btn" id="btnGroup" disabled title="Shift 点选或拖选连续两句以上才能共用">共用一个画面</button>
+          <span class="sel-hint" id="selHint" hidden></span>
+          <button class="text-button" id="btnUngroup" hidden>解除共用</button>
+          <button class="text-button" id="btnClearSel" title="取消勾选 (Esc)">取消</button>
+        </div>
+      </main>
+      <!-- ═════════ 口播条（导入口播音频后出现） ═════════ -->
+      <div class="voice-bar" id="voiceBar" hidden></div>
+      <!-- ═════════ 底栏 ═════════ -->
+      <footer class="footbar">
+        <span>数据保存在本机</span>
+        <div class="spacer"></div>
+        <button class="text-button" id="btnHelp">快捷键与帮助 <kbd>⌘/</kbd></button>
+      </footer>
+    </div>
 
     <!-- 搜索条 -->
     <div class="searchbar" id="searchbar">

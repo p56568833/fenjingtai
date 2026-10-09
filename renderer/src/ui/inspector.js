@@ -1,23 +1,27 @@
 /* 右侧「画面与素材」面板：画面描述 / 素材（角色、出现位置、片段）/ 这个画面对应的口播时间 / 视频候选入口。
-   输入即保存；素材路径文本框在离开输入框时才提交（打字过程中不建素材条目）。
+   画面描述输入即保存；添加和移除素材集中在列表下方。
    角色和位置的改动只刷面板和素材卡，不重建整张表（长稿视口不跳）。 */
 import { state, on, emit, update, rowById, types, timeline } from '../app/state.js';
 import { setShotNote, markReviewed } from '../app/actions.js';
-import {
-  setShotRefsFromText,
-  removeUsage,
-  addRefsToShot,
-  setUsageRole,
-  autoAssignRoles,
-} from '../app/asset-actions.js';
+import { removeUsage, addRefsToShot, setUsageRole, autoAssignRoles } from '../app/asset-actions.js';
+import { usageList } from '../core/asset-model.js';
 import { ROLES, shotMembers } from '../core/shots.js';
 import { spanOf } from '../core/timeline.js';
 import { fmtTc, fmtLen } from '../core/text.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
 import * as native from '../platform/native.js';
-import { esc, toast, revealRow } from './dom.js';
-import { sharedScenes, assetRefs, hydrateAssetCards, inspectorAssets, refreshThumb, missingPaths } from './badges.js';
+import { esc, toast } from './dom.js';
+import {
+  sharedScenes,
+  assetName,
+  orderedUsages,
+  hydrateAssetCards,
+  inspectorAssets,
+  refreshThumb,
+  missingPaths,
+} from './badges.js';
 import { registerCommand, runCommand } from './commands.js';
+import { openMenu, closePop, markPopAnchor, popOpenFor } from './popover.js';
 import { preserveReadingPosition } from './reading-position.js';
 
 const $ = s => document.querySelector(s);
@@ -96,13 +100,12 @@ export function renderInspector(force = false) {
   const ti = types();
   const visual = !r.type || ti.needsVisual(r.type);
   const voice = voiceParts(members);
-  panel.innerHTML = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}<button class="text-button side-locate" id="locateDetail" title="把这句滚到正文中间">定位到正文</button><button class="text-button" id="closeDetail" aria-label="关闭素材面板">✕</button></div>
+  panel.innerHTML = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}</div>
     <section class="detail-assets">
       <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span><span class="spacer"></span>${voice.sync}</div>
       ${voice.meta}
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
-      <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="attachFromLib">从本项目素材</button>${missingPaths().size ? '<button class="btn" id="relinkFolder" title="选一个文件夹，按文件名自动找回所有失联素材">按文件夹找回失联素材</button>' : ''}</div>
-      <details class="asset-paths"><summary>编辑链接或文件路径</summary><textarea id="detailAssets" rows="3" placeholder="一行一个链接或文件路径，离开输入框时保存">${esc(assetRefs(r).join('\n'))}</textarea></details>
+      <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button></div>
     </section>
     <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
     <div class="detail-label detail-excerpt-title">原文${members.length > 1 ? `<small>${members.length} 句</small>` : ''}<span class="spacer"></span>${voice.listen}</div>
@@ -128,6 +131,27 @@ function panelRow() {
   return r && panel.dataset.project === state.projectId ? r : null;
 }
 
+function openRemoveMenu(anchor, r) {
+  if (popOpenFor(anchor)) return closePop();
+  const usages = usageList(r);
+  if (usages.length === 1) {
+    removeUsage(r, 0);
+    return renderInspector(true);
+  }
+  if (!usages.length) return;
+  openMenu(
+    anchor,
+    '<div class="p-title">选择要移除的素材</div>' +
+      orderedUsages(r)
+        .map(({ u, index }) => {
+          const asset = state.assets[u.assetId] || u;
+          return `<div class="pop-item" data-remove-usage="${index}" data-remove-asset="${esc(u.assetId)}" data-remove-row="${r.id}" data-remove-project="${esc(state.projectId)}"><span class="main">${esc(asset.name || assetName(asset.path || '') || '未命名素材')}<span class="desc">${esc(ROLES[u.role] || '未分配')}</span></span></div>`;
+        })
+        .join(''),
+  );
+  markPopAnchor(anchor);
+}
+
 export function initInspector() {
   registerCommand('inspector:open', openInspectorFor);
   $('#btnDetail').onclick = () => {
@@ -139,16 +163,19 @@ export function initInspector() {
   on('types', () => renderInspector(true));
 
   const panel = $('#inspector');
-  panel.addEventListener('click', async e => {
-    if (e.target.closest('#closeDetail')) {
-      detailOpen = false;
-      return renderInspector();
-    }
-    if (e.target.closest('#locateDetail')) {
-      const r = panelRow();
-      if (r) revealRow(r.id, 'center');
+  document.addEventListener('click', e => {
+    const remove = e.target.closest('[data-remove-asset]');
+    if (!remove) return;
+    const r = panelRow();
+    closePop();
+    if (panel.hidden || !r || r.id !== +remove.dataset.removeRow || state.projectId !== remove.dataset.removeProject)
       return;
-    }
+    const index = usageList(r).findIndex(u => u.assetId === remove.dataset.removeAsset);
+    if (index < 0) return;
+    removeUsage(r, index);
+    renderInspector(true);
+  });
+  panel.addEventListener('click', async e => {
     const r = panelRow();
     if (!r) return;
     if (e.target.closest('#attachAsset')) {
@@ -159,8 +186,11 @@ export function initInspector() {
       renderInspector(true);
       return toast(res.added.length ? `已添加 ${res.added.length} 个素材 · ⌘Z 可撤销` : '这些素材都已关联过');
     }
-    if (e.target.closest('#attachFromLib')) return runCommand('assets:pick-from-project', r);
-    if (e.target.closest('#relinkFolder')) return runCommand('assets:relink-folder');
+    const removeButton = e.target.closest('#removeAsset');
+    if (removeButton) {
+      e.stopPropagation();
+      return openRemoveMenu(removeButton, r);
+    }
     const roleBtn = e.target.closest('[data-role-usage]');
     if (roleBtn) {
       const role = roleBtn.dataset.role;
@@ -182,11 +212,6 @@ export function initInspector() {
     }
     const vrBtn = e.target.closest('[data-vr-open]');
     if (vrBtn) return runCommand('video:open', +vrBtn.dataset.vrOpen);
-    const remove = e.target.closest('[data-remove-usage]');
-    if (remove) {
-      removeUsage(r, +remove.dataset.removeUsage);
-      return renderInspector(true);
-    }
     const relocate = e.target.closest('[data-relocate-usage]');
     if (relocate) {
       runCommand('assets:relocate', r, +relocate.dataset.relocateUsage, () => renderInspector(true));
@@ -223,14 +248,6 @@ export function initInspector() {
     if (e.target.id === 'detailNote' && setShotNote(r, e.target.value, { session })) {
       clearTimeout(wsTimer);
       wsTimer = setTimeout(() => emit('workspace'), 250); // 停手后再刷侧栏 / 徽标
-    }
-  });
-  panel.addEventListener('change', e => {
-    const r = panelRow();
-    if (!r) return;
-    if (e.target.id === 'detailAssets' && setShotRefsFromText(r, e.target.value)) {
-      panel.querySelector('.asset-list').innerHTML = inspectorAssets(r, { missing: missingPaths() });
-      hydrateAssetCards();
     }
   });
 }
