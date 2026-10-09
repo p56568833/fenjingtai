@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { shouldIgnore } from './package-filter.mjs';
+import { buildManifest, extractNotes } from './release-manifest.mjs';
 
 const require = createRequire(import.meta.url);
 const { createStore, retentionKeep } = require('../electron/data-store.js');
@@ -523,6 +524,43 @@ test('更新：版本号逐段按数字比（1.10 比 1.9 新），草稿 / 预�
   assert.equal(up.pickUpdate(rel, { current: '1.10.1', arch: 'arm64' }).available, false);
   assert.equal(up.pickUpdate({ ...rel, prerelease: true }, { current: '1.0.0', arch: 'arm64' }).available, false);
 });
+test('更新：latest.json 清单 → 按芯片挑 zip（Intel 拿 x64），格式不对返回 null 交给 API', () => {
+  const m = buildManifest({
+    version: 'v1.10.3',
+    notes: '不再受 API 次数限制',
+    files: [
+      { name: 'FenJingTai-mac-arm64.zip', size: 100, sha256: 'A'.repeat(64) },
+      { name: 'FenJingTai-mac-x64.zip', size: 120, sha256: 'b'.repeat(64) },
+    ],
+  });
+  assert.equal(m.version, '1.10.3');
+  assert.equal(m.page, `https://github.com/${up.REPO}/releases/tag/v1.10.3`);
+  const intel = up.pickManifest(m, { current: '1.10.2', arch: 'x64' });
+  assert.equal(intel.available, true);
+  assert.equal(intel.version, '1.10.3');
+  assert.equal(intel.url, `https://github.com/${up.REPO}/releases/download/v1.10.3/FenJingTai-mac-x64.zip`);
+  assert.equal(intel.sha256, 'b'.repeat(64));
+  assert.equal(intel.size, 120);
+  assert.equal(intel.notes, '不再受 API 次数限制');
+  assert.equal(up.pickManifest(m, { current: '1.10.2', arch: 'arm64' }).sha256, 'a'.repeat(64), '校验值统一小写');
+  assert.deepEqual(up.pickManifest(m, { current: '1.10.3', arch: 'x64' }), { available: false, latest: '1.10.3' });
+  const noX64 = up.pickManifest({ ...m, assets: m.assets.slice(0, 1) }, { current: '1.0.0', arch: 'x64' });
+  assert.equal(noX64.available, true);
+  assert.equal(noX64.url, '', '没有这台电脑的包：照样提示，但不能一键更新');
+  const http = { ...m, assets: [{ ...m.assets[1], url: 'http://x/y.zip' }] };
+  assert.equal(up.pickManifest(http, { current: '1.0.0', arch: 'x64' }).url, '', '只认 https 下载地址');
+  for (const bad of [null, 'x', {}, { version: '' }, { version: 'abc' }])
+    assert.equal(up.pickManifest(bad, { current: '1.0.0', arch: 'x64' }), null);
+});
+test('更新：从 UPDATE-NOTES.md 取出某一版的说明，节与节之间以 --- 或下一个一级标题为界', () => {
+  const md = '# 分镜台 1.10.3\n\n第一段\n\n**小标题**\n\n- 一条\n\n---\n\n# 分镜台 1.10.2\n\n旧的\n';
+  assert.equal(extractNotes(md, '1.10.3'), '第一段\n\n**小标题**\n\n- 一条');
+  assert.equal(extractNotes(md, '1.10.2'), '旧的');
+  assert.equal(extractNotes(md, '9.9.9'), '');
+  const real = fs.readFileSync(new URL('../UPDATE-NOTES.md', import.meta.url), 'utf8');
+  const { version } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.ok(extractNotes(real, version), `UPDATE-NOTES.md 里要有「# 分镜台 ${version}」这一节（软件里显示的更新说明）`);
+});
 test('更新：只能原地更新装在可写位置的正式版；从安装盘、被系统隔离运行、开发版都给出原因', () => {
   const exe = '/Applications/分镜台.app/Contents/MacOS/分镜台';
   const ok = up.installTarget(exe, { platform: 'darwin', canWrite: () => true });
@@ -542,6 +580,57 @@ test('更新：只能原地更新装在可写位置的正式版；从安装盘�
     /安装盘/,
   );
   assert.match(up.installTarget(exe, { platform: 'darwin', canWrite: () => false }).reason, /没有权限/);
+});
+await atest('更新：先读 latest.json，不碰 API；清单取不到 / 内容不对才退回 API', async () => {
+  const manifest = buildManifest({
+    version: '1.10.3',
+    files: [{ name: 'FenJingTai-mac-x64.zip', size: 1, sha256: 'c'.repeat(64) }],
+  });
+  const release = {
+    tag_name: 'v1.10.3',
+    assets: [{ name: 'FenJingTai-mac-x64.zip', browser_download_url: 'https://github.com/x/y/x64.zip' }],
+  };
+  const fake = routes => {
+    const calls = [];
+    const impl = async url => {
+      calls.push(url);
+      const r = routes[url];
+      if (r instanceof Error) throw r;
+      if (typeof r === 'number') return new Response('', { status: r });
+      return new Response(JSON.stringify(r), { status: 200 });
+    };
+    return { calls, impl };
+  };
+  const args = { current: '1.10.2', arch: 'x64' };
+
+  let f = fake({ [up.MANIFEST_URL]: manifest });
+  let r = await up.checkForUpdate({ ...args, fetchImpl: f.impl });
+  assert.equal(r.ok && r.available && r.source, 'manifest');
+  assert.equal(r.sha256, 'c'.repeat(64));
+  assert.deepEqual(f.calls, [up.MANIFEST_URL], '有清单就不查 API');
+
+  f = fake({ [up.MANIFEST_URL]: { ...manifest, version: '1.10.2' } });
+  r = await up.checkForUpdate({ ...args, fetchImpl: f.impl });
+  assert.equal(r.ok && !r.available && r.source, 'manifest', '已是最新也不查 API');
+  assert.equal(f.calls.length, 1);
+
+  for (const miss of [404, new Error('网络断了'), { hello: 1 }]) {
+    f = fake({ [up.MANIFEST_URL]: miss, [up.LATEST_API]: release });
+    r = await up.checkForUpdate({ ...args, fetchImpl: f.impl });
+    assert.equal(r.ok && r.available && r.source, 'api', `清单 ${miss} 时退回 API`);
+    assert.deepEqual(f.calls, [up.MANIFEST_URL, up.LATEST_API]);
+  }
+
+  f = fake({ [up.MANIFEST_URL]: 404, [up.LATEST_API]: 403 });
+  r = await up.checkForUpdate({ ...args, fetchImpl: f.impl });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /限制了查询次数/);
+
+  const hang = (_url, { signal }) =>
+    new Promise((_, rej) => signal.addEventListener('abort', () => rej(new Error('aborted'))));
+  r = await up.checkForUpdate({ ...args, fetchImpl: hang, timeoutMs: 20 });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /超时/);
 });
 await atest('更新：下载边下边校验 SHA-256，对不上就丢弃；取消不留文件', async () => {
   const dir = tmp();

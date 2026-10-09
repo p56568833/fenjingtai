@@ -1,5 +1,7 @@
 /* 应用内更新（主进程用，纯 Node，网络请求由调用方传入，便于单测）：
-   · 检查：读 GitHub Releases 最新一版（api.github.com/repos/<仓库>/releases/latest），版本号比当前新就有更新
+   · 检查：先读最新一版 Release 里的 latest.json（github.com/<仓库>/releases/latest/download/latest.json，
+     是普通文件下载，不占 GitHub API 每个公网 IP 每小时 60 次的匿名额度）；取不到再退回
+     api.github.com/repos/<仓库>/releases/latest。版本号比当前新就有更新
    · 下载：按本机芯片取 FenJingTai-mac-<arch>.zip，边下边算 SHA-256，和 GitHub 给的 digest 对上才算数
    · 准备：在「应用程序」文件夹里解压到隐藏的临时位置，核对 Bundle ID、版本号、签名完整
    · 安装：写一个小脚本，等分镜台退出（数据先存盘）后两次改名换上新版、清掉旧版、再打开
@@ -14,6 +16,9 @@ const REPO = 'p56568833/fenjingtai';
 const BUNDLE_ID = 'com.andychen.fenjingtai';
 const LATEST_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`;
+const MANIFEST_NAME = 'latest.json';
+const MANIFEST_URL = `https://github.com/${REPO}/releases/latest/download/${MANIFEST_NAME}`;
+const USER_AGENT = 'FenJingTai-Updater';
 const assetName = arch => `FenJingTai-mac-${arch === 'x64' ? 'x64' : 'arm64'}.zip`;
 
 /* "v1.10.0" / "1.10.0" → [1, 10, 0]；比较时逐段比数字（1.10 比 1.9 新） */
@@ -53,27 +58,68 @@ function pickUpdate(release, { current, arch }) {
   };
 }
 
-async function checkForUpdate({ current, arch, fetchImpl, timeoutMs = 15000 }) {
+/* latest.json（发版时 scripts/release-manifest.mjs 生成）→ 和 pickUpdate 一样的更新信息。
+   格式：{ version, notes, page, assets: [{ name, size, sha256, url }] }；不像清单就返回 null，交给 API 再查 */
+function pickManifest(manifest, { current, arch }) {
+  if (!manifest || typeof manifest !== 'object') return null;
+  const version = String(manifest.version || '')
+    .trim()
+    .replace(/^v/i, '');
+  if (!/^\d+\.\d+/.test(version)) return null;
+  if (compareVersions(version, current) <= 0) return { available: false, latest: version };
+  const asset = (Array.isArray(manifest.assets) ? manifest.assets : []).find(a => a && a.name === assetName(arch));
+  const url = /^https:\/\//i.test(String(asset?.url || '')) ? asset.url : '';
+  const sha256 = /^[0-9a-f]{64}$/i.test(String(asset?.sha256 || '')) ? asset.sha256.toLowerCase() : '';
+  return {
+    available: true,
+    version,
+    notes: String(manifest.notes || '').slice(0, 6000),
+    page: /^https:\/\//i.test(String(manifest.page || '')) ? manifest.page : RELEASES_PAGE,
+    url,
+    size: url ? Number(asset.size) || 0 : 0,
+    sha256: url ? sha256 : '',
+  };
+}
+
+/* 带超时取 JSON；网络错误照常抛出，超时的错误带 timeout 标记 */
+async function getJson(url, { fetchImpl, timeoutMs, headers = {} }) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(LATEST_API, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'FenJingTai-Updater' },
-      signal: ctl.signal,
-    });
-    if (res.status === 404) return { ok: true, available: false };
-    if (res.status === 403 || res.status === 429)
-      return { ok: false, error: 'GitHub 暂时限制了查询次数，过一会儿再试' };
-    if (!res.ok) return { ok: false, error: `检查更新失败：HTTP ${res.status}` };
-    return { ok: true, ...pickUpdate(await res.json(), { current, arch }) };
+    const res = await fetchImpl(url, { headers: { 'User-Agent': USER_AGENT, ...headers }, signal: ctl.signal });
+    return { status: res.status, ok: res.ok, json: res.ok ? await res.json() : null };
   } catch (e) {
-    return {
-      ok: false,
-      error: ctl.signal.aborted ? '连不上 GitHub（超时），请检查网络或代理' : '连不上 GitHub：' + (e?.message || e),
-    };
+    if (ctl.signal.aborted) throw Object.assign(new Error('超时'), { timeout: true });
+    throw e;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function checkViaApi({ current, arch, fetchImpl, timeoutMs }) {
+  try {
+    const r = await getJson(LATEST_API, { fetchImpl, timeoutMs, headers: { Accept: 'application/vnd.github+json' } });
+    if (r.status === 404) return { ok: true, available: false, source: 'api' };
+    if (r.status === 403 || r.status === 429) return { ok: false, error: 'GitHub 暂时限制了查询次数，过一会儿再试' };
+    if (!r.ok) return { ok: false, error: `检查更新失败：HTTP ${r.status}` };
+    return { ok: true, source: 'api', ...pickUpdate(r.json, { current, arch }) };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e?.timeout ? '连不上 GitHub（超时），请检查网络或代理' : '连不上 GitHub：' + (e?.message || e),
+    };
+  }
+}
+
+async function checkForUpdate({ current, arch, fetchImpl, timeoutMs = 15000 }) {
+  // ① latest.json：普通文件下载，不占 API 匿名额度（共用公网 IP 的 VPN / 公司网络也不会被别人用光）
+  try {
+    const r = await getJson(MANIFEST_URL, { fetchImpl, timeoutMs: Math.min(timeoutMs, 10000) });
+    const info = r.ok ? pickManifest(r.json, { current, arch }) : null;
+    if (info) return { ok: true, source: 'manifest', ...info };
+  } catch {}
+  // ② 取不到（老版本的 Release 没传 latest.json、网络不通、内容不对）：退回 GitHub API
+  return checkViaApi({ current, arch, fetchImpl, timeoutMs });
 }
 
 /* 下载更新包：流式写临时文件、算 SHA-256；进度最多每 250 毫秒报一次；可以取消 */
@@ -82,7 +128,7 @@ async function downloadUpdate({ url, sha256, size }, dest, { fetchImpl, onProgre
   const tmp = `${dest}.${process.pid}.part`;
   let out = null;
   try {
-    const res = await fetchImpl(url, { headers: { 'User-Agent': 'FenJingTai-Updater' }, signal });
+    const res = await fetchImpl(url, { headers: { 'User-Agent': USER_AGENT }, signal });
     if (!res.ok || !res.body) return { ok: false, error: `下载失败：HTTP ${res.status}` };
     const total = Number(res.headers?.get?.('content-length')) || size || 0;
     const hash = crypto.createHash('sha256');
@@ -201,9 +247,12 @@ module.exports = {
   BUNDLE_ID,
   LATEST_API,
   RELEASES_PAGE,
+  MANIFEST_NAME,
+  MANIFEST_URL,
   assetName,
   compareVersions,
   pickUpdate,
+  pickManifest,
   checkForUpdate,
   downloadUpdate,
   installTarget,

@@ -309,8 +309,7 @@ npm run package    # 出 arm64 + x64 双架构安装包到输出所示的临时 
 
 发布新版本时，为了让软件内更新能找到并校验更新包，请保持下面几点：
 
-- 先把 `package.json` 的 `version` 改成新版本号，再打包；GitHub Release 的 tag 写成 `v` + 同一个版本号（如 `v1.10.1`）。软件会核对更新包里的版本号和 tag 是否一致。
-- Release 里要有 `FenJingTai-mac-arm64.zip` 和 `FenJingTai-mac-x64.zip`（`npm run package` 产出的就是这两个名字；dmg 照常上传给第一次安装的人用）。软件内更新只用 zip。
-- Release 的正文就是软件里显示的「更新说明」，可以直接贴 `UPDATE-NOTES.md` 里对应的一节。
-- 不要标成 Pre-release 或草稿，否则软件不会提示更新。
-- GitHub 会给每个上传的文件自动登记 SHA-256，软件下载后会核对，不需要另外上传校验文件。
+- 先把 `package.json` 的 `version` 改成新版本号，并在 `UPDATE-NOTES.md` 顶部加上「# 分镜台 x.y.z」一节，再打包；GitHub Release 的 tag 写成 `v` + 同一个版本号（如 `v1.10.3`）。软件会核对更新包里的版本号和 tag 是否一致。
+- `npm run package` 会产出 `FenJingTai-mac-arm64.zip`、`FenJingTai-mac-x64.zip`、两个 dmg 和 **`latest.json`**，五个文件全部上传到 Release。软件内更新只用 zip（dmg 给第一次安装的人用）。
+- `latest.json` 是更新清单（版本号、更新说明、每个 zip 的下载地址和 SHA-256，说明取自 `UPDATE-NOTES.md` 对应一节）。1.10.3 起软件先读 `releases/latest/download/latest.json`——这是普通文件下载，不占 GitHub API「每个公网 IP 每小时 60 次」的匿名额度，用 VPN、公司网络和别人共用 IP 时也不会被限制。漏传了它，软件会退回查 GitHub API（受这个限制）。
+- 不要标成 Pre-release 或草稿，否则软件不会提示更新（`releases/latest` 也不会指向它）。

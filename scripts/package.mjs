@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /* 一键打发布包：@electron/packager 出 Apple Silicon(arm64) + Intel(x64) 两个 分镜台.app，
    ad-hoc 签名（macOS 要求至少 ad-hoc 才能启动），每个架构产出一个 .dmg（带「拖到 Applications」
-   快捷方式）和一个 .zip（给脚本/curl 直接下载），统一落在临时 .noindex 目录，文件名用 ASCII 方便直链。
+   快捷方式）和一个 .zip（给脚本/curl 和软件内更新下载），再生成一份 latest.json（软件内更新先读它，
+   不占 GitHub API 匿名额度），统一落在临时 .noindex 目录，文件名用 ASCII 方便直链。
    用法：npm run package */
 import { packager } from '@electron/packager';
-import { copyFileSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, utimesSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { shouldIgnore } from './package-filter.mjs';
+import { extractNotes, writeManifest } from './release-manifest.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -77,11 +79,19 @@ async function buildOne(arch) {
 
   const size = n => (statSync(n).size / 1048576).toFixed(1) + ' MB';
   console.log(`[${arch}] 完成：\n  ${zipPath}（${size(zipPath)}）\n  ${dmgPath}（${size(dmgPath)}）`);
+  return zipPath;
 }
 
 try {
-  for (const arch of ['arm64', 'x64']) await buildOne(arch);
+  const zips = [];
+  for (const arch of ['arm64', 'x64']) zips.push(await buildOne(arch));
+  const { version } = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const notes = extractNotes(readFileSync(path.join(ROOT, 'UPDATE-NOTES.md'), 'utf8'), version);
+  if (!notes) console.warn(`⚠️ UPDATE-NOTES.md 里没找到「# 分镜台 ${version}」这一节，软件里的更新说明会是空的`);
+  const manifest = writeManifest(RELEASE_DIR, { version, notes, zips });
+  console.log(`[清单] ${manifest}（软件内更新先读它，不占 GitHub API 次数）`);
   console.log(`\n全部完成，发布物在 ${RELEASE_DIR}（arm64 = M 系列芯片，x64 = Intel 芯片）`);
+  console.log(`发布：GitHub Release 的 tag 写 v${version}，把目录里的 2 个 zip、2 个 dmg 和 latest.json 全部上传。`);
   console.log('上传后请删除整个临时构建目录。');
 } catch (error) {
   rmSync(BUILD_ROOT, { recursive: true, force: true });
