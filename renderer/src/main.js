@@ -34,6 +34,7 @@ import { initTypeEditor } from './features/type-editor.js';
 import { initPdfExport } from './features/pdf-export.js';
 import { initVideoReview } from './features/video-review.js';
 import { initProjectPack } from './features/project-pack.js';
+import { initRework } from './features/rework.js';
 import { initUpdate, updateKey } from './features/update.js';
 import { initMotion } from './ui/motion.js';
 
@@ -214,6 +215,7 @@ async function boot() {
   initPdfExport();
   initVideoReview();
   initProjectPack();
+  initRework();
   initHelp();
   initUpdate();
   registerModals();

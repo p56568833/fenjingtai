@@ -79,7 +79,17 @@ export async function runRelease110Tests(t) {
     await pause(60);
     closeVideoReview();
     await pause(80);
-    t('写回成功后关窗口照常清掉「不要」的候选', !cand('B'));
+    t(
+      '写回成功后，没有通过候选的画面仍保留「不要」的候选供返工',
+      cand('B')?.decision === 'no' && writes.at(-1)?.results.find(r => r.key === 'B')?.decision === 'no',
+    );
+    runCommand('video:open');
+    await pause(40);
+    $(`[data-vr-id="${cand('A').id}"] [data-vr-d="ok"]`)?.click();
+    await flushWriteBack();
+    closeVideoReview();
+    await pause(80);
+    t('同一画面有候选通过后，写回成功再清掉「不要」的候选', cand('A')?.decision === 'ok' && !cand('B'));
 
     /* 危险确认框：回车不执行，焦点在「取消」 */
     let deleted = false;

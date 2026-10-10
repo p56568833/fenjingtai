@@ -10,15 +10,15 @@
    · 右边按句子排：每句原文下面直接挂配它的候选，句尾标这句有没有画面（有 / 只覆盖一部分 / 待审 / 还缺）；
      截图只给右边这几个候选截。
    · 审完就走：审过的候选收成一行（能撤回），不再有「已通过」页——通过的结果在表格的画面上看；
-     「不要」的离开审核页时自动清掉（结果已写回清单，再导入同一份清单也不会回来）。
+     「不要」的在待返工里保留；画面有候选通过后，离开审核页时清掉已写回清单的否决项。
    · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
 import { state, update, rowById, renumber, on } from '../app/state.js';
 import { persist, markProjectDirty, projectById, allProjects } from '../app/storage.js';
 import { snapshot } from '../app/undo.js';
 import { invalidateProbe, probePaths, isMissing } from '../app/asset-actions.js';
-import { shotMembers } from '../core/shots.js';
+import { shotMembers, ROLES as ROLE_NAMES } from '../core/shots.js';
 import { assetName, syncMirror, usageList, referencedAssetIds, fileUrl } from '../core/asset-model.js';
-import { preview } from '../ui/badges.js';
+import { videoFrame } from '../ui/badges.js';
 import { fmtTime } from '../core/text.js';
 import {
   CANDIDATE_TYPE,
@@ -53,6 +53,8 @@ import { glide, roll, pop, SPRING } from '../ui/motion.js';
 import { registerCommand, runCommand } from '../ui/commands.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/popover.js';
 import { CANDIDATE_SPEC } from '../core/candidate-spec.js';
+import { reworkShots, resolveOnApprove, setRework, dismissRework, buildReworkDoc } from '../core/rework.js';
+import { safeFileName } from '../core/text.js';
 
 export { CANDIDATE_TYPE };
 const $ = s => document.querySelector(s);
@@ -243,7 +245,9 @@ export function setDecision(id, d) {
       return;
     }
     c.assetId = r.assetId;
-    const names = r.demoted.map(x => state.assets[x]?.name || '素材');
+    // 这个画面在「待返工」里：要求算解决，标了不满意的旧素材挪到备选
+    const old = resolveOnApprove(state.rows, rowById(c.rowId), r.assetId);
+    const names = [...new Set([...r.demoted, ...old])].map(x => state.assets[x]?.name || '素材');
     msg = `已挂成主画面（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
   }
   c.decision = next;
@@ -647,6 +651,9 @@ export function downloadOriginal(id) {
 }
 
 /* ── 界面 ── */
+let mode = 'review'; // 'review' 待审（按批次） | 'rework' 待返工（所有批次没过关的画面）
+let curRework = null; // 待返工页里选中的画面（第一句的 id）
+let reworkDocAt = 0; // 这次打开软件后最近一次生成返工单的时间
 let curBatch = null; // 正在看的批次
 let curShot = null; // 右边显示的画面（画面第一句的 id）
 let curCand = null; // 键盘焦点所在的候选
@@ -804,6 +811,7 @@ function selectShot(key) {
 /* 审完一个：焦点移到这个画面的下一个待审候选；这个画面都审完了，稍等一下跳到下一个还有待审的画面 */
 let advanceTimer = null;
 function advanceAfterDecision(c) {
+  if (mode === 'rework') return; // 待返工页：通过的画面自己会离开列表，不用跳
   const g = curGroup();
   if (!g || !g.cands.includes(c)) return;
   const next = layoutShot(g).order.find(x => x !== c && isPending(x)); // 按界面上从上到下的顺序
@@ -826,6 +834,7 @@ function advanceAfterDecision(c) {
 
 /* 审核和表格共用视图状态与布局，不登记弹窗，也不盖在表格上。 */
 export function openVideoReview(rowId = null) {
+  mode = 'review';
   touched.clear();
   curCand = null;
   pickDefaults(rowId);
@@ -838,8 +847,8 @@ export const closeVideoReview = () => {
   if (state.view === 'review') setView('table');
 };
 const stopAll = stopAllVideos;
-/* 「不要」的候选离开审核页时清掉：结果已经写回清单（Claude 读得到），留着只会越堆越多。
-   只清确实写进了清单文件的；写失败的留在项目里（下次离开审核页再试），没有来源文件的照旧清掉 */
+/* 离开审核页时，只清已完成返工画面里的「不要」候选。
+   有来源文件的只清确实写进了清单的；写失败的留在项目里（下次离开审核页再试）。 */
 async function purgeRejected() {
   const pid = state.projectId;
   const cands = state.candidates;
@@ -847,7 +856,9 @@ async function purgeRejected() {
   await flushWriteBack(cands);
   if (state.projectId !== pid || state.candidates !== cands) return; // 等待期间切了项目或数据被替换：这次不动
   const synced = syncedFiles(cands);
-  const drop = c => c.decision === 'no' && (!c.srcFile || synced.has(c.srcFile));
+  // 还在「待返工」里的画面：否掉的候选留着（那一页要列出来、还能改判通过）
+  const keep = new Set(reworkShots(state.rows, cands).flatMap(s => s.rejected));
+  const drop = c => c.decision === 'no' && !keep.has(c) && (!c.srcFile || synced.has(c.srcFile));
   if (!cands.some(drop)) return;
   state.candidates = cands.filter(c => !drop(c));
   for (const id of [...frames.keys()]) if (!state.candidates.some(c => c.id === id)) frames.delete(id);
@@ -914,6 +925,14 @@ function coverageOf(row, shotCands) {
 }
 
 /* 左栏：当前批次标题打开切换菜单，进度独立显示；下面是这一批的全部画面（按章节） */
+/* 审核页顶上的切换：待审（按批次）/ 待返工（所有批次没过关的画面） */
+function tabsHTML() {
+  const p = pendingCount();
+  const r = reworkShots(state.rows, state.candidates).length;
+  const tab = (id, label, n, tip) =>
+    `<button class="vr-tab${mode === id ? ' on' : ''}" role="tab" aria-selected="${mode === id}" data-vr-tab="${id}" title="${tip}">${label}${n ? `<b>${n}</b>` : ''}</button>`;
+  return `<div class="vr-tabs" role="tablist">${tab('review', '待审', p, '按批次审核导入的视频候选')}${tab('rework', '待返工', r, '所有批次里没过关、或者你写了要求的画面')}</div>`;
+}
 function navHTML(all, shots) {
   let sec = null;
   const shotsHTML = shots
@@ -933,7 +952,7 @@ function navHTML(all, shots) {
     .join('');
   const b = all.find(x => x.id === curBatch);
   if (!b)
-    return `<button class="vr-batch-add" id="vrImport" title="把 Claude 找好的候选清单（.json）导进来；也可以直接拖进窗口">＋ 导入候选清单…</button>
+    return `${tabsHTML()}<button class="vr-batch-add" id="vrImport" title="把 Claude 找好的候选清单（.json）导进来；也可以直接拖进窗口">＋ 导入候选清单…</button>
       <button class="vr-batch-add ghost" id="vrCopySpec" title="候选清单必须按这份规范写才能导入">复制格式规范（发给找素材的 AI）</button>`;
   const n = b.cands.length;
   const pending = b.cands.filter(isPending).length;
@@ -944,7 +963,7 @@ function navHTML(all, shots) {
   const others = all.filter(x => x !== b);
   const otherPending = others.reduce((s, x) => s + x.cands.filter(isPending).length, 0);
   const tip = `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}\n点击切换批次（共 ${all.length} 批）`;
-  return `<div class="vr-picker">
+  return `${tabsHTML()}<div class="vr-picker">
       <div class="vr-bh${pending ? '' : ' complete'}">
         <div class="vr-bheader">
           <button class="vr-batch-head" id="vrBatchPick" data-vr-batch="${esc(b.id)}" title="${esc(tip)}" aria-label="${esc(batchLabel(b))}，切换批次，共 ${all.length} 批" aria-haspopup="menu">
@@ -1043,6 +1062,7 @@ export function renderVideoReview() {
   // 没有保存任务或写回提醒时，正文直接从页面顶端开始，不保留空的标题栏。
   $('#reviewPage .vr-top').hidden = saveAll.hidden && sync.hidden;
 
+  if (mode === 'rework') return renderRework(host);
   // 左栏：批次 → 画面
   const nav = $('#vrNav');
   nav.innerHTML = navHTML(all, shots);
@@ -1120,6 +1140,182 @@ export function renderVideoReview() {
   // 截图只给右边这几个候选：换了画面，没轮到的截图任务取消
   for (let i = queue.length - 1; i >= 0; i--) if (!open.some(c => c.id === queue[i].c.id)) queue.splice(i, 1);
 }
+/* ── 待返工：所有批次里没过关（否掉了、一个都没通过）或者你写了要求的画面，按稿子顺序列在一页 ── */
+const reworkList = () => reworkShots(state.rows, state.candidates);
+const curReworkItem = () => reworkList().find(s => s.lead.id === curRework) || null;
+const batchOfCand = c => {
+  const b = batches().find(x => x.id === (c.batchId || 'legacy'));
+  return b ? batchLabel(b) : '';
+};
+/* 待返工页里展开的候选：否掉的都展开（要能看画面、改判）；通过的收成一行 */
+/* 待返工页只列有问题的候选：否掉的、待审的，和你标了「不满意」的那个已通过视频；别的已通过视频不相干，不列 */
+const reworkShown = item => {
+  const out = new Set((item?.replaces || []).map(x => x.assetId));
+  return item ? item.cands.filter(c => c.decision !== 'ok' || out.has(c.assetId)) : [];
+};
+const reworkOpen = item => reworkShown(item).filter(c => c.decision !== 'ok' || touched.has(c.id));
+function reworkNavHTML(list) {
+  let sec = null;
+  const items = list
+    .map(s => {
+      const section = sectionOf(s.lead.id);
+      const head = section !== sec ? `<div class="vr-nav-sec">${esc(section || '（没有章节）')}</div>` : '';
+      sec = section;
+      const label = s.cands[0]?.label || s.request?.note || s.replaces[0]?.note || '';
+      const status = s.replaces.length
+        ? `<span class="vr-nav-done re">换 ${s.replaces.length} 个</span>`
+        : s.request
+          ? '<span class="vr-nav-done re">要补</span>'
+          : `<span class="vr-nav-done re">否掉 ${s.rejected.length}</span>`;
+      return `${head}<button class="vr-nav-shot${s.lead.id === curRework ? ' on' : ''}" data-vr-rw="${s.lead.id}"><span>${rangeText(s.lead)}${label ? `<small>${esc(label)}</small>` : ''}</span>${status}</button>`;
+    })
+    .join('');
+  return `${tabsHTML()}<div class="vr-picker"><div class="vr-bh vr-rw-card">
+      <div class="vr-bheader"><b>待返工</b><span class="vr-bdate">${list.length} 个画面</span></div>
+      <p class="vr-rw-hint">审核时否掉、还没有通过的画面，和你在右侧面板对素材点了「不满意」或要 AI 再找的画面。里面任何一个候选通过，它就离开这一页。</p>
+      <button class="btn primary vr-rw-doc" id="vrReworkDoc"${list.length ? '' : ' disabled'} title="把这一页写成返工单，放在片段保存位置，并复制一句话给找素材的 AI">生成返工单</button>
+      ${reworkDocAt ? `<div class="vr-bother">已生成 · ${fmtDay(reworkDocAt)}</div>` : ''}
+    </div></div>
+    <div class="vr-shots">${items}</div>`;
+}
+function renderRework(host) {
+  const list = reworkList();
+  if (!list.some(s => s.lead.id === curRework)) curRework = list[0]?.lead.id ?? null;
+  const nav = $('#vrNav');
+  nav.innerHTML = reworkNavHTML(list);
+  nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
+  glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide');
+  const s = list.find(x => x.lead.id === curRework);
+  if (!s) {
+    stopClip();
+    host.innerHTML =
+      '<p class="vr-empty">没有待返工的画面。审核时点「不要 / 换一个」、又没有别的候选通过的画面，或者在右侧面板对某个素材点了「不满意」、点了「让 AI 再找一个」的画面，都会列在这里。</p>';
+    return;
+  }
+  const shown = reworkShown(s);
+  const open = reworkOpen(s);
+  if (!open.some(c => c.id === curCand)) curCand = open[0]?.id || null;
+  const reg = state.assets || {};
+  const out = new Set(s.replaces.map(x => x.assetId));
+  const nameOf = id => reg[id]?.name || assetName(reg[id]?.path || '') || '素材';
+  const replaceHTML = s.replaces
+    .map(
+      x =>
+        `<p class="vr-rw-replace">要换掉：<b>${esc(nameOf(x.assetId))}</b>${x.note ? `<span>「${esc(x.note)}」</span>` : ''}</p>`,
+    )
+    .join('');
+  const seen = new Set();
+  const current = s.members
+    .flatMap(m => usageList(m))
+    .filter(u => reg[u.assetId] && !seen.has(u.assetId) && seen.add(u.assetId))
+    .map(
+      u =>
+        `<span class="vr-rw-asset${out.has(u.assetId) ? ' out' : ''}">${esc(ROLE_NAMES[u.role] || '未分配')} · ${esc(reg[u.assetId].name || assetName(reg[u.assetId].path || ''))}</span>`,
+    )
+    .join('');
+  const cardsOf = list =>
+    list
+      .map(
+        c =>
+          `<p class="vr-span">${esc(batchOfCand(c))}</p>${c.decision === 'ok' && !touched.has(c.id) ? doneHTML(c) : cardHTML(c)}`,
+      )
+      .join('');
+  stopClip();
+  host.innerHTML = `<section class="vr-shot vr-rw" data-vr-shot="${s.lead.id}">
+      <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(s.lead)}</span>${s.cands[0]?.label ? `<span class="vr-shot-label">${esc(s.cands[0].label)}</span>` : ''}</h4></div>
+      ${s.members.map(m => `<div class="vr-line" data-vo-no="${m.no}"><div class="vr-line-text"><span class="vr-line-no">${m.no}</span><p>${esc(m.text)}</p></div></div>`).join('')}
+      <div class="vr-rw-req">
+        ${replaceHTML ? `${replaceHTML}<p class="vr-rw-tip">新的候选通过后，要换掉的素材挪到备选。</p>` : ''}
+        <label for="vrReworkNote">补充要求<span>会写进返工单交给 AI</span></label>
+        <textarea id="vrReworkNote" data-vr-rw-note rows="2" placeholder="还想要什么样的画面？比如：要近景、要彩色的、再补一个工厂外景…">${esc(s.request?.note || '')}</textarea>
+        ${current ? `<div class="vr-rw-current"><span>现在挂着</span>${current}</div>` : ''}
+        <div class="vr-row"><button class="vr-mini" data-vr-rw-off title="这个画面不用再找了；之后再否掉候选，它会重新出现">不用返工了</button></div>
+      </div>
+      ${shown.length ? `<div class="vr-line-cands">${cardsOf(shown.filter(c => c.decision !== 'ok'))}${cardsOf(shown.filter(c => c.decision === 'ok'))}</div>` : ''}
+    </section>`;
+  paintLineFocus(state.candidates.find(c => c.id === curCand) || null);
+  for (const c of open) {
+    const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
+    if (!strip) continue;
+    const got = frames.get(c.id);
+    if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
+    else queueFrames(c);
+  }
+  for (const c of shown) if (c.decision === 'ok' && c.savedPath && !touched.has(c.id)) paintDoneThumb(c);
+  for (let i = queue.length - 1; i >= 0; i--) if (!open.some(c => c.id === queue[i].c.id)) queue.splice(i, 1);
+}
+function setMode(next) {
+  if (next === mode) return;
+  mode = next;
+  curCand = null;
+  touched.clear();
+  stopAll();
+  clearTimeout(advanceTimer);
+  renderVideoReview();
+  $('#vrList')?.scrollTo?.({ top: 0 });
+}
+function selectRework(id) {
+  if (id === curRework) return;
+  curRework = id;
+  curCand = null;
+  touched.clear();
+  stopAll();
+  renderVideoReview();
+  $('#vrList')?.scrollTo?.({ top: 0 });
+}
+/* 返工要求：打字即存（不进撤销，停手后写盘）；第一次写字就把这个画面标成「有要求」 */
+let reworkTimer = null;
+function setReworkNote(text) {
+  const s = curReworkItem();
+  if (!s) return;
+  if (s.request) {
+    for (const m of s.members) if (m.rework) m.rework.note = text;
+  } else if (text.trim()) setRework(state.rows, s.lead, { note: text, at: Date.now() });
+  clearTimeout(reworkTimer);
+  reworkTimer = setTimeout(persist, 400);
+}
+function dismissCurrentRework() {
+  const s = curReworkItem();
+  if (!s) return;
+  snapshot('不用返工了');
+  dismissRework(state.rows, s.lead);
+  persist();
+  update('rows');
+  toast(`${rangeText(s.lead)} 不用返工了 · ⌘Z 可撤销`);
+}
+/* 待返工页 → 返工单：写到片段保存位置，再把交给 AI 的那句话复制好 */
+async function writeReworkDoc() {
+  const list = reworkList();
+  if (!list.length) return toast('没有待返工的画面');
+  const dir = await ensureMediaDir();
+  if (!dir) return;
+  renumber();
+  const title = state.title || '未命名项目';
+  const doc = buildReworkDoc({ title, shots: list, registry: state.assets || {}, batchName: batchOfCand });
+  const file = `${dir.replace(/\/+$/, '')}/返工单·${safeFileName(title)}.json`;
+  const r = await native('writeReworkDoc')(file, JSON.stringify(doc, null, 2));
+  if (!r?.ok) return toast('返工单没写进去：' + (r?.error || '未知原因'), null, 'error');
+  reworkDocAt = Date.now();
+  renderVideoReview();
+  await copyText(
+    `读一下「${file}」：这是分镜台的返工单，${list.length} 个画面。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v2 写一份新的候选清单给我导入。`,
+    `返工单已生成（${list.length} 个画面），交给 AI 的话已复制`,
+  );
+}
+export function openRework(rowId = null) {
+  if (rowId != null) {
+    const row = rowById(rowId);
+    if (row) curRework = shotMembers(state.rows, row)[0].id;
+  }
+  mode = 'rework';
+  touched.clear();
+  curCand = null;
+  const wasOpen = state.view === 'review';
+  setView('review');
+  if (!wasOpen) slideIn($('#reviewPage'), -1);
+  else renderVideoReview();
+}
+
 /* 审核页的动效：通过 / 不要 / 换一个 的底色块滑到选中的那个按钮上（第一次选时弹出来）。
    当前候选的蓝框不做滑动，直接切换（滑动的框看着晃）。 */
 const decisionMemo = new Map(); // 候选 id → 上次的结果
@@ -1292,9 +1488,10 @@ async function frameAt(v, t, label) {
 
 /* 审过「通过」的那一行：已保存的片段用 macOS 系统缩略图（和表格里的素材缩略图同一套，系统自己缓存，
    分镜台不另存任何图片；内存里只留最近几十张，关掉软件就没了） */
+/* 已通过那一行的小图：自己从视频里解一帧（macOS 系统缩略图常给的是默认播放器的图标，比如 B 站） */
 function paintDoneThumb(c) {
   const path = c.savedPath;
-  preview(path).then(url => {
+  videoFrame(path).then(url => {
     const cell = document.querySelector(`#vrList .vr-done[data-vr-id="${c.id}"] .vr-done-thumbs .vr-cell`);
     const cur = state.candidates.find(x => x.id === c.id);
     if (!cell || cur?.savedPath !== path) return; // 换了画面 / 片段被换掉：这张不用了
@@ -1329,8 +1526,12 @@ function play(id) {
 
 /* 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放 / 暂停这段。在意见框里打字时不抢键 */
 export function videoReviewKey(e) {
-  if (e.target?.closest?.('.vr-note, select')) {
-    if (e.key === 'Enter' || (e.key === 'Escape' && e.target.matches('.vr-note'))) {
+  if (e.target?.closest?.('.vr-note, select, textarea')) {
+    // 意见框回车收起；返工要求是多行的，回车照常换行，Esc 收起
+    if (
+      (e.key === 'Enter' && !e.target.matches('textarea')) ||
+      (e.key === 'Escape' && e.target.matches('.vr-note, textarea'))
+    ) {
       e.preventDefault();
       e.target.blur();
       return true;
@@ -1338,7 +1539,7 @@ export function videoReviewKey(e) {
     return e.key !== 'Escape' && !e.metaKey;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
-  const open = openOf(curGroup());
+  const open = mode === 'rework' ? reworkOpen(curReworkItem()) : openOf(curGroup());
   const k = open.findIndex(c => c.id === curCand);
   const move = d => {
     if (!open.length) return;
@@ -1359,6 +1560,13 @@ export function videoReviewKey(e) {
   }
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
     e.preventDefault();
+    if (mode === 'rework') {
+      const ids = reworkList().map(x => x.lead.id);
+      const i = ids.indexOf(curRework);
+      const j = Math.max(0, Math.min(ids.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
+      if (ids[j] != null) selectRework(ids[j]);
+      return true;
+    }
     const shots = curShots();
     const i = shots.findIndex(x => x.key === curShot);
     const j = Math.max(0, Math.min(shots.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
@@ -1394,6 +1602,11 @@ export function initVideoReview() {
   );
   $('#vrSaveAll').onclick = () => saveAllApproved();
   $('#vrNav').addEventListener('click', e => {
+    const tab = e.target.closest('[data-vr-tab]');
+    if (tab) return setMode(tab.dataset.vrTab);
+    const rw = e.target.closest('[data-vr-rw]');
+    if (rw) return selectRework(+rw.dataset.vrRw);
+    if (e.target.closest('#vrReworkDoc')) return writeReworkDoc();
     if (e.target.closest('#vrImport')) return runCommand('import:file');
     if (e.target.closest('#vrCopySpec')) return copyCandidateSpec();
     const menuBtn = e.target.closest('#vrBatchMore, #vrBatchPick');
@@ -1435,6 +1648,7 @@ export function initVideoReview() {
       if (c && !togglePause(card, mediaOf(c))) play(c.id);
       return;
     }
+    if (t.closest('[data-vr-rw-off]')) return dismissCurrentRework();
     const d = t.closest('[data-vr-d]');
     if (d) return setDecision(d.dataset.vrFor, d.dataset.vrD);
     const fold = t.closest('[data-vr-fold]');
@@ -1474,6 +1688,7 @@ export function initVideoReview() {
   $('#vrList').addEventListener('input', e => {
     const n = e.target.closest('[data-vr-note]');
     if (n) setNote(n.dataset.vrNote, n.value);
+    if (e.target.closest('[data-vr-rw-note]')) setReworkNote(e.target.value);
   });
   // 批量截取进度：顶部按钮显示当前片段的百分比和进度条
   nat.onSegmentProgress(({ token, p }) => {
@@ -1520,12 +1735,13 @@ export function initVideoReview() {
     else if (act === 'spec') copyCandidateSpec();
   });
   on('project-loaded', () => {
-    curBatch = curShot = curCand = null;
+    curBatch = curShot = curCand = curRework = null;
     touched.clear();
     setTimeout(tidySavedClips, 0);
   });
   setTimeout(tidySavedClips, 0); // 启动时的项目在这之前就载入了
   registerCommand('video:open', openVideoReview);
+  registerCommand('video:rework', openRework);
   registerCommand('video:close', closeVideoReview);
   registerCommand('video:key', videoReviewKey);
   registerCommand('video:import', (doc, path) => importCandidates(doc, path));

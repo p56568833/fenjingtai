@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('native', {
   onSegmentProgress: cb => ipcRenderer.on('video:segment-progress', (_e, p) => cb(p)),
   onDownloadProgress: cb => ipcRenderer.on('video:download-progress', (_e, p) => cb(p)),
   writeCandidateReview: (file, results) => ipcRenderer.invoke('candidates:write-back', file, results),
+  writeReworkDoc: (file, content) => ipcRenderer.invoke('rework:write', file, content),
   revealAsset: p => ipcRenderer.invoke('assets:reveal', p),
   // 项目打包（ZIP）
   packSizes: paths => ipcRenderer.invoke('pack:sizes', paths),

@@ -304,6 +304,17 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
         : {}),
       ...(typeof r.groupId === 'string' && GROUP_ID.test(r.groupId) ? { groupId: r.groupId } : {}),
       para: !!r.para,
+      // 待返工的要求 / 「不用返工了」的时间（见 core/rework.js）
+      ...(r.rework && typeof r.rework === 'object' && typeof r.rework.note === 'string'
+        ? {
+            rework: {
+              note: r.rework.note,
+              at: +r.rework.at || 0,
+              ...(typeof r.rework.assetId === 'string' ? { assetId: r.rework.assetId } : {}),
+            },
+          }
+        : {}),
+      ...(Number.isFinite(+r.reworkOff) && +r.reworkOff > 0 ? { reworkOff: +r.reworkOff } : {}),
       ...(validTime(r.time)
         ? {
             time: {

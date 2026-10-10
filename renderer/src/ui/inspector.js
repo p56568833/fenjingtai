@@ -105,9 +105,16 @@ export function renderInspector(force = false) {
       <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span><span class="spacer"></span>${voice.sync}</div>
       ${voice.meta}${voice.listen ? `<div class="detail-listen">${voice.listen}</div>` : ''}
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
-      <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button></div>
+      <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button><button class="btn" id="reworkShot" title="这个画面还缺镜头：写下要什么，生成返工单交给 AI 去找">再找一个…</button></div>
+      ${(() => {
+        const rw = members.find(m => m.rework && !m.rework.assetId)?.rework;
+        return rw
+          ? `<button class="detail-rework" id="reworkShotEdit" title="点开修改，或者不用找了"><b>待补</b><span>${esc(rw.note)}</span></button>`
+          : '';
+      })()}
     </section>
-    <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>`;
+    <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
+`;
   hydrateAssetCards();
   markNoteClamp();
 }
@@ -183,6 +190,13 @@ export function initInspector() {
   panel.addEventListener('click', async e => {
     const r = panelRow();
     if (!r) return;
+    if (e.target.closest('#reworkShot, #reworkShotEdit')) return runCommand('rework:edit', r);
+    const rwBtn = e.target.closest('[data-rework-usage]');
+    if (rwBtn) {
+      const u = usageList(r)[+rwBtn.dataset.reworkUsage];
+      if (u) runCommand('rework:edit', r, u.assetId);
+      return;
+    }
     if (e.target.closest('#attachAsset')) {
       const pid = state.projectId;
       const paths = await native.pickAssets();

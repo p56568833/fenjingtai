@@ -584,11 +584,14 @@ export async function runVideoReviewTests(t) {
     await pause(30);
   }
 
-  /* 「不要」的：离开审核页时自动清掉；同一份清单再导入也不会回来 */
+  /* 「不要」的：这个画面一个都没通过时留在「待返工」里（不再离开审核页就清掉）；同一份清单再导入也不会重复 */
   $('#viewToggle [data-v="table"]').click();
   await pause(80);
   t('切回表格页面', $('#reviewPage').hidden && state.view === 'table');
-  t('离开审核页时「不要」的候选自动清掉', !cand('B1') && state.candidates.length === 2);
+  t(
+    '离开审核页时，没有通过候选的画面里「不要」的候选留着（在待返工里）',
+    cand('B1')?.decision === 'no' && state.candidates.length === 3,
+  );
   const again = planImport(
     { ...DOC, shots: [{ ...DOC.shots[1], cands: [{ ...DOC.shots[1].cands[0], review: { decision: 'no' } }] }] },
     '/tmp/视频候选.json',
@@ -648,7 +651,7 @@ export async function runVideoReviewTests(t) {
   storage.switchProject(pid);
   update('rows');
   await pause(20);
-  t('切回来候选还在', state.candidates.length === 2 && cand('A1').decision === 'ok');
+  t('切回来候选还在', state.candidates.length === 3 && cand('A1').decision === 'ok');
   await flushWriteBack();
 
   /* 删除重复的旧批次：只清审核记录，保留表格素材、其他批次和清单结果。 */

@@ -9,6 +9,14 @@ import { lineTag, fileTitle, hasLineTag, attachCandidate } from '../renderer/src
 import { parseAny, splitSentences } from '../renderer/src/core/parse.js';
 import { packPlan, toPacked, fromPacked, isPackRel } from '../renderer/src/core/pack.js';
 import {
+  reworkShots,
+  resolveOnApprove,
+  setRework,
+  setAssetRework,
+  dismissRework,
+  buildReworkDoc,
+} from '../renderer/src/core/rework.js';
+import {
   groupRows,
   shots,
   checkDelivery,
@@ -1531,5 +1539,106 @@ test('撤回通过：候选记着的那句已经不在（被删 / 并掉），�
     rows.every(r => !r.assetUsages.some(u => u.assetId === c.assetId)),
     '视频从画面上摘掉了',
   );
+});
+test('待返工：否掉了又没通过的画面、对素材点了不满意、要再找一个的画面才列出；有候选通过就消失', () => {
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '甲', groupId: 'g', assetUsages: [{ assetId: 'old', role: 'main' }] },
+    { id: 2, kind: 'line', no: 2, text: '乙', groupId: 'g', assetUsages: [{ assetId: 'old', role: 'main' }] },
+    { id: 3, kind: 'line', no: 3, text: '丙', assetUsages: [] },
+    { id: 4, kind: 'line', no: 4, text: '丁', assetUsages: [] },
+  ];
+  const c = (id, rowId, decision, decidedAt = 10) => ({
+    id,
+    rowId,
+    decision,
+    decidedAt,
+    url: 'https://x/' + id,
+    in: 0,
+    out: 1,
+  });
+  const cands = [c('a', 2, 'no'), c('b', 3, 're'), c('d', 3, 'ok'), c('e', 4, '')];
+  let list = reworkShots(rows, cands);
+  assert.deepEqual(
+    list.map(s => s.lead.id),
+    [1],
+    '第 3 句有通过的候选、第 4 句待审：都不算',
+  );
+  assert.deepEqual(
+    list[0].rejected.map(x => x.id),
+    ['a'],
+  );
+  dismissRework(rows, rows[1], 20);
+  assert.equal(reworkShots(rows, cands).length, 0, '不用返工了之前否掉的不再算');
+  cands.push(c('f', 1, 'no', 30));
+  assert.equal(reworkShots(rows, cands).length, 1, '之后又否掉新的：重新出现');
+  setRework(rows, rows[3], { note: '要外景', at: 40 });
+  list = reworkShots(rows, cands);
+  assert.deepEqual(
+    list.map(s => s.lead.id),
+    [1, 4],
+    '要再找一个的画面也列出，按稿子顺序',
+  );
+  assert.equal(list[1].request.note, '要外景');
+  // 已通过但对这个素材不满意：素材上记着；新的通过后旧的挪到备选，要求解决
+  setAssetRework(rows, rows[0], 'old', { note: '太暗', at: 50 });
+  assert.ok(
+    rows.slice(0, 2).every(r => r.assetUsages[0].rework.note === '太暗'),
+    '共用画面每句的使用记录都记着',
+  );
+  assert.deepEqual(reworkShots(rows, cands)[0].replaces, [{ assetId: 'old', note: '太暗', at: 50 }]);
+  rows.slice(0, 2).forEach(r => r.assetUsages.push({ assetId: 'new', role: 'main' }));
+  assert.deepEqual(resolveOnApprove(rows, rows[1], 'new'), ['old']);
+  assert.ok(rows.slice(0, 2).every(r => r.assetUsages[0].role === 'alt' && !r.assetUsages[0].rework && !r.rework));
+  cands.find(x => x.id === 'f').decision = 'ok';
+  assert.deepEqual(
+    reworkShots(rows, cands).map(s => s.lead.id),
+    [4],
+  );
+  // 只对素材点了不满意、没有任何候选的画面也算
+  setAssetRework(rows, rows[0], 'new', { note: '', at: 60 });
+  assert.deepEqual(
+    reworkShots(rows, cands).map(s => s.lead.id),
+    [1, 4],
+  );
+  setAssetRework(rows, rows[0], 'new', null);
+  assert.deepEqual(
+    reworkShots(rows, cands).map(s => s.lead.id),
+    [4],
+    '不用换了：离开',
+  );
+});
+test('待返工：返工单写句号、要换掉的素材和理由、补充要求、否掉的候选；项目 JSON 往返保留标记', () => {
+  const rows = [
+    { id: 1, kind: 'line', no: 7, text: '甲', note: '外景', assetUsages: [{ assetId: 'x', role: 'main' }] },
+  ];
+  setAssetRework(rows, rows[0], 'x', { note: '要彩色', at: 1 });
+  setRework(rows, rows[0], { note: '再补一个近景', at: 2 });
+  const cands = [{ id: 'a', rowId: 1, decision: 're', note: '太暗', title: 'A', url: 'https://a', in: 1, out: 2 }];
+  const doc = buildReworkDoc({
+    title: 'T',
+    shots: reworkShots(rows, cands),
+    registry: { x: { name: '旧.mp4', path: '/m/旧.mp4' } },
+    batchName: () => '第 1 批',
+  });
+  assert.equal(doc.type, 'fenjingtai-rework');
+  const s = doc.shots[0];
+  assert.equal(s.lines, '7');
+  assert.equal(s.request, '再补一个近景');
+  assert.deepEqual(s.replace, [{ name: '旧.mp4', note: '要彩色' }]);
+  assert.deepEqual(s.current, [{ name: '旧.mp4', role: '主画面', path: '/m/旧.mp4' }]);
+  assert.deepEqual(s.rejected[0], {
+    title: 'A',
+    url: 'https://a',
+    in: 1,
+    out: 2,
+    decision: '换一个',
+    note: '太暗',
+    batch: '第 1 批',
+  });
+  const back = normalizeProjectRows([{ ...rows[0], reworkOff: 5 }]);
+  assert.deepEqual(back[0].rework, { note: '再补一个近景', at: 2 });
+  assert.deepEqual(back[0].assetUsages[0].rework, { note: '要彩色', at: 1 });
+  assert.equal(back[0].reworkOff, 5);
+  assert.equal(normalizeProjectRows([{ id: 1, kind: 'line', text: 'x', rework: 'bad' }])[0].rework, undefined);
 });
 console.log(`${count} 项数据回归通过`);

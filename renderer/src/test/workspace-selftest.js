@@ -10,6 +10,7 @@ import { jumpTo, nextUnmarked, openReview } from '../ui/workspace.js';
 import { openDurPopover } from '../ui/popover.js';
 import { setMultiMode } from '../ui/toolbar.js';
 import * as storage from '../app/storage.js';
+import { runCommand } from '../ui/commands.js';
 const $ = s => document.querySelector(s),
   $$ = s => [...document.querySelectorAll(s)];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -579,6 +580,30 @@ export async function runWorkspaceTests(t) {
   state.candidates = [{ id: 'vc-selftest-merge', rowId: s4.id, decision: 'ok', url: 'https://x/a.mp4', in: 1, out: 2 }];
   mergeToPrev(s4.id);
   t('合并句子后视频候选跟到合并后的句子', state.candidates[0].rowId === s3.id);
+  // 待返工：否掉了、一个都没通过的画面列在审核页「待返工」里
+  state.candidates = [
+    {
+      id: 'vc-selftest-rw',
+      rowId: s1.id,
+      decision: 'no',
+      decidedAt: Date.now(),
+      url: 'https://x/b.mp4',
+      in: 1,
+      out: 2,
+      title: '否掉的',
+    },
+  ];
+  update('rows');
+  runCommand('video:rework', s1.id);
+  await pause(60);
+  t(
+    '待返工页列出否掉的画面',
+    $('.vr-tab.on')?.dataset.vrTab === 'rework' && !!$('#vrNav [data-vr-rw]') && !!$('#vrList [data-vr-rw-note]'),
+  );
+  runCommand('video:close');
+  await pause(30);
+  state.candidates = [];
+  update('rows');
 
   const created = storage
     .allProjects()

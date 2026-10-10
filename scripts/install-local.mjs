@@ -3,9 +3,10 @@
    做法和 repack.mjs 一样，不重新下载 Electron：拿已安装应用里的运行时，只换 app.asar，再 ad-hoc 签名。
    按 AGENTS.md：构建放在带 .noindex 的临时目录（不被启动台 / Spotlight 收录），装好后清掉；
    只保留最新版本，不做软件备份。没有已安装的应用时，请先 npm run package 打一次完整包。 */
-import { createPackageWithOptions } from '@electron/asar';
+import { createPackageWithOptions, getRawHeader } from '@electron/asar';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { installAppIcon } from './app-icon.mjs';
@@ -41,6 +42,14 @@ try {
   const plist = path.join(app, 'Contents', 'Info.plist');
   for (const key of ['CFBundleShortVersionString', 'CFBundleVersion'])
     run('/usr/bin/plutil', ['-replace', key, '-string', version, plist]);
+  // 重打 app.asar 后同步完整性校验值，避免保留旧包的哈希。
+  const integrity = {
+    'Resources/app.asar': {
+      algorithm: 'SHA256',
+      hash: createHash('sha256').update(getRawHeader(asar).headerString).digest('hex'),
+    },
+  };
+  run('/usr/bin/plutil', ['-replace', 'ElectronAsarIntegrity', '-json', JSON.stringify(integrity), plist]);
   run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app]);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
   console.log(`已构建 ${version} 并校验签名`);

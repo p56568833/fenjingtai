@@ -160,7 +160,9 @@ export function inspectorAssets(r, { missing } = {}) {
         ${kind === 'video' && !gone ? `<button class="asset-mini" data-clip-usage="${index}" title="设置用视频里的哪一段（入点 / 出点）">${ICON_CLIP}<span>片段</span></button>` : ''}
         ${gone ? `<button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button>` : ''}
         <button class="asset-mini" data-sys-open="${esc(path)}" title="用系统默认的应用打开（访达 / QuickTime 等）">${ICON_OPEN}<span>打开</span></button>
+        <button class="asset-mini rework-mini${u.rework ? ' on' : ''}" data-rework-usage="${index}" title="${u.rework ? '已标成要换：点开改要求，或者不用换了' : '不满意这个素材：写下哪里不满意，生成返工单交给 AI 找新的'}"><span>${u.rework ? '待换' : '不满意'}</span></button>
       </div>
+      ${u.rework ? `<p class="asset-rework">待换${u.rework.note ? `：${esc(u.rework.note)}` : ''}</p>` : ''}
       ${roleControls(u, index)}
     </div>`;
       })
@@ -381,6 +383,22 @@ function grabFrame(path) {
   });
 }
 
+/* 给别处用（审核页已通过的那一行）：本地视频解一帧，和表格共用缓存；解不出来再退回系统缩略图 */
+const frameJobs = new Map(); // path → 正在解的 Promise
+export function videoFrame(path) {
+  if (frameCache.has(path)) return Promise.resolve(frameCache.get(path));
+  if (!frameJobs.has(path))
+    frameJobs.set(
+      path,
+      grabFrame(path).then(data => {
+        frameJobs.delete(path);
+        if (data) frameCache.set(path, data);
+        return data || preview(path);
+      }),
+    );
+  return frameJobs.get(path);
+}
+
 async function systemThumb(el, path) {
   const data = await preview(path, { force: el.dataset.thumbFailed === '1' });
   if (!el.isConnected || el.dataset.previewPath !== path) return;
@@ -454,7 +472,8 @@ export const missingPaths = () => missingSet;
 
 function statusText(r) {
   const clipTodo = usageList(r).some(u => u.clip && u.clip.needsAdjust);
-  return clipTodo ? '片段待调整' : '';
+  const rework = r.rework || usageList(r).some(u => u.rework);
+  return [clipTodo ? '片段待调整' : '', rework ? '待返工' : ''].filter(Boolean).join(' · ');
 }
 
 /* 素材卡片变化的动效：新挂上的素材弹进来；主画面 / 备选换了角色的轻轻跳一下。

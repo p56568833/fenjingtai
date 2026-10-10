@@ -2421,6 +2421,7 @@ body.dark .as-note {
   background: var(--card);
   padding: 6px;
 }
+.row .note,
 .shared-scene .note {
   border: 1px solid transparent;
   border-radius: 7px;
@@ -2428,6 +2429,7 @@ body.dark .as-note {
   min-width: 0;
   white-space: pre-wrap;
 }
+.row .note:focus,
 .shared-scene .note:focus {
   border-color: rgba(59, 116, 232, 0.5);
   background: var(--card);
@@ -4878,6 +4880,14 @@ body.multi-mode .shared-scene-body {
 .shared-scene > .shared-scene-body {
   padding-right: 40px;
 }
+/* 普通句子沿用共用画面的左侧留白，五列及描述文字保持对齐。 */
+.rows:not(.ck) > .row {
+  padding-left: 24px;
+}
+.rows:not(.ck) > .row .note {
+  padding-left: 10px;
+  padding-right: 10px;
+}
 /* 行尾三个小按钮（＋ 素材 / ··· / ×）竖着叠在右边 */
 .rows > .row > .row-act {
   right: 8px;
@@ -6891,4 +6901,217 @@ body.dark .vr-cov.miss {
   font-size: 12px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
+}
+
+/* ═════════ 待返工：审核页顶上的切换、返工画面、右侧面板入口和弹窗 ═════════ */
+.vr-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: var(--hairline);
+}
+.vr-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.vr-tab.on {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+.vr-tab b {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.vr-tab[data-vr-tab='rework'] b {
+  background: #d9820b;
+}
+.vr-rw-card .vr-bheader b {
+  font-size: 14px;
+}
+.vr-rw-hint {
+  margin: 6px 0 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.vr-rw-doc {
+  width: 100%;
+}
+.vr-rw-req {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #d9820b 35%, var(--hairline-2));
+  border-radius: 12px;
+  background: color-mix(in srgb, #d9820b 6%, var(--card));
+}
+.vr-rw-req label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.vr-rw-req label span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.vr-rw-req textarea {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.vr-rw-replace {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.vr-rw-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.vr-rw-asset {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--hairline);
+  color: var(--text-2);
+}
+.vr-rw-asset.out {
+  text-decoration: line-through;
+  color: #d9820b;
+}
+.vr-empty.small {
+  font-size: 12px;
+}
+.detail-rework {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--hairline-2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.detail-rework:hover {
+  border-color: #d9820b;
+  color: var(--text);
+}
+.detail-rework.on {
+  border-style: solid;
+  border-color: color-mix(in srgb, #d9820b 45%, transparent);
+  background: color-mix(in srgb, #d9820b 8%, transparent);
+}
+.detail-rework.on b {
+  flex: none;
+  color: #d9820b;
+}
+.detail-rework.on span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.modal.rework-modal {
+  width: 460px;
+}
+.rework-range {
+  margin: -4px 0 12px;
+}
+.rework-label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.rework-label textarea,
+.rework-label select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.modal .rework-hint {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.rework-modal .m-btns .spacer {
+  flex: 1;
+}
+.rework-mini.on {
+  border-color: color-mix(in srgb, #d9820b 50%, transparent);
+  color: #d9820b;
+}
+.inspector-asset .asset-rework {
+  flex: 0 0 100%; /* 卡片是横排可换行的：意见单独占一行，不挤压素材名 */
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #d9820b 9%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.vr-rw-replace span {
+  margin-left: 6px;
+  color: var(--text);
+}
+.vr-rw-tip {
+  margin: -2px 0 10px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.rework-range b {
+  color: var(--text);
 }

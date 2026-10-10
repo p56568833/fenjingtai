@@ -569,6 +569,20 @@ handle('pack:extract', async (e, req) => {
 /* 旧版本保存的片段：文件名补上对应的句号 */
 handle('video:tag-saved', (_e, p, tag) => videoTools.renameWithLineTag(p, tag));
 handle('asset:retag-line', (_e, p, tag) => videoTools.retagLineFile(p, tag));
+/* 待返工 → 返工单：写到片段保存位置（只写 .json，文件夹必须已存在；先写临时文件再改名） */
+handle('rework:write', (_e, file, content) => {
+  if (typeof file !== 'string' || !path.isAbsolute(file) || !/\.json$/i.test(file))
+    return { ok: false, error: '路径无效' };
+  try {
+    if (!fs.statSync(path.dirname(file)).isDirectory()) return { ok: false, error: '保存位置不存在' };
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, String(content ?? ''), 'utf8');
+    fs.renameSync(tmp, file);
+    return { ok: true, path: file };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
 /* 审核结果写回候选清单（只认 type = fenjingtai-candidates 的 JSON） */
 handle('candidates:write-back', (_e, file, results) => videoTools.writeReview(file, results));
 handle('assets:reveal', (_e, p) => {

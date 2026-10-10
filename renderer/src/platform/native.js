@@ -44,6 +44,7 @@ export const cancelDownload = call('cancelDownload');
 export const tagSavedClip = call('tagSavedClip');
 export const retagLineFile = call('retagLineFile');
 export const writeCandidateReview = call('writeCandidateReview');
+export const writeReworkDoc = call('writeReworkDoc');
 export const revealAsset = call('revealAsset');
 export const onSegmentProgress = cb => n()?.onSegmentProgress?.(cb);
 export const onDownloadProgress = cb => n()?.onDownloadProgress?.(cb);
