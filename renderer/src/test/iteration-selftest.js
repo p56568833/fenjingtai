@@ -11,7 +11,7 @@ import { parseAny } from '../core/parse.js';
 import { defaultTypes } from '../core/types.js';
 import { runCommand } from '../ui/base/commands.js';
 import { playthroughState } from '../features/playthrough.js';
-import { inspectorAssets } from '../ui/badges.js';
+import { inspectorAssets } from '../ui/asset-html.js';
 
 const $ = s => document.querySelector(s),
   $$ = s => [...document.querySelectorAll(s)];

@@ -6,7 +6,7 @@ import { clearUndo } from '../app/undo.js';
 import { commitProjectChange } from '../app/project-change.js';
 import { applyImport } from '../app/actions.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
-import { normalizeProjectRows, reconcileDraft } from '../core/shots.js';
+import { normalizeProjectRows, reconcileDraft } from '../core/project-import.js';
 import { buildAnnotatedMd, buildAssetListMd, buildCsv, buildProjectJson } from '../core/export-doc.js';
 import { parseAny, migrateSections, mdTypes } from '../core/parse.js';
 import { normalizeTypes } from '../core/types.js';

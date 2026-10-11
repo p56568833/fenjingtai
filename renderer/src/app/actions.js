@@ -14,13 +14,15 @@ import {
   expandShotIds,
   shotMembers,
   setShotField,
+  normalizeUsageSpans,
+} from '../core/shots.js';
+import {
   groupExtendNext,
   groupExtendNextPlan,
   groupDropLast,
   groupSplitAt,
   groupSplitAtPlan,
-  normalizeUsageSpans,
-} from '../core/shots.js';
+} from '../core/shot-groups.js';
 import { syncMirror, usageList, cloneUsages, hydrateProjectAssets } from '../core/asset-model.js';
 
 const nextId = () => state.rows.reduce((m, r) => (r.id > m ? r.id : m), 0) + 1;

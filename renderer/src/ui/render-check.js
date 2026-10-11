@@ -1,7 +1,7 @@
 /* 原文视图：整篇原文排版（保留段落），先选句子、再标类型。
    只有渲染；点击 / 拖选 / 键盘交互在 check-view.js。 */
 import { state, rowById, currentSelection, qMatch, match, types } from '../app/state.js';
-import { sharedScenes } from './badges.js';
+import { sharedScenes } from './asset-html.js';
 import { esc, hiText } from './base/dom.js';
 import { takeAnimation } from './base/anim.js';
 

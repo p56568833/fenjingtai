@@ -5,7 +5,7 @@ import { state, rowById } from '../app/state.js';
 import { addRefsToShot } from '../app/asset-actions.js';
 import { countAssetShots, kindOf, KIND_LABEL, assetName } from '../core/asset-model.js';
 import { esc, toast } from './base/dom.js';
-import { hydrateAssetCards } from './badges.js';
+import { hydrateAssetCards } from './asset-thumbs.js';
 import { registerCommand } from './base/commands.js';
 
 let targetRowId = null;

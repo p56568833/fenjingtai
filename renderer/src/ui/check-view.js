@@ -3,7 +3,7 @@
    数据改动统一走 actions（快照 + 落盘 + 原地刷新）。 */
 import { state, rowById, visibleLineIds, currentSelection, toggleLineSelection, types } from '../app/state.js';
 import { markSentences, setNote, splitGroupAtAction } from '../app/actions.js';
-import { groupSplitAtPlan } from '../core/shots.js';
+import { groupSplitAtPlan } from '../core/shot-groups.js';
 import { renderSelectionOnly } from './base/selection.js';
 import { toast, composing, esc, readEditable } from './base/dom.js';
 import { openMenu, closePop, markPopAnchor, popEl } from './base/popover.js';

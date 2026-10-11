@@ -19,15 +19,9 @@ import { layoutShot, circled } from '../core/shot-layout.js';
 import { shotCoverage } from '../core/coverage.js';
 import * as native from '../platform/native.js';
 import { esc, toast } from './base/dom.js';
-import {
-  sharedScenes,
-  assetName,
-  orderedUsages,
-  hydrateAssetCards,
-  inspectorAssets,
-  refreshThumb,
-  missingPaths,
-} from './badges.js';
+import { sharedScenes, assetName, orderedUsages, inspectorAssets } from './asset-html.js';
+import { hydrateAssetCards, refreshThumb } from './asset-thumbs.js';
+import { missingPaths } from './asset-files.js';
 import { registerCommand, runCommand } from './base/commands.js';
 import { openMenu, closePop, markPopAnchor, popOpenFor } from './base/popover.js';
 import { preserveReadingPosition } from './reading-position.js';

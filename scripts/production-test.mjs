@@ -22,11 +22,10 @@ import {
   checkDelivery,
   repairPunctuation,
   repairCandidates,
-  normalizeProjectRows,
-  reconcileDraft,
   validGroup,
   normalizeGroups,
 } from '../renderer/src/core/shots.js';
+import { normalizeProjectRows, reconcileDraft } from '../renderer/src/core/project-import.js';
 let count = 0;
 function test(name, fn) {
   fn();
@@ -166,14 +165,14 @@ import {
   clipText,
 } from '../renderer/src/core/asset-model.js';
 import { fmtTime, parseTime } from '../renderer/src/core/text.js';
+import { sameGroupSelection } from '../renderer/src/core/shots.js';
 import {
-  sameGroupSelection,
   groupExtendNextPlan,
   groupExtendNext,
   groupDropLast,
   groupSplitAt,
   groupSplitAtPlan,
-} from '../renderer/src/core/shots.js';
+} from '../renderer/src/core/shot-groups.js';
 
 test('素材类型识别：图片/视频/链接/不支持', () => {
   assert.equal(kindOf('/a/b/图.PNG'), 'image');

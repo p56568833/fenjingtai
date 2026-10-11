@@ -1,6 +1,6 @@
 /* 表格视图：逐句一行的标注主界面 */
 import { state, rowById, currentSelection, checkedIds, match, qMatch, types } from '../app/state.js';
-import { sharedScenes, shotTotalText } from './badges.js';
+import { sharedScenes, shotTotalText } from './asset-html.js';
 import { esc, hiText } from './base/dom.js';
 import { durCellHTML, durHeading } from './time-view.js';
 import { chipHTML } from './base/type-view.js';

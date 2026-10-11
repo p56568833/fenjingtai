@@ -11,13 +11,16 @@ import {
   deleteRows,
 } from '../app/actions.js';
 import { addRefsToShot, relocateAsset, invalidateProbe, relinkByNames } from '../app/asset-actions.js';
-import { shotMembers, groupExtendNextPlan, groupSplitAtPlan } from '../core/shots.js';
+import { shotMembers } from '../core/shots.js';
+import { groupExtendNextPlan, groupSplitAtPlan } from '../core/shot-groups.js';
 import { usageList, assetUsageRefs, checkClip } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
 import * as native from '../platform/native.js';
 import { esc, toast, confirmModal } from './base/dom.js';
 import { openMenu, closePop, markPopAnchor } from './base/popover.js';
-import { clearPreviewCache, refreshThumb, missingPaths } from './badges.js';
+import { clearPreviewCache } from './base/media.js';
+import { refreshThumb } from './asset-thumbs.js';
+import { missingPaths } from './asset-files.js';
 import { registerCommand, runCommand } from './base/commands.js';
 import { probeDuration } from './base/media.js';
 
