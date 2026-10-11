@@ -251,12 +251,13 @@ export function inspectorAssets(r, { missing } = {}) {
         <span class="asset-caption"><strong>${esc(a.name || baseName(path))}</strong><small>${esc(stateLine)}</small>${coverHTML(cov)}</span>
       </button>
       ${gone ? `<div class="asset-actions"><button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button></div>` : ''}
+
+      ${lineControls(u, index, members, layout, it)}
       <button class="rework-btn${u.rework ? ' on' : ''}" data-rework-usage="${index}" title="${u.rework ? '点开修改意见，或者不用换了' : '写下哪里不满意，生成返工单交给 AI 找新的'}">${
         u.rework
           ? `<b>待换</b><span>${esc(u.rework.note || '（没写意见）')}</span><i>修改</i>`
           : '<b>不满意</b><span>写下哪里不满意，交给 AI 换一个</span>'
       }</button>
-      ${lineControls(u, index, members, layout, it)}
     </div>`;
       })
       .join('') +
