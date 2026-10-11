@@ -5,26 +5,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
+const { freePath, safeFileName } = require('./fs-utils');
 
 const CANDIDATE_TYPE = 'fenjingtai-candidates';
 
 /* ── 文件名 ── */
-const safeName = s =>
-  String(s || '视频')
-    .replace(/[\\/:*?"<>|\n\r\t]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 80) || '视频';
+const safeName = s => safeFileName(s, '视频');
 const mmss = s => {
   s = Math.max(0, Math.round(Number(s) || 0));
   return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
 };
-/* 目标目录里不覆盖已有文件：重名就加 (2)、(3)… */
-function uniquePath(dir, base, ext) {
-  let p = path.join(dir, `${base}${ext}`);
-  for (let i = 2; fs.existsSync(p); i++) p = path.join(dir, `${base} (${i})${ext}`);
-  return p;
-}
+const uniquePath = freePath;
 const segmentFileBase = (name, start, end) => `${safeName(name)}_${mmss(start)}-${mmss(end)}`;
 /* 原子地占住一个不重名的目标文件（先建一个空文件占位）：两个同名任务同时保存时各拿各的文件名，不会写到同一个文件 */
 function reservePath(dir, base, ext) {

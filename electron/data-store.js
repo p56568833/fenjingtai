@@ -4,6 +4,7 @@
    - 数据文件读不出来：原文件改名保留（不覆盖），自动用最近一份能读的备份顶上，并把情况告诉界面 */
 const fs = require('node:fs');
 const path = require('node:path');
+const { writeAtomic } = require('./fs-utils');
 
 const BACKUP_INTERVAL = 30 * 60 * 1000;
 const DAY = 24 * 3600 * 1000;
@@ -15,18 +16,6 @@ const pad = n => String(n).padStart(2, '0');
 function stamp(t = Date.now()) {
   const d = new Date(t);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
-}
-
-function writeAtomic(file, content) {
-  const tmp = file + '.tmp';
-  const fd = fs.openSync(tmp, 'w');
-  try {
-    fs.writeFileSync(fd, content, 'utf8');
-    fs.fsyncSync(fd); // 先落到磁盘再改名，断电也不会留下半截文件
-  } finally {
-    fs.closeSync(fd);
-  }
-  fs.renameSync(tmp, file);
 }
 
 /* 纯函数：给定 [{f,t}] 和当前时间，返回应保留的文件名集合 */

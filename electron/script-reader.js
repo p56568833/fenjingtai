@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
+const { findEocd, eocdInfo, parseCentralDirectory, localDataStart } = require('./zip-directory');
 
 const SCRIPT_EXTS = ['md', 'markdown', 'txt', 'docx', 'json', 'srt', 'vtt', 'zip'];
 const MAX_BYTES = 30 * 1024 * 1024;
@@ -27,38 +28,19 @@ function decodeText(buf) {
   }
 }
 
-/* ── 最小 ZIP 读取：只取一个条目 ── */
+/* ── 最小 ZIP 读取：只取一个条目（目录解析和项目包共用 zip-directory.js） ── */
 function readZipEntry(buf, wanted) {
-  let eocd = -1;
-  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
-    if (buf.readUInt32LE(i) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
-  }
+  const eocd = findEocd(buf);
   if (eocd < 0) throw new Error('不是有效的 docx（找不到 ZIP 目录）');
-  const count = buf.readUInt16LE(eocd + 10);
-  let p = buf.readUInt32LE(eocd + 16);
-  for (let n = 0; n < count; n++) {
-    if (buf.readUInt32LE(p) !== 0x02014b50) break;
-    const method = buf.readUInt16LE(p + 10);
-    const csize = buf.readUInt32LE(p + 20);
-    const nameLen = buf.readUInt16LE(p + 28);
-    const extraLen = buf.readUInt16LE(p + 30);
-    const commentLen = buf.readUInt16LE(p + 32);
-    const local = buf.readUInt32LE(p + 42);
-    const name = buf.subarray(p + 46, p + 46 + nameLen).toString('utf8');
-    if (name === wanted) {
-      if (buf.readUInt32LE(local) !== 0x04034b50) throw new Error('docx 内部结构损坏');
-      const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
-      const data = buf.subarray(start, start + csize);
-      if (method === 0) return data;
-      if (method === 8) return zlib.inflateRawSync(data);
-      throw new Error('docx 使用了不支持的压缩方式');
-    }
-    p += 46 + nameLen + extraLen + commentLen;
-  }
-  return null;
+  const { count, cdSize, cdStart } = eocdInfo(buf, eocd);
+  const entry = parseCentralDirectory(buf.subarray(cdStart, cdStart + cdSize), count).find(e => e.name === wanted);
+  if (!entry) return null;
+  const start = localDataStart(buf.subarray(entry.local, entry.local + 30), entry.local);
+  if (start < 0) throw new Error('docx 内部结构损坏');
+  const data = buf.subarray(start, start + entry.csize);
+  if (entry.method === 0) return data;
+  if (entry.method === 8) return zlib.inflateRawSync(data);
+  throw new Error('docx 使用了不支持的压缩方式');
 }
 
 const decodeXml = s =>

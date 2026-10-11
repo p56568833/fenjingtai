@@ -10,11 +10,20 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const { pipeline } = require('node:stream/promises');
 const { Transform } = require('node:stream');
+const { freePath } = require('./fs-utils');
+const {
+  MAX32,
+  EOCD_SEARCH,
+  findEocd,
+  eocdInfo,
+  zip64Directory,
+  parseCentralDirectory,
+  localDataStart,
+} = require('./zip-directory');
 
 /* 打包里的项目文件名：导入时靠它认出这是分镜台的项目包 */
 const PROJECT_ENTRY = '分镜台项目.json';
 const CHUNK = 4 * 1024 * 1024;
-const MAX32 = 0xffffffff;
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -236,75 +245,21 @@ async function readZipIndex(zipPath) {
   const fh = await fsp.open(zipPath, 'r');
   try {
     const { size } = await fh.stat();
-    const tailLen = Math.min(size, 65557 + 20);
+    const tailLen = Math.min(size, EOCD_SEARCH + 20);
     const tail = Buffer.alloc(tailLen);
     await fh.read(tail, 0, tailLen, size - tailLen);
-    let eocd = -1;
-    for (let i = tailLen - 22; i >= 0; i--)
-      if (tail.readUInt32LE(i) === 0x06054b50) {
-        eocd = i;
-        break;
-      }
+    const eocd = findEocd(tail);
     if (eocd < 0) throw new Error('不是有效的 ZIP 文件');
-    let count = tail.readUInt16LE(eocd + 10);
-    let cdSize = tail.readUInt32LE(eocd + 12);
-    let cdStart = tail.readUInt32LE(eocd + 16);
-    const locAt = eocd - 20;
-    if (locAt >= 0 && tail.readUInt32LE(locAt) === 0x07064b50) {
-      const recAt = Number(tail.readBigUInt64LE(locAt + 8));
+    let { count, cdSize, cdStart, zip64At } = eocdInfo(tail, eocd);
+    if (zip64At != null) {
       const rec = Buffer.alloc(56);
-      await fh.read(rec, 0, 56, recAt);
-      if (rec.readUInt32LE(0) !== 0x06064b50) throw new Error('ZIP64 目录损坏');
-      count = Number(rec.readBigUInt64LE(32));
-      cdSize = Number(rec.readBigUInt64LE(40));
-      cdStart = Number(rec.readBigUInt64LE(48));
+      await fh.read(rec, 0, 56, zip64At);
+      ({ count, cdSize, cdStart } = zip64Directory(rec));
     }
     if (cdStart + cdSize > size) throw new Error('ZIP 目录损坏');
     const cd = Buffer.alloc(cdSize);
     await fh.read(cd, 0, cdSize, cdStart);
-    const out = [];
-    let p = 0;
-    for (let n = 0; n < count; n++) {
-      if (p + 46 > cd.length || cd.readUInt32LE(p) !== 0x02014b50) throw new Error('ZIP 目录损坏');
-      const flags = cd.readUInt16LE(p + 8);
-      const method = cd.readUInt16LE(p + 10);
-      const crc = cd.readUInt32LE(p + 16);
-      let csize = cd.readUInt32LE(p + 20);
-      let usize = cd.readUInt32LE(p + 24);
-      const nameLen = cd.readUInt16LE(p + 28);
-      const extraLen = cd.readUInt16LE(p + 30);
-      const commentLen = cd.readUInt16LE(p + 32);
-      const ext = cd.readUInt32LE(p + 38);
-      let local = cd.readUInt32LE(p + 42);
-      const name = cd.subarray(p + 46, p + 46 + nameLen).toString('utf8');
-      let q = p + 46 + nameLen;
-      const extraEnd = q + extraLen;
-      while (q + 4 <= extraEnd) {
-        const id = cd.readUInt16LE(q),
-          len = cd.readUInt16LE(q + 2);
-        if (id === 0x0001) {
-          let r = q + 4;
-          if (usize === MAX32) ((usize = Number(cd.readBigUInt64LE(r))), (r += 8));
-          if (csize === MAX32) ((csize = Number(cd.readBigUInt64LE(r))), (r += 8));
-          if (local === MAX32) local = Number(cd.readBigUInt64LE(r));
-        }
-        q += 4 + len;
-      }
-      const mode = (ext >>> 16) & 0o170000;
-      out.push({
-        name,
-        method,
-        crc,
-        csize,
-        usize,
-        local,
-        encrypted: !!(flags & 1),
-        dir: name.endsWith('/') || mode === 0o040000,
-        symlink: mode === 0o120000,
-      });
-      p += 46 + nameLen + extraLen + commentLen;
-    }
-    return { entries: out, size };
+    return { entries: parseCentralDirectory(cd, count), size };
   } finally {
     await fh.close();
   }
@@ -313,8 +268,9 @@ async function readZipIndex(zipPath) {
 async function dataOffset(fh, entry) {
   const h = Buffer.alloc(30);
   await fh.read(h, 0, 30, entry.local);
-  if (h.readUInt32LE(0) !== 0x04034b50) throw new Error(`ZIP 内部结构损坏：${entry.name}`);
-  return entry.local + 30 + h.readUInt16LE(26) + h.readUInt16LE(28);
+  const start = localDataStart(h, entry.local);
+  if (start < 0) throw new Error(`ZIP 内部结构损坏：${entry.name}`);
+  return start;
 }
 
 /* 读出一个小文件（项目 JSON）到内存 */
@@ -412,11 +368,7 @@ async function extractPack(zipPath, destDir, { onProgress, signal } = {}) {
 }
 
 /* 不重名的新文件夹：项目名 → 项目名 (2) … */
-function uniqueDir(parent, name) {
-  let p = path.join(parent, name);
-  for (let i = 2; fs.existsSync(p); i++) p = path.join(parent, `${name} (${i})`);
-  return p;
-}
+const uniqueDir = (parent, name) => freePath(parent, name);
 
 /* 一组本地文件的大小（打包前统计用） */
 async function fileSizes(paths) {
