@@ -1,5 +1,5 @@
-/* 章节管理：点章节行弹菜单（改名 / 插入新章节 / 只删标题 / 删整节），双击章节名直接改名；
-   表格 / 原文两个视图共用，数据操作全在 actions.js。 */
+/* 章节管理：在左侧目录里管——鼠标移上去点「···」或右键弹菜单（改名 / 插入新章节 / 只删标题 / 删整节），
+   双击目录里的章节名直接改名；正文里的章节标题只是标题，双击也能改名。数据操作全在 actions.js。 */
 import { state, rowById } from '../app/state.js';
 import {
   insertSectionWithSentence,
@@ -70,8 +70,7 @@ function onMenuAction(item) {
   const act = item.dataset.secAct;
   closePop();
   if (act === 'rename') {
-    const holder = document.querySelector(`.section-row[data-sid="${id}"], .ck-sec[data-sid="${id}"]`);
-    const nameEl = holder && holder.querySelector('.name');
+    const nameEl = document.querySelector(`#outline .outline-item[data-sec="${id}"] .name`);
     nameEl && startRename(nameEl, id);
   }
   if (act === 'insert') {
@@ -99,17 +98,30 @@ function onMenuAction(item) {
 export function initSections() {
   const rows = document.querySelector('#rows');
 
-  rows.addEventListener('click', e => {
-    // 点章节行：弹管理菜单（改名中的章节名除外，那会儿在打字）
-    const secRow = e.target.closest('.section-row, .ck-sec');
-    if (secRow && !e.target.closest('.name[contenteditable="true"]')) {
-      e.stopPropagation();
-      if (popOpenFor(secRow)) {
-        closePop();
-        return;
-      }
-      sectionMenu(+secRow.dataset.sid, secRow);
-    }
+  const outline = document.querySelector('#outline');
+  const toggleMenu = (id, anchor) => {
+    if (popOpenFor(anchor)) closePop();
+    else sectionMenu(id, anchor);
+  };
+  outline.addEventListener('click', e => {
+    // 改名框里点来点去别触发跳转
+    if (e.target.closest('.name[contenteditable="true"]')) return e.stopPropagation();
+    const more = e.target.closest('[data-sec-more]');
+    if (!more) return;
+    e.stopPropagation(); // 点「···」只开菜单，不跳转
+    toggleMenu(+more.dataset.secMore, more);
+  });
+  outline.addEventListener('contextmenu', e => {
+    const item = e.target.closest('.outline-item[data-sec]');
+    if (!item || e.target.closest('.name[contenteditable="true"]')) return;
+    e.preventDefault();
+    toggleMenu(+item.dataset.sec, item.querySelector('[data-sec-more]') || item);
+  });
+  outline.addEventListener('dblclick', e => {
+    const item = e.target.closest('.outline-item[data-sec]');
+    if (!item || e.target.closest('[data-sec-more]')) return;
+    const nameEl = item.querySelector('.name');
+    if (nameEl && !nameEl.isContentEditable) startRename(nameEl, +item.dataset.sec);
   });
 
   rows.addEventListener('dblclick', e => {
@@ -129,7 +141,7 @@ export function initSections() {
     true,
   );
 
-  rows.addEventListener(
+  document.addEventListener(
     'keydown',
     e => {
       if (!ren || e.target !== ren.el) return;
@@ -149,7 +161,7 @@ export function initSections() {
     },
     true,
   );
-  rows.addEventListener('focusout', e => {
+  document.addEventListener('focusout', e => {
     if (ren && e.target === ren.el) commitRename();
   });
 }

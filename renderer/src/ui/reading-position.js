@@ -7,12 +7,12 @@ let cancelPending = null;
 function visibleSentence(wrap) {
   const view = wrap.getBoundingClientRect();
   let top = view.top;
-  for (const heading of wrap.querySelectorAll('.section-row,.ck-sec')) {
+  for (const heading of wrap.querySelectorAll('.section-row,.sec-pin.on,.ck-sec')) {
     const box = heading.getBoundingClientRect();
     if (box.top <= view.top + 1 && box.bottom > top) top = box.bottom;
   }
   const blocks = wrap.querySelectorAll(
-    '.rows > .row,.rows > .shared-scene,.ck-article > .ck-p,.ck-article > .shared-passage',
+    '.rows > .row,.rows > .shared-scene,.sec-block > .row,.sec-block > .shared-scene,.ck-article > .ck-p,.ck-article > .shared-passage',
   );
   for (const block of blocks) {
     const box = block.getBoundingClientRect();

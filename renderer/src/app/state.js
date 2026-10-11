@@ -4,6 +4,7 @@ import { emit } from './events.js';
 import { hydrateProjectAssets } from '../core/asset-model.js';
 import { normalizeTypes, typeIndex } from '../core/types.js';
 import { buildTimeline } from '../core/timeline.js';
+import { syncSpansFromTimes } from '../core/shot-layout.js';
 import { speechUnits } from '../core/text.js';
 
 export { on, emit } from './events.js';
@@ -137,6 +138,7 @@ export function loadProjectIntoState(p) {
   state.sel = state.rows.some(r => r.kind === 'line' && r.id === p.cursorId) ? p.cursorId : (first?.id ?? null);
   state.speechRate = Number(p.speechRate) >= 1 && Number(p.speechRate) <= 10 ? Number(p.speechRate) : 4.5;
   rev++;
+  syncSpansFromTimes(state.rows, timeline()); // 拖过时间的画面：句子范围跟着时间走
   emit('project-loaded');
 }
 

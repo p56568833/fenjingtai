@@ -151,8 +151,10 @@ export async function runFeatureTests(t) {
   );
   t('没录的句子标为推算', L(2).time.st === 'est' && L(2).time.start >= L(1).time.end - 0.01);
   t(
-    '表格显示时间码',
-    $(`.row[data-id="${L(0).id}"] .dur .tc`)?.textContent === '00:01' && $('#durHeading').textContent === '时间码',
+    '表格只显示秒数，时间码在悬停提示里',
+    /^\d+\.\ds$/.test($(`.row[data-id="${L(0).id}"] .dur .tc`)?.textContent || '') &&
+      $(`.row[data-id="${L(0).id}"] .dur .tc`).title.includes('00:01') &&
+      $('#durHeading').textContent === '时长',
   );
   const csv = buildCsv({ title: 'x', rows: state.rows, registry: {}, missing: new Set() });
   t('CSV 带开始 / 结束时间', csv.includes('开始时间') && csv.includes('00:00:01.000'));

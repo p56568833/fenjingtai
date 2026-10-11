@@ -353,9 +353,11 @@ export async function runWorkspaceTests(t) {
   setShotRefsFromText(assetRow(), '/tmp/参考.png\n/tmp/样片.mp4');
   renderInspector(true);
   t(
-    '视频素材有预览和片段入口',
+    '视频素材点缩略图预览（片段在预览里设），卡片上只有「不满意」',
     !!$('.asset-open[data-preview-usage]') &&
-      !!$('[data-clip-usage]') &&
+      !$('[data-clip-usage]') &&
+      !$('[data-sys-open]') &&
+      !!$('[data-rework-usage]') &&
       !!$('.asset-thumb[data-preview-path="/tmp/样片.mp4"]') &&
       [...$$('.inspector-asset')].some(el => el.textContent.includes('视频')),
   );

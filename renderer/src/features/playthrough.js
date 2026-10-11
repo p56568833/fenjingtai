@@ -68,6 +68,25 @@ function rowAtIn(u, t) {
   return hit || (t < u.start ? u.members[0] : u.members[u.members.length - 1]);
 }
 
+/* 画面下面那行：类型 · 第几句 · 正在放的画面。每次都按当前排布重算（调换 / 拖过顺序后编号跟着变），内容没变不重画 */
+let metaHtml = '';
+function paintMeta(u, r, item) {
+  let html = '';
+  if (u && r) {
+    const t0 = types().get(r.type);
+    const color = types().color(r.type) || '#8a93a6';
+    html =
+      `<span class="pt-type" style="--tc:${color}">${t0 ? typeIcon(t0) + esc(t0.label) : '未标注'}</span>` +
+      `<span>第 ${u.members[0].no}${u.members.length > 1 ? '–' + u.members[u.members.length - 1].no : ''} 句 · ${fmtLen(u.end - u.start)}</span>` +
+      (item
+        ? `<span>${circled(item.n)} ${esc(item.asset.name || '')}${item.usage.clip ? ` · 片段 ${fmtTime(item.usage.clip.in)}–${fmtTime(item.usage.clip.out)}` : ''}</span>`
+        : '');
+  }
+  if (html === metaHtml) return;
+  metaHtml = html;
+  $('#ptMeta').innerHTML = html;
+}
+
 /* ── 画面：按镜头排布换素材（空着的地方黑屏） ── */
 function showUnit(i, t) {
   const u = units[i];
@@ -76,6 +95,7 @@ function showUnit(i, t) {
   const item = u ? itemAt(u.layout, t - u.start) : null;
   const key = `${i}|${item ? `${item.assetId}@${item.start}` : items.length ? 'gap' : 'card'}`;
   if (i !== trackUnit) renderTrack(i);
+  paintMeta(u, r, item);
   if (key === shownKey) return syncVideo(t);
   shownKey = key;
   current = i;
@@ -112,13 +132,6 @@ function showUnit(i, t) {
   } else {
     stage.innerHTML = cardHTML(r, color);
   }
-  const t0 = ti.get(r.type);
-  $('#ptMeta').innerHTML =
-    `<span class="pt-type" style="--tc:${color}">${t0 ? typeIcon(t0) + esc(t0.label) : '未标注'}</span>` +
-    `<span>第 ${u.members[0].no}${u.members.length > 1 ? '–' + u.members[u.members.length - 1].no : ''} 句 · ${fmtLen(u.end - u.start)}</span>` +
-    (item
-      ? `<span>${circled(item.n)} ${esc(item.asset.name || '')}${item.usage.clip ? ` · 片段 ${fmtTime(item.usage.clip.in)}–${fmtTime(item.usage.clip.out)}` : ''}</span>`
-      : '');
   syncVideo(t, true);
 }
 
@@ -368,6 +381,7 @@ function refreshSoon() {
     if (range && i >= 0) range = { start: units[i].start, end: units[i].end };
     trackUnit = -1;
     shownKey = '';
+    metaHtml = '';
     const t = currentTime();
     tick(t);
     if (i >= 0 && trackUnit !== i) renderTrack(i);
@@ -518,6 +532,7 @@ function openPlaythrough(fromId, { only = false } = {}) {
   open = true;
   current = -1;
   shownKey = '';
+  metaHtml = '';
   trackUnit = -1;
   pick = null;
   $('#ptMask').classList.add('show');

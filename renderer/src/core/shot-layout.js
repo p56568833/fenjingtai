@@ -10,7 +10,7 @@
 
    上屏的画面 = 主画面（图片 / 视频）；一个主画面都没有时退回第一个「未分配」的画面（兼容旧项目）。
    叠加、备选不在这里排。 */
-import { isRole } from './shots.js';
+import { isRole, shots, applySpan } from './shots.js';
 import { usageList, kindOf } from './asset-model.js';
 import { spanOf } from './timeline.js';
 
@@ -57,8 +57,47 @@ export function pictureUsages(registry, members) {
   return pick(u => !isRole(u.role)).slice(0, 1);
 }
 
-/* 按句子排：每个画面占它出现的那几句；时间上重叠的几个画面平分重叠的那一整段（按列表顺序先后） */
+/* 按句子排：每个画面占它配的那几句。几个画面配到同一句时，只平分那一句：
+   每句里先放从前面延续过来的画面、再放从这句开始的（同样开始的按列表顺序，「往前 / 往后」调的就是它）。
+   这样排出来每个画面都是连续的一段才采用；排不连续（比如一个画面整个套在另一个里面）就退回老办法：
+   互相重叠的几个画面平分重叠的那一整段 */
+function perSentence(items, members, tl, base) {
+  const spans = members.map(m => tl.times.get(m.id));
+  if (spans.some(t => !t)) return false;
+  const ranges = items.map(it => {
+    const idx = members
+      .map((m, i) => (usageList(m).some(u => u.assetId === it.assetId && !u.off) ? i : -1))
+      .filter(i => i >= 0);
+    return idx.length ? { from: idx[0], to: idx[idx.length - 1] } : { from: 0, to: members.length - 1 };
+  });
+  const pieces = items.map(() => []);
+  members.forEach((m, i) => {
+    const here = items
+      .map((it, k) => k)
+      .filter(k => ranges[k].from <= i && i <= ranges[k].to)
+      .sort((a, b) => ranges[a].from - ranges[b].from || items[a].listIndex - items[b].listIndex);
+    if (!here.length) return;
+    const t = spans[i];
+    const step = (t.end - t.start) / here.length;
+    here.forEach((k, n) => pieces[k].push([t.start + step * n - base, t.start + step * (n + 1) - base]));
+  });
+  // 每个画面的几小段必须首尾相接（句与句之间的停顿算进去）
+  const gapOk = (a, b) => {
+    const i = spans.findIndex(t => Math.abs(t.end - base - a) < 1e-6);
+    const j = spans.findIndex(t => Math.abs(t.start - base - b) < 1e-6);
+    return Math.abs(a - b) < 1e-6 || (i >= 0 && j === i + 1);
+  };
+  if (!pieces.every(ps => ps.length && ps.every((p, n) => n === 0 || gapOk(ps[n - 1][1], p[0])))) return false;
+  items.forEach((it, k) => {
+    it.start = pieces[k][0][0];
+    it.end = pieces[k][pieces[k].length - 1][1];
+  });
+  return true;
+}
+
+/* 老办法：每个画面占它出现的那几句；时间上重叠的几个画面平分重叠的那一整段（按列表顺序先后） */
 function bySentence(items, members, tl, base) {
+  if (perSentence(items, members, tl, base)) return;
   for (const it of items) {
     const on = members.filter(m => usageList(m).some(u => u.assetId === it.assetId && !u.off));
     const sp = spanOf(
@@ -152,6 +191,53 @@ export function layoutShot(registry, members, tl) {
     it.over = it.end > dur + 0.05;
   });
   return { start: span.start, end: span.end, dur, timed, owner, items };
+}
+
+/* 手动时间属于哪几句：start / end 是相对镜头开头的秒数。
+   占了某句一半以上就算配这句；哪句都没占到一半，就算占得最多的那句（落在句间停顿里的算最近的那句）。
+   返回 members 下标 {from, to}（连续） */
+export function linesOfTime(members, tl, start, end) {
+  const span = spanOf(
+    tl,
+    members.map(m => m.id),
+  );
+  if (!span || !members.length) return null;
+  const parts = members.map(m => {
+    const t = tl.times.get(m.id);
+    if (!t) return { ov: 0, len: 0, dist: Infinity };
+    const s = t.start - span.start,
+      e = t.end - span.start;
+    const ov = Math.max(0, Math.min(end, e) - Math.max(start, s));
+    const dist = Math.max(0, s - end, start - e);
+    return { ov, len: e - s, dist };
+  });
+  const hit = parts.map((p, i) => (p.len > 0 && p.ov >= p.len / 2 - 1e-6 ? i : -1)).filter(i => i >= 0);
+  if (!hit.length) {
+    const best = parts.reduce(
+      (b, p, i) => (p.ov > parts[b].ov || (p.ov === parts[b].ov && p.dist < parts[b].dist) ? i : b),
+      0,
+    );
+    return { from: best, to: best };
+  }
+  return { from: hit[0], to: hit[hit.length - 1] };
+}
+
+/* 载入项目时补一遍：拖过时间（at 有效）的画面，按时间重新认它属于哪几句（1.10 之前拖完不更新句子） */
+export function syncSpansFromTimes(rows, tl) {
+  let n = 0;
+  for (const members of shots(rows)) {
+    if (members.length < 2) continue;
+    const owner = members[0].id;
+    for (const u of usageList(members[0])) {
+      if (u.role !== 'main' || !validAt(u.at, owner)) continue;
+      const lines = linesOfTime(members, tl, u.at.start, u.at.end);
+      if (!lines) continue;
+      const before = members.map(m => usageList(m).find(x => x.assetId === u.assetId)?.off || false).join();
+      applySpan(members, u.assetId, lines.from, lines.to);
+      if (members.map(m => usageList(m).find(x => x.assetId === u.assetId)?.off || false).join() !== before) n++;
+    }
+  }
+  return n;
 }
 
 /* 镜头内 rel 秒时正在上屏的画面（超出口播的部分不算）；没有就是空白 */

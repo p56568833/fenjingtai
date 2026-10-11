@@ -72,7 +72,7 @@ export function renderCheck() {
     if (r.kind === 'section') {
       flushP();
       closeGroup();
-      html += `<div class="ck-sec" data-sid="${r.id}"><span class="dm">◆</span><span class="name">${esc(r.text)}</span><span class="line"></span><span class="sec-pen" title="改名 / 删节"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span></div>`;
+      html += `<div class="ck-sec" data-sid="${r.id}"><span class="dm">◆</span><span class="name">${esc(r.text)}</span><span class="line"></span></div>`;
       continue;
     }
     if (!match(r)) continue;

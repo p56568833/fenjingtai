@@ -938,7 +938,8 @@ test('PDF 按自定义类型排版：类型名、颜色，不需要配画面的�
 });
 
 /* ── 1.8：一个镜头多个主画面 + 手动出现时间 ── */
-const { layoutShot, itemAt, clampSpan } = await import('../renderer/src/core/shot-layout.js');
+const { layoutShot, itemAt, clampSpan, linesOfTime, syncSpansFromTimes } =
+  await import('../renderer/src/core/shot-layout.js');
 const L8 = () => {
   // 三句，每句 9 个字 → 语速 4.5 字/秒 时每句 2 秒，整段 6 秒
   const rows = [1, 2, 3].map(i => ({ id: i, kind: 'line', no: i, text: '一二三四五六七八九', type: 'real' }));
@@ -987,6 +988,63 @@ test('镜头排布：按句子范围各占各的，叠加和备选不上屏', ()
     ['a', 0, 2],
     ['b', 2, 6],
   ]);
+});
+test('镜头排布：两个画面只在一句上重叠时，只平分那一句', () => {
+  const rows = L8();
+  setUs(rows, [
+    { assetId: 'a', role: 'main' },
+    { assetId: 'b', role: 'main' },
+  ]);
+  rows[2].assetUsages[0].off = true; // 甲配第 1–2 句
+  rows[0].assetUsages[1].off = true; // 乙配第 2–3 句
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [
+    ['a', 0, 3],
+    ['b', 3, 6],
+  ]);
+  // 乙整个套在甲里面（甲三句、乙只第 2 句）排不连续：退回整段平分
+  setUs(rows, [
+    { assetId: 'a', role: 'main' },
+    { assetId: 'b', role: 'main' },
+  ]);
+  rows[0].assetUsages[1].off = true;
+  rows[2].assetUsages[1].off = true;
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [
+    ['a', 0, 3],
+    ['b', 3, 6],
+  ]);
+  // 甲第 1 句、乙第 1–3 句：第 1 句两人平分，乙接着放完
+  setUs(rows, [
+    { assetId: 'a', role: 'main' },
+    { assetId: 'b', role: 'main' },
+  ]);
+  rows[1].assetUsages[0].off = true;
+  rows[2].assetUsages[0].off = true;
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [
+    ['a', 0, 1],
+    ['b', 1, 6],
+  ]);
+});
+test('手动时间属于哪几句：占一半以上算，都不到一半算占得最多的那句；载入时补齐', () => {
+  const rows = L8(); // 每句 2 秒：0–2 / 2–4 / 4–6
+  const tl = tl8(rows);
+  assert.deepEqual(linesOfTime(rows, tl, 0, 2.3), { from: 0, to: 0 }); // 只多拖了 0.3 秒，还是第 1 句
+  assert.deepEqual(linesOfTime(rows, tl, 0.2, 3.2), { from: 0, to: 1 }); // 第 2 句占了 1.2 秒，过半
+  assert.deepEqual(linesOfTime(rows, tl, 1.5, 2.4), { from: 0, to: 0 }); // 都不到一半：第 1 句 0.5 > 第 2 句 0.4
+  assert.deepEqual(linesOfTime(rows, tl, 2, 6), { from: 1, to: 2 });
+  setUs(rows, [
+    { assetId: 'a', role: 'main', at: { start: 0, end: 2.3, of: 1 } },
+    { assetId: 'b', role: 'main', at: { start: 2.3, end: 6, of: 1 } },
+  ]);
+  assert.equal(syncSpansFromTimes(rows, tl), 2);
+  assert.deepEqual(
+    rows.map(r => usageList(r).map(u => !u.off)),
+    [
+      [true, false],
+      [false, true],
+      [false, true],
+    ],
+  );
+  assert.equal(syncSpansFromTimes(rows, tl), 0); // 已经对上了，再跑一遍不改
 });
 test('镜头排布：手动秒数照放，空着的地方是空白，超出口播的标出来', () => {
   const rows = L8();
@@ -1640,5 +1698,100 @@ test('待返工：返工单写句号、要换掉的素材和理由、补充要�
   assert.deepEqual(back[0].assetUsages[0].rework, { note: '要彩色', at: 1 });
   assert.equal(back[0].reworkOff, 5);
   assert.equal(normalizeProjectRows([{ id: 1, kind: 'line', text: 'x', rework: 'bad' }])[0].rework, undefined);
+});
+const { coverageOf, shotCoverage } = await import('../renderer/src/core/coverage.js');
+const { cleanBest, localClip } = await import('../renderer/src/core/candidates.js');
+test('够不够：需要 = 分到的口播秒数，可用 = 可用片段（没标按整个文件），只拿这两个比', () => {
+  const vid = (path, durationSec, clip, start = 0, end = 7.9) => ({
+    kind: 'video',
+    start,
+    end,
+    asset: { path, ...(durationSec != null ? { durationSec } : {}) },
+    usage: { assetId: 'a', ...(clip ? { clip } : {}) },
+  });
+  // 文件 63 秒，标了 15–22 秒（7 秒），要配 7.9 秒：差 0.9 秒
+  let c = coverageOf(vid('/m/x.mp4', 63, { in: 15, out: 22 }), 20.8);
+  assert.equal(c.verdict, 'short');
+  assert.equal(c.file, 63);
+  assert.equal(c.usable, 7);
+  assert.ok(Math.abs(c.lack - 0.9) < 1e-9);
+  // 没标可用段：按整个文件算，够
+  c = coverageOf(vid('/m/x.mp4', 63), 20.8);
+  assert.equal(c.verdict, 'ok');
+  assert.equal(c.whole, true);
+  assert.ok(Math.abs(c.spare - 55.1) < 1e-9);
+  // 文件时长还没读到：不知道
+  assert.equal(coverageOf(vid('/m/x.mp4', null), 20.8).verdict, 'unknown');
+  // 在线还没保存：地址里的 #t= 就是要截的那段；文件时长（原片）不算数
+  c = coverageOf(vid('https://a/b.mp4#t=12,75', 300), 20.8);
+  assert.equal(c.online, true);
+  assert.equal(c.file, null);
+  assert.equal(c.usable, 63);
+  // 超出口播的部分不算需要；图片不限时长
+  assert.equal(coverageOf(vid('/m/x.mp4', 5, null, 18, 25), 20.8).need.toFixed(1), '2.8');
+  assert.equal(coverageOf({ kind: 'image', start: 0, end: 4, asset: {}, usage: {} }, 10).verdict, 'still');
+  // 差不到 0.05 秒算够
+  assert.equal(coverageOf(vid('/m/x.mp4', 7.86), 20.8).verdict, 'ok');
+  const m = shotCoverage({ dur: 10, items: [{ ...vid('/m/y.mp4', 3, null, 0, 5), assetId: 'y', n: 1 }] });
+  assert.equal(m.get('y').verdict, 'short');
+  assert.equal(m.get('y').n, 1);
+  assert.equal(shotCoverage(null).size, 0);
+});
+test('候选清单 best（精选段）：可选；必须在 in–out 内；通过时设成可用片段，保存后换算成文件里的秒数', () => {
+  const doc = JSON.parse(JSON.stringify(CANDIDATE_EXAMPLE));
+  doc.shots[0].lines = '1-2';
+  doc.shots[0].cands[0].for = '1';
+  doc.shots[0].cands[1].for = '2';
+  assert.deepEqual(validateCandidateDoc(doc), []);
+  const bad = JSON.parse(JSON.stringify(doc));
+  bad.shots[0].cands[0].best = { in: 5, out: 17 };
+  assert.match(validateCandidateDoc(bad).join('\n'), /best（5–17）必须在 in–out（8–20）范围内/);
+  bad.shots[0].cands[0].best = { in: '11', out: 17 };
+  assert.match(validateCandidateDoc(bad).join('\n'), /best 必须写成/);
+  bad.shots[0].cands[0].best = { in: 11, out: 17, note: 'x' };
+  assert.match(validateCandidateDoc(bad).join('\n'), /best 必须写成/);
+  bad.shots[0].cands[0].best = { in: 17, out: 11 };
+  assert.match(validateCandidateDoc(bad).join('\n'), /best 的 out 必须大于 in/);
+  assert.equal(cleanBest({ in: 5, out: 9 }, 8, 20), null);
+  assert.equal(cleanBest(null, 8, 20), null);
+
+  const rows = [1, 2].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n, groupId: 'g' }));
+  const plan = planImport(doc, '/e.json', rows, []);
+  const [c1, c2] = plan.added;
+  assert.deepEqual(c1.best, { in: 11, out: 17.5 });
+  assert.equal(c2.best, null, '没写 best = 整段');
+  // 只改 best：不回到待审
+  const doc2 = JSON.parse(JSON.stringify(doc));
+  doc2.shots[0].cands[0].best = { in: 9, out: 15 };
+  const old = { ...c1, decision: 'ok', assetId: 'x', savedPath: '/s.mp4' };
+  const up = planImport(doc2, '/e.json', rows, [old]).updated[0];
+  assert.equal(up.changed, false);
+  assert.equal(up.next.decision, 'ok');
+  assert.deepEqual(up.next.best, { in: 9, out: 15 });
+  // 项目 JSON 往返保留
+  const back = sanitizeProjectCandidates(JSON.parse(JSON.stringify([c1])), { rowIds: new Set([1, 2]) });
+  assert.deepEqual(back[0].best, { in: 11, out: 17.5 });
+
+  // 通过：可用片段 = 精选段（原片秒数）；保存后：文件 = 原片 8–20，可用片段换成文件里的 3–9.5
+  const reg = {};
+  const res = attachCandidate(c1, rows, reg);
+  const u = rows[0].assetUsages.find(x => x.assetId === res.assetId);
+  assert.deepEqual(u.clip, { in: 11, out: 17.5 });
+  c1.assetId = res.assetId;
+  swapToLocal(c1, '/m/第1-2句_x_0m08s-0m20s.mp4', rows, reg);
+  assert.deepEqual(rows[0].assetUsages.find(x => x.assetId === res.assetId).clip, { in: 3, out: 9.5 });
+  assert.equal(reg[res.assetId].path, '/m/第1-2句_x_0m08s-0m20s.mp4');
+  assert.equal(reg[res.assetId].durationSec, undefined, '文件时长等界面读出来再记');
+});
+test('保存到本地时可用片段的换算：盖满整个文件 = 整段；超出文件的部分截掉；不知道 in/out 退回整段', () => {
+  const c = { in: 12, out: 75 };
+  assert.equal(localClip({ in: 12, out: 75 }, c), null);
+  assert.equal(localClip({ in: 12.02, out: 74.98 }, c), null);
+  assert.deepEqual(localClip({ in: 15, out: 22 }, c), { in: 3, out: 10 });
+  assert.deepEqual(localClip({ in: 5, out: 22 }, c), { in: 0, out: 10 });
+  assert.deepEqual(localClip({ in: 70, out: 90 }, c), { in: 58, out: 63 });
+  assert.equal(localClip({ in: 80, out: 90 }, c), null);
+  assert.equal(localClip({ in: 15, out: 22 }, {}), null);
+  assert.equal(localClip(null, c), null);
 });
 console.log(`${count} 项数据回归通过`);

@@ -6,7 +6,7 @@ import { undo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
 import { checkDelivery } from '../core/shots.js';
 import { usageList } from '../core/asset-model.js';
-import { addRefsToShot, setUsageSpan } from '../app/asset-actions.js';
+import { addRefsToShot } from '../app/asset-actions.js';
 import { setType, ungroupAction } from '../app/actions.js';
 import { buildAssetListMd } from '../core/export-doc.js';
 
@@ -61,45 +61,64 @@ export async function runRoleTests(t) {
   if ($('#inspector').hidden) click('#btnDetail');
   click(`[data-detail="${A.id}"]`);
   t(
-    '面板每条素材都有主画面 / 叠加 / 备选三个按钮',
-    $$('#inspector .asset-role').length === 3 && $$('#inspector .role-chip').length === 9,
+    '面板每条素材都有句子条（每句一格）和备选按钮，顶上有每句画面总览',
+    $$('#inspector .asset-lines').length === 3 &&
+      $$('#inspector .line-cell').length === 9 &&
+      $$('#inspector [data-alt-usage]').length === 3 &&
+      $$('#inspector .lo-cell').length === 3 &&
+      !$('#inspector .role-chip'),
   );
-
-  click('#inspector [data-role-usage="1"][data-role="overlay"]');
+  const cellOf = (usage, k) => `#inspector [data-line-usage="${usage}"][data-line="${k}"]`;
+  click('#inspector [data-alt-usage="1"]');
   t(
-    '设为叠加，组内每句同步',
-    [0, 1, 2].every(n => us(n)[1].role === 'overlay'),
+    '备选点一下放回上屏，组内每句同步',
+    [0, 1, 2].every(n => us(n)[1].role === 'main'),
   );
-  // 句子范围选择已从面板移除，范围规则仍通过数据操作验证。
-  const pickSpan = (index, from, to) => {
-    const row = state.rows.find(r => r.id === state.sel);
-    setUsageSpan(row, index, from, to);
-  };
-  pickSpan(1, 1, 1);
-  t('位置：叠加只在第二句出现', us(0)[1].off === true && !us(1)[1].off && us(2)[1].off === true);
+  click(cellOf(1, 0));
+  click(cellOf(1, 2));
+  t('句子条：点两头往里缩，只配第二句', us(0)[1].off === true && !us(1)[1].off && us(2)[1].off === true);
+  click(cellOf(1, 1));
+  t('只剩一句时再点不会变成一句都不配', !us(1)[1].off);
   await pause(20);
-  t('表格写明叠加出现在第几句', cell().includes(`第 ${lines()[1].no} 句`) && cell().includes('角色-叠.png'), cell());
+  t('表格写明画面配第几句', cell().includes(`第 ${lines()[1].no} 句`) && cell().includes('角色-叠.png'), cell());
+  click(cellOf(1, 0));
+  t('点范围外的格子往那边延伸', !us(0)[1].off && !us(1)[1].off && us(2)[1].off === true);
 
-  click('#inspector [data-role-usage="2"][data-role="main"]');
-  t('1.8 一段可以有多个主画面：新设的主画面不再把原来的挤成备选', us()[2].role === 'main' && us()[0].role === 'main');
-  pickSpan(2, 1, 2);
-  pickSpan(0, 0, 0);
-  click('#inspector [data-role-usage="0"][data-role="main"]');
+  click('#inspector [data-alt-usage="2"]');
+  t('1.8 一段可以有多个画面：放回上屏的不把原来的挤成备选', us()[2].role === 'main' && us()[0].role === 'main');
+  click(cellOf(2, 0));
+  click(cellOf(0, 2));
+  click(cellOf(0, 1));
   t(
-    '位置不重叠时可以前后两个主画面',
+    '位置不重叠时可以前后两个画面',
     us()[0].role === 'main' && us()[2].role === 'main' && us(0)[2].off === true && us(0)[0].off !== true,
   );
+  click('#inspector [data-alt-usage="1"]');
+  t('点备选：不上屏，句子范围记着', us()[1].role === 'alt' && !us(1)[1].off && !us(0)[1].off);
+  {
+    const id0 = us()[0].assetId,
+      id2 = us()[2].assetId;
+    const onAt = (n, id) => us(n).some(u => u.assetId === id && !u.off);
+    click(`#inspector [data-swap-a="${id0}"][data-swap-b="${id2}"]`);
+    t(
+      '两个画面可以对调：第一句换成原来的第二个画面，后面两句换成第一个',
+      onAt(0, id2) && !onAt(0, id0) && onAt(1, id0) && onAt(2, id0) && !onAt(1, id2) && us()[0].assetId === id2,
+    );
+    click(`#inspector [data-swap-a="${id0}"][data-swap-b="${id2}"]`);
+    t('再对调一次换回原样', onAt(0, id0) && !onAt(0, id2) && onAt(1, id2) && us()[0].assetId === id0);
+  }
   const issuesOf = () => checkDelivery(state.rows).find(x => x.id === lines()[0].id)?.issues || [];
-  t('主画面覆盖每一句时交稿检查不报', !issuesOf().some(x => x.includes('主画面')), issuesOf().join('、'));
-  click('#inspector [data-role-usage="2"][data-role="alt"]');
-  t('有句子没有主画面时交稿检查提醒', issuesOf().includes('部分句子没有主画面'), issuesOf().join('、'));
+  t('每句都有画面时交稿检查不报', !issuesOf().some(x => x.includes('主画面')), issuesOf().join('、'));
+  click('#inspector [data-alt-usage="2"]');
+  t('有句子没有画面时交稿检查提醒', issuesOf().includes('部分句子没有主画面'), issuesOf().join('、'));
+  t(
+    '面板顶上标出没画面的句子',
+    $$('#inspector .lo-cell.empty').length === 2 && /2 句没画面/.test($('.lo-head').textContent),
+  );
   const md = buildAssetListMd({ title: 't', rows: state.rows, issues: [], registry: state.assets, speechRate: 4.5 });
   t(
     '素材清单只列要用的，备选只报个数',
-    md.includes('【主画面】角色-主.png') &&
-      md.includes('【叠加】角色-叠.png') &&
-      !md.includes('角色-备.mp4') &&
-      md.includes('另有备选 1 个'),
+    md.includes('【主画面】角色-主.png') && !md.includes('角色-备.mp4') && md.includes('另有备选 2 个'),
     md.split('\n').find(l => l.includes('素材：')),
   );
   undo();
@@ -108,11 +127,11 @@ export async function runRoleTests(t) {
   ungroupAction(ids);
   t(
     '解除共用后每句只留下原本在这句出现的素材',
-    us(0).length === 1 && us(0)[0].role === 'main' && us(1).length === 2 && us(2).length === 1,
+    us(0).length === 2 && us(0)[0].role === 'main' && us(1).length === 2 && us(2).length === 1,
     [0, 1, 2].map(n => us(n).length).join('/'),
   );
   undo();
-  t('撤销解除共用，位置标记原样回来', !!lines()[0].groupId && us(0).length === 3 && us(0)[1].off === true);
+  t('撤销解除共用，位置标记原样回来', !!lines()[0].groupId && us(0).length === 3 && us(2)[1].off === true);
 
   /* 旧项目：未分配角色的素材一键整理 */
   const D = lines()[3];
@@ -166,13 +185,8 @@ export async function runRoleTests(t) {
     const drift = target().getBoundingClientRect().top - top;
     t(name, state.sel === 91 && Math.abs(drift) < 2, `选中 ${state.sel}，句子偏移 ${drift.toFixed(1)}px`);
   };
-  await stayAfter('长稿：设主画面后仍停在原句原位置', () =>
-    click('#inspector [data-role-usage="0"][data-role="main"]'),
-  );
-  await stayAfter('长稿：设叠加后仍停在原句原位置', () =>
-    click('#inspector [data-role-usage="1"][data-role="overlay"]'),
-  );
-  await stayAfter('长稿：调整出现位置后仍停在原句原位置', () => pickSpan(1, 1, 2));
+  await stayAfter('长稿：点备选后仍停在原句原位置', () => click('#inspector [data-alt-usage="0"]'));
+  await stayAfter('长稿：点句子条后仍停在原句原位置', () => click('#inspector [data-line-usage="1"][data-line="0"]'));
   // 恢复未分配状态，再覆盖一键整理的定位行为。
   state.rows.slice(90, 93).forEach(r => r.assetUsages.forEach(u => delete u.role));
   update('rows');

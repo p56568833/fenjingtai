@@ -101,8 +101,10 @@ export async function runIterationTests(t) {
   const voicePath = fx?.hasVoice ? fx.dir + '/口播.wav' : '/tmp/不存在的口播.wav';
   setVoice(voicePath, 20);
   t('导入口播后按音频长度推算每句时间', timeline().source === 'fit' && Math.abs(timeline().total - 20) < 0.01);
-  t('时长列显示可点击的时间码', !!$('.dur .tc[data-play]') && $('#durHeading').textContent === '≈时间码');
-  t('口播条出现', !$('#voiceBar').hidden && !!$('#vbPlay'));
+  t(
+    '不再有纯听口播的播放条，秒数只是显示',
+    $('#voiceBar').hidden && !$('#vbPlay') && !$('.dur .tc[data-play]') && $('#durHeading').textContent === '≈时长',
+  );
   const total = lines().reduce((s, r) => s + timeline().times.get(r.id).end - timeline().times.get(r.id).start, 0);
   t('各句时长加起来等于音频时长', Math.abs(total - 20) < 0.01);
   runCommand('inspector:open', lines()[1].id);
@@ -111,20 +113,8 @@ export async function runIterationTests(t) {
   if (fx?.hasVoice) {
     await pause(400); // 等元数据：真实时长 8 秒会替换掉传进去的 20
     t('读到音频真实时长后时间轴跟着改', Math.abs(timeline().total - 8) < 0.2, `total=${timeline().total}`);
-    const tc = $(`.row[data-id="${lines()[2].id}"] .tc[data-play]`);
-    tc.click();
-    await pause(500);
-    const r2 = timeline().times.get(lines()[2].id);
-    const audioT = $('#vbTime').textContent;
-    t(
-      '点时间码从这句开始播',
-      !!$('.row.playing') && $('#vbPlay').dataset.state === 'playing',
-      `${audioT} start=${r2.start}`,
-    );
-    runCommand('voice:toggle');
-    await pause(50);
-    t('空格 / 按钮暂停', $('#vbPlay').dataset.state === 'paused');
-  } else t('口播播放（缺 ffmpeg，跳过）', true);
+    t('面板里没有「听这段口播」', !$('.listen-btn'));
+  } else t('口播时长（缺 ffmpeg，跳过）', true);
 
   /* ── 连播预览 ── */
   runCommand('playthrough:shot', lines()[4].id);
@@ -134,8 +124,10 @@ export async function runIterationTests(t) {
   key(document.body, 'Escape');
   await pause(20);
   t('Esc 关闭连播预览', !$('#ptMask').classList.contains('show'));
-  runCommand('playthrough:from', lines()[0].id);
+  state.sel = lines()[0].id;
+  key(document.body, ' ');
   await pause(60);
+  t('空格从选中的句子打开对着口播看画面', $('#ptMask').classList.contains('show'));
   t('连播预览按镜头切分', playthroughState().units >= 4 && !playthroughState().range);
   key(document.body, 'ArrowRight');
   t('→ 跳到下一个镜头', playthroughState().current === 1);

@@ -8,9 +8,9 @@ import { lineAt, spanOf } from '../core/timeline.js';
 import { fmtTime } from '../core/text.js';
 import { fileUrl } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
-import { toast, esc, confirmModal, ICON_PLAY, ICON_PAUSE } from '../ui/dom.js';
+import { toast, esc, confirmModal } from '../ui/dom.js';
 import { probeDuration } from '../ui/media.js';
-import { registerCommand, runCommand } from '../ui/commands.js';
+import { registerCommand } from '../ui/commands.js';
 
 const $ = s => document.querySelector(s);
 let audio = null;
@@ -29,11 +29,6 @@ const pref = (k, d) => {
   } catch {
     return d;
   }
-};
-const setPref = (k, v) => {
-  try {
-    localStorage.setItem(k, v);
-  } catch {}
 };
 
 /* ── 播放器 ── */
@@ -61,7 +56,7 @@ function ensureAudio() {
       stopAt = null;
       renderBar();
     });
-    audio.playbackRate = +pref('fjz:voiceRate', '1') || 1;
+    audio.playbackRate = 1; // 倍速随播放条一起去掉了，以前设过的倍速不再生效
   }
   if (loadedPath !== state.voice.path) {
     loadedPath = state.voice.path;
@@ -233,81 +228,21 @@ async function relocate() {
 function renderBar() {
   const bar = $('#voiceBar');
   if (!bar) return;
-  bar.hidden = !state.voice;
-  document.body.classList.toggle('has-voice', !!state.voice);
-  if (!state.voice) return;
-  const playing = voicePlayer.isPlaying();
-  const tl = timeline();
-  const how = tl.source === 'srt' ? '字幕实测时间' : '按音频长度推算每句时间';
-  bar.innerHTML = missing
-    ? `<span class="vb-name">口播音频失联：${esc(state.voice.name)}</span><button class="btn" id="vbRelocate">重新定位…</button><button class="text-button" id="vbClear">移除</button>`
-    : `<button class="btn primary vb-play" id="vbPlay" data-state="${playing ? 'playing' : 'paused'}" title="播放 / 暂停（空格）" aria-label="${playing ? '暂停' : '播放'}">${playing ? ICON_PAUSE : ICON_PLAY}</button>
-      <span class="vb-time mono" id="vbTime">${fmtTime(audio?.currentTime || 0)} / ${fmtTime(tl.total || state.voice.duration || 0)}</span>
-      <input type="range" id="vbSeek" class="vb-seek" min="0" max="1000" value="0" aria-label="口播进度">
-      <button class="vb-line idle" id="vbLine" title="点击选中这句">空格播放 · 从选中的句子开始</button>
-      <span class="vb-src" title="${esc(how)}">${tl.source === 'srt' ? '字幕时间' : '≈ 推算时间'}</span>
-      <label class="auto-label" title="播放时表格跟着滚到正在说的那句"><input type="checkbox" id="vbFollow" ${follow ? 'checked' : ''}> 跟随</label>
-      <select id="vbRate" title="播放速度">${[0.75, 1, 1.25, 1.5, 2].map(v => `<option value="${v}" ${(+pref('fjz:voiceRate', '1') || 1) === v ? 'selected' : ''}>${v}×</option>`).join('')}</select>
-      <button class="btn" id="vbLoop" title="反复播放选中的这句（再点一次取消）">${loopRange ? '取消循环' : '循环本句'}</button>
-      <button class="btn" id="vbPreview" title="从选中的句子开始：口播接着播，画面按镜头自动切换">▶ 连播预览</button>
-      <button class="text-button vb-more" id="vbMore" title="更换 / 移除口播音频">···</button>`;
-  if (audio) updatePlaying(audio.currentTime);
+  // 纯听口播的播放条不要了（听口播都在「对着口播看画面」里）；只在口播文件失联时出来，提醒重新定位
+  const show = !!state.voice && missing;
+  bar.hidden = !show;
+  document.body.classList.toggle('has-voice', show);
+  if (!show) return (bar.innerHTML = '');
+  bar.innerHTML = `<span class="vb-name">口播音频失联：${esc(state.voice.name)}</span><button class="btn" id="vbRelocate">重新定位…</button><button class="text-button" id="vbClear">移除</button>`;
 }
 
 function initBarEvents() {
-  const bar = $('#voiceBar');
-  bar.addEventListener('click', e => {
+  $('#voiceBar').addEventListener('click', e => {
     const id = e.target.closest('button')?.id;
-    if (id === 'vbPlay') toggle();
     if (id === 'vbRelocate') relocate();
     if (id === 'vbClear') {
       releaseAudio();
       clearVoice();
-    }
-    if (id === 'vbLine') {
-      const lineId = +$('#vbLine').dataset.id;
-      if (lineId) runCommand('nav:jump', lineId);
-    }
-    if (id === 'vbLoop') {
-      if (loopRange) loopRange = null;
-      else {
-        const t = timeOf(state.sel);
-        if (t) {
-          loopRange = { start: t.start, end: t.end };
-          voicePlayer.playRange(t.start);
-        }
-      }
-      renderBar();
-    }
-    if (id === 'vbPreview') runCommand('playthrough:from', state.sel);
-    if (id === 'vbMore')
-      confirmModal(
-        '口播音频',
-        `${state.voice.path}\n\n时长 ${fmtTime(state.voice.duration || 0)}。更换后每句时间按新音频重算（对齐过字幕的话仍用字幕时间）。`,
-        '更换…',
-        pickVoice,
-        { cancelText: '关闭', danger: false },
-      );
-  });
-  bar.addEventListener('input', e => {
-    if (e.target.id === 'vbSeek') voicePlayer.seek((+e.target.value / 1000) * Math.max(1, timeline().total));
-  });
-  bar.addEventListener('change', e => {
-    if (e.target.id === 'vbFollow') {
-      follow = e.target.checked;
-      setPref('fjz:voiceFollow', String(follow));
-    }
-    if (e.target.id === 'vbRate') {
-      setPref('fjz:voiceRate', e.target.value);
-      if (audio) audio.playbackRate = +e.target.value;
-    }
-  });
-  // 时间码格：点哪句从哪句播
-  document.addEventListener('click', e => {
-    const p = e.target.closest('[data-play]');
-    if (p && state.voice) {
-      e.stopPropagation();
-      playFromLine(+p.dataset.play);
     }
   });
 }

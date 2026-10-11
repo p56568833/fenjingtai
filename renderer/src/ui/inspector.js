@@ -3,12 +3,20 @@
    角色和位置的改动只刷面板和素材卡，不重建整张表（长稿视口不跳）。 */
 import { state, on, emit, update, rowById, types, timeline } from '../app/state.js';
 import { setShotNote } from '../app/actions.js';
-import { removeUsage, addRefsToShot, setUsageRole, autoAssignRoles } from '../app/asset-actions.js';
+import {
+  removeUsage,
+  addRefsToShot,
+  autoAssignRoles,
+  swapPictures,
+  setUsageLines,
+  toggleAlt,
+} from '../app/asset-actions.js';
 import { usageList } from '../core/asset-model.js';
-import { ROLES, shotMembers } from '../core/shots.js';
+import { ROLES, shotMembers, usageSpan } from '../core/shots.js';
 import { spanOf } from '../core/timeline.js';
 import { fmtTc, fmtLen } from '../core/text.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
+import { shotCoverage } from '../core/coverage.js';
 import * as native from '../platform/native.js';
 import { esc, toast } from './dom.js';
 import {
@@ -51,21 +59,19 @@ function voiceParts(members) {
   const len = span.end - span.start;
   // 每个视频主画面：片段够不够盖住它出现的那几秒
   const layout = layoutShot(state.assets || {}, members, timeline());
+  // 和素材卡片上的「需要 / 可用」同一套算法（core/coverage.js）
   const short = [];
   let videos = 0;
-  for (const it of layout?.items || []) {
-    if (it.kind !== 'video') continue;
-    const clipLen = it.usage.clip ? it.usage.clip.out - it.usage.clip.in : it.asset.durationSec;
-    if (clipLen == null || !isFinite(clipLen)) continue;
+  for (const cov of shotCoverage(layout).values()) {
+    if (cov.verdict === 'still' || cov.verdict === 'unknown') continue;
     videos++;
-    const need = Math.min(it.end, len) - it.start;
-    if (clipLen < need - 0.3)
-      short.push(`${circled(it.n)} 片段 ${fmtLen(clipLen)}，比出现时间短 ${fmtLen(need - clipLen)}`);
+    if (cov.verdict === 'short')
+      short.push(`${circled(cov.n)} 可用 ${fmtLen(cov.usable)}，需要 ${fmtLen(cov.need)}，差 ${fmtLen(cov.lack)}`);
   }
   const compare = short.length
     ? short.map(x => `<p class="voice-warn">${esc(x)}</p>`).join('')
     : videos
-      ? '<p class="voice-ok">视频片段都够盖住各自出现的时间</p>'
+      ? '<p class="voice-ok">视频可用片段都够盖住各自要占的时间</p>'
       : '';
   return {
     meta: `<div class="voice-block"><div class="voice-line"><b>口播</b><span class="mono">${fmtTc(span.start)}–${fmtTc(span.end)}</span><span>${fmtLen(len)} · ${how}</span></div>${compare}</div>`,
@@ -103,7 +109,7 @@ export function renderInspector(force = false) {
   panel.innerHTML = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}</div>
     <section class="detail-assets">
       <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span><span class="spacer"></span>${voice.sync}</div>
-      ${voice.meta}${voice.listen ? `<div class="detail-listen">${voice.listen}</div>` : ''}
+      ${voice.meta}
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
       <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button><button class="btn" id="reworkShot" title="这个画面还缺镜头：写下要什么，生成返工单交给 AI 去找">再找一个…</button></div>
       ${(() => {
@@ -173,6 +179,7 @@ export function initInspector() {
   on('cursor', () => renderInspector());
   on('voice', () => renderInspector(true));
   on('types', () => renderInspector(true));
+  on('durations', () => renderInspector()); // 读到了文件时长：卡片上的「文件 / 可用」补上数（正在输入时不打断）
 
   const panel = $('#inspector');
   document.addEventListener('click', e => {
@@ -210,17 +217,46 @@ export function initInspector() {
       e.stopPropagation();
       return openRemoveMenu(removeButton, r);
     }
-    const roleBtn = e.target.closest('[data-role-usage]');
-    if (roleBtn) {
-      const role = roleBtn.dataset.role;
-      const demoted = setUsageRole(r, +roleBtn.dataset.roleUsage, role);
+    const cell = e.target.closest('[data-line-usage]');
+    if (cell) {
+      const index = +cell.dataset.lineUsage,
+        k = +cell.dataset.line;
+      const u = usageList(r)[index];
+      if (!u) return;
+      const members = shotMembers(state.rows, r);
+      const sp = usageSpan(members, u.assetId);
+      const hadManual = members.some(m => usageList(m).some(x => x.at));
+      let from = sp.from,
+        to = sp.to;
+      if (u.role === 'alt' || sp.empty) {
+        // 备选的：点哪格都先放回上屏，还配原来那几句（原来没配句子就配这一句）
+        if (sp.empty) from = to = k;
+      } else if (k >= from && k <= to) {
+        if (from === to) {
+          if (!hadManual) return toast('至少要配一句；不想用它就点「备选」');
+        } else if (k === from) from++;
+        else if (k === to) to--;
+        else from = to = k;
+      } else if (k < from) from = k;
+      else to = k;
+      setUsageLines(r, index, from, to);
       renderInspector(true);
-      if (demoted)
-        toast(
-          demoted.length
-            ? `已设为${ROLES[role]}，「${demoted.join('」「')}」改为备选（同一句只能有一个主画面）`
-            : `已设为${ROLES[role]} · ⌘Z 可撤销`,
-        );
+      if (hadManual) toast('已改回按句子排（手动拖过的秒数清掉了） · ⌘Z 可撤销');
+      return;
+    }
+    const altBtn = e.target.closest('[data-alt-usage]');
+    if (altBtn) {
+      const role = toggleAlt(r, +altBtn.dataset.altUsage);
+      renderInspector(true);
+      if (role) toast(role === 'alt' ? '已放进备选，不上屏 · ⌘Z 可撤销' : '已放回上屏 · ⌘Z 可撤销');
+      return;
+    }
+    const swapBtn = e.target.closest('[data-swap-a]');
+    if (swapBtn) {
+      if (swapPictures(r, swapBtn.dataset.swapA, swapBtn.dataset.swapB)) {
+        renderInspector(true);
+        toast('已调换两个画面的位置 · ⌘Z 可撤销');
+      }
       return;
     }
     if (e.target.closest('#autoRoles')) {

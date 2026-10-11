@@ -869,36 +869,41 @@ body.dark .note:empty::before {
 
 /* 章节行（吸顶） */
 .section-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
-  padding: 18px 28px 8px;
+  column-gap: 20px;
+  row-gap: 4px;
+  padding: 18px 24px 24px;
+  text-align: center;
   user-select: none;
-  position: sticky;
-  z-index: 6;
-  /* 吸顶章节标题用不透明底色：半透明时滚过去的句子会从标题后面透出来 */
+  /* 大标题跟着正文滚走，吸顶交给每章自己的 .sec-pin 细条（见文末 1.10.10） */
+  position: relative;
   background: var(--bg);
 }
 .rows .section-row {
   top: 36px;
 }
-.section-row .dm {
-  font-size: 10px;
-  color: #fff;
-  background: linear-gradient(135deg, #3f7dff, #8b5cf6);
-  width: 16px;
-  height: 16px;
-  border-radius: 5px;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 2px 8px rgba(94, 110, 255, 0.35);
-}
 .section-row .name {
-  font-size: 12.5px;
-  font-weight: 800;
-  letter-spacing: 2.5px;
-  color: var(--text-2);
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  max-width: 680px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--text);
   overflow-wrap: anywhere;
+}
+.section-row .section-meta {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  line-height: 1.5;
 }
 .section-row .cnt {
   font-size: 11px;
@@ -912,36 +917,29 @@ body.dark .note:empty::before {
   font-weight: 600;
 }
 .section-row .line {
-  flex: 1;
+  grid-row: 1;
+  width: 100%;
   height: 1px;
-  background: linear-gradient(90deg, var(--hairline-2), transparent);
+  background: var(--hairline-2);
+}
+.section-row .section-line-left {
+  grid-column: 1;
+  background: linear-gradient(to right, transparent, var(--hairline-2));
+}
+.section-row .section-line-right {
+  grid-column: 3;
+  background: linear-gradient(to left, transparent, var(--hairline-2));
 }
 
-/* 章节管理：章节行可点（弹管理菜单），悬停出笔图标；点/double-click 名字进行内改名 */
+/* 章节管理在左侧目录（「···」/ 右键）；正文章节标题只能双击改名 */
 .section-row {
-  cursor: pointer;
+  cursor: default;
 }
 .section-row:hover .name {
   color: var(--text);
 }
-.sec-pen {
-  opacity: 0;
-  transition: opacity 0.13s;
-  color: var(--text-3);
-  display: grid;
-  place-items: center;
-  flex: none;
-}
-.section-row:hover .sec-pen,
-.ck-sec:hover .sec-pen {
-  opacity: 0.85;
-}
-.sec-pen svg {
-  width: 12px;
-  height: 12px;
-}
 .ck-sec {
-  cursor: pointer;
+  cursor: default;
 }
 .ck-sec:hover .name {
   color: var(--text);
@@ -1482,7 +1480,6 @@ select:focus-visible {
   background: #416c9d;
   box-shadow: none;
 }
-.section-row .dm,
 .ck-sec .dm {
   background: #7c8c9f;
   box-shadow: none;
@@ -1769,7 +1766,6 @@ body.dark .note:empty::before {
 .dur {
   font-size: 11px;
 }
-.section-row .name,
 .ck-sec .name {
   letter-spacing: 0.3px;
   font-weight: 600;
@@ -3146,9 +3142,9 @@ body.drop-import::after {
 }
 
 /* 长稿性能：屏幕外的行跳过布局和绘制（浏览器按记住的尺寸占位），几百上千句时标注 / 搜索不再整页重排 */
-.rows:not(.ck) > .row,
-.rows:not(.ck) > .shared-scene,
-.rows:not(.ck) > .section-row {
+:is(.rows, .sec-block):not(.ck) > .row,
+:is(.rows, .sec-block):not(.ck) > .shared-scene,
+:is(.rows, .sec-block):not(.ck) > .section-row {
   content-visibility: auto;
   contain-intrinsic-size: auto 72px;
 }
@@ -4881,27 +4877,27 @@ body.multi-mode .shared-scene-body {
   padding-right: 40px;
 }
 /* 普通句子沿用共用画面的左侧留白，五列及描述文字保持对齐。 */
-.rows:not(.ck) > .row {
+:is(.rows, .sec-block):not(.ck) > .row {
   padding-left: 24px;
 }
-.rows:not(.ck) > .row .note {
+:is(.rows, .sec-block):not(.ck) > .row .note {
   padding-left: 10px;
   padding-right: 10px;
 }
 /* 行尾三个小按钮（＋ 素材 / ··· / ×）竖着叠在右边 */
-.rows > .row > .row-act {
+:is(.rows, .sec-block) > .row > .row-act {
   right: 8px;
 }
-.rows > .row > .row-act.asset-empty,
-.rows > .row .row-assets .row-act.asset-empty {
+:is(.rows, .sec-block) > .row > .row-act.asset-empty,
+:is(.rows, .sec-block) > .row .row-assets .row-act.asset-empty {
   right: 8px;
   top: calc(50% - 13px);
 }
-.rows > .row > .row-more {
+:is(.rows, .sec-block) > .row > .row-more {
   top: 50%;
 }
 /* 这一行还没素材、鼠标停在上面时，＋ 和 ··· 上下各让一半，两个按钮整体居中 */
-.rows > .row:hover:has(.asset-empty) > .row-more {
+:is(.rows, .sec-block) > .row:hover:has(.asset-empty) > .row-more {
   top: calc(50% + 13px);
 }
 @media (max-width: 1200px) {
@@ -4924,19 +4920,19 @@ body.multi-mode .shared-scene-body {
   .workspace.has-inspector .shared-scene-body {
     grid-template-columns: 34px minmax(90px, 1.15fr) 40px 112px minmax(120px, 1fr);
   }
-  .rows > .row > .row-act {
+  :is(.rows, .sec-block) > .row > .row-act {
     bottom: auto;
     right: 6px;
     transform: translateY(-50%) !important;
     width: 20px;
     height: 20px;
   }
-  .rows > .row > .row-act.asset-empty,
-  .rows > .row .row-assets .row-act.asset-empty {
+  :is(.rows, .sec-block) > .row > .row-act.asset-empty,
+  :is(.rows, .sec-block) > .row .row-assets .row-act.asset-empty {
     right: 6px;
     top: calc(50% - 12px);
   }
-  .rows > .row:hover:has(.asset-empty) > .row-more {
+  :is(.rows, .sec-block) > .row:hover:has(.asset-empty) > .row-more {
     top: calc(50% + 12px);
   }
 }
@@ -5396,9 +5392,9 @@ body.compact .tchip {
 }
 body.compact .section-row {
   padding-top: 12px;
-  padding-bottom: 4px;
+  padding-bottom: 18px;
 }
-body.compact .rows:not(.ck) > .row {
+body.compact :is(.rows, .sec-block):not(.ck) > .row {
   contain-intrinsic-size: auto 48px;
 }
 
@@ -6904,34 +6900,60 @@ body.dark .vr-cov.miss {
 }
 
 /* ═════════ 待返工：审核页顶上的切换、返工画面、右侧面板入口和弹窗 ═════════ */
+/* 待审 / 待返工：和顶栏「审核 / 表格」同一套样子和弹簧滑块（滑块由 motion.js 的 glide() 摆位置） */
 .vr-tabs {
+  position: relative;
   display: flex;
   gap: 2px;
   padding: 3px;
   margin-bottom: 10px;
-  border-radius: 10px;
-  background: var(--hairline);
+  border-radius: 12px;
+  background: rgba(120, 132, 158, 0.1);
+  border: 1px solid var(--hairline);
+}
+body.dark .vr-tabs {
+  background: rgba(255, 255, 255, 0.05);
+}
+.vr-tab-pill {
+  border-radius: 9px;
+  background: var(--card);
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.12),
+    var(--row-shadow);
+}
+body.dark .vr-tab-pill {
+  background: rgba(255, 255, 255, 0.12);
 }
 .vr-tab {
+  position: relative;
+  z-index: 1;
   flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 6px 8px;
+  height: 32px;
+  padding: 0 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   color: var(--text-2);
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    color 0.2s,
+    transform 0.12s;
+}
+.vr-tab:hover {
+  color: var(--text);
+}
+.vr-tab:active {
+  transform: scale(0.96);
 }
 .vr-tab.on {
-  background: var(--card);
   color: var(--text);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 .vr-tab b {
   min-width: 18px;
@@ -7089,20 +7111,6 @@ body.dark .vr-cov.miss {
 .rework-modal .m-btns .spacer {
   flex: 1;
 }
-.rework-mini.on {
-  border-color: color-mix(in srgb, #d9820b 50%, transparent);
-  color: #d9820b;
-}
-.inspector-asset .asset-rework {
-  flex: 0 0 100%; /* 卡片是横排可换行的：意见单独占一行，不挤压素材名 */
-  margin: 0;
-  padding: 5px 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, #d9820b 9%, transparent);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.5;
-}
 .vr-rw-replace span {
   margin-left: 6px;
   color: var(--text);
@@ -7114,4 +7122,447 @@ body.dark .vr-cov.miss {
 }
 .rework-range b {
   color: var(--text);
+}
+
+/* 右侧素材卡片：「不满意」占一整行；标过之后直接写着意见，点开能改 */
+.inspector-asset .rework-btn {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--hairline-2);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.inspector-asset .rework-btn b {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.inspector-asset .rework-btn span {
+  flex: 1;
+  min-width: 0;
+}
+.inspector-asset .rework-btn:hover {
+  border-color: #d9820b;
+  color: var(--text-2);
+}
+.inspector-asset .rework-btn:hover b {
+  color: #d9820b;
+}
+.inspector-asset .rework-btn.on {
+  border-style: solid;
+  border-color: color-mix(in srgb, #d9820b 45%, transparent);
+  background: color-mix(in srgb, #d9820b 9%, transparent);
+  color: var(--text);
+}
+.inspector-asset .rework-btn.on b {
+  color: #d9820b;
+}
+.inspector-asset .rework-btn.on span {
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inspector-asset .rework-btn i {
+  flex: none;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ═════════ 1.10.10 章节吸顶：大标题正常滚走，快滚出顶部时换成一条半透明细条吸顶；
+   细条只在本章（.sec-block）内吸顶，下一章上来把它顶走；细条下沿一段渐隐，句子不会被一刀切 ═════════ */
+.sec-pin {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  box-sizing: border-box;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 24px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(18px) saturate(1.3);
+  border-bottom: 1px solid var(--hairline-2);
+  user-select: none;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+/* 细条不占位置：叠在大标题顶上，平时透明 */
+.sec-pin + .section-row {
+  margin-top: -38px;
+}
+.sec-pin.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+.sec-pin::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 16px;
+  pointer-events: none;
+  background: linear-gradient(color-mix(in srgb, var(--bg) 72%, transparent), transparent);
+}
+.sec-pin .name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateY(4px);
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sec-pin.on .name {
+  transform: none;
+}
+.sec-pin .section-meta {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-3);
+}
+.sec-pin .todo-cnt {
+  color: var(--todo);
+  font-weight: 600;
+}
+.sec-pin:hover .name {
+  color: var(--accent, var(--text));
+}
+@media (prefers-reduced-motion: reduce) {
+  .sec-pin,
+  .sec-pin .name {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* 1.10.10 章节目录：鼠标移上去右上角出「···」，点它或右键弹章节菜单；双击名字就地改名 */
+.outline-item[data-sec] {
+  padding-right: 28px;
+}
+.outline-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -2px;
+}
+.outline-item .outline-more {
+  position: absolute;
+  top: 7px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+  opacity: 0;
+  transition:
+    opacity 0.12s,
+    background 0.12s,
+    color 0.12s;
+}
+.outline-item:hover .outline-more,
+.outline-item:focus-visible .outline-more,
+.outline-item .outline-more.pop-open {
+  opacity: 1;
+}
+.outline-item .outline-more:hover,
+.outline-item .outline-more.pop-open {
+  background: var(--hairline);
+  color: var(--text);
+}
+.outline-item .name[contenteditable='true'] {
+  margin: -3px -6px;
+  padding: 3px 6px;
+  color: var(--text);
+}
+
+/* 够不够：素材卡片下的「需要 / 可用 / 文件」和结论；共用画面标题旁的口播总长 */
+.asset-cover {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.asset-cover b {
+  font-weight: 600;
+  color: var(--text);
+}
+.asset-cover i {
+  font-style: normal;
+  color: var(--text-3);
+  margin-left: 4px;
+}
+.asset-cover .cover-file {
+  color: var(--text-3);
+}
+.asset-cover .cover-verdict {
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.cover-ok .cover-verdict {
+  color: #12945f;
+  background: color-mix(in srgb, #12945f 10%, transparent);
+}
+.cover-short .cover-verdict {
+  color: #c82d35;
+  background: color-mix(in srgb, #c82d35 10%, transparent);
+}
+.cover-unknown .cover-verdict,
+.cover-still .cover-verdict {
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 0;
+}
+body.dark .cover-ok .cover-verdict {
+  color: #6fd6a4;
+  background: color-mix(in srgb, #6fd6a4 12%, transparent);
+}
+body.dark .cover-short .cover-verdict {
+  color: #ff8e94;
+  background: color-mix(in srgb, #ff8e94 12%, transparent);
+}
+.shared-scene-title .shared-total {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.shared-scene-title .shared-total:empty {
+  display: none;
+}
+.vr-meta .vr-best {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 右侧面板：角色按钮右边放「往前 / 往后」，两个上屏画面可以对调 ①② */
+.inspector-asset .asset-row-ctrl {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.inspector-asset .asset-row-ctrl .asset-role {
+  flex: 0 1 auto;
+}
+.asset-order {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+.order-btn {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.order-btn svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.order-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.order-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 共用画面「共 X 秒」：放在类型色块正上方 */
+.typebox > .shared-total {
+  display: block;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 1.3;
+}
+.typebox > .shared-total:empty {
+  display: none;
+}
+
+/* 连播预览：字幕三行时不被压扁盖到下面那行（弹窗高度不够就整体滚动） */
+.pt-box > * {
+  flex-shrink: 0;
+}
+.pt-meta {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* 右侧面板：句子条（每句一格，宽度按口播秒数；点亮 = 这个画面配这几句）+ 备选 */
+.inspector-asset .asset-lines {
+  flex: 0 0 100%;
+  margin-top: 8px;
+}
+.line-strip {
+  display: flex;
+  gap: 2px;
+}
+.line-cell {
+  font: inherit;
+  font-size: 11px;
+  font-family: var(--mono);
+  min-width: 18px;
+  height: 26px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.line-cell:hover {
+  border-color: var(--c-real);
+  color: var(--c-real);
+}
+.line-cell.on {
+  background: var(--c-real);
+  border-color: transparent;
+  color: #fff;
+}
+.asset-lines.is-alt .line-cell.on {
+  background: transparent;
+  border: 1px dashed var(--text-3);
+  color: var(--text-3);
+}
+.asset-lines.is-manual .line-cell.on {
+  background: color-mix(in srgb, var(--c-real) 45%, transparent);
+}
+.asset-lines .asset-row-ctrl {
+  margin-top: 6px;
+}
+.line-sum {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.asset-lines.is-manual .line-sum {
+  color: var(--todo);
+}
+.ctrl-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ctrl-right .asset-order {
+  margin: 0;
+}
+.alt-chip {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline-2);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.alt-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.alt-chip.on {
+  background: var(--text-3);
+  border-color: transparent;
+  color: #fff;
+}
+.inspector-asset.role-alt .asset-open {
+  opacity: 0.6;
+}
+
+/* 面板顶部：组里每句配了几个画面，红 = 没画面 */
+.line-overview {
+  margin: 10px 0 4px;
+}
+.lo-head {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  display: flex;
+  gap: 8px;
+}
+.lo-head b {
+  color: #c82d35;
+  font-weight: 600;
+}
+.lo-strip {
+  display: flex;
+  gap: 2px;
+}
+.lo-cell {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: var(--mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--c-real);
+  background: color-mix(in srgb, var(--c-real) 14%, transparent);
+}
+.lo-cell.empty {
+  color: #c82d35;
+  background: color-mix(in srgb, #c82d35 12%, transparent);
+}
+body.dark .lo-cell.empty,
+body.dark .lo-head b {
+  color: #ff8e94;
+}
+.line-sum i {
+  font-style: normal;
+  color: var(--text-3);
+  margin-left: 4px;
 }

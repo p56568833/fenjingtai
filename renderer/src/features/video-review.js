@@ -19,7 +19,7 @@ import { invalidateProbe, probePaths, isMissing } from '../app/asset-actions.js'
 import { shotMembers, ROLES as ROLE_NAMES } from '../core/shots.js';
 import { assetName, syncMirror, usageList, referencedAssetIds, fileUrl } from '../core/asset-model.js';
 import { videoFrame } from '../ui/badges.js';
-import { fmtTime } from '../core/text.js';
+import { fmtTime, fmtLen } from '../core/text.js';
 import {
   CANDIDATE_TYPE,
   CANDIDATE_VERSION,
@@ -549,7 +549,8 @@ export function relinkSavedClips({ quiet = false } = {}) {
       if (got && !isMissing(got)) {
         // 候选原来记着的素材已经不在表格上了（撤回时拿掉的）：改记成现在挂着的这个，以后撤回能拿对
         if (!referencedAssetIds(state.rows).has(cand.assetId)) cand.assetId = asset.id;
-        if (swapToLocal({ assetId: asset.id }, cand.savedPath, state.rows, state.assets)) fixed++;
+        if (swapToLocal({ assetId: asset.id, in: cand.in, out: cand.out }, cand.savedPath, state.rows, state.assets))
+          fixed++;
       } else if (isMissing(got)) {
         delete cand.savedPath;
         gone++;
@@ -925,6 +926,16 @@ function coverageOf(row, shotCands) {
 }
 
 /* 左栏：当前批次标题打开切换菜单，进度独立显示；下面是这一批的全部画面（按章节） */
+/* 待审 / 待返工切换的白色滑块：和顶栏「审核 / 表格」一样滑过去。
+   左栏每次重画都会换掉这排按钮，所以上一次的位置记在这里，新滑块从那儿出发 */
+let tabGeo = null;
+function paintTabs() {
+  const box = $('#vrNav .vr-tabs');
+  const on = box?.querySelector('.vr-tab.on');
+  if (!box || !on) return;
+  glide(box, on, 'vr-tab-pill', { from: tabGeo });
+  tabGeo = box._glide || tabGeo;
+}
 /* 审核页顶上的切换：待审（按批次）/ 待返工（所有批次没过关的画面） */
 function tabsHTML() {
   const p = pendingCount();
@@ -1066,6 +1077,7 @@ export function renderVideoReview() {
   // 左栏：批次 → 画面
   const nav = $('#vrNav');
   nav.innerHTML = navHTML(all, shots);
+  paintTabs();
   nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
   glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide'); // 左边的高亮块滑到当前画面
 
@@ -1183,6 +1195,7 @@ function renderRework(host) {
   if (!list.some(s => s.lead.id === curRework)) curRework = list[0]?.lead.id ?? null;
   const nav = $('#vrNav');
   nav.innerHTML = reworkNavHTML(list);
+  paintTabs();
   nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
   glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide');
   const s = list.find(x => x.lead.id === curRework);
@@ -1351,7 +1364,7 @@ function cardHTML(c) {
       : '';
   return `<article class="vr-cand ${d ? 'd-' + d : ''}${c.id === curCand ? ' focus' : ''}" data-vr-id="${c.id}">
     <div class="vr-head"><strong>${esc(c.title || c.key || '（未命名）')}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
-    <div class="vr-meta">建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）· ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
+    <div class="vr-meta">建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）${c.best ? ` · <b class="vr-best" title="通过后自动设成可用片段；保存的文件仍是建议的整段，前后留着余量">精选 ${fmtTime(c.best.in)}–${fmtTime(c.best.out)}（${fmtLen(c.best.out - c.best.in)}）</b>` : ''} · ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
     <div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(6)}</div>
     ${playerHTML(c)}

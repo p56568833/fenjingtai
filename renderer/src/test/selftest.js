@@ -246,6 +246,25 @@ export async function runSelfTest() {
     await sleep(30);
     const ni = state.rows.findIndex(r => r.id === newSid);
     const nameEl = $(`.section-row[data-si="${ni}"] .name`);
+    {
+      const block = nameEl.closest('.sec-block'),
+        pin = block?.querySelector(':scope > .sec-pin');
+      t(
+        '章节包成一块，细条只在本章吸顶',
+        !!pin &&
+          pin.nextElementSibling === nameEl.closest('.section-row') &&
+          getComputedStyle(pin).position === 'sticky' &&
+          getComputedStyle(nameEl.closest('.section-row')).position !== 'sticky' &&
+          !!block.querySelector(':scope > .row, :scope > .shared-scene'),
+      );
+      const wrap = $('#tableWrap'),
+        y0 = wrap.scrollTop;
+      wrap.scrollTop += block.getBoundingClientRect().top - wrap.getBoundingClientRect().top + 200;
+      await sleep(50);
+      t('大标题滚走后细条接班', pin.classList.contains('on'));
+      wrap.scrollTop = y0;
+      await sleep(50);
+    }
     nameEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await sleep(30);
     t('双击章节名进入改名', nameEl.isContentEditable === true);
@@ -257,10 +276,22 @@ export async function runSelfTest() {
       state.rows.find(r => r.id === newSid)?.text === '测试改名节',
       state.rows.find(r => r.id === newSid)?.text,
     );
+    {
+      const oname = $(`#outline .outline-item[data-sec="${newSid}"] .name`);
+      oname.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      await sleep(30);
+      t('双击目录章节名就地改名', oname.isContentEditable === true);
+      key(oname, 'Escape');
+      await sleep(30);
+      t('目录改名按 Esc 还原', !oname.isContentEditable && oname.textContent === '测试改名节');
+    }
     click($(`.section-row[data-si="${ni}"]`));
     await sleep(30);
+    t('点正文章节标题不再弹菜单', !document.querySelector('.popover [data-sec-act]'));
+    click($(`#outline [data-sec-more="${newSid}"]`));
+    await sleep(30);
     t(
-      '点章节行弹管理菜单',
+      '目录里点「···」弹章节菜单',
       !!document.querySelector('.popover') && !!document.querySelector('.popover [data-sec-act="delhead"]'),
     );
     click(document.querySelector('.popover [data-sec-act="delhead"]'));

@@ -1,10 +1,11 @@
 /* 表格视图：逐句一行的标注主界面 */
 import { state, rowById, currentSelection, checkedIds, match, qMatch, types } from '../app/state.js';
-import { sharedScenes } from './badges.js';
+import { sharedScenes, shotTotalText } from './badges.js';
 import { esc, hiText } from './dom.js';
 import { durCellHTML, durHeading } from './time-view.js';
 import { chipHTML } from './type-view.js';
 import { takeAnimation } from './anim.js';
+import { syncSectionPins } from './section-pin.js';
 
 export function renderTable() {
   document.querySelector('#thead').style.display = '';
@@ -40,11 +41,16 @@ export function renderTable() {
 
   let html = '';
   let i = 0;
+  let open = false; // 每章的标题和句子包进一个 .sec-block：顶部细条只在本章范围内吸顶，下一章来了把它顶走
   for (const v of visible) {
     const r = v.row;
     if (r.kind === 'section') {
+      if (open) html += '</div>';
+      open = v.show;
       if (v.show) {
-        html += `<div class="section-row" data-si="${v.si}" data-sid="${r.id}"><span class="dm">◆</span><span class="name">${esc(r.text)}</span><span class="cnt">${v.cnt} 句</span>${v.todo ? `<span class="todo-cnt">未标 ${v.todo}</span>` : ''}<span class="line"></span><span class="sec-pen" title="改名 / 删节"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span></div>`;
+        const meta = `<span class="cnt">${v.cnt} 句</span>${v.todo ? `<span class="todo-cnt">未标 ${v.todo}</span>` : ''}`;
+        html += `<div class="sec-block" data-sid="${r.id}"><div class="sec-pin" data-si="${v.si}" data-pin="${r.id}" title="回到本章开头" aria-hidden="true"><span class="name">${esc(r.text)}</span><span class="section-meta">${meta}</span></div>`;
+        html += `<div class="section-row" data-si="${v.si}" data-sid="${r.id}"><span class="line section-line-left" aria-hidden="true"></span><span class="name">${esc(r.text)}</span><span class="line section-line-right" aria-hidden="true"></span><span class="section-meta">${meta}</span></div>`;
       }
       continue;
     }
@@ -65,6 +71,7 @@ export function renderTable() {
         <button class="row-act row-more" data-row-more="${r.id}" title="更多操作（素材 / 共用范围 / 删除这句）" aria-label="第 ${r.no} 句的更多操作"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
       </div>`;
   }
+  if (open) html += '</div>';
   wrap.innerHTML = html || `<div class="empty-hint">这个筛选下没有句子<br>点上方筛选条切回「全部」</div>`;
   const groups = sharedScenes(state.rows);
   // Keep sentence rows independent; move the shared cells into one group-wide grid row.
@@ -87,7 +94,13 @@ export function renderTable() {
     el.before(scene);
     const body = scene.querySelector('.shared-scene-body'),
       lines = scene.querySelector('.shared-scene-lines');
-    body.append(el.querySelector('.typebox'), el.querySelector('.visual-cell'));
+    const typebox = el.querySelector('.typebox');
+    // 这几句一共几秒：放在类型色块正上方，和右边素材的「需要 / 可用」对着看
+    typebox.insertAdjacentHTML(
+      'afterbegin',
+      `<em class="shared-total" title="这几句口播一共占的时间：拿它和右边素材的「可用」比，看画面能不能盖满">${esc(shotTotalText(group.members))}</em>`,
+    );
+    body.append(typebox, el.querySelector('.visual-cell'));
     members.forEach((row, index) => {
       row.classList.add('shared-scene-row');
       row.querySelector('.typebox')?.remove();
@@ -96,6 +109,7 @@ export function renderTable() {
       if (index === members.length - 1) row.classList.add('shared-scene-end');
     });
   }
+  syncSectionPins();
 }
 
 /* 标注变化时只更新这一行的色块和脊线，不重建整页（避免「刷新一下」的感觉） */
@@ -115,7 +129,12 @@ export function updateRowVisual(id) {
     spine.style.color = col;
   }
   const box = (el.closest('.shared-scene') || el).querySelector('.typebox');
-  if (box) box.innerHTML = chipHTML(r);
+  if (box) {
+    const keep = box.querySelectorAll(':scope > .shared-total, :scope > .production-badge');
+    box.innerHTML = chipHTML(r);
+    box.prepend(...[...keep].filter(n => n.classList.contains('shared-total')));
+    box.append(...[...keep].filter(n => n.classList.contains('production-badge')));
+  }
 }
 
 /* 标注后就地刷新章节条的句数 / 未标数（data-si 对应 state.rows 下标），不重建列表 */
@@ -129,7 +148,7 @@ export function updateSectionBadges() {
       if (!r.type) s.todo++;
     }
   });
-  document.querySelectorAll('.section-row[data-si]').forEach(el => {
+  document.querySelectorAll('.section-row[data-si], .sec-pin[data-si]').forEach(el => {
     const s = stats.find(x => x.ri === +el.dataset.si);
     if (!s) return;
     const cnt = el.querySelector('.cnt');

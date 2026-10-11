@@ -1,4 +1,4 @@
-/* 全局键盘：1-9 标注 / 删除 / 方向导航 / ⌘F / ⌘Z / 空格播口播 / Esc；原文视图的键位由 check-view.js 接管 */
+/* 全局键盘：1-9 标注 / 删除 / 方向导航 / ⌘F / ⌘Z / 空格对着口播看画面 / Esc；原文视图的键位由 check-view.js 接管 */
 import { state, currentSelection, visibleLineIds, types } from '../app/state.js';
 import { deleteSelection, annotateSelection } from '../app/actions.js';
 import { composing, isEditing } from './dom.js';
@@ -79,9 +79,10 @@ export function initKeyboard() {
       return;
     }
     // 空格：播放 / 暂停口播（有口播音频时；没有就不占用这个键）
-    if (e.key === ' ' && !mod && state.voice && !state.multiMode) {
+    // 空格：从选中的这句打开「对着口播看画面」
+    if (e.key === ' ' && !mod && state.voice && !state.multiMode && state.sel) {
       e.preventDefault();
-      runCommand('voice:toggle');
+      runCommand('playthrough:from', state.sel);
       return;
     }
     // 原文视图：方向键 / 1·2·0 / ⌫ 都按「阅读勾选」的语义走（⌫ 只擦勾选不删句子）

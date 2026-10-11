@@ -14,6 +14,7 @@ import { initKeyboard } from './ui/keyboard.js';
 import { initSearch, openSearch } from './ui/search.js';
 import { initCheck } from './ui/check-view.js';
 import { initSections } from './ui/sections.js';
+import { initSectionPins } from './ui/section-pin.js';
 import { initProjects } from './ui/projects.js';
 import { initImportExport } from './ui/import-export.js';
 import { initWorkspace, revealSavedCursor } from './ui/workspace.js';
@@ -200,6 +201,7 @@ async function boot() {
   initSearch();
   initCheck();
   initSections();
+  initSectionPins();
   initProjects();
   initImportExport();
   initWorkspace();

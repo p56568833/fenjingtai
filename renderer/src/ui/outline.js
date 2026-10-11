@@ -92,7 +92,7 @@ export function renderOutline() {
         items
           .map(
             s =>
-              `<button class="outline-item" data-jump="${s.jump}"><span>${esc(s.text)}</span><small>${s.n} 句 · ${s.todo ? '未标 ' + s.todo : '已标完'}</small></button>`,
+              `<div class="outline-item" role="button" tabindex="0" data-jump="${s.jump}"${s.sectionId != null ? ` data-sec="${s.sectionId}"` : ''}><span class="name">${esc(s.text)}</span><small>${s.n} 句 · ${s.todo ? '未标 ' + s.todo : '已标完'}</small>${s.sectionId != null ? `<span class="outline-more" data-sec-more="${s.sectionId}" role="button" title="章节操作（也可以右键）" aria-label="「${esc(s.text)}」章节操作">···</span>` : ''}</div>`,
           )
           .join('') || '<div class="side-empty">导入口播稿后开始</div>';
   }
@@ -103,6 +103,12 @@ export function initOutline() {
   const btn = document.querySelector('#btnOutline');
   document.querySelector('#tableWrap').addEventListener('scroll', scheduleActiveOutline, { passive: true });
   const outline = document.querySelector('#outline');
+  // 目录项不是 <button> 了（里面要放「···」和改名框），键盘回车 / 空格照样跳转
+  outline.addEventListener('keydown', e => {
+    if (!e.target.classList?.contains('outline-item') || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    e.target.click();
+  });
   btn.onclick = () => {
     outlineOpen = !outlineOpen;
     btn.setAttribute('aria-expanded', String(outlineOpen));

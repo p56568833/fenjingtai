@@ -21,6 +21,7 @@ const CAND_KEYS = [
   'page',
   'in',
   'out',
+  'best',
   'for',
   'license',
   'why',
@@ -88,6 +89,14 @@ export function validateCandidateDoc(doc) {
       if (!isNum(c.in) || c.in < 0) add(cw, 'in 必须是秒数（数字，≥ 0），不要写 "1:41" 或带引号');
       if (!isNum(c.out)) add(cw, 'out 必须是秒数（数字），不要写 "1:41" 或带引号');
       else if (isNum(c.in) && c.out <= c.in) add(cw, 'out 必须大于 in');
+      if (c.best != null) {
+        const b = c.best;
+        if (!isObj(b) || !isNum(b.in) || !isNum(b.out) || Object.keys(b).some(k => k !== 'in' && k !== 'out'))
+          add(cw, 'best 必须写成 { "in": 秒数, "out": 秒数 }（数字），不要写别的字段');
+        else if (b.out <= b.in) add(cw, 'best 的 out 必须大于 in');
+        else if (isNum(c.in) && isNum(c.out) && (b.in < c.in - 0.01 || b.out > c.out + 0.01))
+          add(cw, `best（${b.in}–${b.out}）必须在 in–out（${c.in}–${c.out}）范围内`);
+      }
       if (c.for != null) {
         if (typeof c.for !== 'string' || !LINES_RE.test(c.for)) add(cw, 'for 必须是文字句号，如 "252" 或 "252-253"');
         else if (span) {
@@ -121,6 +130,17 @@ export function parseLines(v) {
   if (Array.isArray(v)) return { from: +v[0], to: +(v[1] ?? v[0]) };
   const m = String(v ?? '').match(/(\d+)\s*(?:[-–—~至到]\s*(\d+))?/);
   return m ? { from: +m[1], to: +(m[2] || m[1]) } : null;
+}
+/* 精选段（best）：AI 认为最好用的那几秒，原片里的秒数，必须落在 in–out 之内；不合格返回 null */
+export function cleanBest(b, tin, tout) {
+  if (!b || typeof b !== 'object') return null;
+  const bi = Number(b.in),
+    bo = Number(b.out);
+  if (!Number.isFinite(bi) || !Number.isFinite(bo) || bo <= bi) return null;
+  if (Number.isFinite(tin) && Number.isFinite(tout) && (bi < tin - 0.01 || bo > tout + 0.01)) return null;
+  const lo = Number.isFinite(tin) ? Math.max(tin, bi) : bi,
+    hi = Number.isFinite(tout) ? Math.min(tout, bo) : bo;
+  return hi > lo ? { in: lo, out: hi } : null;
 }
 export const noteLine = c =>
   `视频：${c.title || assetName(c.url)}｜${fmtTime(c.in)}–${fmtTime(c.out)}｜${c.license || '版权未注明'}｜${c.page || c.url}`;
@@ -156,6 +176,7 @@ export function planImport(doc, srcFile, rows, existing = []) {
         page: String(raw.page || ''),
         in: tin,
         out: tout,
+        best: cleanBest(raw.best, tin, tout), // 精选段：通过时预填成「可用片段」；null = 整段都用
         license: String(raw.license || ''),
         why: String(raw.why || ''),
         for: raw.for != null ? String(raw.for) : '', // 这段配画面里的哪几句（句号，如 "200" 或 "200-201"）；空 = 整个画面
@@ -198,7 +219,9 @@ export function attachCandidate(c, rows, registry) {
       m.assetUsages = [...usageList(m), { assetId: asset.id }];
       u = m.assetUsages[m.assetUsages.length - 1];
     }
-    u.clip = { in: c.in, out: c.out };
+    // 可用片段：清单写了精选段就用精选段，否则整段（截取保存的始终是 in–out，精选段换算到文件里）
+    const best = cleanBest(c.best, c.in, c.out);
+    u.clip = best ? { ...best } : { in: c.in, out: c.out };
     delete u.off;
   }
   applyRole(members, asset.id, 'main');
@@ -251,7 +274,18 @@ export function detachCandidate(c, rows, registry) {
     syncMirror(members, registry);
   }
 }
-/* 保存了那几秒：素材换成本地文件（已经是剪好的片段，不再需要入出点），原链接留在画面描述里 */
+/* 保存了那几秒：素材换成本地文件（文件 = 原片 in–out），原链接留在画面描述里。
+   可用片段（精选段 / 审核时改过的入出点）换算成文件里的秒数保留下来；覆盖整个文件的就不再记（= 整段）。
+   不知道 in / out（旧调用）时退回「整段」。文件真实时长由界面读取后记进 durationSec */
+const r2 = x => Math.round(x * 100) / 100;
+export function localClip(clip, c) {
+  const span = Number.isFinite(c?.in) && Number.isFinite(c?.out) && c.out > c.in ? c.out - c.in : null;
+  if (!clip || span == null || !Number.isFinite(clip.in) || !Number.isFinite(clip.out)) return null;
+  const s = Math.max(0, clip.in - c.in),
+    e = Math.min(span, clip.out - c.in);
+  if (e - s < 0.1 || (s < 0.05 && e > span - 0.05)) return null;
+  return { in: r2(s), out: r2(e) };
+}
 export function swapToLocal(c, localPath, rows, registry) {
   const a = registry[c.assetId];
   if (!a) return false;
@@ -259,7 +293,14 @@ export function swapToLocal(c, localPath, rows, registry) {
   a.name = assetName(localPath);
   a.kind = 'video';
   delete a.durationSec;
-  for (const r of rows) if (r.kind === 'line') for (const u of usageList(r)) if (u.assetId === a.id) delete u.clip;
+  for (const r of rows)
+    if (r.kind === 'line')
+      for (const u of usageList(r)) {
+        if (u.assetId !== a.id) continue;
+        const clip = localClip(u.clip, c);
+        if (clip) u.clip = clip;
+        else delete u.clip;
+      }
   syncMirror(rows, registry);
   return true;
 }
@@ -333,6 +374,7 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
       page: String(raw.page || ''),
       in: tin,
       out: tout,
+      best: cleanBest(raw.best, tin, tout),
       license: String(raw.license || ''),
       why: String(raw.why || ''),
       for: raw.for != null ? String(raw.for) : '',

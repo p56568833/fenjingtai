@@ -1,11 +1,11 @@
 /* 素材相关的数据操作（会改 state：一次调用 = 一次撤销步）+ 文件探测缓存。
    纯数据规则都在 core/asset-model.js；这里只负责快照、落盘、广播。 */
-import { state, emit } from './state.js';
+import { state, emit, timeline } from './state.js';
 import { notify } from './events.js';
 import { persist } from './storage.js';
 import { snapshot } from './undo.js';
 import { shotMembers, applyRole, applySpan, isRole } from '../core/shots.js';
-import { round1 } from '../core/shot-layout.js';
+import { round1, linesOfTime } from '../core/shot-layout.js';
 import {
   LINK_RE,
   kindOf,
@@ -127,6 +127,64 @@ export function setUsageRole(row, index, role) {
   return demoted.map(id => state.assets?.[id]?.name || '素材');
 }
 
+/* 句子条：这个画面配组里第 from–to 句（members 下标，连续）。备选的点了也会回到上屏。
+   整组退回「按句子排」：手动拖过的秒数（at）全部清掉，不然新选的句子不起作用 */
+export function setUsageLines(row, index, from, to) {
+  const u = usageList(row)[index];
+  if (!u) return false;
+  const members = shotMembers(state.rows, row);
+  snapshot('选择画面配哪几句');
+  applySpan(members, u.assetId, from, to);
+  if (u.role !== 'main') applyRole(members, u.assetId, 'main');
+  for (const m of members) for (const x of usageList(m)) delete x.at;
+  persist();
+  refreshAssets(row, { stats: false });
+  return true;
+}
+
+/* 备选开关：备选 ↔ 上屏（句子范围记着不动） */
+export function toggleAlt(row, index) {
+  const u = usageList(row)[index];
+  if (!u) return null;
+  const role = u.role === 'alt' ? 'main' : 'alt';
+  snapshot(role === 'alt' ? '设为备选' : '取消备选');
+  applyRole(shotMembers(state.rows, row), u.assetId, role);
+  persist();
+  refreshAssets(row);
+  return role;
+}
+
+/* 两个上屏画面互换位置：组内每句同步交换它们在列表里的先后、出现在哪几句（off）和手动设的时间（at）。
+   时间段本身不动，只是换成对方的画面——①② 对调 */
+export function swapPictures(row, idA, idB) {
+  const members = shotMembers(state.rows, row);
+  if (!idA || !idB || idA === idB) return false;
+  snapshot('调换画面顺序');
+  for (const m of members) {
+    const list = usageList(m);
+    const ia = list.findIndex(u => u.assetId === idA),
+      ib = list.findIndex(u => u.assetId === idB);
+    if (ia < 0 || ib < 0) continue;
+    const a = list[ia],
+      b = list[ib];
+    const offA = a.off,
+      atA = a.at;
+    if (b.off) a.off = true;
+    else delete a.off;
+    if (b.at) a.at = b.at;
+    else delete a.at;
+    if (offA) b.off = true;
+    else delete b.off;
+    if (atA) b.at = atA;
+    else delete b.at;
+    list[ia] = b;
+    list[ib] = a;
+  }
+  persist();
+  refreshAssets(row, { stats: false });
+  return true;
+}
+
 /* 旧项目整理：还没分配角色的素材，一键「第一个当主画面（已有主画面就不动），其余放备选」 */
 export function autoAssignRoles(row) {
   const usages = usageList(row);
@@ -179,6 +237,12 @@ export function setShotTimes(row, entries, label = '调整画面出现时间') {
       u.at = { ...at };
       u.role = 'main';
     }
+  // 按拖出来的时间认它属于哪几句（句子条、表格「第几句」、交稿检查都看这个）；只挪了一点点的还是原来那句
+  const tl = timeline();
+  for (const [id, at] of want) {
+    const lines = linesOfTime(members, tl, at.start, at.end);
+    if (lines) applySpan(members, id, lines.from, lines.to);
+  }
   persist();
   refreshAssets(row);
   return true;
