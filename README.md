@@ -63,7 +63,7 @@ npm run package    # 出 arm64 + x64 双架构安装包到输出所示的临时 
 
 项目修改通过 `app/project-change.js` 同步完成：成功后登记撤销、保存、广播业务事件；失败操作不清空重做。异步文件任务先捕获项目、候选版本和地址，完成后核对归属再提交，不能在等待期间读取当前项目来决定结果写到哪里。
 
-视频审核的数据操作、清单写回和媒体任务分别在 `app/candidate-actions.js`、`candidate-sync.js`、`candidate-media.js`；页面、文件操作交互和截图组件分别在 `features/video-review.js`、`review-files.js`、`review-frames.js`。界面订阅 `assets-changed` 等业务事件决定刷新范围，数据层不传滚动位置、重绘方式等界面参数。共用媒体解码、超时、释放和缩略图缓存统一在 `ui/base/media.js`，全应用同时解码的视频数由 `withDecodeSlot` 统一封顶。截图条的结构和填图都归 `review-frames.js`。
+视频审核的数据操作、清单写回和媒体任务分别在 `app/candidate-actions.js`、`candidate-sync.js`、`candidate-media.js`；页面流程在 `features/video-review.js`，页面状态和派生数据在 `review-model.js`，左栏、候选卡片、待返工页分别在 `review-nav.js`、`review-cards.js`、`review-rework.js`，文件操作和截图组件在 `review-files.js`、`review-frames.js`。界面订阅 `assets-changed` 等业务事件决定刷新范围，数据层不传滚动位置、重绘方式等界面参数。共用媒体解码、超时、释放和缩略图缓存统一在 `ui/base/media.js`，全应用同时解码的视频数由 `withDecodeSlot` 统一封顶。截图条的结构和填图都归 `review-frames.js`。
 
 `renderer/styles.css` 只负责加载 `renderer/styles/` 下的组件样式。选中状态集中在 `selection.css`，组件标题和素材卡规则放回所属组件，避免借其他组件文件的加载顺序追加覆盖。整理样式时可运行 `node scripts/style-test.mjs`，将工作区样式与当前 Git 提交对照；使用隔离数据和临时隐藏窗口，不修改用户项目。
 
