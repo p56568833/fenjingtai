@@ -1,0 +1,592 @@
+/* ═════════ 表格：行、句子、时长、类型色块、备注、行尾按钮、章节行 ═════════ */
+.table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  overflow-x: auto;
+}
+.table {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 12px 80px;
+  min-width: 700px;
+  /* 换句：选中条从上一句滑过来（影子到之前，新句子先不亮） */
+  position: relative;
+}
+.row,
+.shared-scene-body {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  grid-template-columns: 30px minmax(160px, 1.15fr) 48px 146px minmax(200px, 1fr);
+}
+.thead {
+  display: none;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  padding-top: 2px;
+}
+.row {
+  position: relative;
+  margin: 0 8px;
+  padding: 13px 52px 13px 24px; /* 右侧 52px 给行尾悬停删除按钮，不压备注列 */
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+  transition: background 0.12s;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  min-height: 72px;
+}
+.row:hover {
+  background: var(--row-hover);
+}
+.row .spine {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 56%;
+  border-radius: 0 4px 4px 0;
+  background: transparent;
+  transition: height 0.16s;
+  width: 2px;
+}
+.idx {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-3);
+  text-align: right;
+  /* Visible, discoverable multi-selection controls. */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-right: 0;
+}
+.sent {
+  color: var(--text);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  font-weight: 450;
+  letter-spacing: 0;
+  font-size: 16px;
+}
+.row.unannotated .sent {
+  color: var(--text);
+}
+body.dark .row.unannotated .sent {
+  color: #b6bfd0;
+}
+.sent[contenteditable='true'] {
+  outline: none;
+  background: var(--card);
+  box-shadow: 0 0 0 2px rgba(59, 116, 232, 0.35);
+  padding: 4px 10px;
+  margin: -4px -10px;
+  min-width: 60px;
+}
+.sent[contenteditable='true']:empty::before {
+  content: '输入这句口播…';
+  color: var(--text-3);
+  pointer-events: none;
+}
+.dur {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-3);
+}
+.typebox {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+.tchip {
+  width: 100%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    transform 0.1s,
+    filter 0.13s,
+    box-shadow 0.13s;
+  height: 29px;
+  font-size: 11px;
+  font-weight: 550;
+  border-radius: 5px;
+  padding: 0 8px;
+  letter-spacing: 0;
+  border: 0;
+}
+.tchip:active {
+  transform: scale(0.97);
+}
+.tchip svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.tchip .arr {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.13s;
+}
+.t-none {
+  box-shadow: none;
+  border: 1px dashed #b7bec9;
+  background: transparent;
+  color: var(--text-2);
+}
+.t-none:hover {
+  filter: none;
+  color: var(--text-2);
+  border-color: #8a93a6;
+}
+.t-none kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: rgba(120, 132, 158, 0.12);
+  border: 1px solid var(--hairline-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-3);
+}
+body.dark .t-none kbd {
+  background: rgba(255, 255, 255, 0.05);
+}
+/* 行尾操作按钮：删除 */
+.row-act {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  --row-action-transform: translateY(-50%) scale(0.9);
+  transform: var(--row-action-transform);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition:
+    opacity 0.13s,
+    transform 0.13s,
+    background 0.13s;
+  width: 23px;
+  height: 23px;
+  border-radius: 5px;
+}
+.row:hover .row-act {
+  opacity: 1;
+  --row-action-transform: translateY(-50%) scale(1);
+}
+.row-act svg {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+.note {
+  color: #4a5568;
+  overflow-wrap: anywhere;
+  outline: none;
+  min-height: 20px;
+  border: 1px solid transparent;
+  border-left: 1px solid var(--hairline-2);
+  border-radius: 0 9px 9px 0;
+  transition: none;
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 5px 8px;
+}
+body.dark .note {
+  color: #bcc5d6;
+}
+.note:hover {
+  background: rgba(120, 132, 158, 0.07);
+}
+.note:focus {
+  background: var(--card);
+  border-color: rgba(59, 116, 232, 0.4);
+  border-left-color: var(--accent);
+}
+.note:empty::before {
+  content: attr(data-ph);
+  pointer-events: none;
+  color: #818c9d;
+}
+body.dark .note:empty::before {
+  color: #8591a4;
+}
+/* 章节行（吸顶） */
+.section-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 20px;
+  row-gap: 4px;
+  padding: 18px 24px 24px;
+  text-align: center;
+  user-select: none;
+  /* 大标题跟着正文滚走，吸顶交给每章自己的 .sec-pin 细条（见本段后面的「章节吸顶」） */
+  position: relative;
+  background: var(--bg);
+  /* 章节管理在左侧目录（「···」/ 右键）；正文章节标题只能双击改名 */
+  cursor: default;
+}
+.rows .section-row {
+  top: 0;
+}
+.section-row .name {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  max-width: 680px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.section-row .section-meta {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 12px;
+  line-height: 1.5;
+}
+.section-row .cnt {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-3);
+}
+.section-row .todo-cnt {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--todo);
+  font-weight: 600;
+}
+.section-row .line {
+  grid-row: 1;
+  width: 100%;
+  height: 1px;
+  background: var(--hairline-2);
+}
+.section-row .section-line-left {
+  grid-column: 1;
+  background: linear-gradient(to right, transparent, var(--hairline-2));
+}
+.section-row .section-line-right {
+  grid-column: 3;
+  background: linear-gradient(to left, transparent, var(--hairline-2));
+}
+.section-row:hover .name {
+  color: var(--text);
+}
+.name[contenteditable='true'] {
+  outline: none;
+  cursor: text;
+  user-select: text;
+  background: var(--card);
+  box-shadow: 0 0 0 2px rgba(59, 116, 232, 0.35);
+  padding: 3px 8px;
+  margin: -3px -8px;
+  border-radius: 6px;
+}
+.name[contenteditable='true']:empty::before {
+  content: '输入章节名';
+  color: var(--text-3);
+  pointer-events: none;
+}
+.row.qdim {
+  opacity: 0.25;
+}
+.empty-hint {
+  padding: 70px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 2.1;
+}
+.tchip:hover {
+  transform: none;
+  filter: none;
+}
+.row,
+.shared-scene-body {
+  margin: 0;
+  padding-left: 10px;
+}
+.production-badge {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.5;
+  padding: 0 3px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.production-badge:hover {
+  color: var(--accent);
+}
+.idx,
+.dur {
+  font-size: 11px;
+}
+body.reading .table {
+  min-width: 0;
+}
+body.multi-mode .idx {
+  justify-content: space-between;
+}
+.row-select {
+  display: none;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+body.multi-mode .row-select {
+  display: block;
+}
+body.multi-mode .row,
+body.multi-mode .shared-scene-body {
+  grid-template-columns: 48px minmax(160px, 1.15fr) 48px 146px minmax(200px, 1fr);
+}
+.row .note,
+.shared-scene .note {
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 7px 10px;
+  min-width: 0;
+  white-space: pre-wrap;
+}
+.row .note:focus,
+.shared-scene .note:focus {
+  border-color: rgba(59, 116, 232, 0.5);
+  background: var(--card);
+}
+/* 行尾「···」：低频操作收进菜单，句子旁只留删除 + 更多两个小按钮 */
+.row-more {
+  right: 40px;
+  background: var(--card);
+  border: 1px solid var(--hairline-2);
+  color: var(--text-2);
+}
+.row-more svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+  stroke: none;
+}
+.row-more:hover {
+  background: var(--row-hover);
+  color: var(--text);
+}
+.dur .tc {
+  display: block;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.3;
+}
+.dur .tc.dur-est {
+  color: var(--todo);
+  cursor: help;
+}
+.dur-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 12px 10px;
+}
+.dur-actions .btn {
+  font-size: 12px;
+  padding: 0 10px;
+  height: 28px;
+}
+/* 类型标签 / 原文底色：全部由类型主色 --tc 派生，自定义颜色自动适配深浅主题 */
+.tchip.typed {
+  background: color-mix(in srgb, var(--tc) 14%, #ffffff);
+  color: color-mix(in srgb, var(--tc) 72%, #000000);
+  border-color: transparent;
+  box-shadow: none;
+}
+body.dark .tchip.typed {
+  background: color-mix(in srgb, var(--tc) 24%, #141926);
+  color: color-mix(in srgb, var(--tc) 45%, #ffffff);
+}
+/* 时间码：可点击从这句开始播；按音频推算的用灰色 ≈ */
+.dur .tc[data-play] {
+  cursor: pointer;
+  border-radius: 4px;
+}
+.dur .tc[data-play]:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.dur .tc.dur-fit {
+  color: var(--text-3);
+}
+.row.playing .sent,
+.as.playing {
+  text-decoration: underline 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  text-underline-offset: 5px;
+}
+.row.playing .spine {
+  height: 90%;
+}
+/* 选区操作条浮在表格底部：表格末尾多留一段，最后几句能滚到操作条上方，不会被挡住 */
+body.has-select-tools .table-wrap .rows {
+  padding-bottom: 72px;
+}
+/* 行尾三个小按钮（＋ 素材 / ··· / ×）竖着叠在右边 */
+:is(.rows, .sec-block) > .row > .row-act {
+  right: 8px;
+}
+:is(.rows, .sec-block) > .row > .row-more {
+  top: 50%;
+}
+/* 紧凑行距（视图 → 紧凑行距，⇧⌘D）：长稿一屏多看几句；画面描述只露两行，点进去编辑时展开全文 */
+body.compact .row {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  min-height: 42px;
+}
+body.compact .sent {
+  font-size: 14px;
+  line-height: 1.5;
+}
+body.compact .note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+body.compact .tchip {
+  height: 24px;
+}
+body.compact .section-row {
+  padding-top: 12px;
+  padding-bottom: 18px;
+}
+.sec-pin {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  box-sizing: border-box;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 24px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(18px) saturate(1.3);
+  border-bottom: 1px solid var(--hairline-2);
+  user-select: none;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+/* 细条不占位置：叠在大标题顶上，平时透明 */
+.sec-pin + .section-row {
+  margin-top: -38px;
+}
+.sec-pin.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+.sec-pin::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 16px;
+  pointer-events: none;
+  background: linear-gradient(color-mix(in srgb, var(--bg) 72%, transparent), transparent);
+}
+.sec-pin .name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateY(4px);
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sec-pin.on .name {
+  transform: none;
+}
+.sec-pin .section-meta {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-3);
+}
+.sec-pin .todo-cnt {
+  color: var(--todo);
+  font-weight: 600;
+}
+.sec-pin:hover .name {
+  color: var(--accent, var(--text));
+}
+@media (max-width: 1200px) {
+  .row,
+  .shared-scene-body {
+    gap: 8px;
+    --note-width: 190px;
+    grid-template-columns: 24px minmax(130px, 1.15fr) 40px 125px minmax(150px, 1fr);
+  }
+  .row-act,
+  .row:hover .row-act {
+    top: auto;
+    bottom: 3px;
+    --row-action-transform: none;
+    width: 18px;
+    height: 18px;
+  }
+  .typebox .tchip {
+    font-size: 10.5px;
+    gap: 4px;
+    padding: 0 5px;
+  }
+  body.multi-mode .row,
+  body.multi-mode .shared-scene-body {
+    grid-template-columns: 42px minmax(130px, 1.15fr) 40px 125px minmax(150px, 1fr);
+  }
+  :is(.rows, .sec-block) > .row > .row-act,
+  :is(.rows, .sec-block) > .row:hover > .row-act {
+    bottom: auto;
+    right: 6px;
+    --row-action-transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sec-pin,
+  .sec-pin .name {
+    transition: none;
+    transform: none;
+  }
+}

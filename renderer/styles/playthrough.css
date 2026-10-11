@@ -1,0 +1,380 @@
+/* ═════════ 连播预览与画面时间轴 ═════════ */
+/* 连播预览 */
+.pt-mask {
+  background: rgba(8, 10, 16, 0.78);
+}
+.pt-box {
+  width: min(1100px, 92vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: #11151f;
+  color: #e9edf5;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  overflow-y: auto;
+}
+.pt-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pt-hint {
+  font-size: 12px;
+  color: #98a3b6;
+}
+.pt-head .btn,
+.pt-controls .btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e9edf5;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.pt-controls .btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+}
+.pt-stage {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-height: 62vh;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.pt-media {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.pt-stage.pt-short::after {
+  content: '画面片段已经放完，口播还在继续';
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(217, 130, 11, 0.9);
+  color: #fff;
+}
+.pt-card {
+  width: 70%;
+  text-align: center;
+  display: grid;
+  gap: 14px;
+}
+.pt-card-type {
+  display: inline-flex;
+  justify-self: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--tc) 55%, #ffffff);
+}
+.pt-card-type svg {
+  width: 18px;
+  height: 18px;
+}
+.pt-card-note {
+  font-size: 22px;
+  line-height: 1.5;
+  color: #f2f4f8;
+}
+.pt-card-note.dim,
+.pt-card-why {
+  font-size: 13px;
+  color: #8a94a6;
+}
+.pt-sub {
+  min-height: 2.6em;
+  text-align: center;
+  font-size: 19px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.pt-meta {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  font-size: 12px;
+  color: #98a3b6;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.pt-progress {
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  /* 素材的角色按钮放在素材卡下面；顶部进度条可以点 / 拖 */
+  height: 8px;
+  cursor: pointer;
+  background-clip: content-box;
+  padding: 2px 0;
+  box-sizing: content-box;
+}
+.pt-progress > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  border-radius: 2px;
+}
+.pt-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pt-time {
+  color: #c4ccda;
+}
+.pt-keys {
+  font-size: 11px;
+  color: #8a94a6;
+}
+.pt-keys kbd,
+.pt-head kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+.pt-controls svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+.pt-controls .btn {
+  gap: 6px;
+}
+.pt-gap {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.28);
+  letter-spacing: 1px;
+}
+.pt-track {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.pt-track[hidden] {
+  display: none;
+}
+.ptt-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #c4ccda;
+}
+.ptt-bar strong {
+  font-weight: 650;
+}
+.ptt-mode {
+  color: #8a94a6;
+  font-size: 11px;
+}
+.ptt-reset {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: transparent;
+  color: #c4ccda;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.ptt-reset:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+.ptt-lane {
+  position: relative;
+  height: 46px;
+  margin-top: 0;
+  border-radius: 6px;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.03) 0 6px,
+    rgba(255, 255, 255, 0.055) 6px 12px
+  ); /* 斜纹 = 空着（黑屏） */
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  margin-bottom: 14px;
+}
+.ptt-ruler {
+  position: relative;
+  height: 22px;
+  margin-top: 4px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ptt-ruler:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.ptt-rhead {
+  position: absolute;
+  bottom: -1px;
+  width: 0;
+  height: 0;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-bottom-color: #fff;
+  pointer-events: none;
+}
+.ptt-tick {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  font-family: var(--mono);
+  color: #6f7a8d;
+  pointer-events: none;
+}
+.ptt-tick:first-child {
+  transform: none;
+}
+.ptt-sep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed rgba(255, 255, 255, 0.22);
+  pointer-events: none;
+}
+.ptt-sep b::before {
+  content: '第 ';
+}
+.ptt-sep b::after {
+  content: ' 句';
+}
+.ptt-block {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 55%, #1b2232);
+  border: 1px solid color-mix(in srgb, var(--accent) 80%, #ffffff);
+  color: #fff;
+  font-size: 11.5px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  cursor: grab;
+  box-sizing: border-box;
+}
+.ptt-block:nth-of-type(even) {
+  background: color-mix(in srgb, #12945f 55%, #1b2232);
+  border-color: color-mix(in srgb, #12945f 80%, #ffffff);
+}
+.ptt-block.on {
+  box-shadow:
+    0 0 0 2px #fff,
+    0 4px 14px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+}
+.ptt-block.dragging {
+  cursor: grabbing;
+  opacity: 0.92;
+}
+.ptt-block.over {
+  border-color: #ff6b6b;
+  background-image: linear-gradient(90deg, transparent 85%, rgba(255, 80, 80, 0.55));
+}
+.ptt-block.gone {
+  display: none;
+}
+.ptt-label {
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.ptt-grip {
+  flex: none;
+  width: 7px;
+  align-self: stretch;
+  cursor: ew-resize;
+  background: rgba(255, 255, 255, 0.18);
+}
+.ptt-grip:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+.ptt-short {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  background: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.35) 0 3px, transparent 3px 6px);
+  border-left: 2px solid #f0a33a;
+  pointer-events: none;
+}
+.ptt-head {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+}
+.ptt-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: #8a94a6;
+  pointer-events: none;
+}
+.ptt-warn {
+  color: #f0a33a;
+}
+.pt-box:has(.pt-track:not([hidden])) .pt-stage {
+  max-height: 52vh;
+}
+/* 换画面不闪黑——新画面叠在旧画面上加载，出了第一帧再显示 */
+.pt-stage > .pt-media {
+  position: absolute;
+  inset: 0;
+}
+.pt-stage > .pt-pending {
+  opacity: 0;
+}
+.pt-progress[hidden] {
+  display: none;
+}
+.ptt-bar .ptt-warn {
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ptt-bar .ptt-mode {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.ptt-lane {
+  /* 给下面的「第 N 句」标签留位置 */
+}

@@ -1,0 +1,271 @@
+/* ═════════ 共用画面 ═════════ */
+/* A shared visual has one continuous boundary across its sentences. */
+.shared-scene-header,
+.shared-passage-heading {
+  display: flex;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--hairline));
+  border-left: 3px solid var(--accent);
+  padding: 10px 14px;
+  /* 共用区标题（div + 标题按钮 + ···按钮） */
+  align-items: center;
+  gap: 6px;
+}
+.shared-scene-header {
+  margin-top: 12px;
+  border-radius: 7px 7px 0 0;
+  border-bottom: 0;
+}
+.shared-scene-header small {
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* Shared columns span the whole sentence block, like merged table cells. */
+.shared-scene {
+  /* 共用画面：不再是蓝底大卡片，改成左侧一条细括号线把几句串起来，标题缩成一个小标签 */
+  margin: 6px 0 10px;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  position: relative;
+}
+.shared-scene > .shared-scene-header {
+  width: 100%;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  padding: 0 0 0 18px;
+  min-height: 26px;
+}
+.shared-scene-body {
+  display: grid;
+  align-items: center;
+  padding: 8px 98px 8px 24px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.shared-scene-lines {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / 4;
+  align-self: stretch;
+}
+.shared-scene .shared-scene-lines > .row {
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  min-height: 0;
+  padding: 13px 0;
+}
+@media (max-width: 1200px) {
+  /* 属于「工作区布局」，放在这里是因为要压过上面的 .shared-scene .shared-scene-lines > .row：两条会命中同一元素、优先级相同，后写的生效 */
+  .workspace.has-inspector .row,
+  .workspace.has-inspector .shared-scene-body {
+    grid-template-columns: 34px minmax(90px, 1.15fr) 40px 112px minmax(120px, 1fr);
+  }
+}
+.shared-scene-lines > .row:last-child {
+  border-bottom: 0;
+}
+.shared-scene-lines > .row:hover {
+  background: var(--row-hover);
+}
+.shared-scene-lines .spine {
+  display: block;
+  left: -8px;
+}
+.shared-scene-lines .row-act,
+.shared-scene-lines .row:hover .row-act {
+  top: auto;
+  --row-action-transform: none;
+  height: 19px;
+  width: 19px;
+  bottom: 8px;
+}
+.shared-scene-body > .typebox {
+  grid-column: 4;
+  align-self: center;
+}
+.shared-scene-body > .visual-cell {
+  grid-column: 5;
+  align-self: center;
+  padding: 8px 0;
+}
+.shared-scene-lines .row-more {
+  right: 27px;
+}
+.shared-scene-title,
+.shared-passage-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  padding: 10px 14px;
+}
+.shared-scene-title:hover strong,
+.shared-passage-title:hover strong {
+  text-decoration: underline;
+}
+.shared-scene-title small {
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+  display: none;
+}
+.shared-more {
+  flex: none;
+  margin-right: 8px;
+  width: 28px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+.shared-more:hover {
+  background: var(--row-hover);
+  border-color: var(--hairline-2);
+  color: var(--text);
+}
+.shared-scene::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 30px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  pointer-events: none;
+}
+.shared-scene-title {
+  flex: 0 1 auto;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 11px;
+}
+.shared-scene-title strong {
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.shared-scene .shared-more {
+  opacity: 0;
+  height: 22px;
+  margin-left: 2px;
+}
+.shared-scene:hover .shared-more,
+.shared-scene .shared-more:focus-visible {
+  opacity: 1;
+}
+.shared-scene .shared-scene-lines > .row {
+  border-bottom: 0;
+}
+body.dark .shared-scene::before {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.shared-scene > .shared-scene-body {
+  padding-right: 40px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.shared-scene,
+.row {
+  transition:
+    background-color 0.18s,
+    box-shadow 0.18s;
+}
+.shared-scene-title .shared-total {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.shared-scene-title .shared-total:empty {
+  display: none;
+}
+/* 共用画面「共 X 秒」：放在类型色块正上方 */
+.typebox > .shared-total {
+  display: block;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 1.3;
+}
+.typebox > .shared-total:empty {
+  display: none;
+}
+/* 共用画面：类型色块里的图标和文字居中，和上面的「共 X 秒」对齐（右边的小箭头不占位置，不把文字挤到左边） */
+.typebox:has(> .shared-total) .tchip {
+  justify-content: center;
+  position: relative;
+}
+.typebox:has(> .shared-total) .tchip .arr {
+  position: absolute;
+  right: 10px;
+  margin: 0;
+}
+/* 右边补一个和图标等宽的空位：类型文字本身落在正中，和上面「共 X 秒」同一条中线（图标挂在文字左边） */
+.typebox:has(> .shared-total) .tchip:has(> svg)::after {
+  content: '';
+  width: 14px;
+  flex: none;
+}
+@media (max-width: 1200px) {
+  .shared-scene-body {
+    padding-right: 12px;
+  }
+}
+/* 属于「表格」，放在这里是因为要压过上面的 .shared-scene-body：两条会命中同一元素、优先级相同，后写的生效 */
+.row,
+.shared-scene-body {
+  padding-right: 40px;
+}
+@media (max-width: 1200px) {
+  /* 这一行还没素材、鼠标停在上面时，＋ 和 ··· 上下各让一半，两个按钮整体居中 */
+  /* 属于「表格」，放在这里是因为要压过上面的 .thead, .row, .shared-scene-body：两条会命中同一元素、优先级相同，后写的生效 */
+  .row,
+  .shared-scene-body {
+    padding-right: 36px;
+  }
+  .shared-scene > .shared-scene-body {
+    padding-right: 36px;
+  }
+}
+
+/* 画面标题的文字样式由本组件管理。 */
+.shared-scene-header span {
+  color: var(--text-2);
+}
+.shared-scene-title span {
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}

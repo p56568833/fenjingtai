@@ -1,9 +1,7 @@
 /* 素材相关的数据操作（会改 state：一次调用 = 一次撤销步）+ 文件探测缓存。
    纯数据规则都在 core/asset-model.js；这里只负责快照、落盘、广播。 */
-import { state, emit, timeline } from './state.js';
-import { notify } from './events.js';
-import { persist } from './storage.js';
-import { snapshot } from './undo.js';
+import { changeProject } from './project-change.js';
+import { state, timeline } from './state.js';
 import { shotMembers, applyRole, applySpan, isRole, sortMainsBySentence } from '../core/shots.js';
 import { round1, linesOfTime } from '../core/shot-layout.js';
 import {
@@ -25,50 +23,43 @@ function eachMember(row, fn) {
   for (const m of shotMembers(state.rows, row)) fn(m);
 }
 
-/* 素材变化不改句子结构：只原地刷新素材卡、右侧面板和顶部进度。
-   整表重建会让长稿重新计算所有行高并触发 FLIP 动画，看起来像中间内容“飞走”。 */
-function refreshAssets(row = null, { stats = true } = {}) {
-  emit('workspace', {
-    preservePosition: true,
-    rowIds: row ? shotMembers(state.rows, row).map(m => m.id) : null,
-    stats,
-  });
-}
-
 export function addRefsToShot(row, refs) {
-  const registry = state.assets;
+  const registry = { ...state.assets };
   const { added, dupes, invalid } = planAddRefs(registry, usageList(row), refs);
   if (!added.length) return { added: [], dupes, invalid };
-  snapshot(added.length > 1 ? `添加 ${added.length} 个素材` : '添加素材');
-  eachMember(row, m => {
-    m.assetUsages = [...usageList(m), ...added.map(u => ({ ...u }))];
+  return changeProject(added.length > 1 ? `添加 ${added.length} 个素材` : '添加素材', change => {
+    state.assets = registry;
+    eachMember(row, m => {
+      m.assetUsages = [...usageList(m), ...added.map(u => ({ ...u }))];
+    });
+    // 新素材默认整段出现；若第一个就是主画面，和组里别的主画面撞车时以已有的为准
+    const members = shotMembers(state.rows, row);
+    const firstMain = added.find(u => u.role === 'main');
+    if (firstMain && members.some(m => usageList(m).some(u => u.role === 'main' && u.assetId !== firstMain.assetId)))
+      members.forEach(m => m.assetUsages.forEach(u => u.assetId === firstMain.assetId && (u.role = 'alt')));
+    syncMirror(members, registry);
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
+    return { added, dupes, invalid };
   });
-  // 新素材默认整段出现；若第一个就是主画面，和组里别的主画面撞车时以已有的为准
-  const members = shotMembers(state.rows, row);
-  const firstMain = added.find(u => u.role === 'main');
-  if (firstMain && members.some(m => usageList(m).some(u => u.role === 'main' && u.assetId !== firstMain.assetId)))
-    members.forEach(m => m.assetUsages.forEach(u => u.assetId === firstMain.assetId && (u.role = 'alt')));
-  syncMirror(members, registry);
-  persist();
-  refreshAssets(row);
-  return { added, dupes, invalid };
 }
 
 export function removeUsage(row, index) {
   const usages = usageList(row);
   if (index < 0 || index >= usages.length) return;
-  snapshot('移除素材关联');
-  const gone = usages[index].assetId;
-  // 共用画面每句各存一份记录（off = 这条素材不在这一句出现）：只从每句自己的记录里删掉这一个，别的不动
-  eachMember(row, m => {
-    m.assetUsages = usageList(m)
-      .filter(u => u.assetId !== gone)
-      .map(cloneUsage);
+  return changeProject('移除素材关联', change => {
+    const gone = usages[index].assetId;
+    // 共用画面每句各存一份记录（off = 这条素材不在这一句出现）：只从每句自己的记录里删掉这一个，别的不动
+    eachMember(row, m => {
+      m.assetUsages = usageList(m)
+        .filter(u => u.assetId !== gone)
+        .map(cloneUsage);
+    });
+    syncMirror(shotMembers(state.rows, row), state.assets);
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
+    change.notify('已移除关联，本地文件保留 · ⌘Z 可撤销');
   });
-  syncMirror(shotMembers(state.rows, row), state.assets);
-  persist();
-  refreshAssets(row);
-  notify('已移除关联，本地文件保留 · ⌘Z 可撤销');
 }
 
 /* 「编辑链接或文件路径」文本框提交（失焦 / 保存时才调，打字过程中不建素材条目） */
@@ -82,34 +73,36 @@ export function setShotRefsFromText(row, text) {
     .filter(Boolean)
     .join('\n');
   if (before === next) return false;
-  snapshot('编辑素材路径');
-  const usages = usagesFromText(state.assets, usageList(row), text);
-  eachMember(row, m => {
-    // 位置（off）是每句自己的：还留在列表里的素材保留原位置，新写进来的整段出现
-    const mine = new Map(usageList(m).map(u => [u.assetId, u]));
-    m.assetUsages = usages.map(u => ({ ...cloneUsage(u), ...(mine.get(u.assetId)?.off ? { off: true } : {}) }));
+  return changeProject('编辑素材路径', change => {
+    const usages = usagesFromText(state.assets, usageList(row), text);
+    eachMember(row, m => {
+      // 位置（off）是每句自己的：还留在列表里的素材保留原位置，新写进来的整段出现
+      const mine = new Map(usageList(m).map(u => [u.assetId, u]));
+      m.assetUsages = usages.map(u => ({ ...cloneUsage(u), ...(mine.get(u.assetId)?.off ? { off: true } : {}) }));
+    });
+    syncMirror(shotMembers(state.rows, row), state.assets);
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
+    return true;
   });
-  syncMirror(shotMembers(state.rows, row), state.assets);
-  persist();
-  refreshAssets(row);
-  return true;
 }
 
 export function setUsageClip(row, index, clip) {
   const usages = usageList(row);
   if (index < 0 || index >= usages.length) return false;
-  snapshot(clip ? '设置视频片段' : '清除视频片段');
-  eachMember(row, m => {
-    m.assetUsages = usageList(m).map((u, i) => {
-      if (i !== index) return { ...u };
-      const next = { assetId: u.assetId, ...extraOf(u) };
-      if (clip) next.clip = { ...clip };
-      return next;
+  return changeProject(clip ? '设置视频片段' : '清除视频片段', change => {
+    eachMember(row, m => {
+      m.assetUsages = usageList(m).map((u, i) => {
+        if (i !== index) return { ...u };
+        const next = { assetId: u.assetId, ...extraOf(u) };
+        if (clip) next.clip = { ...clip };
+        return next;
+      });
     });
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'usage' });
+    return true;
   });
-  persist();
-  refreshAssets(row, { stats: false });
-  return true;
 }
 
 /* ── 素材角色与出现位置 ──
@@ -120,11 +113,12 @@ export function setUsageClip(row, index, clip) {
 export function setUsageRole(row, index, role) {
   const u = usageList(row)[index];
   if (!u || (u.role || null) === (role || null)) return null;
-  snapshot('设置素材角色');
-  const demoted = applyRole(shotMembers(state.rows, row), u.assetId, role);
-  persist();
-  refreshAssets(row);
-  return demoted.map(id => state.assets?.[id]?.name || '素材');
+  return changeProject('设置素材角色', change => {
+    const demoted = applyRole(shotMembers(state.rows, row), u.assetId, role);
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
+    return demoted.map(id => state.assets?.[id]?.name || '素材');
+  });
 }
 
 /* 句子条：这个画面配组里第 from–to 句（members 下标，连续）。备选的点了也会回到上屏。
@@ -133,14 +127,15 @@ export function setUsageLines(row, index, from, to) {
   const u = usageList(row)[index];
   if (!u) return false;
   const members = shotMembers(state.rows, row);
-  snapshot('选择画面配哪几句');
-  applySpan(members, u.assetId, from, to);
-  if (u.role !== 'main') applyRole(members, u.assetId, 'main');
-  for (const m of members) for (const x of usageList(m)) delete x.at;
-  sortMainsBySentence(members); // 前面的画面改配到后面的句子：编号和卡片顺序跟着换
-  persist();
-  refreshAssets(row, { stats: false });
-  return true;
+  return changeProject('选择画面配哪几句', change => {
+    applySpan(members, u.assetId, from, to);
+    if (u.role !== 'main') applyRole(members, u.assetId, 'main');
+    for (const m of members) for (const x of usageList(m)) delete x.at;
+    sortMainsBySentence(members); // 前面的画面改配到后面的句子：编号和卡片顺序跟着换
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'usage' });
+    return true;
+  });
 }
 
 /* 备选开关：备选 ↔ 上屏（句子范围记着不动） */
@@ -148,11 +143,12 @@ export function toggleAlt(row, index) {
   const u = usageList(row)[index];
   if (!u) return null;
   const role = u.role === 'alt' ? 'main' : 'alt';
-  snapshot(role === 'alt' ? '设为备选' : '取消备选');
-  applyRole(shotMembers(state.rows, row), u.assetId, role);
-  persist();
-  refreshAssets(row);
-  return role;
+  return changeProject(role === 'alt' ? '设为备选' : '取消备选', change => {
+    applyRole(shotMembers(state.rows, row), u.assetId, role);
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
+    return role;
+  });
 }
 
 /* 两个上屏画面互换位置：组内每句同步交换它们在列表里的先后、出现在哪几句（off）和手动设的时间（at）。
@@ -160,30 +156,31 @@ export function toggleAlt(row, index) {
 export function swapPictures(row, idA, idB) {
   const members = shotMembers(state.rows, row);
   if (!idA || !idB || idA === idB) return false;
-  snapshot('调换画面顺序');
-  for (const m of members) {
-    const list = usageList(m);
-    const ia = list.findIndex(u => u.assetId === idA),
-      ib = list.findIndex(u => u.assetId === idB);
-    if (ia < 0 || ib < 0) continue;
-    const a = list[ia],
-      b = list[ib];
-    const offA = a.off,
-      atA = a.at;
-    if (b.off) a.off = true;
-    else delete a.off;
-    if (b.at) a.at = b.at;
-    else delete a.at;
-    if (offA) b.off = true;
-    else delete b.off;
-    if (atA) b.at = atA;
-    else delete b.at;
-    list[ia] = b;
-    list[ib] = a;
-  }
-  persist();
-  refreshAssets(row, { stats: false });
-  return true;
+  return changeProject('调换画面顺序', change => {
+    for (const m of members) {
+      const list = usageList(m);
+      const ia = list.findIndex(u => u.assetId === idA),
+        ib = list.findIndex(u => u.assetId === idB);
+      if (ia < 0 || ib < 0) continue;
+      const a = list[ia],
+        b = list[ib];
+      const offA = a.off,
+        atA = a.at;
+      if (b.off) a.off = true;
+      else delete a.off;
+      if (b.at) a.at = b.at;
+      else delete a.at;
+      if (offA) b.off = true;
+      else delete b.off;
+      if (atA) b.at = atA;
+      else delete b.at;
+      list[ia] = b;
+      list[ib] = a;
+    }
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'usage' });
+    return true;
+  });
 }
 
 /* 旧项目整理：还没分配角色的素材，一键「第一个当主画面（已有主画面就不动），其余放备选」 */
@@ -191,16 +188,17 @@ export function autoAssignRoles(row) {
   const usages = usageList(row);
   const loose = usages.filter(u => !isRole(u.role));
   if (!loose.length) return 0;
-  snapshot('整理素材角色');
-  const members = shotMembers(state.rows, row);
-  let needMain = !usages.some(u => u.role === 'main');
-  for (const u of loose) {
-    applyRole(members, u.assetId, needMain ? 'main' : 'alt');
-    needMain = false;
-  }
-  persist();
-  refreshAssets(row);
-  return loose.length;
+  return changeProject('整理素材角色', change => {
+    const members = shotMembers(state.rows, row);
+    let needMain = !usages.some(u => u.role === 'main');
+    for (const u of loose) {
+      applyRole(members, u.assetId, needMain ? 'main' : 'alt');
+      needMain = false;
+    }
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
+    return loose.length;
+  });
 }
 
 /* 位置：在共用画面的第 from 句到第 to 句出现（members 下标，含两端）。
@@ -209,12 +207,13 @@ export function setUsageSpan(row, index, from, to) {
   const u = usageList(row)[index];
   const members = shotMembers(state.rows, row);
   if (!u || members.length < 2) return null;
-  snapshot('设置素材位置');
-  applySpan(members, u.assetId, from, to);
-  const demoted = u.role === 'main' ? applyRole(members, u.assetId, 'main') : [];
-  persist();
-  refreshAssets(row, { stats: false });
-  return demoted.map(id => state.assets?.[id]?.name || '素材');
+  return changeProject('设置素材位置', change => {
+    applySpan(members, u.assetId, from, to);
+    const demoted = u.role === 'main' ? applyRole(members, u.assetId, 'main') : [];
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'usage' });
+    return demoted.map(id => state.assets?.[id]?.name || '素材');
+  });
 }
 
 /* ── 主画面的出现时间（1.8，「对着口播看画面」里调）──
@@ -230,63 +229,67 @@ export function setShotTimes(row, entries, label = '调整画面出现时间') {
     return u?.at && u.at.start === at.start && u.at.end === at.end && u.at.of === of && u.role === 'main';
   });
   if (same) return false;
-  snapshot(label);
-  for (const m of members)
-    for (const u of usageList(m)) {
-      const at = want.get(u.assetId);
-      if (!at) continue;
-      u.at = { ...at };
-      u.role = 'main';
+  return changeProject(label, change => {
+    for (const m of members)
+      for (const u of usageList(m)) {
+        const at = want.get(u.assetId);
+        if (!at) continue;
+        u.at = { ...at };
+        u.role = 'main';
+      }
+    // 按拖出来的时间认它属于哪几句（句子条、表格「第几句」、交稿检查都看这个）；只挪了一点点的还是原来那句
+    const tl = timeline();
+    for (const [id, at] of want) {
+      const lines = linesOfTime(members, tl, at.start, at.end);
+      if (lines) applySpan(members, id, lines.from, lines.to);
     }
-  // 按拖出来的时间认它属于哪几句（句子条、表格「第几句」、交稿检查都看这个）；只挪了一点点的还是原来那句
-  const tl = timeline();
-  for (const [id, at] of want) {
-    const lines = linesOfTime(members, tl, at.start, at.end);
-    if (lines) applySpan(members, id, lines.from, lines.to);
-  }
-  sortMainsBySentence(members);
-  persist();
-  refreshAssets(row);
-  return true;
+    sortMainsBySentence(members);
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
+    return true;
+  });
 }
 
 /* 恢复按句子：去掉这个镜头里所有画面的手动时间 */
 export function clearShotTimes(row) {
   const members = shotMembers(state.rows, row);
   if (!members.some(m => usageList(m).some(u => u.at))) return false;
-  snapshot('画面时间恢复按句子');
-  for (const m of members) for (const u of usageList(m)) delete u.at;
-  persist();
-  refreshAssets(row, { stats: false });
-  return true;
+  return changeProject('画面时间恢复按句子', change => {
+    for (const m of members) for (const u of usageList(m)) delete u.at;
+
+    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'usage' });
+    return true;
+  });
 }
 
 /* 记下素材的真实时长（只是信息缓存，不进撤销） */
 export function rememberDuration(asset, seconds) {
   if (!asset || !isFinite(seconds) || asset.durationSec === seconds) return;
-  asset.durationSec = seconds;
-  persist();
+  changeProject(null, () => {
+    asset.durationSec = seconds;
+  });
 }
 
 /* 重新定位失联文件：改的是素材库条目，项目内所有引用一起修好 */
 export function relocateAsset(assetId, newPath, { durationSec } = {}) {
   const asset = state.assets[assetId];
   if (!asset || !newPath) return null;
-  snapshot('重新定位素材');
-  const oldName = asset.name;
-  asset.path = String(newPath).trim();
-  asset.name = assetName(asset.path);
-  const kind = kindOf(asset.path);
-  if (kind) asset.kind = kind;
-  if (durationSec != null && isFinite(durationSec)) asset.durationSec = +durationSec;
-  else delete asset.durationSec;
-  // 新文件时长和已有片段范围不兼容的，标记「待调整」，不静默改时间
-  const { adjusted } = clipAdjustPlan(state.rows, assetId, durationSec != null ? durationSec : null);
-  syncMirror(state.rows, state.assets);
-  invalidateProbe();
-  persist();
-  refreshAssets();
-  return { oldName, asset, adjusted };
+  return changeProject('重新定位素材', change => {
+    const oldName = asset.name;
+    asset.path = String(newPath).trim();
+    asset.name = assetName(asset.path);
+    const kind = kindOf(asset.path);
+    if (kind) asset.kind = kind;
+    if (durationSec != null && isFinite(durationSec)) asset.durationSec = +durationSec;
+    else delete asset.durationSec;
+    // 新文件时长和已有片段范围不兼容的，标记「待调整」，不静默改时间
+    const { adjusted } = clipAdjustPlan(state.rows, assetId, durationSec != null ? durationSec : null);
+    syncMirror(state.rows, state.assets);
+    invalidateProbe();
+
+    change.emit('assets-changed', { ids: null, kind: 'association' });
+    return { oldName, asset, adjusted };
+  });
 }
 
 /* 批量重新定位：在一个文件夹的文件清单里按文件名找回失联素材（同名多个时不猜，留给手动） */
@@ -303,16 +306,17 @@ export function relinkByNames(missingIds, candidates) {
     if (hit) plan.push({ id, path: hit });
   }
   if (!plan.length) return 0;
-  snapshot('批量重新定位素材');
-  for (const { id, path } of plan) {
-    state.assets[id].path = path;
-    state.assets[id].name = assetName(path);
-  }
-  syncMirror(state.rows, state.assets);
-  invalidateProbe();
-  persist();
-  refreshAssets();
-  return plan.length;
+  return changeProject('批量重新定位素材', change => {
+    for (const { id, path } of plan) {
+      state.assets[id].path = path;
+      state.assets[id].name = assetName(path);
+    }
+    syncMirror(state.rows, state.assets);
+    invalidateProbe();
+
+    change.emit('assets-changed', { ids: null, kind: 'association' });
+    return plan.length;
+  });
 }
 
 /* 文件探测（存在与否），带缓存；重新定位 / 恢复后调用 invalidateProbe 刷新 */

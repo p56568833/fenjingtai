@@ -6,7 +6,13 @@
      marks {ids}     这些句子的类型变了（界面可原地刷新）
      notes {ids}     这些句子的画面描述变了
      text {id}       这句的文字变了
-     workspace       侧栏 / 工具条 / 徽标需要刷新
+     assets-changed {ids, kind:'association'|'usage'} 素材关联或使用设置改变
+     candidates-changed {resetIds?, removedIds?} 候选版本更新或移除
+     candidate-sync  清单写回状态变化
+     candidate-media 媒体任务状态变化
+     candidate-progress {projectId, id, p} 原项目候选的截取进度
+     project-changed 项目标注 / 章节信息变化
+     workspace       界面布局 / 侧栏刷新请求（仅界面层使用）
      cursor          光标换句
      annotated {ids, type}
      project-loaded  切换 / 载入项目

@@ -1,0 +1,241 @@
+/* ═════════ 顶栏：项目、视图切换、保存状态、更新、导入导出 ═════════ */
+.topbar {
+  height: 64px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 22px 0 96px; /* 左侧给系统红绿灯留位 */
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  backdrop-filter: blur(22px);
+  border-bottom: 1px solid var(--hairline);
+  position: relative;
+  z-index: 30;
+  -webkit-app-region: drag; /* 整条顶栏可拖动窗口 */
+  gap: 10px;
+}
+body.dark .topbar {
+  background: rgba(13, 16, 25, 0.72);
+}
+.topbar .btn,
+.topbar .proj-title,
+.topbar .view-toggle {
+  -webkit-app-region: no-drag;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex: none;
+}
+.logo .mark {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.logo .mark img {
+  display: block;
+  width: 34px;
+  height: 34px;
+}
+.logo .name {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+.proj-title {
+  font-size: 13.5px;
+  color: var(--text-2);
+  padding: 6px 11px;
+  border-radius: 9px;
+  outline: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  max-width: min(40vw, 520px);
+  min-width: 80px;
+  flex-shrink: 1;
+  cursor: default;
+}
+/* 视图切换：视频审核 ↔ 表格。按钮本身透明，选中项底下垫一块白色滑块，切换时滑块带一点回弹地左右滑过去 */
+.view-toggle {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(120, 132, 158, 0.1);
+  border: 1px solid var(--hairline);
+}
+body.dark .view-toggle {
+  background: rgba(255, 255, 255, 0.05);
+}
+.vt-pill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: 0;
+  border-radius: 9px;
+  background: var(--card);
+  box-shadow:
+    0 1px 4px rgba(15, 23, 42, 0.12),
+    var(--row-shadow);
+  transition:
+    transform 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    width 0.36s cubic-bezier(0.34, 1.3, 0.5, 1);
+  pointer-events: none;
+}
+body.dark .vt-pill {
+  background: rgba(255, 255, 255, 0.12);
+}
+.view-toggle button {
+  position: relative;
+  z-index: 1;
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition:
+    color 0.2s,
+    transform 0.12s;
+}
+.view-toggle button[hidden] {
+  display: none;
+}
+.view-toggle button svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.view-toggle button:hover {
+  color: var(--text);
+}
+.view-toggle button:active {
+  transform: scale(0.96);
+}
+.view-toggle button.active {
+  color: var(--text);
+}
+.view-toggle button[data-v='review'].active {
+  color: var(--accent);
+}
+/* 待审数小角标 */
+.vt-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.vt-badge[hidden] {
+  display: none;
+}
+@keyframes badgePop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+.save-state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-right: 2px;
+}
+.save-state .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #12a06b;
+  box-shadow: 0 0 8px rgba(18, 160, 107, 0.6);
+  /* 保存状态：保存中圆点呼吸；存好了变成打勾的绿圈，一会儿缩回圆点 */
+  position: relative;
+  transition:
+    background 0.2s,
+    width 0.32s cubic-bezier(0.34, 1.6, 0.5, 1),
+    height 0.32s cubic-bezier(0.34, 1.6, 0.5, 1);
+}
+.save-state.saving .dot {
+  background: #d9820b;
+  animation: saveBreath 0.9s ease-in-out infinite;
+}
+.proj-title {
+  /* 顶栏有空就多显示一些标题，窄窗口再省略（悬停看全文，改名从项目菜单进入） */
+}
+.save-state.error .dot {
+  background: #e8502f;
+  box-shadow: 0 0 8px rgba(232, 80, 47, 0.6);
+}
+.save-state.error {
+  color: #e8502f;
+}
+@keyframes saveBreath {
+  50% {
+    transform: scale(1.6);
+    opacity: 0.55;
+  }
+}
+.save-state.just-saved .dot {
+  width: 13px;
+  height: 13px;
+  margin: -3.5px;
+  box-shadow: 0 0 0 3px rgba(18, 160, 107, 0.16);
+}
+.save-state.just-saved .dot::after {
+  content: '';
+  position: absolute;
+  left: 4.4px;
+  top: 2.2px;
+  width: 3px;
+  height: 6px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+  animation: saveTick 0.36s 0.12s cubic-bezier(0.34, 1.6, 0.5, 1) backwards;
+}
+@keyframes saveTick {
+  from {
+    opacity: 0;
+    transform: rotate(45deg) scale(0.2);
+  }
+}
+@media (max-width: 1200px) {
+  .topbar {
+    gap: 7px;
+  }
+  .topbar .proj-title {
+    max-width: 170px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .save-state.saving .dot,
+  .save-state.just-saved .dot::after {
+    animation: none;
+  }
+}

@@ -9,7 +9,7 @@ const stack = [];
 const redoStack = [];
 const MAX = 80;
 
-const capture = label => ({
+export const captureSnapshot = label => ({
   label,
   projectId: state.projectId,
   sel: state.sel,
@@ -29,16 +29,19 @@ const capture = label => ({
    除了最多 80 步，再按总量封顶（约 120 MB 字符），超了就丢最旧的几步，至少留 10 步 */
 const MAX_CHARS = 120 * 1024 * 1024;
 const charsOf = list => list.reduce((n, x) => n + x.data.length, 0);
-export function snapshot(label) {
-  stack.push(capture(label));
+export function recordSnapshot(entry) {
+  stack.push(entry);
   if (stack.length > MAX) stack.shift();
   while (stack.length > 10 && charsOf(stack) > MAX_CHARS) stack.shift();
   redoStack.length = 0; // 有了新改动，之前撤销掉的就不能再重做了
 }
+export function snapshot(label) {
+  recordSnapshot(captureSnapshot(label));
+}
 /* 上一步快照之后数据其实没变（插入空句又没写就走了）：把那一步扔掉，⌘Z 不会「撤销」一个看不见的改动 */
 export function discardIfUnchanged() {
   const top = stack[stack.length - 1];
-  if (top && top.projectId === state.projectId && capture(top.label).data === top.data) stack.pop();
+  if (top && top.projectId === state.projectId && captureSnapshot(top.label).data === top.data) stack.pop();
 }
 export const clearUndo = () => {
   stack.length = 0;
@@ -47,7 +50,7 @@ export const clearUndo = () => {
 export const canUndo = () => stack.length > 0;
 export const canRedo = () => redoStack.length > 0;
 
-function restore(u) {
+export function restoreSnapshotData(u) {
   const p = JSON.parse(u.data);
   state.title = p.title;
   state.rows = p.rows;
@@ -63,6 +66,11 @@ function restore(u) {
   else if (state.sel != null && !state.rows.some(r => r.id === state.sel)) {
     state.sel = state.rows.find(r => r.kind === 'line')?.id ?? null;
   }
+  return { typesChanged, voiceChanged };
+}
+
+function restore(u) {
+  const { typesChanged, voiceChanged } = restoreSnapshotData(u);
   persist();
   if (typesChanged) emit('types');
   if (voiceChanged) emit('voice');
@@ -75,7 +83,7 @@ export function undo() {
   if (!u) return notify('没有可撤销的操作', null, 'info');
   if (u.projectId !== state.projectId) return notify('那条操作不在当前项目里', null, 'info');
   stack.pop();
-  redoStack.push({ ...capture(u.label), sel: state.sel });
+  redoStack.push({ ...captureSnapshot(u.label), sel: state.sel });
   restore(u);
   notify(`已撤销：${u.label}`, null, 'info');
 }
@@ -85,7 +93,7 @@ export function redo() {
   if (!r) return notify('没有可重做的操作', null, 'info');
   if (r.projectId !== state.projectId) return notify('那条操作不在当前项目里', null, 'info');
   redoStack.pop();
-  stack.push(capture(r.label));
+  stack.push(captureSnapshot(r.label));
   restore(r);
   notify(`已重做：${r.label}`, null, 'info');
 }

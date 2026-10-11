@@ -6,6 +6,8 @@
    at：手动设的出现时间 {start, end, of}（相对镜头开头的秒数），规则见 core/shot-layout.js。
    off：共用画面里这条素材不在这一句出现（每句各存一份副本，所以位置天然跟着句子走）。
    旧项目只有 r.assets 文本（一行一个路径/链接），载入时迁移成上述结构。 */
+import { usageList } from './asset-usage.js';
+export { usageList, cloneUsage, cloneUsages } from './asset-usage.js';
 import { fmtTime } from './text.js';
 import { shots, isRole, normalizeUsageSpans } from './shots.js';
 
@@ -44,13 +46,7 @@ export function fileUrl(p) {
   return p.startsWith('/') ? 'file://' + q : 'file:///' + q;
 }
 
-export const usageList = row => (Array.isArray(row?.assetUsages) ? row.assetUsages : []);
 export const usagePath = (registry, u) => registry[u.assetId]?.path || u.path || '';
-export const cloneUsage = u => ({
-  ...u,
-  ...(u.clip ? { clip: { ...u.clip } } : {}),
-  ...(u.at ? { at: { ...u.at } } : {}),
-});
 /* 使用记录上除 assetId / clip 以外要跟着走的字段（角色、位置、手动设的出现时间 at） */
 const cleanAtField = at => {
   if (!at || typeof at !== 'object') return null;
@@ -67,7 +63,6 @@ export const extraOf = u => {
     ...(at ? { at } : {}),
   };
 };
-export const cloneUsages = us => us.map(cloneUsage);
 
 export function ensureAsset(registry, ref, extra = {}) {
   const path = String(ref).trim();

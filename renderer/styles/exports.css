@@ -1,0 +1,302 @@
+/* ═════════ 导出：PDF 分镜脚本、项目打包 ═════════ */
+/* 导出 PDF 分镜脚本 */
+.pdf-modal {
+  width: 500px;
+}
+.pdf-modal > p {
+  margin-bottom: 18px;
+}
+.pdf-layouts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.pdf-layout {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.13s,
+    background 0.13s;
+}
+.pdf-layout:hover {
+  border-color: rgba(120, 132, 158, 0.45);
+}
+.pdf-layout input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.pdf-layout:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.pdf-layout:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.pdf-layout b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* 属于「连播预览与画面时间轴」，保持在 .pdf-layout b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.ptt-sep b {
+  position: absolute;
+  bottom: -15px;
+  left: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #6f7a8d;
+  white-space: nowrap;
+}
+/* 属于「视频审核」，保持在 .ptt-sep b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.vr-batch-head b {
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+/* 属于「视频审核」，保持在 .vr-batch-head b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.vr-need b {
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+}
+/* 属于「素材卡」，保持在 .vr-need b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.asset-cover b {
+  font-weight: 600;
+  color: var(--text);
+}
+/* 属于「右侧面板」，保持在 .vr-need b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.lo-head b {
+  color: #c82d35;
+  font-weight: 600;
+}
+/* 属于「视频审核」，保持在 .vr-need b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.vr-tab b {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+/* 属于「待返工」，保持在 .vr-need b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.rework-range b {
+  color: var(--text);
+}
+.pdf-layout small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.pdf-page {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px;
+  background: var(--card);
+  border: 1px solid var(--hairline-2);
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+.pdf-page.portrait {
+  width: 34px;
+  height: 46px;
+}
+.pdf-page.landscape {
+  width: 50px;
+  height: 36px;
+}
+.pdf-page i {
+  display: flex;
+  gap: 3px;
+}
+.pdf-page .pp-head {
+  height: 3px;
+  width: 60%;
+  background: var(--text-3);
+  border-radius: 1px;
+  margin-bottom: 1px;
+}
+.pdf-page .pp-row {
+  flex: 1;
+  max-height: 5px;
+  border-left: 2px solid var(--c-real);
+  padding-left: 2px;
+}
+.pdf-page .pp-row:nth-child(3n) {
+  border-left-color: var(--c-fx);
+}
+.pdf-page .pp-row:nth-child(4n) {
+  border-left-color: var(--c-ai);
+}
+.pdf-page .pp-row b {
+  flex: 1;
+  background: var(--hairline-2);
+  border-radius: 1px;
+}
+/* 属于「右侧面板」，保持在 .pdf-page .pp-row b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.detail-rework.on b {
+  flex: none;
+  color: #d9820b;
+}
+/* 属于「待返工」，保持在 .detail-rework.on b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.inspector-asset .rework-btn b {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+.pdf-checks {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--hairline);
+  margin-bottom: 18px;
+}
+.pdf-checks label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+/* 属于「视频审核」，保持在 .pdf-checks label 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.vr-rw-req label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.pdf-checks input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.pdf-checks small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+.pdf-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pdf-foot #pdfSummary {
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-family: var(--mono);
+}
+.pdf-foot .m-btns {
+  margin-left: auto;
+}
+.modal.pack-modal {
+  width: 480px;
+}
+.pack-opt {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.pack-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.pack-opt input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.pack-opt b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.pack-opt small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.pack-modal #packImpInfo {
+  margin-bottom: 14px;
+  color: var(--text);
+}
+.pack-dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+}
+.pack-dest-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pack-dest code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+}
+.pack-dest .btn {
+  flex: none;
+}
+.pack-modal .pack-hint {
+  margin: 8px 0 16px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pack-progress {
+  margin: 4px 0 16px;
+}
+.pack-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+.pack-bar > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+.pack-status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}

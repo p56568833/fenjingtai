@@ -1,0 +1,32 @@
+/* ═════════ 拖入窗口的提示 ═════════ */
+/* 拖拽落点高亮：亮起来的就是真正接收素材的句子 / 共用画面 / 面板 */
+.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+  /* 落点高亮要压过选中、悬停等更具体的行底色 */
+  background: color-mix(in srgb, var(--accent) 9%, transparent) !important;
+  border-radius: 6px;
+}
+/* 共用画面：不再是蓝底大卡片，改成左侧一条细括号线把几句串起来，标题缩成一个小标签 */
+/* 属于「共用画面」，保持在 .drop-target 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
+.shared-scene {
+  border-radius: 0;
+}
+/* 拖稿子 / 字幕进窗口：整窗提示「松手导入」 */
+body.drop-import::after {
+  content: '松手导入：稿子（MD / TXT / Word）· 剪映字幕（SRT）· 项目 JSON';
+  position: fixed;
+  inset: 14px;
+  z-index: 500;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  opacity: 1;
+  transition: none;
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, color-mix(in srgb, var(--bg) 70%, transparent));
+}

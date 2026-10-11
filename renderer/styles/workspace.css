@@ -1,0 +1,41 @@
+/* ═════════ 工作区布局：表格页、左右分栏、拖动分隔线 ═════════ */
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.side-title {
+  font-size: 12px;
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  gap: 8px;
+  color: var(--text-2);
+}
+/* 打开右侧面板后正文与素材区不遮挡、不出横向滚动 */
+.workspace.has-inspector .table {
+  min-width: 0;
+}
+.workspace.has-inspector .select-tools {
+  left: calc((100% - 340px) / 2);
+}
+/* 审核与表格共用顶栏，作为两个同级页面占据剩余空间。 */
+.workspace-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+@media (max-width: 1200px) {
+  .workspace.has-inspector .outline {
+    display: none;
+  }
+  body.reading .workspace.has-inspector .table {
+    min-width: 0;
+  }
+}

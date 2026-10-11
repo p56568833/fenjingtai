@@ -76,6 +76,8 @@ export function initReview() {
   );
   registerCommand('review:open', openReview);
   on('workspace', () => reviewOpen && renderReview());
+  on('assets-changed', () => reviewOpen && renderReview());
+  on('project-changed', () => reviewOpen && renderReview());
   $('#closeReview').onclick = closeReview;
   $('#reviewExport').onclick = () => {
     closeReview();

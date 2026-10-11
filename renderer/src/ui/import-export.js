@@ -3,6 +3,7 @@
 import { state, update, types, timeline } from '../app/state.js';
 import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
+import { commitProjectChange } from '../app/project-change.js';
 import { applyImport } from '../app/actions.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
 import { normalizeProjectRows, reconcileDraft } from '../core/shots.js';
@@ -51,7 +52,6 @@ function acceptImport() {
   const { rows, title, types: fileTypes } = pendingImport;
   const name = $('#importTitle').value.trim() || title;
   const mode = $('#importMode').value;
-  const rate = state.speechRate;
   if (mode === 'new') {
     storage.createProject(name, rows, {}, fileTypes ? { types: fileTypes } : {});
     clearUndo();
@@ -59,8 +59,6 @@ function acceptImport() {
     const result = mode === 'update' ? reconcileDraft(state.rows, rows).rows : rows;
     storage.archiveCurrentCopy('改稿前');
     applyImport(result, mode === 'update' ? state.title : name, { mode });
-    state.speechRate = rate;
-    storage.persist();
   }
   pendingImport = null;
   $('#importPreviewMask').classList.remove('show');
@@ -108,7 +106,6 @@ export function importProjectObject(proj, name, { from = '' } = {}) {
     ...(typeof proj.mediaDir === 'string' && proj.mediaDir ? { mediaDir: proj.mediaDir } : {}),
     speechRate: rate >= 1 && rate <= 10 ? rate : 4.5,
   });
-  storage.persist();
   clearUndo();
   armAnimation();
   update('rows');
@@ -208,7 +205,7 @@ export async function doExport(kind, checked = false) {
 /* 仅导出项目 JSON（不含素材文件本身） */
 export async function exportProjectJson() {
   const title = state.title || '未命名项目';
-  storage.persist(true);
+  commitProjectChange({ now: true });
   await download(
     `${safeFileName(title)}·项目.json`,
     buildProjectJson({

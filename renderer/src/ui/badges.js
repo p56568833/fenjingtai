@@ -16,10 +16,10 @@ import {
   clipText,
   VIDEO_EXT,
   LINK_RE,
-  fileUrl,
   referencedAssetIds,
 } from '../core/asset-model.js';
-import * as native from '../platform/native.js';
+import { preview, videoFrame, remoteVideoFrame, invalidateVideoFrame, probeDuration } from './media.js';
+export { preview, videoFrame, clearPreviewCache } from './media.js';
 import { esc } from './dom.js';
 import { pop } from './motion.js';
 
@@ -270,22 +270,6 @@ export function inspectorAssets(r, { missing } = {}) {
 }
 
 /* ── 缩略图懒加载：成功放图；失败分三态（无缩略图 / 格式不支持 / 文件失联），可重试，不无限转圈 ── */
-const previews = new Map();
-export function preview(path, { force = false } = {}) {
-  if (force) previews.delete(path);
-  if (!previews.has(path)) {
-    if (previews.size >= 40) previews.delete(previews.keys().next().value);
-    previews.set(
-      path,
-      Promise.resolve(native.previewImage(path)).catch(() => null),
-    );
-  }
-  return previews.get(path);
-}
-export const clearPreviewCache = () => {
-  previews.clear();
-  remoteCache.clear();
-};
 
 function thumbPlaceholder(el, path, kind, missing) {
   el.replaceChildren();
@@ -314,9 +298,6 @@ function thumbPlaceholder(el, path, kind, missing) {
 /* 在线视频（视频审核通过、还没保存到本地）：直接从网上取片段入点那一帧当缩略图，不下载文件。
    取到的帧按地址缓存（表格每次重画不再重新联网），同时最多取 2 个。
    跨域视频画到 canvas 上后不能导出成图片，所以缓存的是 canvas 本身，用时再画一份 */
-const remoteCache = new Map(); // path → canvas | false（取不到）
-const remoteQueue = [];
-let remoteBusy = 0;
 function paintRemote(el, path, src) {
   if (!el.isConnected || el.dataset.previewPath !== path) return;
   if (!src) {
@@ -340,72 +321,20 @@ function paintRemote(el, path, src) {
 }
 function remoteVideoThumb(el, path) {
   if (el.querySelector('canvas')) return;
-  if (remoteCache.has(path)) return paintRemote(el, path, remoteCache.get(path));
   el.textContent = '…';
-  remoteQueue.push({ el, path });
-  pumpRemote();
-}
-function pumpRemote() {
-  while (remoteBusy < 2 && remoteQueue.length) {
-    const { el, path } = remoteQueue.shift();
-    if (remoteCache.has(path)) {
-      paintRemote(el, path, remoteCache.get(path));
-      continue;
-    }
-    if (!el.isConnected) continue; // 已经被重画掉的格子不用再取
-    remoteBusy++;
-    grabRemote(path).then(src => {
-      remoteBusy--;
-      remoteCache.set(path, src);
-      paintRemote(el, path, src);
-      // 同一个地址排在后面的格子直接用缓存
-      for (const q of remoteQueue.filter(x => x.path === path)) paintRemote(q.el, path, src);
-      pumpRemote();
-    });
-  }
-}
-function grabRemote(path) {
-  return new Promise(resolve => {
-    const v = document.createElement('video');
-    v.muted = true;
-    v.preload = 'auto';
-    const t0 = Number((path.match(/#t=([\d.]+)/) || [])[1]) || 0;
-    const done = ok => {
-      clearTimeout(timer);
-      let cv = false;
-      if (ok && v.videoWidth) {
-        cv = document.createElement('canvas');
-        cv.width = 320;
-        cv.height = Math.round((320 * v.videoHeight) / v.videoWidth) || 180;
-        try {
-          cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
-        } catch {
-          cv = false;
-        }
-      }
-      v.removeAttribute('src');
-      v.load();
-      resolve(cv);
-    };
-    const timer = setTimeout(() => done(false), 20000);
-    v.addEventListener('loadedmetadata', () => (v.currentTime = t0 + 0.5), { once: true });
-    v.addEventListener('seeked', () => setTimeout(() => done(true), 80), { once: true });
-    v.addEventListener('error', () => done(false), { once: true });
-    v.src = path.split('#')[0];
-  });
+  remoteVideoFrame(path).then(frame => paintRemote(el, path, frame));
 }
 
 /* 本地视频：自己解一帧当缩略图。不用系统缩略图——macOS 的系统缩略图对很多视频给的是「默认打开它的那个 App」的图标
    （比如装了哔哩哔哩客户端，所有 mp4 都显示成 B 站图标），不是画面本身。
    同时最多解 3 个，解好的帧缓存起来，表格重画时不重复解码。 */
-const frameCache = new Map(); // path → dataURL
-let frameBusy = 0;
-const frameQueue = [];
 function localVideoThumb(el, path) {
-  if (frameCache.has(path)) return showFrame(el, frameCache.get(path));
   el.textContent = '…';
-  frameQueue.push({ el, path });
-  pumpFrames();
+  videoFrame(path).then(data => {
+    if (!el.isConnected || el.dataset.previewPath !== path) return;
+    if (data) showFrame(el, data);
+    else systemThumb(el, path);
+  });
 }
 function showFrame(el, data) {
   const img = document.createElement('img');
@@ -416,83 +345,6 @@ function showFrame(el, data) {
   play.textContent = '▶';
   el.replaceChildren(img, play);
 }
-function pumpFrames() {
-  while (frameBusy < 3 && frameQueue.length) {
-    const { el, path } = frameQueue.shift();
-    if (!el.isConnected || el.dataset.previewPath !== path) continue;
-    if (frameCache.has(path)) {
-      showFrame(el, frameCache.get(path));
-      continue;
-    }
-    frameBusy++;
-    grabFrame(path).then(data => {
-      frameBusy--;
-      if (data) frameCache.set(path, data);
-      for (const node of document.querySelectorAll(`.asset-thumb[data-preview-path="${CSS.escape(path)}"]`)) {
-        if (node.querySelector('img, canvas')) continue;
-        if (data) showFrame(node, data);
-        else systemThumb(node, path); // 解不出来（格式不支持）再退回系统缩略图
-      }
-      pumpFrames();
-    });
-  }
-}
-function grabFrame(path) {
-  return new Promise(resolve => {
-    const v = document.createElement('video');
-    v.muted = true;
-    v.preload = 'auto';
-    let settled = false;
-    const finish = data => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      v.removeAttribute('src');
-      v.load();
-      resolve(data);
-    };
-    const timer = setTimeout(() => finish(null), 15000);
-    v.addEventListener(
-      'loadedmetadata',
-      () => (v.currentTime = Math.min(1, (v.duration || 0) * 0.1) || 0.1), // 避开第一帧常见的黑场
-      { once: true },
-    );
-    v.addEventListener(
-      'seeked',
-      () => {
-        try {
-          const cv = document.createElement('canvas');
-          cv.width = 320;
-          cv.height = Math.round((320 * v.videoHeight) / v.videoWidth) || 180;
-          cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
-          finish(cv.toDataURL('image/jpeg', 0.8));
-        } catch {
-          finish(null);
-        }
-      },
-      { once: true },
-    );
-    v.addEventListener('error', () => finish(null), { once: true });
-    v.src = fileUrl(path);
-  });
-}
-
-/* 给别处用（审核页已通过的那一行）：本地视频解一帧，和表格共用缓存；解不出来再退回系统缩略图 */
-const frameJobs = new Map(); // path → 正在解的 Promise
-export function videoFrame(path) {
-  if (frameCache.has(path)) return Promise.resolve(frameCache.get(path));
-  if (!frameJobs.has(path))
-    frameJobs.set(
-      path,
-      grabFrame(path).then(data => {
-        frameJobs.delete(path);
-        if (data) frameCache.set(path, data);
-        return data || preview(path);
-      }),
-    );
-  return frameJobs.get(path);
-}
-
 async function systemThumb(el, path) {
   const data = await preview(path, { force: el.dataset.thumbFailed === '1' });
   if (!el.isConnected || el.dataset.previewPath !== path) return;
@@ -552,7 +404,7 @@ export function hydrateAssetCards() {
   });
 }
 export function refreshThumb(path) {
-  frameCache.delete(path);
+  invalidateVideoFrame(path);
   document.querySelectorAll(`.asset-thumb[data-preview-path="${CSS.escape(path)}"]`).forEach(el => {
     el.dataset.thumbFailed = '';
     el.classList.remove('thumb-missing', 'thumb-unsupported', 'thumb-nopreview');
@@ -667,29 +519,7 @@ function pumpDurations() {
     });
   }
 }
-function readDuration(path) {
-  return new Promise(resolve => {
-    const v = document.createElement('video');
-    v.muted = true;
-    v.preload = 'metadata';
-    const finish = sec => {
-      clearTimeout(timer);
-      v.removeAttribute('src');
-      v.load();
-      resolve(sec);
-    };
-    const timer = setTimeout(() => finish(null), 15000);
-    v.addEventListener(
-      'loadedmetadata',
-      () => finish(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null),
-      {
-        once: true,
-      },
-    );
-    v.addEventListener('error', () => finish(null), { once: true });
-    v.src = fileUrl(path);
-  });
-}
+const readDuration = path => probeDuration(path, 15000);
 
 /* 探测素材文件是否还在；结果有变化才回调（重画徽标 / 面板） */
 export async function refreshMissing(onChange) {

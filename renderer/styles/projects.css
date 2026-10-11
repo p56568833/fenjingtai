@@ -1,0 +1,20 @@
+/* ═════════ 项目菜单 ═════════ */
+.pop-item:hover .proj-del,
+.proj-del:focus-visible {
+  opacity: 1;
+}
+.proj-del:hover {
+  color: #e5484d;
+  background: color-mix(in srgb, #e5484d 12%, transparent);
+}
+.project-name-input {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 10px 0 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+}

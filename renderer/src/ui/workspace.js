@@ -150,6 +150,10 @@ export function initWorkspace() {
   registerCommand('nav:jump', jumpTo);
   registerCommand('nav:next-unmarked', nextUnmarked);
   on('workspace', refresh);
+  on('project-changed', refresh);
+  on('assets-changed', ({ ids, kind }) =>
+    refresh({ preservePosition: true, rowIds: ids, stats: kind === 'association' }),
+  );
   on('cursor', () => {
     rememberCursor();
     renderToolbar();

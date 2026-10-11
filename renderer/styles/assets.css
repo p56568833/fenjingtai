@@ -1,0 +1,282 @@
+/* ═════════ 素材卡：缩略图、角色、够不够 ═════════ */
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 132, 158, 0.35);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 132, 158, 0.55);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+body.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+.row-assets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.row-assets:empty {
+  display: none;
+}
+.row-asset {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  min-width: 0;
+  width: 100%;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  border: 0;
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  padding: 4px;
+}
+.row-asset:hover {
+  border-color: var(--accent);
+  background: var(--row-hover);
+}
+/* 属于「共用画面」，放在这里是因为要压过上面的 .row-asset:hover：两条会命中同一元素、优先级相同，后写的生效 */
+.shared-scene .row-asset {
+  background: var(--card);
+  padding: 6px;
+}
+.asset-thumb {
+  width: 60px;
+  height: 42px;
+  flex: none;
+  background: var(--bg);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  position: relative;
+}
+.asset-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.asset-caption {
+  min-width: 0;
+}
+.asset-caption small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 3px;
+}
+.asset-list-title {
+  font-size: 13px;
+  color: var(--text-2);
+  margin: 18px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.asset-open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 0;
+}
+.asset-open:hover .asset-caption strong {
+  color: var(--accent);
+}
+.asset-none {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-3);
+  margin: 10px 0;
+}
+.thumb-missing {
+  color: #c82d35;
+  font-weight: 600;
+}
+.thumb-unsupported {
+  color: var(--text-3);
+}
+.thumb-retry {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+}
+.thumb-retry:hover {
+  background: var(--row-hover);
+}
+/* 右面板素材条目 */
+.asset-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+  flex: none;
+}
+.asset-mini {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.asset-mini:hover {
+  color: var(--accent);
+  background: var(--row-hover);
+}
+.asset-path-hint {
+  font-size: 10.5px;
+  color: var(--text-3);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  margin-top: 10px;
+}
+.role-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  margin-bottom: 3px;
+  color: #fff;
+  background: var(--text-3);
+}
+.role-tag.role-main {
+  background: var(--c-real);
+}
+.role-tag.role-overlay {
+  background: var(--c-ai);
+}
+.role-tag.role-none {
+  background: transparent;
+  color: var(--text-3);
+  border: 1px dashed var(--hairline-2);
+}
+.row-asset.role-main {
+  border-left: 3px solid var(--c-real);
+}
+.row-asset.role-overlay {
+  border-left: 3px solid var(--c-ai);
+}
+.asset-alts {
+  align-self: flex-start;
+  border: 1px dashed var(--hairline-2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.asset-alts:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.asset-thumb canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.thumb-online {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  font-size: 10.5px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+/* 「还没关联素材」：和「···」「×」一样是悬停才出现的小按钮，浮在行尾，不占布局——鼠标移上去行高不变 */
+.row-assets:not(:has(.row-asset)) {
+  margin: 0;
+}
+/* 够不够：素材卡片下的「需要 / 可用 / 文件」和结论；共用画面标题旁的口播总长 */
+.asset-cover {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.asset-cover i {
+  font-style: normal;
+  color: var(--text-3);
+  margin-left: 4px;
+}
+.asset-cover .cover-file {
+  color: var(--text-3);
+}
+.asset-cover .cover-verdict {
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.cover-ok .cover-verdict {
+  color: #12945f;
+  background: color-mix(in srgb, #12945f 10%, transparent);
+}
+.cover-short .cover-verdict {
+  color: #c82d35;
+  background: color-mix(in srgb, #c82d35 10%, transparent);
+}
+.cover-unknown .cover-verdict,
+.cover-still .cover-verdict {
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 0;
+}
+body.dark .cover-ok .cover-verdict {
+  color: #6fd6a4;
+  background: color-mix(in srgb, #6fd6a4 12%, transparent);
+}
+body.dark .cover-short .cover-verdict {
+  color: #ff8e94;
+  background: color-mix(in srgb, #ff8e94 12%, transparent);
+}
+.asset-order {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 2px;
+}
+.asset-lines .asset-row-ctrl {
+  margin-top: 6px;
+}
+
+.asset-caption strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}

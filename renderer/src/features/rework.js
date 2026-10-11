@@ -2,12 +2,10 @@
    · 素材卡片上的「不满意」：这个素材要换掉，写下哪里不满意（旧素材先留在画面上，新候选通过后挪到备选）
    · 「再找一个…」：这个画面还缺镜头，写下要什么
    都会进审核页「待返工」，生成返工单交给 AI（见 core/rework.js）。 */
-import { state, update } from '../app/state.js';
-import { persist } from '../app/storage.js';
-import { snapshot } from '../app/undo.js';
+import { state } from '../app/state.js';
+import { saveRework } from '../app/candidate-actions.js';
 import { shotMembers } from '../core/shots.js';
 import { usageList, assetName } from '../core/asset-model.js';
-import { setRework, setAssetRework } from '../core/rework.js';
 import { toast, esc } from '../ui/dom.js';
 import { registerModal } from '../ui/modal.js';
 import { registerCommand, runCommand } from '../ui/commands.js';
@@ -52,11 +50,7 @@ function apply(rework, label) {
   const row = target && state.rows.find(r => r.id === target.rowId);
   if (!row) return close();
   const assetId = target.assetId;
-  snapshot(label);
-  if (assetId) setAssetRework(state.rows, row, assetId, rework);
-  else setRework(state.rows, row, rework);
-  persist();
-  update('rows');
+  saveRework(row, assetId, rework, label);
   renderInspector(true);
   close();
   return row;

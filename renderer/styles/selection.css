@@ -1,0 +1,170 @@
+/* 表格句子与共用画面的选中状态，统一管理深浅主题和强调色。 */
+.row.selected .spine {
+  height: 76%;
+}
+.row:hover .tchip .arr,
+.row.selected .tchip .arr {
+  opacity: 0.6;
+}
+body:not(.multi-mode) .row:hover .idx > span,
+body.multi-active:not(.multi-mode) .row.selected .idx > span {
+  display: none;
+}
+body.dark .row.selected,
+body.dark .row.selected:hover,
+body.dark .shared-scene-lines > .row.selected,
+body.dark .shared-scene.picked .shared-scene-lines > .row.selected {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.row.selected .idx > span {
+  color: var(--accent);
+  font-weight: 700;
+}
+.shared-scene .shared-scene-lines > .row.selected {
+  box-shadow: none;
+}
+.shared-scene.picked {
+  background: color-mix(in srgb, var(--accent) 3%, transparent);
+  box-shadow: none;
+  border-radius: 10px;
+}
+.shared-scene.picked::before {
+  background: var(--accent);
+  width: 3px;
+  left: 7px;
+}
+.shared-scene.picked .shared-scene-title strong {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.shared-scene.picked .shared-scene-title span {
+  color: var(--text-2);
+}
+.shared-scene.picked .shared-more {
+  opacity: 1;
+}
+.row.selected,
+.row.selected:hover,
+.shared-scene-lines > .row.selected,
+.shared-scene.picked .shared-scene-lines > .row.selected {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  border-radius: 4px 8px 8px 4px;
+}
+body.dark .shared-scene.picked {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* ═════════ 多选与选区操作条 ═════════ */
+.select-tools {
+  flex: none;
+  /* 选区操作条：有选区才从表格底部浮出来 */
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--hairline-2);
+  box-shadow: 0 8px 28px #14213124;
+  animation: selectToolsIn 0.16s ease-out;
+  max-width: calc(100% - 32px);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.selection-count {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.select-tools .btn {
+  white-space: nowrap;
+}
+/* 不用进「多选模式」也能勾：悬停时句号位置换成勾选框；多选中的句子一直显示勾 */
+body:not(.multi-mode) .row:hover .row-select,
+body.multi-active:not(.multi-mode) .row.selected .row-select {
+  display: block;
+}
+.select-tools[hidden] {
+  display: none;
+}
+/* 操作条上的类型按钮：鼠标批量标注 */
+.sel-types {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-right: 6px;
+  margin-right: 2px;
+  border-right: 1px solid var(--hairline);
+}
+.sel-types[hidden] {
+  display: none;
+}
+.sel-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sel-type:hover {
+  color: var(--text);
+  background: var(--hover, rgba(120, 132, 158, 0.1));
+}
+.sel-type .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.sel-type.clear {
+  color: var(--text-3);
+  border-style: dashed;
+}
+.sel-hint {
+  font-size: 12px;
+  color: #b4690e;
+  white-space: nowrap;
+}
+body.dark .sel-hint {
+  color: #f0a64a;
+}
+@keyframes selectToolsIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+.select-tools:not([hidden]) {
+  animation: selectToolsSpring 0.38s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+@keyframes selectToolsSpring {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 14px) scale(0.96);
+  }
+}
+.row.selected.sel-arriving,
+.shared-scene-lines > .row.selected.sel-arriving,
+.shared-scene.picked .shared-scene-lines > .row.selected.sel-arriving {
+  background: transparent;
+  box-shadow: none;
+  transition: none;
+}
+@media (max-width: 1200px) {
+  .select-tools .btn {
+    font-size: 11px;
+    padding: 0 8px;
+  }
+}

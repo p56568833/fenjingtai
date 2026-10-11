@@ -3,7 +3,7 @@
    · 导入 ZIP：选好素材解压到哪（默认「影片 › 分镜台素材 › 项目名」），解压、把路径换成新位置，作为新项目打开
    打包和解压都在主进程里做（边读边写，不占内存），这里只管弹窗、进度和取消。 */
 import { state, types } from '../app/state.js';
-import * as storage from '../app/storage.js';
+import { commitProjectChange } from '../app/project-change.js';
 import { packPlan, toPacked, fromPacked } from '../core/pack.js';
 import { buildProjectJson } from '../core/export-doc.js';
 import { safeFileName } from '../core/text.js';
@@ -98,7 +98,7 @@ async function goExport() {
     return exportProjectJson();
   }
   if (!plan) return;
-  storage.persist(true);
+  commitProjectChange({ now: true });
   // 找不到的文件不进包，项目里也保持原路径（导入后显示失联，而不是指向包里不存在的文件）
   const present = new Map([...plan.files].filter(([p]) => plan.sizes[p]?.exists));
   const project = toPacked(currentProject(), present);

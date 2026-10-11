@@ -1,0 +1,200 @@
+/* ═════════ 预览浮层与片段面板 ═════════ */
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* 缩略图三态：无缩略图（可重试）/ 格式不支持 / 文件失联 */
+.asset-thumb.thumb-nopreview,
+.asset-thumb.thumb-missing,
+.asset-thumb.thumb-unsupported {
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10.5px;
+  text-align: center;
+  line-height: 1.4;
+  padding: 4px;
+}
+/* 预览浮层：图片大图 + 视频播放器 + 片段面板 */
+.preview-mask {
+  z-index: 320;
+}
+.preview-box {
+  width: min(940px, 94vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--hairline-2);
+  border-radius: 16px;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.3);
+  overflow: hidden;
+  animation: popIn 0.16s cubic-bezier(0.3, 0, 0.2, 1);
+}
+body.dark .preview-box {
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.65);
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+.preview-head strong {
+  font-size: 13.5px;
+  max-width: 46%;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.preview-head .pv-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.preview-stage {
+  flex: 1;
+  min-height: 260px;
+  max-height: 56vh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--bg);
+  position: relative;
+}
+.pv-img {
+  max-width: 100%;
+  max-height: 52vh;
+  object-fit: contain;
+  transform-origin: center;
+  transition: transform 0.12s;
+}
+.pv-video-wrap {
+  width: 100%;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.pv-video {
+  max-width: 100%;
+  max-height: 52vh;
+  background: #000;
+  border-radius: 6px;
+}
+.pv-video.audio-only {
+  width: min(560px, 80%);
+  height: 54px;
+}
+.pv-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.pv-error {
+  text-align: center;
+  padding: 28px;
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+.pv-error-sub {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.pv-error-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 14px;
+}
+.preview-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-top: 1px solid var(--hairline);
+}
+.pv-time {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 44px;
+}
+.pv-seek {
+  flex: 1;
+  min-width: 140px;
+  accent-color: var(--accent);
+}
+.pv-zoom {
+  font-size: 11px;
+  color: var(--text-3);
+  min-width: 52px;
+}
+/* 片段面板：这次画面使用视频的哪一段 */
+.clip-panel {
+  width: 100%;
+  border-top: 1px dashed var(--hairline-2);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.clip-title {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+.clip-title .clip-state {
+  color: var(--accent);
+  font-weight: 650;
+  margin-left: 6px;
+}
+.clip-title .clip-warn {
+  color: var(--todo);
+  margin-left: 6px;
+}
+.clip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.clip-row label {
+  font-size: 12px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.clip-row input {
+  width: 74px;
+  padding: 5px 6px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.clip-error {
+  color: #c82d35;
+  font-size: 12px;
+  min-height: 16px;
+  margin-top: 6px;
+}
+body.dark .clip-error {
+  color: #ff8e94;
+}
+.clip-help {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+  line-height: 1.6;
+}

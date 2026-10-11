@@ -56,13 +56,12 @@ export function renderTable() {
     }
     if (!v.show) continue;
     i++;
-    const col = types().color(r.type) || 'transparent';
     const qdim = state.query && !qMatch(r) ? ' qdim' : '';
     const sentHtml = state.query && qMatch(r) ? hiText(r.text, state.query) : esc(r.text);
     const st = anim ? ` style="animation-delay:${Math.min(i * 13, 240)}ms"` : '';
     html += `
       <div class="row ${r.type ? '' : 'unannotated'}${qdim}${selected.has(r.id) ? ' selected' : ''}" data-id="${r.id}"${st}>
-        <div class="spine" style="background:${col};color:${col}"></div>
+        <div class="spine"></div>
         <div class="idx"><input class="row-select" type="checkbox" data-select="${r.id}" aria-label="勾选第 ${r.no} 句" ${ticked.has(r.id) ? 'checked' : ''}><span>${r.no || ''}</span></div>
         <div class="sent" data-id="${r.id}">${sentHtml}</div>
         <div class="dur">${durCellHTML(r)}</div>
@@ -122,12 +121,6 @@ export function updateRowVisual(id) {
   el.classList.toggle('unannotated', !r.type);
   el.classList.toggle('qdim', !!qdim);
   el.classList.toggle('selected', currentSelection().includes(r.id));
-  const col = types().color(r.type) || 'transparent';
-  const spine = el.querySelector('.spine');
-  if (spine) {
-    spine.style.background = col;
-    spine.style.color = col;
-  }
   const box = (el.closest('.shared-scene') || el).querySelector('.typebox');
   if (box) {
     const keep = box.querySelectorAll(':scope > .shared-total, :scope > .production-badge');

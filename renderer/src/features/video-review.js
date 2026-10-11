@@ -12,29 +12,40 @@
    · 审完就走：审过的候选收成一行（能撤回），不再有「已通过」页——通过的结果在表格的画面上看；
      「不要」的在待返工里保留；画面有候选通过后，离开审核页时清掉已写回清单的否决项。
    · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
-import { state, update, rowById, renumber, on } from '../app/state.js';
-import { persist, markProjectDirty, projectById, allProjects } from '../app/storage.js';
-import { snapshot } from '../app/undo.js';
-import { invalidateProbe, probePaths, isMissing } from '../app/asset-actions.js';
-import { shotMembers, ROLES as ROLE_NAMES } from '../core/shots.js';
-import { assetName, syncMirror, usageList, referencedAssetIds, fileUrl } from '../core/asset-model.js';
-import { videoFrame } from '../ui/badges.js';
-import { fmtTime, fmtLen } from '../core/text.js';
+import { state, rowById, renumber, on } from '../app/state.js';
 import {
-  CANDIDATE_TYPE,
-  CANDIDATE_VERSION,
-  DECISION,
-  planImport,
-  attachCandidate,
-  detachCandidate,
-  swapToLocal,
-  reviewPayload,
-  applyFor,
-  lineTag,
-  fileTitle,
-  hasLineTag,
-  staleOnlineClips,
-} from '../core/candidates.js';
+  importCandidateData,
+  decideCandidate,
+  setCandidateNote,
+  deleteCandidateBatch,
+  purgeRejectedCandidates,
+  setReworkNote as updateReworkNote,
+  dismissShotRework,
+} from '../app/candidate-actions.js';
+import { flushWriteBack, writeBackFailures } from '../app/candidate-sync.js';
+import { isCandidateBusy, relinkSavedClips, initCandidateMedia } from '../app/candidate-media.js';
+import {
+  saveAllApproved,
+  downloadOriginal,
+  retagLineFiles,
+  ensureMediaDir,
+  batchRun,
+  saveAllLabel,
+} from './review-files.js';
+import {
+  getFrames,
+  retainFrames,
+  forgetFrames,
+  clearReviewFrames,
+  queueFrames,
+  paintDoneThumb,
+  mediaOf,
+} from './review-frames.js';
+import { candidateBatches } from '../core/candidate-queries.js';
+import { shotMembers, ROLES as ROLE_NAMES } from '../core/shots.js';
+import { assetName, usageList } from '../core/asset-model.js';
+import { fmtTime, fmtLen } from '../core/text.js';
+import { CANDIDATE_TYPE, CANDIDATE_VERSION, DECISION } from '../core/candidates.js';
 import {
   playerHTML,
   targetLines,
@@ -53,7 +64,7 @@ import { glide, roll, pop, SPRING } from '../ui/motion.js';
 import { registerCommand, runCommand } from '../ui/commands.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/popover.js';
 import { CANDIDATE_SPEC } from '../core/candidate-spec.js';
-import { reworkShots, resolveOnApprove, setRework, dismissRework, buildReworkDoc } from '../core/rework.js';
+import { reworkShots, buildReworkDoc } from '../core/rework.js';
 import { safeFileName } from '../core/text.js';
 
 export { CANDIDATE_TYPE };
@@ -61,73 +72,13 @@ const $ = s => document.querySelector(s);
 /* 原生能力统一走 platform/native.js（自测可通过 window.fjtHooks 注入替身） */
 const native = name => nat[name];
 
-/* ── 写回候选清单 ──
-   调用时立刻按「当时的候选」算好每个文件要写的内容（不等 500 毫秒后再读全局状态：期间切了项目也不会写错）；
-   内容和上次成功写入的一样就不再写；写失败的记下来，界面上能看到、下次再试。 */
-let writeTimer = null;
-const pendingWrites = new Map(); // 文件 → 结果列表
-const lastWritten = new Map(); // 文件 → 上次写成功的内容（JSON）
-const failedFiles = new Map(); // 文件 → 失败原因
-export const writeBackFailures = () => [...failedFiles.entries()];
-function queueWrites(cands) {
-  for (const [file, results] of reviewPayload(cands)) {
-    if (lastWritten.get(file) === JSON.stringify(results) && !failedFiles.has(file)) continue;
-    pendingWrites.set(file, results);
-  }
-}
-async function runWrites() {
-  const jobs = [...pendingWrites.entries()];
-  pendingWrites.clear();
-  const out = new Map();
-  let newlyFailed = 0;
-  for (const [file, results] of jobs) {
-    let r;
-    try {
-      r = await native('writeCandidateReview')(file, results);
-    } catch (e) {
-      r = { ok: false, error: String(e?.message || e) };
-    }
-    const ok = !!r && r.ok !== false;
-    out.set(file, ok);
-    if (ok) {
-      lastWritten.set(file, JSON.stringify(results));
-      failedFiles.delete(file);
-    } else {
-      if (!failedFiles.has(file)) newlyFailed++;
-      failedFiles.set(file, r?.error || '写入失败');
-    }
-  }
-  if (newlyFailed)
-    toast(
-      `${newlyFailed} 份候选清单没能写回（${[...failedFiles.values()][0]}）。审核结果仍保存在项目里，下次审核时会再试`,
-      null,
-      'error',
-    );
-  refreshVideoReviewButton();
-  return out;
-}
-function writeBack(cands = state.candidates) {
-  queueWrites(cands);
-  clearTimeout(writeTimer);
-  writeTimer = setTimeout(runWrites, 500);
-}
-/* 立即写完（返回每个文件是否写成功） */
-export const flushWriteBack = (cands = state.candidates) => {
-  clearTimeout(writeTimer);
-  queueWrites(cands);
-  return runWrites();
-};
-/* 这些候选的结果是否已经原样在清单文件里了 */
-function syncedFiles(cands) {
-  const ok = new Set();
-  for (const [file, results] of reviewPayload(cands))
-    if (!failedFiles.has(file) && lastWritten.get(file) === JSON.stringify(results)) ok.add(file);
-  return ok;
-}
+export { flushWriteBack, writeBackFailures } from '../app/candidate-sync.js';
+export { saveSegment, saveAllApproved, retagLineFiles } from './review-files.js';
+export { tagOldSavedClips, relinkSavedClips } from '../app/candidate-media.js';
+export { retagPlan } from '../core/candidate-queries.js';
 
 export function importCandidates(doc, srcFile) {
-  renumber();
-  const plan = planImport(doc, srcFile, state.rows, state.candidates);
+  const plan = importCandidateData(doc, srcFile);
   if (plan.error) {
     if (plan.errors) showFormatErrors(plan.errors, srcFile);
     else toast(plan.error);
@@ -137,47 +88,14 @@ export function importCandidates(doc, srcFile) {
     toast(plan.skipped.length ? `清单里的 ${plan.skipped.length} 个候选都对不上句子` : '清单里没有候选');
     return plan;
   }
-  snapshot('导入视频候选');
-  // 每次导入算一批：新加的候选、以及链接 / 时间改了重新回到待审的，都归进这一批
-  const batch = {
-    batchId: 'vb-' + Date.now().toString(36),
-    batchAt: Date.now(),
-    batchName: batchNameOf(doc, srcFile, plan),
-    batchNo: Math.max(0, ...batches().map(b => b.number)) + 1,
-  };
-  let reset = 0;
-  for (const { old, next, changed } of plan.updated) {
-    const forChanged = (old.for || '') !== (next.for || '');
-    if (changed) {
-      // 链接或片段换了：先把按旧版本挂上的视频从画面上撤下（描述里那行来源也删），旧的已保存状态作废
-      if (old.decision === 'ok' && old.assetId) {
-        detachCandidate(old, state.rows, state.assets);
-        reset++;
-      }
-      delete old.assetId;
-      delete old.savedPath;
-      delete old.decidedAt;
-      frames.delete(old.id);
-    }
-    Object.assign(old, next);
-    // 已通过的候选补写了「配哪几句」：素材在表格里的出现范围跟着改
-    const lead = forChanged && old.decision === 'ok' && old.assetId ? rowById(old.rowId) : null;
-    if (lead) applyFor(old, shotMembers(state.rows, lead), old.assetId);
-    if (!old.decision) Object.assign(old, batch);
-  }
-  for (const c of plan.added) Object.assign(c, batch);
-  state.candidates = [...state.candidates, ...plan.added];
-  persist();
-  update('rows');
-  curBatch = batch.batchId;
+  curBatch = plan.batch.batchId;
   curShot = null;
   openVideoReview();
   toast(
-    `已导入 ${plan.added.length} 个视频候选${plan.updated.length ? `，更新 ${plan.updated.length} 个` : ''}${reset ? `（其中 ${reset} 个已通过的换了链接或片段，已撤下旧视频、回到待审）` : ''}${plan.skipped.length ? ` · ${plan.skipped.length} 个对不上句子，已跳过` : ''}`,
+    `已导入 ${plan.added.length} 个视频候选${plan.updated.length ? `，更新 ${plan.updated.length} 个` : ''}${plan.reset ? `（其中 ${plan.reset} 个已通过的换了链接或片段，已撤下旧视频、回到待审）` : ''}${plan.skipped.length ? ` · ${plan.skipped.length} 个对不上句子，已跳过` : ''}`,
     null,
     plan.skipped.length ? 'warn' : 'ok',
   );
-  if (reset) writeBack();
   return plan;
 }
 
@@ -214,442 +132,21 @@ export const copyCandidateSpec = () =>
     `已复制${SPEC_NAME}，发给找素材的 AI 即可`,
   );
 
-/* 批次名：清单里写了 batch / title 就用它，否则用涉及的章节名，再不行用文件名 */
-function batchNameOf(doc, srcFile, plan) {
-  const given = String(doc.batch || doc.title || '').trim();
-  if (given) return given.slice(0, 40);
-  const secs = [];
-  for (const c of [...plan.added, ...plan.updated.map(x => x.next)]) {
-    const name = sectionOf(c.rowId);
-    if (name && !secs.includes(name)) secs.push(name);
-  }
-  if (secs.length === 1) return secs[0];
-  if (secs.length > 1) return `${secs[0]} 等 ${secs.length} 章`;
-  return assetName(srcFile || '') || '视频候选';
-}
-
 export function setDecision(id, d) {
-  const c = state.candidates.find(x => x.id === id);
-  if (!c) return;
-  const next = c.decision === d ? '' : d;
-  snapshot(next ? `视频候选：${DECISION[next]}` : '撤回审核');
-  let msg = '';
-  if (c.decision === 'ok' && next !== 'ok') {
-    detachCandidate(c, state.rows, state.assets);
-    msg = '已从画面上撤下这个视频 · ⌘Z 可撤销';
+  touched.add(id);
+  const result = decideCandidate(id, d);
+  if (!result || result.error) {
+    if (result?.error) toast(result.error);
+    return;
   }
-  if (next === 'ok') {
-    const r = attachCandidate(c, state.rows, state.assets);
-    if (r.error) {
-      toast(r.error);
-      return;
-    }
-    c.assetId = r.assetId;
-    // 这个画面在「待返工」里：要求算解决，标了不满意的旧素材挪到备选
-    const old = resolveOnApprove(state.rows, rowById(c.rowId), r.assetId);
-    const names = [...new Set([...r.demoted, ...old])].map(x => state.assets[x]?.name || '素材');
-    msg = `已挂成主画面（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
-  }
-  c.decision = next;
-  if (next) c.decidedAt = Date.now();
-  else delete c.decidedAt;
-  touched.add(c.id);
-  persist();
-  update('rows');
-  writeBack();
-  if (next === 'ok') relinkSavedClips(); // 这一段以前保存过（自己或重复批次里的同一段）：直接换成本地文件，不再挂在线地址
+  const { candidate: c, next, msg } = result;
+  if (next === 'ok') relinkSavedClips();
   if (next) advanceAfterDecision(c);
   renderVideoReview();
   if (next) stamp(c.id);
   if (msg) toast(msg);
 }
-let noteTimer = null;
-export function setNote(id, text) {
-  const c = state.candidates.find(x => x.id === id);
-  if (!c) return;
-  c.note = text;
-  clearTimeout(noteTimer);
-  noteTimer = setTimeout(() => {
-    persist();
-    writeBack();
-  }, 400);
-}
-
-async function ensureMediaDir(force = false) {
-  if (state.mediaDir && !force) return state.mediaDir;
-  const dir = await native('pickFolder')(state.mediaDir || '');
-  if (!dir) return null;
-  state.mediaDir = dir;
-  persist();
-  renderVideoReview();
-  return dir;
-}
-const busy = new Set();
-/* 截取进度：id → 0–1（主进程按 ffmpeg 的 -progress 回报）。只原地改批量按钮，不重画整个窗口 */
-const prog = new Map();
-let batchRun = null; // 「保存已通过的片段」进行中：{ i, n, id }
-const pctOf = id => Math.round((prog.get(id) || 0) * 100);
-function saveAllLabel() {
-  if (!batchRun) return null;
-  const p = batchRun.id && prog.has(batchRun.id) ? ` · ${pctOf(batchRun.id)}%` : '';
-  return `正在保存 ${batchRun.i}/${batchRun.n}${p}`;
-}
-function paintProgress(id) {
-  const all = $('#vrSaveAll');
-  const label = saveAllLabel();
-  if (all && label) {
-    all.textContent = label;
-    all.style.setProperty('--p', (batchRun.id && batchRun.id === id ? pctOf(id) : 0) + '%');
-  }
-}
-export async function saveSegment(id, { quiet = false } = {}) {
-  const c = state.candidates.find(x => x.id === id);
-  if (!c || c.decision !== 'ok' || busy.has(id)) return null;
-  const pid = state.projectId,
-    projTitle = state.title;
-  const dir = await ensureMediaDir();
-  if (!dir || state.projectId !== pid) return null;
-  busy.add(id);
-  prog.delete(id);
-  renderVideoReview();
-  let r;
-  try {
-    renumber();
-    r = await native('saveVideoSegment')({
-      url: c.url,
-      start: c.in,
-      end: c.out,
-      dir,
-      name: fileTitle(c, state.rows),
-      token: id,
-    });
-  } finally {
-    busy.delete(id);
-    prog.delete(id);
-  }
-  if (!r || !r.ok) {
-    renderVideoReview();
-    if (r?.needFfmpeg)
-      confirmModal('需要先装 ffmpeg', r.error, '知道了', () => {}, { cancelText: '关闭', danger: false });
-    else if (!quiet) toast('保存失败：' + (r?.error || '未知原因'), null, 'error');
-    return r;
-  }
-  // 截取期间切走了项目：结果写进原来那个项目（不碰现在打开的项目和它的撤销记录）
-  if (state.projectId !== pid) {
-    applySavedElsewhere(pid, id, r.path);
-    if (!quiet) toast(`「${projTitle}」的片段已保存：${assetName(r.path)}`, null, 'ok');
-    return r;
-  }
-  const cur = state.candidates.find(x => x.id === id);
-  if (!cur || cur.decision !== 'ok' || cur.url !== c.url || cur.in !== c.in || cur.out !== c.out) {
-    // 截取期间撤回了通过、或候选被更新成别的片段：文件留着，但不再挂到画面上
-    if (!quiet) toast(`片段已保存到 ${assetName(r.path)}，但这个候选已经变了，没有挂到画面上`, null, 'warn');
-    return r;
-  }
-  snapshot('保存视频片段');
-  cur.savedPath = r.path;
-  swapToLocal(cur, r.path, state.rows, state.assets);
-  invalidateProbe();
-  persist();
-  update('rows');
-  writeBack();
-  renderVideoReview();
-  if (!quiet)
-    toast(`已保存：${assetName(r.path)}`, { label: '在访达中显示', cb: () => native('revealAsset')(r.path) }, 'ok');
-  return r;
-}
-function applySavedElsewhere(pid, candId, path) {
-  const p = projectById(pid);
-  const c = p?.candidates?.find(x => x.id === candId);
-  if (!p || !c || c.decision !== 'ok') return;
-  c.savedPath = path;
-  swapToLocal(c, path, p.rows || [], p.assets || {});
-  markProjectDirty(pid);
-  writeBack(p.candidates);
-}
-/* 旧版本保存的片段文件名只有视频标题：载入项目时在原文件夹里补上句号（第125-127句_…），
-   素材库路径、候选记录、候选清单一起改。找不到文件的跳过，不进撤销（改的是磁盘上的文件名） */
-let tagging = false,
-  tagAgain = false;
-export async function tagOldSavedClips() {
-  if (tagging) {
-    tagAgain = true; // 正在改上一个项目的：改完再看一遍当前项目
-    return 0;
-  }
-  const pid = state.projectId;
-  const todo = state.candidates.filter(c => c.savedPath && !hasLineTag(c.savedPath));
-  if (!todo.length) return 0;
-  tagging = true;
-  const { rows, assets, candidates } = state;
-  const moved = new Map(); // 旧路径 → 新路径
-  try {
-    renumber();
-    for (const c of todo) {
-      const old = c.savedPath;
-      if (!moved.has(old)) {
-        const tag = lineTag(c, rows);
-        if (!tag) continue;
-        const r = await native('tagSavedClip')(old, tag);
-        if (!r?.ok || !r.path || r.path === old) continue;
-        moved.set(old, r.path);
-      }
-    }
-  } finally {
-    tagging = false;
-    if (tagAgain) {
-      tagAgain = false;
-      setTimeout(tagOldSavedClips, 0);
-    }
-  }
-  if (!moved.size) return 0;
-  applyMovedPaths(pid, moved, { rows, assets, candidates });
-  if (state.projectId !== pid) return moved.size;
-  const first = [...moved.values()][0];
-  toast(`已给 ${moved.size} 个保存过的视频片段补上句号，例如「${assetName(first)}」`, {
-    label: '在访达中显示',
-    cb: () => native('revealAsset')(first),
-  });
-  return moved.size;
-}
-
-/* 文件改了名（旧路径 → 新路径）：当前项目、其他项目（比如「改稿前」副本）的素材库和候选记录一起改，
-   候选清单跟着写回，不留失联。不进撤销（改的是磁盘上的文件名） */
-function applyMovedPaths(pid, moved, { rows, assets, candidates }) {
-  for (const p of allProjects()) {
-    if (p.id === pid) continue;
-    let hit = false;
-    for (const a of Object.values(p.assets || {}))
-      if (moved.has(a.path)) {
-        a.path = moved.get(a.path);
-        a.name = assetName(a.path);
-        hit = true;
-      }
-    for (const c of p.candidates || [])
-      if (moved.has(c.savedPath)) {
-        c.savedPath = moved.get(c.savedPath);
-        hit = true;
-      }
-    if (hit) {
-      syncMirror(p.rows || [], p.assets || {});
-      markProjectDirty(p.id);
-    }
-  }
-  for (const c of candidates) if (moved.has(c.savedPath)) c.savedPath = moved.get(c.savedPath);
-  for (const a of Object.values(assets || {}))
-    if (moved.has(a.path)) {
-      a.path = moved.get(a.path);
-      a.name = assetName(a.path);
-    }
-  if (state.projectId !== pid) {
-    markProjectDirty(pid); // 中途切了项目：改的是原项目的数据，单独标记写盘
-    return;
-  }
-  syncMirror(rows, assets);
-  invalidateProbe();
-  persist();
-  update('rows');
-  writeBack();
-}
-
-/* 改稿后句子编号变了，文件名里的「第N-M句」还是旧的：手动执行一次，按现在的句号重命名。
-   每个带句号的本地素材取它第一次出现的那个画面的句子范围；表格上没用到的，按候选记录的画面算；
-   都找不到的不动。只在用户点了才做（不自动改：打开旧项目时不会把文件名改回去） */
-export function retagPlan(rows, assets, candidates) {
-  renumber();
-  const tagOf = members => {
-    const nos = members.map(m => m.no).filter(n => n > 0);
-    if (!nos.length) return '';
-    const from = Math.min(...nos),
-      to = Math.max(...nos);
-    return from === to ? `第${from}句` : `第${from}-${to}句`;
-  };
-  const first = new Map(); // assetId → 句号
-  const seen = new Set();
-  for (const r of rows) {
-    if (r.kind !== 'line') continue;
-    const members = shotMembers(rows, r);
-    const key = r.groupId || `line-${r.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    for (const m of members)
-      for (const u of usageList(m)) if (!first.has(u.assetId)) first.set(u.assetId, tagOf(members));
-  }
-  const plan = new Map(); // 旧路径 → 句号
-  const local = p => typeof p === 'string' && p.startsWith('/') && hasLineTag(p);
-  for (const a of Object.values(assets || {})) {
-    if (!local(a.path) || plan.has(a.path)) continue;
-    let tag = first.get(a.id);
-    if (!tag) {
-      const c = candidates.find(x => x.savedPath === a.path);
-      tag = c ? lineTag(c, rows) : '';
-    }
-    if (tag && !assetName(a.path).startsWith(`${tag}_`)) plan.set(a.path, tag);
-  }
-  for (const c of candidates) {
-    if (!local(c.savedPath) || plan.has(c.savedPath)) continue;
-    if (Object.values(assets || {}).some(a => a.path === c.savedPath)) continue;
-    const tag = lineTag(c, rows);
-    if (tag && !assetName(c.savedPath).startsWith(`${tag}_`)) plan.set(c.savedPath, tag);
-  }
-  return plan;
-}
-let retagging = false;
-export function retagLineFiles() {
-  if (retagging) return;
-  const pid = state.projectId;
-  const { rows, assets, candidates } = state;
-  const plan = retagPlan(rows, assets, candidates);
-  if (!plan.size) return toast('素材文件名里的句号都是最新的', null, 'ok');
-  const [p0, t0] = [...plan.entries()][0];
-  const example = `${assetName(p0)} → ${assetName(p0).replace(/^第\d+(?:-\d+)?句_/, `${t0}_`)}`;
-  confirmModal(
-    '按现在的句号重命名素材文件',
-    `有 ${plan.size} 个本地素材文件名里的句号已经过时，将在原文件夹里改名，例如：\n${example}\n\n所有项目里用到这些文件的地方和候选清单会一起更新。打开旧项目时不会自动改回去。`,
-    '重命名',
-    async () => {
-      retagging = true;
-      const moved = new Map();
-      let failed = 0;
-      try {
-        for (const [old, tag] of plan) {
-          const r = await native('retagLineFile')(old, tag);
-          if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
-          else if (!r?.ok) failed++;
-        }
-      } finally {
-        retagging = false;
-      }
-      if (moved.size) applyMovedPaths(pid, moved, { rows, assets, candidates });
-      toast(
-        [`已重命名 ${moved.size} 个文件`, failed ? `${failed} 个找不到或改不了，没动` : ''].filter(Boolean).join('；'),
-        null,
-        failed ? 'warn' : 'ok',
-      );
-    },
-    { danger: false },
-  );
-}
-
-/* 保存过的片段换回本地文件（见 core/candidates.js 的 staleOnlineClips）。本地文件还在就直接换上；
-   文件已经被删掉的，清掉「已保存」，「保存已通过的片段」会重新截。不进撤销（只是把数据改回应有的样子） */
-let relinking = null;
-export function relinkSavedClips({ quiet = false } = {}) {
-  relinking ||= (async () => {
-    const pid = state.projectId;
-    const stale = staleOnlineClips(state.candidates, state.rows, state.assets);
-    if (!stale.length) return 0;
-    const info = await probePaths(stale.map(x => x.cand.savedPath));
-    if (state.projectId !== pid) return 0;
-    let fixed = 0,
-      gone = 0;
-    for (const { asset, cand } of stale) {
-      // 等待期间撤回了 / 换了片段：这个不动
-      if (!state.candidates.includes(cand) || state.assets[asset.id] !== asset || !cand.savedPath) continue;
-      const got = info[cand.savedPath];
-      if (got && !isMissing(got)) {
-        // 候选原来记着的素材已经不在表格上了（撤回时拿掉的）：改记成现在挂着的这个，以后撤回能拿对
-        if (!referencedAssetIds(state.rows).has(cand.assetId)) cand.assetId = asset.id;
-        if (swapToLocal({ assetId: asset.id, in: cand.in, out: cand.out }, cand.savedPath, state.rows, state.assets))
-          fixed++;
-      } else if (isMissing(got)) {
-        delete cand.savedPath;
-        gone++;
-      }
-    }
-    if (!fixed && !gone) return 0;
-    invalidateProbe();
-    persist();
-    update('rows');
-    writeBack();
-    if (!quiet || gone)
-      toast(
-        [
-          fixed ? `${fixed} 个已保存的片段换回了本地文件` : '',
-          gone ? `${gone} 个片段的本地文件找不到了，点「保存已通过的片段」重新保存` : '',
-        ]
-          .filter(Boolean)
-          .join('；'),
-        null,
-        gone ? 'warn' : 'ok',
-      );
-    return fixed;
-  })().finally(() => (relinking = null));
-  return relinking;
-}
-
-/* 载入项目时：先给旧文件名补句号，再把保存过却还挂在线地址的片段换回本地文件（顺序不能反：补句号会改文件名） */
-const tidySavedClips = () =>
-  tagOldSavedClips()
-    .catch(() => 0)
-    .then(() => relinkSavedClips());
-
-export async function saveAllApproved() {
-  await relinkSavedClips({ quiet: true }); // 已经存在本地的先换上，不重复下载
-  const list = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath);
-  if (!list.length) {
-    toast('没有待保存的已通过片段');
-    return;
-  }
-  if (!(await ensureMediaDir())) return;
-  if (batchRun) return;
-  let ok = 0,
-    fail = 0;
-  const reasons = new Map(); // 失败原因 → 段数：批量时不逐条弹提示，最后汇总告诉用户为什么失败
-  batchRun = { i: 0, n: list.length, id: null };
-  const pid = state.projectId;
-  try {
-    for (const c of list) {
-      if (state.projectId !== pid) break; // 切了项目：后面的不再继续截
-      batchRun.i = ok + fail + 1;
-      batchRun.id = c.id;
-      paintProgress(c.id);
-      const r = await saveSegment(c.id, { quiet: true });
-      if (r?.ok) ok++;
-      else {
-        fail++;
-        if (r?.needFfmpeg) return;
-        const why = r?.error || '未知原因';
-        reasons.set(why, (reasons.get(why) || 0) + 1);
-      }
-    }
-  } finally {
-    batchRun = null;
-    renderVideoReview();
-  }
-  if (!fail) return toast(`已保存 ${ok} 段`, null, 'ok');
-  const [top, n] = [...reasons].sort((a, b) => b[1] - a[1])[0] || ['未知原因', fail];
-  const more = reasons.size > 1 ? `等 ${reasons.size} 种原因` : '';
-  toast(
-    `已保存 ${ok} 段，${fail} 段失败（可再次批量尝试）。${n < fail || more ? `主要原因（${n} 段）` : '原因'}：${top}${more ? '，' + more : ''}`,
-    null,
-    ok ? 'warn' : 'error',
-  );
-}
-export function downloadOriginal(id) {
-  const c = state.candidates.find(x => x.id === id);
-  if (!c) return;
-  confirmModal(
-    '下载完整原片？',
-    `会把整部视频下载到保存位置，可能有几百 MB，需要一段时间。\n\n${c.title}\n${c.url}`,
-    '下载',
-    async () => {
-      const dir = await ensureMediaDir();
-      if (!dir) return;
-      toast('开始下载完整原片…', { label: '取消', cb: () => native('cancelDownload')(c.url) }, 'info');
-      renumber();
-      const r = await native('downloadOriginalVideo')({ url: c.url, dir, name: fileTitle(c, state.rows) });
-      if (r?.ok)
-        toast(
-          `原片已下载：${assetName(r.path)}`,
-          { label: '在访达中显示', cb: () => native('revealAsset')(r.path) },
-          'ok',
-        );
-      else if (r?.canceled) toast('已取消下载原片', null, 'info');
-      else toast('下载失败：' + (r?.error || '未知原因'), null, 'error');
-    },
-    { danger: false },
-  );
-}
+export const setNote = setCandidateNote;
 
 /* ── 界面 ── */
 let mode = 'review'; // 'review' 待审（按批次） | 'rework' 待返工（所有批次没过关的画面）
@@ -660,7 +157,6 @@ let curShot = null; // 右边显示的画面（画面第一句的 id）
 let curCand = null; // 键盘焦点所在的候选
 /* 刚审过的候选先展开留在原处（来得及写意见、撤回），换画面后收成一行 */
 const touched = new Set();
-const frames = new Map(); // 候选 id → 已截好的帧（重绘时直接搬过去，不重复请求）
 const pendingCount = () => state.candidates.filter(c => !c.decision).length;
 const isPending = c => !c.decision;
 export const candidatesForRow = row =>
@@ -707,25 +203,13 @@ const leadOf = c => {
 };
 
 /* 批次：按导入时间新的在前；1.8 以前导入的没有批次，归成「之前导入的」 */
-function batches() {
-  const map = new Map();
-  for (const c of state.candidates) {
-    const id = c.batchId || 'legacy';
-    if (!map.has(id))
-      map.set(id, { id, name: c.batchId ? c.batchName || '视频候选' : '之前导入的', at: c.batchAt || 0, cands: [] });
-    map.get(id).cands.push(c);
-  }
-  const all = [...map.values()].sort((a, b) => b.at - a.at);
-  return all.map((b, i) => ({
-    ...b,
-    number: b.cands.find(c => Number.isSafeInteger(c.batchNo) && c.batchNo > 0)?.batchNo || all.length - i,
-  }));
-}
+const batches = () => candidateBatches(state.candidates);
+
 const batchLabel = b => `${b.id === 'legacy' ? '' : `第 ${b.number} 批 · `}${b.name}`;
 
 function confirmDeleteBatch() {
   const batch = curBatchObj();
-  if (!batch || batchRun || batch.cands.some(c => busy.has(c.id))) return;
+  if (!batch || batchRun || batch.cands.some(c => isCandidateBusy(c.id))) return;
   const pid = state.projectId;
   const ids = new Set(batch.cands.map(c => c.id));
   confirmModal(
@@ -735,22 +219,11 @@ function confirmDeleteBatch() {
     () => {
       if (state.projectId !== pid) return;
       const removed = state.candidates.filter(c => ids.has(c.id));
-      if (!removed.length || batchRun || removed.some(c => busy.has(c.id))) return;
-      snapshot('删除视频审核批次');
-      // 保留其他批次原来的编号，删除第 7 批后第 8 批仍是第 8 批。
-      for (const b of batches()) for (const c of b.cands) c.batchNo = b.number;
-      writeBack(); // 未写完的审核意见照常写回，不把删除批次改成「不要」。
+      if (!removed.length || batchRun || removed.some(c => isCandidateBusy(c.id))) return;
       stopAll();
       clearTimeout(advanceTimer);
-      for (let i = queue.length - 1; i >= 0; i--) if (ids.has(queue[i].c.id)) queue.splice(i, 1);
-      for (const c of removed) {
-        frames.delete(c.id);
-        touched.delete(c.id);
-      }
-      state.candidates = state.candidates.filter(c => !ids.has(c.id));
       curShot = curCand = null;
-      persist();
-      update('rows');
+      deleteCandidateBatch(ids);
       toast(`已删除「${batchLabel(batch)}」的 ${removed.length} 个候选 · ⌘Z 可撤销`);
     },
   );
@@ -850,22 +323,7 @@ export const closeVideoReview = () => {
 const stopAll = stopAllVideos;
 /* 离开审核页时，只清已完成返工画面里的「不要」候选。
    有来源文件的只清确实写进了清单的；写失败的留在项目里（下次离开审核页再试）。 */
-async function purgeRejected() {
-  const pid = state.projectId;
-  const cands = state.candidates;
-  if (!cands.some(c => c.decision === 'no')) return;
-  await flushWriteBack(cands);
-  if (state.projectId !== pid || state.candidates !== cands) return; // 等待期间切了项目或数据被替换：这次不动
-  const synced = syncedFiles(cands);
-  // 还在「待返工」里的画面：否掉的候选留着（那一页要列出来、还能改判通过）
-  const keep = new Set(reworkShots(state.rows, cands).flatMap(s => s.rejected));
-  const drop = c => c.decision === 'no' && !keep.has(c) && (!c.srcFile || synced.has(c.srcFile));
-  if (!cands.some(drop)) return;
-  state.candidates = cands.filter(c => !drop(c));
-  for (const id of [...frames.keys()]) if (!state.candidates.some(c => c.id === id)) frames.delete(id);
-  persist();
-  refreshVideoReviewButton();
-}
+const purgeRejected = purgeRejectedCandidates;
 
 const fmtDay = t => {
   if (!t) return '';
@@ -1019,7 +477,7 @@ function openBatchPicker(anchor) {
 function openBatchMenu(anchor) {
   const batch = curBatchObj();
   if (!batch) return;
-  const locked = !!batchRun || batch.cands.some(c => busy.has(c.id));
+  const locked = !!batchRun || batch.cands.some(c => isCandidateBusy(c.id));
   openMenu(
     anchor,
     `<div class="p-title">${esc(batchNo(batch))}${batch.at ? ` · ${fmtDay(batch.at)}` : ''}</div>
@@ -1048,14 +506,9 @@ function paintLineFocus(c) {
     .forEach(el => el.classList.toggle('hl', nos.has(+el.dataset.voNo)));
 }
 
-export function renderVideoReview() {
+function refreshReviewStatus() {
   refreshVideoReviewButton();
-  const host = $('#vrList');
-  if (!host || state.view !== 'review') return;
-  pickDefaults(null);
-  const all = batches();
-  const batch = curBatchObj();
-  const shots = shotsOf(batch);
+  if (!$('#vrSaveAll')) return;
   // 这一批的进度只在左栏批次卡片上写（待审数 + 进度条），顶栏不再重复
   const unsaved = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath).length;
   const saveAll = $('#vrSaveAll');
@@ -1072,6 +525,17 @@ export function renderVideoReview() {
     sync.innerHTML = `${fails.length} 份清单没写回：${esc(fails[0][1])} <button class="vr-link" id="vrRetrySync">重试</button>`;
   // 没有保存任务或写回提醒时，正文直接从页面顶端开始，不保留空的标题栏。
   $('#reviewPage .vr-top').hidden = saveAll.hidden && sync.hidden;
+}
+
+export function renderVideoReview() {
+  refreshVideoReviewButton();
+  const host = $('#vrList');
+  if (!host || state.view !== 'review') return;
+  pickDefaults(null);
+  const all = batches();
+  const batch = curBatchObj();
+  const shots = shotsOf(batch);
+  refreshReviewStatus();
 
   if (mode === 'rework') return renderRework(host);
   // 左栏：批次 → 画面
@@ -1144,13 +608,13 @@ export function renderVideoReview() {
   for (const c of open) {
     const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
     if (!strip) continue;
-    const got = frames.get(c.id);
+    const got = getFrames(c);
     if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
     else queueFrames(c);
   }
   for (const c of done) if (c.decision === 'ok' && c.savedPath) paintDoneThumb(c);
   // 截图只给右边这几个候选：换了画面，没轮到的截图任务取消
-  for (let i = queue.length - 1; i >= 0; i--) if (!open.some(c => c.id === queue[i].c.id)) queue.splice(i, 1);
+  retainFrames(open);
 }
 /* ── 待返工：所有批次里没过关（否掉了、一个都没通过）或者你写了要求的画面，按稿子顺序列在一页 ── */
 const reworkList = () => reworkShots(state.rows, state.candidates);
@@ -1250,12 +714,12 @@ function renderRework(host) {
   for (const c of open) {
     const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
     if (!strip) continue;
-    const got = frames.get(c.id);
+    const got = getFrames(c);
     if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
     else queueFrames(c);
   }
   for (const c of shown) if (c.decision === 'ok' && c.savedPath && !touched.has(c.id)) paintDoneThumb(c);
-  for (let i = queue.length - 1; i >= 0; i--) if (!open.some(c => c.id === queue[i].c.id)) queue.splice(i, 1);
+  retainFrames(open);
 }
 function setMode(next) {
   if (next === mode) return;
@@ -1277,23 +741,14 @@ function selectRework(id) {
   $('#vrList')?.scrollTo?.({ top: 0 });
 }
 /* 返工要求：打字即存（不进撤销，停手后写盘）；第一次写字就把这个画面标成「有要求」 */
-let reworkTimer = null;
 function setReworkNote(text) {
   const s = curReworkItem();
-  if (!s) return;
-  if (s.request) {
-    for (const m of s.members) if (m.rework) m.rework.note = text;
-  } else if (text.trim()) setRework(state.rows, s.lead, { note: text, at: Date.now() });
-  clearTimeout(reworkTimer);
-  reworkTimer = setTimeout(persist, 400);
+  if (s) updateReworkNote(s.lead, text);
 }
 function dismissCurrentRework() {
   const s = curReworkItem();
   if (!s) return;
-  snapshot('不用返工了');
-  dismissRework(state.rows, s.lead);
-  persist();
-  update('rows');
+  dismissShotRework(s.lead);
   toast(`${rangeText(s.lead)} 不用返工了 · ⌘Z 可撤销`);
 }
 /* 待返工页 → 返工单：写到片段保存位置，再把交给 AI 的那句话复制好 */
@@ -1392,143 +847,6 @@ function doneHTML(c) {
   return `<div class="vr-done d-${d}${thumbs ? ' has-thumbs' : ''}" data-vr-id="${c.id}" title="点开查看画面（审核结果不变）">${thumbs}<span class="vr-tag d-${d}">${DECISION[d]}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
 }
 
-/* 截图：同时最多 2 个视频在截，每个候选在建议片段里均匀取 6 帧 */
-const queue = [];
-let running = 0;
-function queueFrames(c) {
-  if (queue.some(q => q.c.id === c.id) || frames.has(c.id)) return;
-  queue.push({ c });
-  pump();
-}
-function pump() {
-  while (running < 2 && queue.length) {
-    const { c } = queue.shift();
-    running++;
-    grab(c).finally(() => {
-      running--;
-      pump();
-    });
-  }
-}
-/* 截好的帧最多留 60 个候选的（每个 6 张），更早看过的先丢，重新看到时再截 */
-const FRAME_KEEP = 60;
-function trimFrames() {
-  if (frames.size <= FRAME_KEEP) return;
-  const onScreen = new Set([...document.querySelectorAll('#vrList [data-vr-id]')].map(el => el.dataset.vrId));
-  for (const id of frames.keys()) {
-    if (frames.size <= FRAME_KEEP) break;
-    if (!onScreen.has(id)) frames.delete(id);
-  }
-}
-async function grab(orig) {
-  let c = mediaOf(orig);
-  const cells = [];
-  frames.set(c.id, cells);
-  trimFrames();
-  const v = document.createElement('video');
-  v.muted = true;
-  v.preload = 'auto';
-  v.src = c.url.split('#')[0];
-  const place = () => {
-    const strip = document.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
-    if (strip)
-      strip.replaceChildren(
-        ...cells.map(x => x.cell),
-        ...Array.from({ length: 6 - cells.length }, () => loadingCell()),
-      );
-  };
-  try {
-    await loadMeta(v).catch(e => {
-      if (!c.local) throw e;
-      c = orig; // 本地文件读不了（被移走 / 删了）：退回在线地址
-      v.src = c.url.split('#')[0];
-      return loadMeta(v);
-    });
-  } catch {
-    frames.delete(c.id);
-    const strip = document.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
-    if (strip)
-      strip.innerHTML = '<div class="vr-cell fail">截图失败（网站不让读或网络不通），点「播放这段」直接看</div>';
-    return;
-  }
-  for (let i = 0; i < 6; i++) {
-    // 片段均匀分成 6 段，各取中点（片段不足 1 秒也不会取到入点之前）
-    const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / 6;
-    cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in)) }); // 角标写原片里的时间
-    place();
-  }
-  v.removeAttribute('src');
-  v.load();
-}
-const loadMeta = v =>
-  new Promise((res, rej) => {
-    v.onloadedmetadata = res;
-    v.onerror = rej;
-    setTimeout(rej, 30000);
-  });
-/* 跳到 t 秒，等这一帧真的画出来，再画到一张小画布上（右下角标时间） */
-async function frameAt(v, t, label) {
-  v.currentTime = Math.max(0, t);
-  await new Promise(r => {
-    let done = false;
-    const fin = () => {
-      if (!done) {
-        done = true;
-        r();
-      }
-    };
-    const f = () => {
-      v.removeEventListener('seeked', f);
-      if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(() => setTimeout(fin, 60));
-      setTimeout(fin, 1500);
-    };
-    v.addEventListener('seeked', f);
-    setTimeout(fin, 15000);
-  });
-  const cv = document.createElement('canvas');
-  cv.width = 320;
-  cv.height = Math.round((320 * v.videoHeight) / v.videoWidth) || 240;
-  try {
-    cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
-  } catch {}
-  const cell = document.createElement('div');
-  cell.className = 'vr-cell';
-  const tag = document.createElement('i');
-  tag.textContent = label;
-  cell.append(cv, tag);
-  return cell;
-}
-
-/* 审过「通过」的那一行：已保存的片段用 macOS 系统缩略图（和表格里的素材缩略图同一套，系统自己缓存，
-   分镜台不另存任何图片；内存里只留最近几十张，关掉软件就没了） */
-/* 已通过那一行的小图：自己从视频里解一帧（macOS 系统缩略图常给的是默认播放器的图标，比如 B 站） */
-function paintDoneThumb(c) {
-  const path = c.savedPath;
-  videoFrame(path).then(url => {
-    const cell = document.querySelector(`#vrList .vr-done[data-vr-id="${c.id}"] .vr-done-thumbs .vr-cell`);
-    const cur = state.candidates.find(x => x.id === c.id);
-    if (!cell || cur?.savedPath !== path) return; // 换了画面 / 片段被换掉：这张不用了
-    if (!url) {
-      cell.textContent = '没有缩略图';
-      return;
-    }
-    const img = document.createElement('img');
-    img.alt = '';
-    img.src = url;
-    cell.classList.remove('ld');
-    cell.replaceChildren(img);
-  });
-}
-function loadingCell(text = '载入中…') {
-  const d = document.createElement('div');
-  d.className = 'vr-cell ld';
-  d.textContent = text;
-  return d;
-}
-/* 播放 / 截图用的片段：已经保存到本地的直接用本地文件（秒开、不用联网），本地片段从 0 秒开始；
-   没保存的用在线地址的建议入出点 */
-const mediaOf = c =>
-  c?.savedPath ? { ...c, url: fileUrl(c.savedPath), in: 0, out: Math.max(0.1, c.out - c.in), local: true } : c;
 function play(id) {
   const c = state.candidates.find(x => x.id === id);
   const card = document.querySelector(`[data-vr-id="${id}"]`);
@@ -1703,21 +1021,6 @@ export function initVideoReview() {
     if (n) setNote(n.dataset.vrNote, n.value);
     if (e.target.closest('[data-vr-rw-note]')) setReworkNote(e.target.value);
   });
-  // 批量截取进度：顶部按钮显示当前片段的百分比和进度条
-  nat.onSegmentProgress(({ token, p }) => {
-    if (!busy.has(token)) return;
-    prog.set(token, p);
-    paintProgress(token);
-  });
-  // 下载完整原片的进度：提示条里显示百分比
-  nat.onDownloadProgress(({ url, got, total }) => {
-    if (total && got < total)
-      toast(
-        `正在下载完整原片… ${Math.floor((got / total) * 100)}%`,
-        { label: '取消', cb: () => native('cancelDownload')(url) },
-        'info',
-      );
-  });
   on('rows', renderVideoReview); // 撤销 / 重做 / 切项目后按钮和列表跟着刷新
   on('view', ({ from, view }) => {
     if (from === 'review') {
@@ -1728,12 +1031,8 @@ export function initVideoReview() {
     }
     if (view === 'review') renderVideoReview();
   });
-  // 撤销 / 重做改回了审核结果：清单文件也跟着改回去（内容没变就不写）
-  on('history', () => {
-    if (state.candidates.length) writeBack();
-  });
   $('#vrSync').addEventListener('click', e => {
-    if (e.target.closest('#vrRetrySync')) flushWriteBack().then(() => renderVideoReview());
+    if (e.target.closest('#vrRetrySync')) flushWriteBack().then(refreshReviewStatus);
   });
   // 批次菜单（换批次 / 导入）和「⋯」菜单（保存位置 / 删除）里的项
   document.addEventListener('click', e => {
@@ -1750,9 +1049,19 @@ export function initVideoReview() {
   on('project-loaded', () => {
     curBatch = curShot = curCand = curRework = null;
     touched.clear();
-    setTimeout(tidySavedClips, 0);
+    clearReviewFrames();
   });
-  setTimeout(tidySavedClips, 0); // 启动时的项目在这之前就载入了
+  initCandidateMedia();
+  on('candidate-sync', refreshReviewStatus);
+  on('candidate-media', renderVideoReview);
+  on('candidates-changed', ({ resetIds = [], removedIds = [] } = {}) => {
+    const ids = new Set([...resetIds, ...removedIds]);
+    for (const id of ids) {
+      touched.delete(id);
+    }
+    forgetFrames(ids);
+    refreshVideoReviewButton();
+  });
   registerCommand('video:open', openVideoReview);
   registerCommand('video:rework', openRework);
   registerCommand('video:close', closeVideoReview);

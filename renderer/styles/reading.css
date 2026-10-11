@@ -1,0 +1,274 @@
+/* ═════════ 勾选视图：整篇原文 ═════════ */
+.ck-sec {
+  cursor: default;
+  /* 章节标题吸顶：滚到哪一段，标题就浮在文章栏顶部（背景不透明，正文从底下穿过） */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 24px 0 10px;
+  margin: 0 0 4px;
+}
+.ck-sec:hover .name {
+  color: var(--text);
+}
+.ck-hint {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 10px 30px 0;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.ck-hint kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-2);
+  background: rgba(120, 132, 158, 0.12);
+  border: 1px solid var(--hairline-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+body.dark .ck-hint kbd {
+  background: rgba(255, 255, 255, 0.05);
+}
+.ck-article {
+  margin: 0 auto;
+  padding: 14px 30px 160px;
+  max-width: 900px;
+  padding-bottom: 60px;
+}
+.ck-article .ck-sec:first-child {
+  margin-top: 6px;
+  padding-top: 8px;
+}
+.ck-sec .dm {
+  font-size: 10px;
+  color: #fff;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  background: #7c8c9f;
+  box-shadow: none;
+}
+.ck-sec .name {
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+.ck-sec .line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--hairline-2), transparent);
+}
+.ck-p {
+  font-size: 17.5px;
+  line-height: 2.25;
+  letter-spacing: 0.2px;
+  margin: 0 0 1.2em;
+  color: var(--text);
+}
+/* 吸顶底色通栏铺满窗口宽，半透明+模糊（和表头同一套语言）：
+   纯色带不管涂多宽，边缝都会和渐变底纹形成明暗交界；半透明则边缘自然融合 */
+.ck-sec::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: 0;
+  background: var(--bg);
+  left: 0;
+  width: 100%;
+}
+/* 句子 = 勾选对象：底色按类型上色，下边线当「荧光笔下沿」；悬停会给浅灰预示 */
+.as {
+  cursor: pointer;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+  padding: 0.06em 0.16em;
+  margin: 0 0.06em;
+  border-bottom: 3px solid transparent;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.as:hover {
+  background: rgba(120, 132, 158, 0.16);
+}
+body.dark .as:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.as.cur {
+  outline-offset: 2px;
+  outline: 2px dashed var(--sel-ring);
+}
+.as.qdim {
+  opacity: 0.22;
+}
+/* 画面批注：句子下方一行红字，楷体手写批注感，和苹方正文一眼区分开；点它可以就地改 */
+.as-note {
+  display: block;
+  overflow-wrap: anywhere;
+  cursor: text;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  font-size: 20px;
+  line-height: 1.7;
+  font-weight: 600;
+  color: #c82d35;
+  border-left: 3px solid currentColor;
+  white-space: pre-wrap;
+}
+body.dark .as-note {
+  color: #ff8e94;
+}
+.as-note-edit {
+  margin-top: 0.58em; /* 编辑框比红字退得再多一点，蓝圈不贴句子下划线 */
+  background: var(--card);
+  outline: 2px solid rgba(59, 116, 232, 0.5);
+  outline-offset: 2px;
+  border-radius: 6px;
+  padding: 2px 8px;
+  user-select: text;
+  cursor: text;
+}
+.as-note-edit:empty::before {
+  content: attr(data-ph);
+  color: #a8b1c4;
+  pointer-events: none;
+}
+body.dark .as-note-edit:empty::before {
+  color: #49536a;
+}
+.ck-empty {
+  padding: 110px 20px;
+  text-align: center;
+  color: var(--text-3);
+}
+.ck-empty .big {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+.ck-empty .sub {
+  font-size: 13px;
+  line-height: 1.9;
+  margin-bottom: 26px;
+}
+body.reading .ck-article {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+body.multi-mode .as::before {
+  content: '□ ';
+  color: var(--text-3);
+  font-family: system-ui;
+}
+body.multi-mode .as.cur::before {
+  content: '☑ ';
+  color: var(--accent);
+}
+body.multi-mode .as {
+  padding-left: 0.2em;
+}
+body.multi-mode .as:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.shared-passage {
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--hairline));
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  margin: 0 0 24px;
+  padding: 0 16px 8px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+}
+.shared-passage-heading {
+  width: calc(100% + 32px);
+  margin: 0 -16px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 5px 5px 0 0;
+  flex-wrap: wrap;
+}
+.shared-passage .ck-p:last-child {
+  margin-bottom: 8px;
+}
+.as-note {
+  margin: 0.45em 2px 0.85em;
+  padding-left: 10px;
+}
+.shared-passage > .shared-note {
+  margin: 12px 2px 18px;
+}
+.shared-passage > .as-note-edit {
+  margin: 12px 4px 18px;
+}
+.shared-passage-title small {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+/* 长稿性能：屏幕外的行跳过布局和绘制（浏览器按记住的尺寸占位），几百上千句时标注 / 搜索不再整页重排 */
+:is(.rows, .sec-block):not(.ck) > .row,
+:is(.rows, .sec-block):not(.ck) > .shared-scene,
+:is(.rows, .sec-block):not(.ck) > .section-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+.ck-article > .ck-p {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+.as.typed {
+  background: color-mix(in srgb, var(--tc) 18%, var(--card));
+  border-bottom-color: var(--tc);
+}
+body.dark .as.typed {
+  background: color-mix(in srgb, var(--tc) 29%, var(--card));
+}
+.shared-passage.picked {
+  box-shadow: 0 0 0 1.5px var(--sel-ring);
+}
+/* 普通句子沿用共用画面的左侧留白，五列及描述文字保持对齐。 */
+:is(.rows, .sec-block):not(.ck) > .row {
+  padding-left: 24px;
+}
+:is(.rows, .sec-block):not(.ck) > .row .note {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+/* 画面描述太长时只显示前 4 行，末尾省略号；点进去编辑时展开全文（右侧面板也能看全文） */
+.rows:not(.ck) .note:not(:focus) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  /* 下留白只在收起时改为透明边框，编辑时保留原来的完整圆角细框。 */
+  padding-bottom: 0;
+  border-bottom: 7px solid transparent;
+}
+.rows:not(.ck) .note.clamped:not(:focus) {
+  cursor: pointer;
+}
+body.compact .rows:not(.ck) .note:not(:focus) {
+  -webkit-line-clamp: 2;
+}
+body.compact :is(.rows, .sec-block):not(.ck) > .row {
+  contain-intrinsic-size: auto 48px;
+}
+
+.shared-passage-heading span,
+.shared-passage-title span {
+  color: var(--text-2);
+}
+.shared-passage-title span {
+  overflow-wrap: anywhere;
+}

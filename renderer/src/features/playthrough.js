@@ -635,6 +635,8 @@ export function initPlaythrough() {
     }
   });
   on('workspace', refreshSoon);
+  on('project-changed', refreshSoon);
+  on('assets-changed', refreshSoon);
   on('rows', refreshSoon);
   on('history', refreshSoon);
   registerCommand('playthrough:from', id => openPlaythrough(id ?? state.sel));

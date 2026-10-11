@@ -6,10 +6,7 @@ import { GROUP_ID } from './parse.js';
 export const STATUS = { todo: '待找素材', making: '待制作', ready: '已就绪' };
 export const shotMembers = (rows, r) =>
   r?.groupId ? rows.filter(x => x.kind === 'line' && x.groupId === r.groupId) : r ? [r] : [];
-/* 素材使用记录（结构同 assets.js；纯数据层，不 import assets.js 防循环依赖） */
-const usagesOf = r => (Array.isArray(r?.assetUsages) ? r.assetUsages : []);
-const cloneUsages = us =>
-  us.map(u => ({ ...u, ...(u.clip ? { clip: { ...u.clip } } : {}), ...(u.at ? { at: { ...u.at } } : {}) }));
+import { usageList as usagesOf, cloneUsages } from './asset-usage.js';
 /* ── 素材角色与位置（1.4）──
    role：main 主画面（这段的底；1.8 起一段可以有多个，按时间先后放，见 shot-layout.js）/ overlay 叠加（盖在主画面上）/ alt 备选（先存着不用）。
          没有 role = 旧项目里的「未分配」，照旧参与导出，不强行改。

@@ -1,0 +1,128 @@
+/* ═════════ 动效：滑块、换位、数字滚动、深浅色水波 ═════════ */
+@keyframes rowIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* 入场动画只挂在 .anim（切视图/切筛选时由 JS 加上，渲染一次就撤）：
+   数据更新引起的重建不重播动画，否则整页淡入一遍，看起来像「刷新了一下」 */
+.rows.anim .row {
+  animation: rowIn 0.32s cubic-bezier(0.3, 0, 0.2, 1) backwards;
+}
+.rows.anim .ck-p {
+  animation: rowIn 0.3s cubic-bezier(0.3, 0, 0.2, 1) backwards;
+}
+.mo-glide {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  pointer-events: none;
+  will-change: transform;
+  transition:
+    transform 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    width 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    height 0.46s cubic-bezier(0.34, 1.45, 0.5, 1),
+    opacity 0.2s ease;
+}
+.mo-sel-ghost {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 4px 8px 8px 4px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+body.dark .mo-sel-ghost {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.pop-glide {
+  border-radius: 9px;
+  background: rgba(120, 132, 158, 0.12);
+}
+body.dark .pop-glide {
+  background: rgba(255, 255, 255, 0.08);
+}
+.popover.has-glide .pop-item:hover,
+.popover.has-glide .pop-item:focus {
+  background: transparent;
+}
+.vrnav-glide {
+  background: var(--filter-active-bg);
+  border-radius: 8px;
+}
+.vr-nav.has-glide .vr-nav-shot.on {
+  background: transparent;
+}
+.vr-row.has-glide > .vr-btn.on {
+  background: transparent;
+}
+/* 列表重画时消失的句子：在原位置留个影子淡出 */
+.mo-ghosts {
+  position: fixed;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+  padding: 0;
+  margin: 0;
+}
+.mo-ghosts > .mo-ghost {
+  position: absolute !important; /* 影子是整行复制出来的，要压过行自己的定位和外边距 */
+  margin: 0 !important;
+}
+/* 数字滚动：新旧数字叠在同一格，一个滚出去一个滚进来 */
+.mo-roll {
+  display: inline-grid;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+.mo-roll > span {
+  grid-area: 1 / 1;
+  text-align: center;
+}
+/* 弹窗关的时候多留 0.2–0.3 秒播完缩回去的动画（这期间点不到、也拿不到焦点） */
+.modal-mask.mo-closing {
+  display: grid;
+  pointer-events: none;
+}
+/* 深浅色水波：比例坐标适配高分屏与界面缩放；截图就绪前隐藏新画面。
+   不叠加浏览器默认的整窗变换或界面自己的颜色过渡。 */
+html.theme-vt::view-transition,
+html.theme-vt::view-transition-group(root),
+html.theme-vt::view-transition-image-pair(root),
+html.theme-vt::view-transition-old(root),
+html.theme-vt::view-transition-new(root) {
+  pointer-events: none;
+}
+html.theme-vt::view-transition-group(root),
+html.theme-vt::view-transition-old(root),
+html.theme-vt::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html.theme-vt,
+html.theme-vt *,
+html.theme-vt *::before,
+html.theme-vt *::after {
+  transition: none !important; /* 深浅色切换那一刻关掉所有过渡，整屏一起变 */
+}
+html.theme-vt::view-transition-old(root) {
+  z-index: 1;
+}
+html.theme-vt::view-transition-new(root) {
+  z-index: 2;
+  clip-path: circle(0% at var(--theme-origin, 100% 0%));
+  will-change: clip-path;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mo-glide,
+  .segbar .seg,
+  .save-state .dot {
+    transition: none;
+  }
+}

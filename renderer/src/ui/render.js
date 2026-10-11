@@ -1,12 +1,14 @@
 /* 渲染总入口：订阅数据事件，决定重渲染粒度（全量 / 原地刷新） */
-import { state, on, emit, renumber, currentSelection, checkedIds, visibleLineIds, rowById } from '../app/state.js';
+import { state, on, emit, renumber, visibleLineIds, rowById } from '../app/state.js';
 import { renderStats } from './render-stats.js';
 import { renderTable, updateRowVisual, updateSectionBadges } from './render-table.js';
 import { renderCheck, updateCheckSpans, updateCheckNote } from './render-check.js';
 import { armAnimation, animationArmed } from './anim.js';
-import { flipCapture, flipPlay, glideSelection } from './motion.js';
+import { flipCapture, flipPlay } from './motion.js';
 import { closePop } from './popover.js';
-import { flushPendingEdits } from './edit.js';
+import { flushPendingEdits } from './edit-session.js';
+import { renderSelectionOnly } from './selection.js';
+export { renderSelectionOnly } from './selection.js';
 import { revealRow } from './dom.js';
 import { runCommand } from './commands.js';
 
@@ -84,51 +86,6 @@ export function renderAll() {
   flipPlay(document.querySelector('#rows'), flip);
   lastRendered = `${state.projectId}|${state.view}`;
   // 这里不滚动：滚动交给明确的交互（键盘导航 / 搜索跳转 / 切视图），否则打字、筛选、撤销都会拽视口
-}
-
-/* 只刷选中高亮，不重建 DOM（键盘导航 / 点选时不打断进行中的编辑） */
-export function renderSelectionOnly() {
-  document.body.classList.toggle('multi-mode', state.multiMode);
-  document.body.classList.toggle('multi-active', checkedIds().length > 0); // 勾了一句也一直显示勾，不用等第二句
-  document.querySelector('#selectionHeading').textContent = state.multiMode ? '选择 / #' : '#';
-  emit('cursor');
-  const sel = new Set(currentSelection());
-  if (state.view === 'check') {
-    document.querySelectorAll('.as').forEach(el => {
-      const checked = sel.has(+el.dataset.id);
-      el.classList.toggle('cur', checked);
-      if (state.multiMode) {
-        el.setAttribute('role', 'checkbox');
-        el.setAttribute('aria-checked', String(checked));
-        el.tabIndex = 0;
-      } else {
-        el.removeAttribute('role');
-        el.removeAttribute('aria-checked');
-        el.removeAttribute('tabindex');
-      }
-    });
-    // 共用画面：选中组里任意一句，整段一起框住（和单句选中同一种样式）
-    document
-      .querySelectorAll('.shared-passage')
-      .forEach(p => p.classList.toggle('picked', !!p.querySelector('.as.cur')));
-    return;
-  }
-  const ticked = new Set(checkedIds());
-  const only = list => (list.length === 1 ? list[0] : null);
-  const before = only(document.querySelectorAll('#rows .row.selected'));
-  document.querySelectorAll('.row').forEach(el => {
-    el.classList.toggle('selected', sel.has(+el.dataset.id));
-    const box = el.querySelector('.row-select');
-    if (box) box.checked = ticked.has(+el.dataset.id);
-  });
-  // 共用画面：选中组里任意一句，整组（句子 + 类型 + 画面描述 + 素材）一起框住——
-  // 用的是和单句选中完全一样的灰底灰框，只是范围是一整组；组内当前那句再深一点
-  document
-    .querySelectorAll('.shared-scene')
-    .forEach(sc => sc.classList.toggle('picked', !!sc.querySelector('.row.selected')));
-  // 换句：选中条从上一句滑过来
-  const after = only(document.querySelectorAll('#rows .row.selected'));
-  if (before !== after) glideSelection(before, after);
 }
 
 export function setView(v) {

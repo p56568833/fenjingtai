@@ -1,0 +1,86 @@
+/* ═════════ 待返工 ═════════ */
+.vr-tab[data-vr-tab='rework'] b {
+  background: #d9820b;
+}
+.modal.rework-modal {
+  width: 460px;
+}
+.rework-range {
+  margin: -4px 0 12px;
+}
+.rework-label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.rework-label textarea,
+.rework-label select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.modal .rework-hint {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.rework-modal .m-btns .spacer {
+  flex: 1;
+}
+/* 右侧素材卡片：「不满意」占一整行；标过之后直接写着意见，点开能改 */
+.inspector-asset .rework-btn {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--hairline-2);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.inspector-asset .rework-btn span {
+  flex: 1;
+  min-width: 0;
+}
+.inspector-asset .rework-btn:hover {
+  border-color: #d9820b;
+  color: var(--text-2);
+}
+.inspector-asset .rework-btn:hover b {
+  color: #d9820b;
+}
+.inspector-asset .rework-btn.on {
+  border-style: solid;
+  border-color: color-mix(in srgb, #d9820b 45%, transparent);
+  background: color-mix(in srgb, #d9820b 9%, transparent);
+  color: var(--text);
+}
+.inspector-asset .rework-btn.on b {
+  color: #d9820b;
+}
+.inspector-asset .rework-btn.on span {
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inspector-asset .rework-btn i {
+  flex: none;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-3);
+}

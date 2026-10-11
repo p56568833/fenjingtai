@@ -1,0 +1,107 @@
+/* ═════════ 左侧章节目录 ═════════ */
+.outline {
+  width: 174px;
+  flex: none;
+  border-right: 1px solid var(--hairline);
+  overflow-y: auto;
+  padding: 16px 10px;
+  background: var(--card);
+  /* 章节目录：高亮块跟着正文滚动上下滑 */
+  position: relative;
+}
+.outline .side-title {
+  padding: 0 10px;
+}
+.outline-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 10px;
+  border-radius: 6px;
+  color: var(--text-2);
+  cursor: pointer;
+  margin: 3px 0;
+  position: relative;
+  z-index: 1;
+}
+.outline-item span {
+  font-size: 12px;
+  line-height: 1.6;
+  display: block;
+}
+.outline-item small {
+  display: block;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+.outline-item:hover {
+  background: var(--row-hover);
+}
+.outline-item.active {
+  background: var(--row-sel-bg);
+  color: var(--accent);
+}
+.side-empty {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.7;
+  padding: 12px;
+}
+.outline-glide {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.outline.has-glide .outline-item.active {
+  background: transparent;
+}
+/* 章节目录：鼠标移上去右上角出「···」，点它或右键弹章节菜单；双击名字就地改名 */
+.outline-item[data-sec] {
+  padding-right: 28px;
+}
+.outline-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -2px;
+}
+.outline-item .outline-more {
+  position: absolute;
+  top: 7px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  color: var(--text-3);
+  opacity: 0;
+  transition:
+    opacity 0.12s,
+    background 0.12s,
+    color 0.12s;
+}
+.outline-item:hover .outline-more,
+.outline-item:focus-visible .outline-more,
+.outline-item .outline-more.pop-open {
+  opacity: 1;
+}
+.outline-item .outline-more:hover,
+.outline-item .outline-more.pop-open {
+  background: var(--hairline);
+  color: var(--text);
+}
+.outline-item .name[contenteditable='true'] {
+  margin: -3px -6px;
+  padding: 3px 6px;
+  color: var(--text);
+}
+@media (max-width: 1200px) {
+  .outline {
+    width: 150px;
+  }
+}

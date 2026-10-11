@@ -13,7 +13,8 @@ import {
 import { esc, composing, toast, readEditable } from './dom.js';
 import { durCellHTML } from './time-view.js';
 import { renderStats } from './render-stats.js';
-import { renderSelectionOnly } from './render.js';
+import { registerEditFlush } from './edit-session.js';
+import { renderSelectionOnly } from './selection.js';
 import { openTypePopover, markPopAnchor, closePop } from './popover.js';
 
 /* 打字时侧栏 / 徽标的刷新合并成停手后一次，长稿里每个按键不再全量刷新 */
@@ -184,6 +185,7 @@ function selectOnClick(id, e) {
 
 /* ── 装配 ── */
 export function initEdit() {
+  registerEditFlush(flushPendingEdits);
   const rows = document.querySelector('#rows');
 
   // 画面描述被截成 4 行时，悬停提示「点开看全文」（只在悬停时量一次，不用跟着内容同步）

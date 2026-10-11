@@ -1,0 +1,244 @@
+/* ═════════ 基础：主题变量、页面底色、滚动条、通用按钮与小部件 ═════════ */
+:root {
+  /* 浅色主题（默认） */
+  --card: #ffffff;
+  --card-hover: #fbfcfe;
+  --hairline-2: #dfe3ec;
+  --text: #1a2233;
+  --text-2: #5a6478;
+  --accent: #3b74e8;
+  --accent-2: #7b5cff;
+
+  --c-a: #3b74e8;
+  --c-b: #5b6b85;
+  --c-real: #12945f;
+  --c-stock: #d9820b;
+  --c-ai: #7c4de8;
+  --c-fx: #e8502f;
+
+  --seg-track: #e8ebf2;
+  --seg-none: #c9cfdc;
+  --row-sel-bd: rgba(59, 116, 232, 0.35);
+  --row-hover: rgba(120, 132, 158, 0.07);
+  --row-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  --row-shadow-hover: 0 5px 16px rgba(15, 23, 42, 0.08);
+  --filter-active-bg: #eaf1ff;
+  --filter-active-bd: #b9d0ff;
+  --filter-active-tx: #2b5fc7;
+  --del-bg: #fff0ed;
+  --todo: #c77700;
+  --toast-bg: #ffffff;
+
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  color-scheme: light;
+  --bg: #f6f7f8;
+  --hairline: #e5e7eb;
+  --text-3: #707b8c;
+  --note-width: 250px;
+  --row-sel-grad: none;
+  /* 选中态改用中性墨色：不再和 A roll 的蓝色、强调色混在一起 */
+  --row-sel-bg: #eef0f3;
+  --sel-ring: rgba(26, 34, 51, 0.32);
+}
+body.dark {
+  --bg: #0b0e14;
+  --card: #141926;
+  --card-hover: #181f30;
+  --hairline: rgba(255, 255, 255, 0.06);
+  --hairline-2: rgba(255, 255, 255, 0.1);
+  --text: #eef1f8;
+  --text-2: #9aa4b8;
+  --accent: #4c8dff;
+
+  --seg-track: rgba(255, 255, 255, 0.05);
+  --seg-none: #2b3342;
+  --row-sel-bd: rgba(105, 145, 255, 0.32);
+  --row-hover: rgba(255, 255, 255, 0.032);
+  --row-shadow: none;
+  --row-shadow-hover: none;
+  --filter-active-bg: rgba(99, 140, 255, 0.14);
+  --filter-active-bd: rgba(110, 150, 255, 0.45);
+  --filter-active-tx: #eef1f8;
+  --del-bg: rgba(255, 107, 82, 0.1);
+  --todo: #ffc24d;
+  --toast-bg: #181e2e;
+  color-scheme: dark;
+  --text-3: #929eaf;
+  --row-sel-grad: none;
+  --row-sel-bg: rgba(255, 255, 255, 0.06);
+  --sel-ring: rgba(238, 241, 248, 0.38);
+}
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important; /* hidden 属性要压过任何 display 设置 */
+}
+::selection {
+  background: rgba(59, 116, 232, 0.25);
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+/* 主题渐变底纹拆成两层做透明度交叉淡化：切换时整屏一起变，不会一部分先变 */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  transition: opacity 0.3s ease;
+  display: none;
+}
+body::before {
+  background:
+    radial-gradient(1200px 620px at 10% -12%, rgba(76, 141, 255, 0.1), transparent 58%),
+    radial-gradient(1000px 540px at 92% -12%, rgba(123, 92, 255, 0.09), transparent 58%);
+  opacity: 0;
+}
+body::after {
+  background:
+    radial-gradient(1200px 600px at 8% -10%, rgba(59, 116, 232, 0.06), transparent 55%),
+    radial-gradient(1000px 520px at 95% -10%, rgba(123, 92, 255, 0.05), transparent 55%);
+  opacity: 1;
+}
+body.dark::before {
+  opacity: 1;
+}
+body.dark::after {
+  opacity: 0;
+}
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+.spacer {
+  flex: 1;
+}
+.btn {
+  cursor: pointer;
+  background: var(--card);
+  border: 1px solid var(--hairline-2);
+  color: var(--text);
+  font-weight: 500;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition:
+    background 0.13s,
+    border-color 0.13s,
+    transform 0.07s,
+    box-shadow 0.13s;
+  box-shadow: none;
+  border-radius: 7px;
+  height: 32px;
+  font-size: 12px;
+  padding: 0 11px;
+}
+body.dark .btn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.09);
+  color: #ccd4e4;
+}
+.btn:hover {
+  border-color: rgba(120, 132, 158, 0.45);
+}
+body.dark .btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.btn.primary {
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+  background: #416c9d;
+  box-shadow: none;
+}
+.btn.primary:hover {
+  filter: brightness(1.08);
+}
+.btn .caret {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.6;
+  opacity: 0.75;
+}
+.btn.icon-only {
+  width: 37px;
+  padding: 0;
+  justify-content: center;
+}
+.btn.icon-only svg {
+  width: 16px;
+  height: 16px;
+}
+.btn.ghost {
+  background: transparent;
+  box-shadow: none;
+}
+.btn.danger {
+  background: linear-gradient(135deg, #e5533a, #f56a4d);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(240, 90, 60, 0.35);
+}
+.btn.danger:hover {
+  filter: brightness(1.1);
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+.btn:hover {
+  box-shadow: none;
+}
+.text-button {
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 5px;
+  white-space: nowrap;
+}
+.text-button:hover {
+  color: var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important; /* 系统开了「减少动态效果」：动画和过渡一律关掉，包括 JS 写在元素上的 */
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

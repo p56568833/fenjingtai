@@ -1,0 +1,296 @@
+/* ═════════ 提示与弹窗：粘贴导入、导入预览、交稿检查、差异确认、素材选择器 ═════════ */
+/* toast */
+.toast {
+  position: fixed;
+  bottom: 68px;
+  left: 50%;
+  transform: translateX(-50%) translateY(14px);
+  background: var(--toast-bg);
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  padding: 12px 19px;
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: 0 14px 44px rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  transition:
+    opacity 0.24s ease,
+    transform 0.42s cubic-bezier(0.34, 1.5, 0.5, 1);
+}
+body.dark .toast {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+.toast .tick {
+  color: #12a06b;
+  font-weight: 800;
+  min-width: 10px;
+  text-align: center;
+}
+.toast[data-kind='info'] .tick {
+  color: var(--text-3);
+}
+.toast[data-kind='warn'] .tick {
+  color: #d9820b;
+}
+.toast[data-kind='error'] {
+  border-color: rgba(220, 54, 46, 0.45);
+}
+.toast[data-kind='error'] .tick {
+  color: #dc362e;
+}
+.toast-act {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid rgba(59, 116, 232, 0.35);
+  border-radius: 8px;
+  padding: 3px 11px;
+  cursor: pointer;
+  margin-left: 2px;
+  transition: all 0.12s;
+}
+.toast-act:hover {
+  background: rgba(59, 116, 232, 0.1);
+}
+/* modal */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(5px);
+  z-index: 300;
+  display: none;
+  place-items: center;
+}
+body.dark .modal-mask {
+  background: rgba(4, 6, 10, 0.66);
+}
+.modal-mask.show {
+  display: grid;
+  animation: maskIn 0.2s ease-out;
+}
+.modal {
+  width: 430px;
+  background: var(--card);
+  border: 1px solid var(--hairline-2);
+  border-radius: 18px;
+  padding: 26px;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.25);
+  max-height: 90vh;
+  overflow: auto;
+  /* 动效：弹层、提示、按钮带一点回弹，切换更有手感（系统开了「减少动态效果」时全部关掉，见上面的 media 规则） */
+  animation: modalIn 0.32s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+body.dark .modal {
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.65);
+}
+.modal h3 {
+  font-size: 16.5px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.modal p {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+  margin-bottom: 22px;
+}
+.modal .m-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+/* 粘贴导入弹窗 */
+.modal.wide {
+  width: 600px;
+}
+.paste-area {
+  width: 100%;
+  height: 280px;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.8;
+  padding: 14px 16px;
+  outline: none;
+  margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+.paste-area:focus {
+  border-color: rgba(59, 116, 232, 0.5);
+}
+.paste-area::placeholder {
+  color: #a8b1c4;
+}
+.paste-hint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.7;
+  margin-bottom: 16px;
+}
+.paste-hint b {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.review-assets-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin: 2px 0 10px;
+  cursor: pointer;
+}
+#reviewList,
+#importPreview {
+  max-height: 42vh;
+  overflow: auto;
+  margin: 16px 0;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+.review-item {
+  display: block;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  width: 100%;
+  text-align: left;
+  padding: 12px 0;
+  color: var(--text);
+  cursor: pointer;
+}
+.review-item > strong {
+  font-size: 12px;
+  color: var(--todo);
+  display: block;
+  margin-bottom: 6px;
+}
+.review-item > span {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+#importPreview p {
+  font-size: 13px;
+  padding: 8px 0;
+  margin: 0;
+  border-bottom: 1px solid var(--hairline);
+}
+#importPreview h4 {
+  font-size: 12px;
+  padding: 12px 0;
+  color: var(--text-2);
+}
+#importPreview small {
+  color: var(--todo);
+}
+#importSummary,
+#importWarning {
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 8px 0;
+}
+/* 本项目素材选择器 */
+.picker-help {
+  font-size: 12px;
+  color: var(--text-3);
+  margin: 2px 0 10px;
+}
+.picker-search {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+.picker-list {
+  max-height: 46vh;
+  overflow: auto;
+  margin: 12px 0;
+  border-top: 1px solid var(--hairline);
+}
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text);
+  padding: 8px 4px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.picker-item:hover {
+  background: var(--row-hover);
+}
+/* 差异确认：加入句子前把差异和处理方式摊开 */
+.diff-intro {
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin: 4px 0 10px;
+  line-height: 1.7;
+}
+.diff-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 1fr;
+  gap: 4px 10px;
+  font-size: 12.5px;
+  padding: 9px 0;
+  border-top: 1px solid var(--hairline);
+  line-height: 1.6;
+}
+.diff-row b {
+  color: var(--text);
+}
+.diff-row span {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.diff-row em {
+  grid-column: 1 / -1;
+  color: var(--accent);
+  font-style: normal;
+  font-size: 12px;
+}
+/* 弹窗正文保留换行 */
+#mBody {
+  white-space: pre-line;
+}
+body.has-voice .toast {
+  bottom: 112px;
+}
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
+  }
+}
+@keyframes maskIn {
+  from {
+    opacity: 0;
+  }
+}

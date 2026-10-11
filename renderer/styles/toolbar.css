@@ -1,0 +1,256 @@
+/* ═════════ 工具条：节奏色条、筛选、标注工具、进度与右侧开关 ═════════ */
+.stats {
+  flex: none;
+  position: relative;
+  z-index: 20;
+  /* 节奏色条：平时一根细线、颜色压低；鼠标移上去才展开成可点的色块（用缩放，不挤动下面的布局） */
+  padding: 6px 20px 2px;
+}
+.segbar {
+  display: flex;
+  background: var(--seg-track);
+  overflow: hidden;
+  /* 节奏色条上的播放头 */
+  position: relative;
+  height: 10px;
+  margin: 0;
+  gap: 1px;
+  border-radius: 3px;
+  transform: scaleY(0.4);
+  filter: saturate(0.5) opacity(0.75);
+  transition:
+    transform 0.16s ease,
+    filter 0.16s ease;
+}
+.segbar .seg {
+  flex-grow: 0;
+  min-width: 1px;
+  flex-basis: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  height: 10px;
+  /* 节奏色条：标了一句，对应那一段颜色和宽度平滑变过去 */
+  transition:
+    background-color 0.45s ease,
+    flex-grow 0.5s cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+.segbar .seg.none {
+  background: var(--seg-none);
+}
+.filters {
+  display: flex;
+  flex: 1;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+/* .chip-filter = 筛选标签（纯筛选，不承载动作） */
+.chip-filter {
+  height: 32px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--card);
+  border: 1px solid var(--hairline-2);
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  border-radius: 5px;
+  box-shadow: none;
+  padding: 5px 8px;
+  gap: 5px;
+}
+/* 属于「基础」，放在这里是因为要压过上面的 .chip-filter：两条会命中同一元素、优先级相同，后写的生效 */
+.btn,
+.chip-filter,
+.sel-type,
+.vr-btn {
+  transition:
+    background-color 0.16s,
+    border-color 0.16s,
+    color 0.16s,
+    box-shadow 0.16s,
+    transform 0.12s;
+}
+body.dark .chip-filter {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+.chip-filter .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex: none;
+}
+.chip-filter .n {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+  background: rgba(120, 132, 158, 0.12);
+  border-radius: 9px;
+  padding: 1px 6px;
+  font-weight: 600;
+}
+.chip-filter:hover {
+  border-color: rgba(120, 132, 158, 0.5);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+/* 属于「基础」，放在这里是因为要压过上面的 .chip-filter:hover：两条会命中同一元素、优先级相同，后写的生效 */
+.btn:active:not(:disabled),
+.chip-filter:active,
+.sel-type:active,
+.vr-btn:active {
+  transform: scale(0.96);
+}
+body.dark .chip-filter:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #dfe5f0;
+}
+.chip-filter.active {
+  background: var(--filter-active-bg);
+  border-color: var(--filter-active-bd);
+  color: var(--filter-active-tx);
+}
+.chip-filter.active .n {
+  color: var(--filter-active-tx);
+  background: rgba(120, 132, 158, 0.14);
+}
+.progress-txt {
+  color: var(--text-2);
+  font-weight: 500;
+  flex: none;
+  font-size: 11px;
+  margin-left: auto;
+}
+.progress-txt b {
+  color: var(--text);
+  font-weight: 700;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.progress-txt .todo {
+  color: var(--todo);
+}
+.segbar .seg:hover {
+  filter: brightness(0.8);
+}
+.work-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--card);
+  /* 工具条：筛选、标注工具、进度、类型、时长、面板开关合成一行 */
+  /* 放不下时整组换到第二行（标注阶段多了标注工具、或窗口比较窄），不会把筛选挤出视野 */
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  padding: 6px 16px 8px;
+  min-width: 0;
+}
+.auto-label {
+  font-size: 11px;
+  color: var(--text-2);
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  white-space: nowrap;
+}
+.auto-label input {
+  accent-color: var(--accent);
+}
+.chip-filter.chip-tool {
+  /* 工具按钮（类型… / 时长 · 口播）：实线边框，和筛选芯片区分开靠透明底，不再用虚线（虚线像占位或禁用） */
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.chip-filter.chip-tool:hover {
+  color: var(--text);
+  border-color: var(--text-3);
+}
+.repair-hint {
+  color: var(--todo);
+  font-size: 12px;
+}
+.seg-playhead {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text);
+  pointer-events: none;
+  transition: left 0.25s linear;
+}
+body.drop-voice .stats {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: 10px;
+}
+body.drop-voice .stats::after {
+  content: '松手：设为口播音频';
+  position: absolute;
+  right: 28px;
+  top: 6px;
+  font-size: 12px;
+  color: var(--accent);
+}
+.stats:hover .segbar,
+.segbar:focus-within,
+body.drop-voice .segbar {
+  transform: none;
+  filter: none;
+}
+.work-tools > .filters {
+  /* 筛选条只占一行：窗口窄时可以横向滑动，不再把右边的进度、类型、面板按钮挤到第二行 */
+  flex: 1 1 0;
+  min-width: 160px;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  gap: 4px;
+}
+.work-tools > .filters::-webkit-scrollbar {
+  display: none;
+}
+.work-tools .chip-filter.empty:not(.active) {
+  opacity: 0.55;
+}
+.work-tools .chip-filter {
+  flex: none;
+  white-space: nowrap;
+}
+/* 标注工具：还有没标的句子时，单独占第二行（左对齐）；全部标完就收起，工具条只剩一行 */
+.mark-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  order: 10;
+  flex: 1 0 100%;
+}
+.mark-tools[hidden] {
+  display: none;
+}
+/* 右侧一组（进度 / 类型 / 时长 / 多选 / 视频审核 / 面板）作为整体靠右，窄窗口时整组换行仍靠右 */
+.work-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin-left: auto;
+}
+.work-right > .progress-txt {
+  margin-left: 0;
+  white-space: nowrap;
+}
+/* 筛选条：选中样式直接切换（不做滑框）。悬停不再上浮 1px——筛选条是横向滚动容器，上浮会被裁掉上边框 */
+.work-tools .chip-filter:hover {
+  transform: none;
+}

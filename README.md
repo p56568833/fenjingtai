@@ -41,7 +41,7 @@ npm install
 npm start          # 直接跑
 npm test           # 全部自测（数据层 + 主进程 + 桌面交互，会起一个隐藏的 Electron 窗口）
 npm run test:data  # 只跑不需要 Electron 的部分（GitHub Actions 每次 push 自动跑这个 + lint + 格式检查）
-npm run lint       # ESLint 检查
+npm run lint       # 模块循环依赖、数据操作边界和 ESLint 检查
 npm run format     # Prettier 统一格式
 npm run package    # 出 arm64 + x64 双架构安装包到输出所示的临时 .noindex 目录；上传后删除该目录（只打包 electron/、renderer/、package.json，代码打成 app.asar，自测代码不进安装包）
 ```
@@ -58,6 +58,12 @@ npm run package    # 出 arm64 + x64 双架构安装包到输出所示的临时 
 | `renderer/src/features/` | 独立功能：专注标注、字幕对齐、素材预览、口播播放、连播预览、类型编辑器、PDF 导出、视频审核 | 自己登记命令 |
 | `renderer/src/platform/` | 原生能力（文件、对话框、存盘）的唯一出入口 | 不依赖业务代码 |
 | `renderer/src/test/` | 桌面交互自测 | 不进安装包 |
+
+项目修改通过 `app/project-change.js` 同步完成：成功后登记撤销、保存、广播业务事件；失败操作不清空重做。异步文件任务先捕获项目、候选版本和地址，完成后核对归属再提交，不能在等待期间读取当前项目来决定结果写到哪里。
+
+视频审核的数据操作、清单写回和媒体任务分别在 `app/candidate-actions.js`、`candidate-sync.js`、`candidate-media.js`；页面、文件操作交互和截图组件分别在 `features/video-review.js`、`review-files.js`、`review-frames.js`。界面订阅 `assets-changed` 等业务事件决定刷新范围，数据层不传滚动位置、重绘方式等界面参数。共用媒体解码、超时、释放和缩略图缓存统一在 `ui/media.js`。
+
+`renderer/styles.css` 只负责加载 `renderer/styles/` 下的组件样式。选中状态集中在 `selection.css`，组件标题和素材卡规则放回所属组件，避免借其他组件文件的加载顺序追加覆盖。整理样式时可运行 `node scripts/style-test.mjs`，将工作区样式与当前 Git 提交对照；使用隔离数据和临时隐藏窗口，不修改用户项目。
 
 ## 功能
 
