@@ -46,12 +46,30 @@ export function discardIfUnchanged() {
 export const clearUndo = () => {
   stack.length = 0;
   redoStack.length = 0;
+  purged.clear();
 };
+
+/* 不进撤销的后台结果，撤销 / 重做时不能被旧快照带回去：
+   读到的素材 / 口播时长保留当前值；已清理掉的「不要」候选，快照里仍是「不要」的就别再冒出来
+   （快照里是待审 / 通过，说明撤销的正是那次否决，照常恢复） */
+const purged = new Set();
+export const forgetPurged = ids => ids.forEach(id => purged.add(id));
+function keepBackgroundResults(prevAssets, prevVoice) {
+  for (const [id, a] of Object.entries(state.assets)) {
+    const cur = prevAssets[id];
+    if (cur?.durationSec && cur.path === a.path) a.durationSec = cur.durationSec;
+  }
+  if (state.voice && prevVoice?.duration && prevVoice.path === state.voice.path)
+    state.voice.duration = prevVoice.duration;
+  state.candidates = state.candidates.filter(c => !(purged.has(c.id) && c.decision === 'no'));
+}
 export const canUndo = () => stack.length > 0;
 export const canRedo = () => redoStack.length > 0;
 
 export function restoreSnapshotData(u) {
   const p = JSON.parse(u.data);
+  const prevAssets = state.assets || {},
+    prevVoice = state.voice;
   state.title = p.title;
   state.rows = p.rows;
   state.assets = p.assets || {};
@@ -61,6 +79,7 @@ export function restoreSnapshotData(u) {
   const voiceChanged = (state.voice?.path || '') !== (p.voice?.path || '');
   state.voice = p.voice || null;
   state.candidates = p.candidates || [];
+  keepBackgroundResults(prevAssets, prevVoice);
   state.multi = null;
   if (u.sel != null && state.rows.some(r => r.id === u.sel && r.kind === 'line')) state.sel = u.sel;
   else if (state.sel != null && !state.rows.some(r => r.id === state.sel)) {

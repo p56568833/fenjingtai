@@ -1,6 +1,7 @@
 /* 视频审核的数据操作：页面不直接修改候选、素材或返工标记。 */
 import { state, rowById, renumber } from './state.js';
 import { changeProject } from './project-change.js';
+import { forgetPurged } from './undo.js';
 import { writeBack, flushWriteBack, syncedFiles } from './candidate-sync.js';
 import { candidateBatches } from '../core/candidate-queries.js';
 import { shotMembers } from '../core/shots.js';
@@ -104,11 +105,13 @@ export function decideCandidate(id, decision) {
   return result;
 }
 
-export function setCandidateNote(id, text) {
+/* 意见打字即存；同一次编辑（session）只拍一张快照，撤销回到这次编辑前 */
+export function setCandidateNote(id, text, session) {
   const c = state.candidates.find(x => x.id === id);
   if (!c || (c.note || '') === text) return;
   // 立即把内存改动登记待保存，防抖由存储层负责；切项目不会丢最后一句意见。
-  changeProject(null, () => {
+  changeProject(session?.snapped ? null : '编辑审核意见', () => {
+    if (session) session.snapped = true;
     c.note = text;
   });
   writeBack();
@@ -142,6 +145,7 @@ export async function purgeRejectedCandidates() {
   if (!removed.length) return [];
   return changeProject(null, change => {
     state.candidates = cands.filter(c => !drop(c));
+    forgetPurged(removed.map(c => c.id));
     change.emit('candidates-changed', { removedIds: removed.map(c => c.id) });
     return removed;
   });
@@ -156,9 +160,10 @@ export function saveRework(row, assetId, rework, label) {
     return row;
   });
 }
-export function setReworkNote(row, text) {
+export function setReworkNote(row, text, session) {
   if (!row || rowById(row.id) !== row) return;
-  changeProject(null, () => {
+  changeProject(session?.snapped ? null : '编辑返工要求', () => {
+    if (session) session.snapped = true;
     const members = shotMembers(state.rows, row);
     if (members.some(m => m.rework)) {
       for (const m of members) if (m.rework) m.rework.note = text;

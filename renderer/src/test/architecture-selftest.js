@@ -7,12 +7,14 @@ import {
   decideCandidate,
   setCandidateNote,
   deleteCandidateBatch,
+  purgeRejectedCandidates,
 } from '../app/candidate-actions.js';
+import { renameProject } from '../app/actions.js';
 import { captureSaveTask, saveCandidateSegment, isCandidateBusy } from '../app/candidate-media.js';
 import { flushWriteBack } from '../app/candidate-sync.js';
 import { changeProject } from '../app/project-change.js';
 import { clearUndo, canUndo, canRedo, undo } from '../app/undo.js';
-import { addRefsToShot } from '../app/asset-actions.js';
+import { addRefsToShot, rememberDuration } from '../app/asset-actions.js';
 
 const doc = url => ({
   type: 'fenjingtai-candidates',
@@ -201,6 +203,63 @@ export async function runArchitectureTests(t) {
     );
     undo();
     t('添加素材撤销同时恢复登记表和画面引用', Object.keys(state.assets).sort().join() === assetsBefore);
+
+    // 打字即存、后台读到的结果：撤销别的操作时不能被旧快照带回去
+    c = fresh();
+    const line = () => state.rows.find(r => r.kind === 'line');
+    const oldTitle = state.title;
+    addRefsToShot(line(), ['/isolated/dur.png']);
+    renameProject('改过的名字');
+    undo();
+    t('改项目名算一步撤销', state.title === oldTitle && canUndo());
+    undo();
+    t('撤销前一步不会把项目名带偏', state.title === oldTitle);
+
+    c = fresh();
+    const session = { snapped: false };
+    setCandidateNote(c.id, '意', session);
+    setCandidateNote(c.id, '意见', session);
+    undo();
+    t('同一次输入的审核意见一步撤销', !state.candidates.find(x => x.id === c.id).note && !canUndo());
+
+    c = fresh();
+    addRefsToShot(line(), ['/isolated/dur.png']);
+    const asset = Object.values(state.assets).find(a => a.path === '/isolated/dur.png');
+    rememberDuration(asset, 12);
+    addRefsToShot(line(), ['/isolated/other.png']);
+    undo();
+    t('撤销后读到的素材时长还在', state.assets[asset.id]?.durationSec === 12);
+
+    storage.createProject('清理回归', parseAny('第一句话。'));
+    importCandidateData(
+      {
+        ...doc(urlA),
+        shots: [
+          {
+            lines: '1',
+            label: '测试画面',
+            cands: [
+              { key: 'keep', title: '留下', url: urlA, in: 0, out: 2, license: '公有领域', why: '测试' },
+              { key: 'drop', title: '不要', url: urlB, in: 0, out: 2, license: '公有领域', why: '测试' },
+            ],
+          },
+        ],
+      },
+      src,
+    );
+    const [keep, drop] = state.candidates;
+    decideCandidate(keep.id, 'ok');
+    clearUndo();
+    decideCandidate(drop.id, 'no');
+    addRefsToShot(line(), ['/isolated/after.png']);
+    const removed = await purgeRejectedCandidates();
+    undo();
+    t('撤销别的操作不会让已清理的候选回来', removed.length === 1 && !state.candidates.some(x => x.id === drop.id));
+    undo();
+    t(
+      '撤销那次否决时候选照常回来',
+      state.candidates.some(x => x.id === drop.id && x.decision !== 'no'),
+    );
   } finally {
     await flushWriteBack();
     window.fjtHooks = hooks;

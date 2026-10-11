@@ -740,10 +740,13 @@ function selectRework(id) {
   renderVideoReview();
   $('#vrList')?.scrollTo?.({ top: 0 });
 }
-/* 返工要求：打字即存（不进撤销，停手后写盘）；第一次写字就把这个画面标成「有要求」 */
-function setReworkNote(text) {
+/* 返工要求：打字即存，停手后写盘；第一次写字就把这个画面标成「有要求」。
+   同一个输入框连续打字算一步撤销，换了输入框（重渲染 / 换画面）就是新的一步 */
+let typing = null;
+const typingSession = el => (typing?.el === el ? typing : (typing = { el, snapped: false }));
+function setReworkNote(text, session) {
   const s = curReworkItem();
-  if (s) updateReworkNote(s.lead, text);
+  if (s) updateReworkNote(s.lead, text, session);
 }
 function dismissCurrentRework() {
   const s = curReworkItem();
@@ -1018,8 +1021,12 @@ export function initVideoReview() {
   });
   $('#vrList').addEventListener('input', e => {
     const n = e.target.closest('[data-vr-note]');
-    if (n) setNote(n.dataset.vrNote, n.value);
-    if (e.target.closest('[data-vr-rw-note]')) setReworkNote(e.target.value);
+    if (n) setNote(n.dataset.vrNote, n.value, typingSession(n));
+    if (e.target.closest('[data-vr-rw-note]')) setReworkNote(e.target.value, typingSession(e.target));
+  });
+  // 离开输入框（change 在失焦时触发）：下次再打字算新的一步
+  $('#vrList').addEventListener('focusout', e => {
+    if (typing?.el === e.target) typing = null;
   });
   on('rows', renderVideoReview); // 撤销 / 重做 / 切项目后按钮和列表跟着刷新
   on('view', ({ from, view }) => {

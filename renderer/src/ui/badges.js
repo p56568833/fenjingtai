@@ -502,13 +502,15 @@ function probeDurations() {
 function pumpDurations() {
   while (durBusy < 3 && durQueue.length) {
     const a = durQueue.shift();
-    const path = a.path;
+    const path = a.path,
+      pid = state.projectId;
     durBusy++;
     readDuration(path).then(sec => {
       durBusy--;
-      // 等待期间换了项目 / 换了文件：不记
-      if (sec && state.assets?.[a.id] === a && a.path === path) {
-        rememberDuration(a, sec);
+      // 等待期间换了项目 / 换了文件：不记。按 id 重新取条目——撤销 / 重做会换成新对象，结果照样记得上
+      const cur = state.projectId === pid ? state.assets?.[a.id] : null;
+      if (sec && cur?.path === path) {
+        rememberDuration(cur, sec);
         const ids = state.rows
           .filter(r => r.kind === 'line' && usageList(r).some(u => u.assetId === a.id))
           .map(r => r.id);

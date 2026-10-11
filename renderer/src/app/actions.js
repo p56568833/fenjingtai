@@ -498,9 +498,10 @@ export function setSpeechRate(value) {
   });
 }
 
-/* ── 项目改名（打字过程直接落盘，不进撤销） ── */
+/* ── 项目改名（对话框提交一次 = 一步撤销） ── */
 export function renameProject(title) {
-  changeProject(null, change => {
+  if (!title || title === state.title) return false;
+  return changeProject('重命名项目', change => {
     state.title = title;
     change.emit('title');
   });
