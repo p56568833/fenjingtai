@@ -3,7 +3,7 @@
    写盘只发「改动过的项目」（增量补丁），主进程合并后整文件原子写：
    项目再多，打字时渲染进程也不用把整个库深拷贝、跨进程搬一遍。 */
 import { state, loadProjectIntoState, bumpRev } from './state.js';
-import { emit } from './events.js';
+import { emit, notify } from './events.js';
 import { demoProject } from '../core/demo.js';
 import { normalizeTypes } from '../core/types.js';
 import * as native from '../platform/native.js';
@@ -25,14 +25,26 @@ const saveHook = phase => emit('save-state', phase);
 export function initStorage() {
   library = native.isNative() ? native.loadData() : null;
   loadInfo = native.dataStatus() || { status: library ? 'ok' : 'missing' };
-  // 关窗 / 退出时把防抖中的保存同步冲刷掉：普通保存是异步 IPC，进程一退就丢了
-  window.addEventListener('beforeunload', () => {
+  // 关窗 / 退出时把防抖中的保存同步冲刷掉：普通保存是异步 IPC，进程一退就丢了。
+  // 冲刷失败就先拦下这次关闭并报错；用户再关一次才放行，不会被一个坏磁盘困住关不掉
+  let closeBlocked = false;
+  window.addEventListener('beforeunload', e => {
     if (!hasPending() || !library) return;
+    let saved = false;
     try {
       clearTimeout(saveTimer);
       syncFromState();
-      if (native.saveDataSync(takePatch())) markClean();
-    } catch {}
+      saved = !!native.saveDataSync(takePatch());
+    } catch (error) {
+      console.error('关闭前保存失败', error);
+    }
+    if (saved) return markClean();
+    if (closeBlocked) return;
+    closeBlocked = true;
+    saveHook('error');
+    notify('关闭前没能保存最近的改动，窗口先不关。稍后再试；再关一次会直接关闭，最近几秒的改动可能丢失', null, 'error');
+    e.preventDefault();
+    e.returnValue = '';
   });
   if (!library || !library.projects || !Object.keys(library.projects).length) {
     // 首次启动：先装载示例再落盘（persist 会用 state 反写当前项目，必须等 state 就绪）

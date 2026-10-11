@@ -236,7 +236,8 @@ handle('data:save', (_e, patch) => store.savePatch(patch));
 onSync('data:save-sync', (e, patch) => {
   try {
     e.returnValue = store.savePatch(patch);
-  } catch {
+  } catch (error) {
+    console.error('关闭前保存失败', error); // 渲染进程据 false 拦下关闭并提示
     e.returnValue = false;
   }
 });
@@ -244,15 +245,17 @@ handle('data:backups', () => store.listBackups());
 handle('data:restore-backup', (_e, f) => store.readBackup(f));
 handle('data:open-folder', () => shell.openPath(DATA_DIR()));
 
-/* ── IPC：系统对话框 / 稿子文件 ── */
+/* ── IPC：系统对话框 / 稿子文件 ──
+   会写文件的通道统一返回 { ok: true, path } / { ok: false, canceled: true } / { ok: false, error }；
+   只是选文件的通道取消时返回 null */
 handle('dialog:export', async (_e, name, content) => {
   const r = await dialog.showSaveDialog(win(), { defaultPath: name });
-  if (r.canceled || !r.filePath) return false;
+  if (r.canceled || !r.filePath) return { ok: false, canceled: true };
   try {
     const tmp = r.filePath + '.tmp';
     fs.writeFileSync(tmp, String(content ?? ''), 'utf8');
     fs.renameSync(tmp, r.filePath);
-    return true;
+    return { ok: true, path: r.filePath };
   } catch (err) {
     return { ok: false, error: String(err?.message || err) };
   }
@@ -425,7 +428,6 @@ handle('dialog:pick-folder', async (_e, current) => {
   });
   return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
 });
-handle('video:has-ffmpeg', () => !!videoTools.findFfmpeg());
 /* 只保存入点到出点那几秒（ffmpeg 按需读取在线视频，不下整片） */
 handle('video:save-segment', async (e, req) => {
   // ffmpeg 不读系统代理：按这条地址问一下 Electron 该走哪个代理（和界面预览走同一条路），再交给 ffmpeg

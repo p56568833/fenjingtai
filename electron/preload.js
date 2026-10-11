@@ -32,7 +32,6 @@ contextBridge.exposeInMainWorld('native', {
   onMenuAction: cb => ipcRenderer.on('menu-action', (_e, action) => cb(action)),
   // 视频审核（1.5）
   pickFolder: current => ipcRenderer.invoke('dialog:pick-folder', current),
-  hasFfmpeg: () => ipcRenderer.invoke('video:has-ffmpeg'),
   saveVideoSegment: req => ipcRenderer.invoke('video:save-segment', req),
   downloadOriginalVideo: req => ipcRenderer.invoke('video:download-original', req),
   cancelDownload: url => ipcRenderer.invoke('video:cancel-download', url),

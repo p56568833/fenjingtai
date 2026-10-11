@@ -7,7 +7,13 @@ const call =
   name =>
   (...args) => {
     const fn = hook(name);
-    return fn ? fn(...args) : Promise.resolve(null);
+    if (fn) return fn(...args);
+    if (!n()) return Promise.resolve(null); // 浏览器里预览：本来就没有原生能力
+    // 主进程少了这条通道（版本不配套）：报错而不是让按钮点了没反应，main.js 统一提示
+    const error = new Error(`这个功能暂时用不了（缺少 ${name}），请重新安装分镜台`);
+    error.nativeMissing = true;
+    console.error(error);
+    return Promise.reject(error);
   };
 
 export const isNative = () => !!window.native;
@@ -37,7 +43,6 @@ export const getPathForFile = file => (n()?.getPathForFile ? n().getPathForFile(
 
 /* 视频审核 */
 export const pickFolder = call('pickFolder');
-export const hasFfmpeg = call('hasFfmpeg');
 export const saveVideoSegment = call('saveVideoSegment');
 export const downloadOriginalVideo = call('downloadOriginalVideo');
 export const cancelDownload = call('cancelDownload');

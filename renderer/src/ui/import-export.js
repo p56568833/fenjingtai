@@ -153,12 +153,13 @@ export async function importFromFile() {
 /* ── 导出 ── */
 async function download(name, content) {
   const r = await native.exportFile(name, content);
-  if (r && r.ok === false) {
-    toast('导出失败：' + (r.error || '写不进这个位置'), null, 'error');
-    return false;
+  if (r?.ok) {
+    toast(`已导出：${name}`, null, 'ok');
+    return true;
   }
-  toast(r ? `已导出：${name}` : '已取消导出', null, r ? 'ok' : 'info');
-  return !!r;
+  if (r?.canceled) toast('已取消导出', null, 'info');
+  else toast('导出失败：' + (r?.error || '写不进这个位置'), null, 'error');
+  return false;
 }
 
 export async function doExport(kind, checked = false) {

@@ -78,11 +78,12 @@ export async function checkUpdate({ manual = false, open = manual } = {}) {
   checking = true;
   let r;
   try {
-    r = await native.checkUpdate({ auto: !manual });
+    r = (await native.checkUpdate({ auto: !manual })) || { ok: false, error: '没有拿到结果' };
+  } catch (error) {
+    r = { ok: false, error: error?.message || String(error) };
   } finally {
     checking = false;
   }
-  if (!r) return;
   if (!r.ok) {
     if (manual) toast('检查更新失败：' + r.error, null, 'error');
     return;

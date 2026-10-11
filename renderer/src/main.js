@@ -189,6 +189,9 @@ async function boot() {
   initModalKeys(); // 必须最先注册：弹窗的按键优先于其他所有键盘监听
   on('save-state', showSaveState);
   on('notify', ({ msg, action, kind }) => toast(msg, action, kind));
+  window.addEventListener('unhandledrejection', e => {
+    if (e.reason?.nativeMissing) toast(e.reason.message, null, 'error');
+  });
   const fresh = storage.initStorage();
   loadProjectIntoState(storage.current());
 
