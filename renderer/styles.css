@@ -7576,3 +7576,9 @@ body.dark .lo-head b {
   right: 10px;
   margin: 0;
 }
+/* 右边补一个和图标等宽的空位：类型文字本身落在正中，和上面「共 X 秒」同一条中线（图标挂在文字左边） */
+.typebox:has(> .shared-total) .tchip:has(> svg)::after {
+  content: '';
+  width: 14px;
+  flex: none;
+}
