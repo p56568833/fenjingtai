@@ -100,7 +100,7 @@ export function initToolbar() {
   $('#btnGroup').addEventListener('click', () => {
     const ids = [...currentSelection()];
     if (!validGroup(state.rows, ids)) return;
-    if (sameGroupSelection(state.rows, ids)) return toast('这些句子已经在同一个共用画面里');
+    if (sameGroupSelection(state.rows, ids)) return toast('这些句子已经在同一个共用画面里', null, 'info');
     confirmModal(
       '让这几句话共用一个画面？',
       '原文仍逐句保留，画面描述和素材共用；类型采用选区中第一个已标类型。有差异的描述会合并保留，以后修改会同步到这些句子，可随时解除或调整范围。',

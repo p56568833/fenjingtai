@@ -48,7 +48,7 @@ export function openFocusMode() {
   if (open || performance.now() - closedAt < 400) return; // 菜单和键盘同时发来时不要关了又开
   const list = units();
   if (!list.length) {
-    toast('还没有句子，先导入稿子');
+    toast('还没有句子，先导入稿子', null, 'info');
     return;
   }
   closePop();
@@ -160,6 +160,8 @@ function go(dir) {
         : onlyTodo
           ? '前面没有未标注的句子了'
           : '已经是第一句',
+      null,
+      'info',
     );
     return false;
   }
@@ -196,7 +198,7 @@ function saveNote() {
   const r = rowById(id);
   if (r && (r.note || '') !== note.value.trim()) {
     setNote(id, note.value.trim());
-    toast('画面描述已保存');
+    toast('画面描述已保存', null, 'ok');
   }
 }
 

@@ -69,7 +69,7 @@ export function nextUnmarked() {
   const ordered = [...lines.slice(i + 1), ...lines.slice(0, i + 1)];
   const next = ordered.find(r => !r.type);
   if (next) jumpTo(next.id);
-  else toast('所有句子都已标注');
+  else toast('所有句子都已标注', null, 'ok');
 }
 export function revealSavedCursor() {
   requestAnimationFrame(() => {

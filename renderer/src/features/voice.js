@@ -96,7 +96,7 @@ export const voicePlayer = {
     } catch {
       missing = !isFinite(a.duration);
       renderBar();
-      if (missing) toast('口播音频读不出来：文件可能被移动或删除了，在口播条上点「重新定位」');
+      if (missing) toast('口播音频读不出来：文件可能被移动或删除了，在口播条上点「重新定位」', null, 'error');
       return false;
     }
   },
@@ -200,11 +200,11 @@ async function pickVoice() {
   if (path) await useVoiceFile(path);
 }
 async function useVoiceFile(path) {
-  if (!isVoiceFile(path)) return toast('口播音频需要是音频或视频文件（mp3 / wav / m4a / mp4 / mov…）');
+  if (!isVoiceFile(path)) return toast('口播音频需要是音频或视频文件（mp3 / wav / m4a / mp4 / mov…）', null, 'warn');
   const apply = async () => {
     releaseAudio();
     const duration = await probeDuration(path, 8000);
-    if (duration == null) toast('读不出这个文件的时长，先按语速估算；能播放时会自动补上');
+    if (duration == null) toast('读不出这个文件的时长，先按语速估算；能播放时会自动补上', null, 'warn');
     setVoice(path, duration);
   };
   if (state.voice && state.voice.path !== path)
@@ -220,7 +220,7 @@ async function relocate() {
   if (relocateVoice(path)) {
     const d = await probeDuration(path, 8000);
     if (d) setVoiceDuration(d);
-    toast('口播音频已重新定位');
+    toast('口播音频已重新定位', null, 'ok');
   }
 }
 

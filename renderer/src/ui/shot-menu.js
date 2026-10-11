@@ -141,7 +141,11 @@ export async function relocateFlow(row, index, done) {
           invalidateProbe();
           clearPreviewCache();
           refreshThumb(newPath);
-          toast(`已重新定位，${n} 处引用修好${res && res.adjusted ? ` · ${res.adjusted} 处片段待调整` : ''}`);
+          toast(
+            `已重新定位，${n} 处引用修好${res && res.adjusted ? ` · ${res.adjusted} 处片段待调整` : ''}`,
+            null,
+            'ok',
+          );
           done?.();
         },
       );
@@ -156,7 +160,7 @@ function onShotAction(item) {
   const groupId = item.dataset.gid;
   if (item.classList.contains('disabled')) {
     closePop();
-    toast(item.querySelector('.desc')?.textContent || '这个操作现在不可用');
+    toast(item.querySelector('.desc')?.textContent || '这个操作现在不可用', null, 'info');
     return;
   }
   closePop();
@@ -170,7 +174,11 @@ function onShotAction(item) {
     native.pickAssets().then(paths => {
       if (!paths || !paths.length) return;
       const res = addRefsToShot(row, paths);
-      toast(res.added.length ? `已添加 ${res.added.length} 个素材 · ⌘Z 可撤销` : '这些素材都已关联过');
+      toast(
+        res.added.length ? `已添加 ${res.added.length} 个素材 · ⌘Z 可撤销` : '这些素材都已关联过',
+        null,
+        res.added.length ? 'ok' : 'info',
+      );
     });
     return;
   }
@@ -186,7 +194,7 @@ function onShotAction(item) {
   if (act === 'extend-next') {
     const plan = groupExtendNextPlan(state.rows, groupId);
     if (!plan.ok) {
-      toast(plan.reason);
+      toast(plan.reason, null, 'info');
       return;
     }
     if (plan.diffs.length) showDiffModal('将下一句加入这个画面', plan.diffs, () => extendGroupNextAction(groupId));
@@ -216,7 +224,7 @@ async function relinkFolderFlow() {
   const missingIds = Object.values(state.assets || {})
     .filter(a => missingPaths().has(a.path))
     .map(a => a.id);
-  if (!missingIds.length) return toast('没有失联的素材');
+  if (!missingIds.length) return toast('没有失联的素材', null, 'info');
   const files = await native.pickFolderFiles();
   if (!files) return;
   const n = relinkByNames(missingIds, files);
@@ -225,6 +233,8 @@ async function relinkFolderFlow() {
     n
       ? `已按文件名找回 ${n} / ${missingIds.length} 个失联素材 · ⌘Z 可撤销`
       : '这个文件夹里没有同名文件（可以换个文件夹，或逐个「重新定位」）',
+    null,
+    n ? 'ok' : 'warn',
   );
 }
 

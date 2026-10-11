@@ -28,15 +28,15 @@ const inInspector = el => !!(el && el.closest && el.closest('#inspector'));
 export async function importDroppedFiles(files) {
   // 页面都能直接导入；真正弹窗打开时，和菜单入口一样暂停导入。
   if (!menuAllowed('import')) {
-    toast('先关掉当前弹窗，再把文件拖进来');
+    toast('先关掉当前弹窗，再把文件拖进来', null, 'info');
     return false;
   }
   const f = files[0];
   if (!f?.path) {
-    toast('没拿到这个文件的路径，试试「导入 → 选择文件」');
+    toast('没拿到这个文件的路径，试试「导入 → 选择文件」', null, 'error');
     return false;
   }
-  if (files.length > 1) toast(`一次导入一个文件，先导入「${f.name || assetName(f.path)}」`);
+  if (files.length > 1) toast(`一次导入一个文件，先导入「${f.name || assetName(f.path)}」`, null, 'warn');
   const r = await native.readScriptFile(f.path);
   runCommand('import:loaded', r);
   return true;
@@ -89,7 +89,7 @@ const hasFiles = dt => !!dt && ((dt.types && [...dt.types].includes('Files')) ||
 /* 核心入口（DOM 拖拽与自测共用）：files = [{name, path}] */
 export function addFilesToShot(row, files) {
   if (!row) {
-    toast('拖到句子或共用画面上才会添加素材');
+    toast('拖到句子或共用画面上才会添加素材', null, 'info');
     return null;
   }
   const paths = [],
@@ -106,7 +106,11 @@ export function addFilesToShot(row, files) {
     paths.push(f.path);
   }
   if (!paths.length) {
-    toast(skipped.length ? `没有可添加的素材（不支持：${skipped.slice(0, 2).join('、')}）` : '没有识别到文件');
+    toast(
+      skipped.length ? `没有可添加的素材（不支持：${skipped.slice(0, 2).join('、')}）` : '没有识别到文件',
+      null,
+      'warn',
+    );
     return null;
   }
   const res = addRefsToShot(row, paths); // 一次调用 = 一次撤销，多文件拖入也算一步
@@ -114,7 +118,7 @@ export function addFilesToShot(row, files) {
   if (res.added.length) bits.push(`已添加 ${res.added.length} 个素材`);
   if (res.dupes.length) bits.push(`${res.dupes.length} 个已关联过（自动去重）`);
   if (res.invalid.length) bits.push(`${res.invalid.length} 个不支持`);
-  toast(bits.join(' · ') + (res.added.length ? ' · ⌘Z 可撤销' : ''));
+  toast(bits.join(' · ') + (res.added.length ? ' · ⌘Z 可撤销' : ''), null, 'ok');
   return res;
 }
 

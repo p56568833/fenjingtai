@@ -9,7 +9,7 @@ export const isVoiceFile = p => AUDIO_EXT.test(p || '') || VIDEO_EXT.test(p || '
 
 export function setVoice(path, duration) {
   if (!path || !isVoiceFile(path)) {
-    notify('口播音频需要是音频或视频文件（mp3 / wav / m4a / mp4 / mov…）');
+    notify('口播音频需要是音频或视频文件（mp3 / wav / m4a / mp4 / mov…）', null, 'warn');
     return false;
   }
   return changeProject(state.voice ? '更换口播音频' : '导入口播音频', change => {
@@ -21,6 +21,8 @@ export function setVoice(path, duration) {
       state.timing
         ? `已导入口播音频「${state.voice.name}」，每句时间用对齐好的字幕 · ⌘Z 可撤销`
         : `已导入口播音频「${state.voice.name}」，每句时间按音频长度推算 · ⌘Z 可撤销`,
+      null,
+      'ok',
     );
     return true;
   });
@@ -43,7 +45,7 @@ export function clearVoice() {
 
     change.emit('voice');
     change.emit('rows');
-    change.notify('已移除口播音频（本地文件保留）· ⌘Z 可撤销');
+    change.notify('已移除口播音频（本地文件保留）· ⌘Z 可撤销', null, 'ok');
   });
 }
 

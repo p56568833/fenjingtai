@@ -148,10 +148,14 @@ export function tagOldSavedClips() {
     applyMovedPaths(moved);
     if (moved.size && state.projectId === pid) {
       const first = [...moved.values()][0];
-      notify(`已给 ${moved.size} 个保存过的视频片段补上句号，例如「${assetName(first)}」`, {
-        label: '在访达中显示',
-        cb: () => native.revealAsset(first),
-      });
+      notify(
+        `已给 ${moved.size} 个保存过的视频片段补上句号，例如「${assetName(first)}」`,
+        {
+          label: '在访达中显示',
+          cb: () => native.revealAsset(first),
+        },
+        'ok',
+      );
     }
     return moved.size;
   })().finally(() => {

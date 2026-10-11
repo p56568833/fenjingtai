@@ -119,10 +119,15 @@ export async function runRelease110Tests(t) {
     await pause(20);
 
     /* 提示条分类型 */
-    toast('保存失败：磁盘满了');
+    toast('保存失败：磁盘满了', null, 'error');
     const errKind = $('#toast').dataset.kind;
-    toast('已导出：x.md');
-    t('出错的提示是红色、完成的提示才打勾', errKind === 'error' && $('#toast').dataset.kind === 'ok');
+    toast('已导出：x.md', null, 'ok');
+    const okKind = $('#toast').dataset.kind;
+    toast('File format mismatch');
+    t(
+      '出错的提示是红色、完成的提示才打勾，没写种类的不会显示成完成',
+      errKind === 'error' && okKind === 'ok' && $('#toast').dataset.kind === 'info',
+    );
 
     /* 操作条：鼠标批量标注 */
     const ids = lines()

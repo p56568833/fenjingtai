@@ -57,18 +57,22 @@ function apply(rework, label) {
 }
 function save() {
   const note = $('#reworkNote').value.trim();
-  if (!note && !target?.assetId) return toast('写一下要什么样的镜头');
+  if (!note && !target?.assetId) return toast('写一下要什么样的镜头', null, 'warn');
   const row = apply({ note, at: Date.now() }, target?.assetId ? '标记素材要换' : '这个画面再找一个镜头');
   if (row)
-    toast('已加入待返工，生成返工单后交给 AI 找 · ⌘Z 可撤销', {
-      label: '去看看',
-      cb: () => runCommand('video:rework', row.id),
-    });
+    toast(
+      '已加入待返工，生成返工单后交给 AI 找 · ⌘Z 可撤销',
+      {
+        label: '去看看',
+        cb: () => runCommand('video:rework', row.id),
+      },
+      'ok',
+    );
 }
 function dismiss() {
   const was = target?.assetId;
   if (apply(null, was ? '不用换了' : '不用找了'))
-    toast(`${was ? '这个素材不用换了' : '这个画面不用再找了'} · ⌘Z 可撤销`);
+    toast(`${was ? '这个素材不用换了' : '这个画面不用再找了'} · ⌘Z 可撤销`, null, 'ok');
 }
 
 export function initRework() {

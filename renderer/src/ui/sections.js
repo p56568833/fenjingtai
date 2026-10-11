@@ -38,7 +38,7 @@ function commitRename() {
   const r = rowById(id);
   if (!r) return;
   const txt = el.textContent.trim();
-  if (txt && el.isConnected && renameSection(id, txt)) toast('章节已改名');
+  if (txt && el.isConnected && renameSection(id, txt)) toast('章节已改名', null, 'ok');
   el.textContent = r.text; // 改名成功就地换上（顺带把空名 / 没变的情况还原）
 }
 

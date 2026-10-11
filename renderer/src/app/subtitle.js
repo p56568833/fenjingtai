@@ -26,6 +26,8 @@ export function applyAlignment({ name, cues, times, stats }) {
     change.emit('rows');
     change.notify(
       `已对齐字幕：${stats.ok} 句对上${stats.low + stats.est ? `，${stats.low + stats.est} 句待核对（时长列标黄）` : ''}`,
+      null,
+      'ok',
     );
   });
 }
@@ -37,6 +39,6 @@ export function clearTiming() {
     state.timing = null;
 
     change.emit('rows');
-    change.notify('已清除字幕时间 · ⌘Z 可撤销');
+    change.notify('已清除字幕时间 · ⌘Z 可撤销', null, 'ok');
   });
 }

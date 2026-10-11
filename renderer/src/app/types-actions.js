@@ -23,7 +23,7 @@ export function setProjectTypes(next, { remap = {}, asDefault = false } = {}) {
 
     change.emit('types');
     change.emit('rows');
-    change.notify(moved ? `标注类型已更新，${moved} 句改了类型 · ⌘Z 可撤销` : '标注类型已更新 · ⌘Z 可撤销');
+    change.notify(moved ? `标注类型已更新，${moved} 句改了类型 · ⌘Z 可撤销` : '标注类型已更新 · ⌘Z 可撤销', null, 'ok');
     return { moved };
   });
 }

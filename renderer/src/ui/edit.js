@@ -85,7 +85,7 @@ function commitSentEdit(el) {
     const row = el.closest('.row');
     if (row) row.querySelector('.dur').innerHTML = durCellHTML(r);
     renderStats();
-    toast('已修改这句话');
+    toast('已修改这句话', null, 'ok');
   } else if (!txt) {
     if (el._inserting)
       dropIfEmpty(r.id); // 插入的新句没写内容 → 撤掉

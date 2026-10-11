@@ -105,7 +105,7 @@ export async function saveAllApproved() {
   if (state.projectId !== pid) return;
   const list = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath);
   if (!list.length) {
-    toast('没有待保存的已通过片段');
+    toast('没有待保存的已通过片段', null, 'info');
     return;
   }
   if (!(await ensureMediaDir())) return;

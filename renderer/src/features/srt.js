@@ -19,12 +19,12 @@ const fmtLen = sec => (sec >= 60 ? `${Math.floor(sec / 60)} 分 ${Math.round(sec
 export function startSrtAlign(file, { silent = false } = {}) {
   const cues = Array.isArray(file.cues) ? file.cues : parseSubtitles(file.content);
   if (!cues.length) {
-    toast('没从这个文件里读到字幕时间（需要 SRT / VTT 格式）');
+    toast('没从这个文件里读到字幕时间（需要 SRT / VTT 格式）', null, 'error');
     return false;
   }
   const lines = state.rows.filter(r => r.kind === 'line');
   if (!lines.length) {
-    toast('当前项目还没有句子，先导入稿子再对齐字幕');
+    toast('当前项目还没有句子，先导入稿子再对齐字幕', null, 'info');
     return false;
   }
   pending = planAlignment(file.name, cues);
@@ -68,7 +68,7 @@ function applyAlign() {
 /* 改稿后重新对齐：用项目里存着的那份字幕重跑一遍 */
 export function realignSaved() {
   if (!state.timing?.cues?.length) {
-    toast('这个项目还没有对齐过字幕');
+    toast('这个项目还没有对齐过字幕', null, 'info');
     return;
   }
   startSrtAlign({ name: state.timing.name, cues: state.timing.cues });
@@ -77,7 +77,7 @@ export function realignSaved() {
 export function pickSrt() {
   return native.importFile('srt').then(r => {
     if (!r) return;
-    if (r.error) toast(r.error);
+    if (r.error) toast(r.error, null, 'error');
     else startSrtAlign(r);
   });
 }

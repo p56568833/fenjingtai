@@ -32,7 +32,7 @@ function afterProjectChange(msg) {
   armAnimation();
   update('rows');
   slideIn(document.querySelector('.workspace'), 1, 48); // 换了项目：新内容从右边滑进来
-  if (msg) toast(msg);
+  if (msg) toast(msg, null, 'ok');
 }
 
 function openProjectsMenu(anchor) {
@@ -105,7 +105,7 @@ async function openBackupMenu(anchor) {
 /* 选了一个备份：列出里面的项目，可以只取回一个（作为新项目，不动现有项目），或整库替换 */
 async function openBackupDetail(anchor, file) {
   const r = await native.restoreBackup(file);
-  if (!r?.ok) return toast('备份读取失败');
+  if (!r?.ok) return toast('备份读取失败', null, 'error');
   const projects = Object.values(r.data.projects || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   openMenu(
     anchor,
@@ -131,12 +131,12 @@ function confirmDelete(id) {
     '删除后 30 天内可以在「项目 → 最近删除」里找回。',
     '删除',
     () => {
-      if (storage.allProjects().length <= 1) return toast('至少保留一个项目');
+      if (storage.allProjects().length <= 1) return toast('至少保留一个项目', null, 'warn');
       const wasCurrent = id === state.projectId;
       if (storage.deleteProject(id)) {
         // 只有删的是当前项目才需要换内容；删别的项目时当前的撤销记录和光标原样保留
         if (wasCurrent) afterProjectChange();
-        toast('项目已删除，可在「最近删除」找回');
+        toast('项目已删除，可在「最近删除」找回', null, 'ok');
       }
     },
   );
@@ -231,7 +231,7 @@ export function initProjects() {
       const un = e.target.closest('[data-untrash]');
       if (un) {
         closePop();
-        if (storage.restoreFromTrash(un.dataset.untrash)) toast('项目已找回，在「项目」列表里');
+        if (storage.restoreFromTrash(un.dataset.untrash)) toast('项目已找回，在「项目」列表里', null, 'ok');
         return;
       }
       const bk = e.target.closest('[data-backup]');
@@ -246,7 +246,7 @@ export function initProjects() {
         closePop();
         const r = await native.restoreBackup(one.dataset.backupFile);
         const p = r?.ok && r.data.projects?.[one.dataset.backupOne];
-        if (!p) return toast('备份读取失败');
+        if (!p) return toast('备份读取失败', null, 'error');
         if (!storage.importProjectCopy(p)) return toast('备份里的这个项目结构损坏，没法取回', null, 'error');
         toast(`已把「${p.title || '未命名'}」作为新项目取回，现有项目没动`, null, 'ok');
         return;
@@ -262,7 +262,7 @@ export function initProjects() {
           async () => {
             const r = await native.restoreBackup(f);
             if (r?.ok && storage.restoreLibrary(r.data)) afterProjectChange('已恢复到备份');
-            else toast('备份读取失败');
+            else toast('备份读取失败', null, 'error');
           },
         );
       }

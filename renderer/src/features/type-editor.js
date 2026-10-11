@@ -97,9 +97,9 @@ function close() {
 function save() {
   collect();
   const empty = draft.find(t => !t.label);
-  if (empty) return toast('每个类型都要有个名字');
+  if (empty) return toast('每个类型都要有个名字', null, 'warn');
   const labels = draft.map(t => t.label);
-  if (new Set(labels).size !== labels.length) return toast('类型名字不能重复');
+  if (new Set(labels).size !== labels.length) return toast('类型名字不能重复', null, 'warn');
   const remap = Object.fromEntries(removed);
   setProjectTypes(
     draft.map(t => ({ ...t, full: t.full || t.label })),

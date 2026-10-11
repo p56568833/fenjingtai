@@ -58,7 +58,7 @@ function currentProject() {
 }
 
 async function openExport() {
-  if (busy) return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完');
+  if (busy) return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完', null, 'info');
   const box = $('#packExportMask');
   resetProgress(box);
   box.querySelector('input[value="json"]').checked = true;
@@ -118,7 +118,7 @@ async function goExport() {
     setExportBusy(false);
   }
   resetProgress($('#packExportMask'));
-  if (r?.canceled) return toast('已取消打包');
+  if (r?.canceled) return toast('已取消打包', null, 'info');
   if (!r?.ok) return toast('打包失败：' + (r?.error || '未知原因'), null, 'error');
   $('#packExportMask').classList.remove('show');
   plan = null;
@@ -131,8 +131,8 @@ async function goExport() {
 
 /* ── 导入 ── */
 export async function importPackFile(file) {
-  if (busy) return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完');
-  if (!file?.path) return toast('没拿到这个压缩包的路径');
+  if (busy) return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完', null, 'info');
+  if (!file?.path) return toast('没拿到这个压缩包的路径', null, 'error');
   const info = await native.packInspect(file.path);
   if (!info?.ok) return toast(info?.error || '读不了这个压缩包', null, 'error');
   pending = { ...info, zip: file.path, title: info.title || file.name.replace(/\.zip$/i, '') };
@@ -178,7 +178,7 @@ async function goImport() {
     setImportBusy(false);
   }
   resetProgress($('#packImportMask'));
-  if (r?.canceled) return toast('已取消导入，解了一半的文件已清掉');
+  if (r?.canceled) return toast('已取消导入，解了一半的文件已清掉', null, 'info');
   if (!r?.ok) return toast('解压失败：' + (r?.error || '未知原因'), null, 'error');
   let proj;
   try {

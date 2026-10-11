@@ -81,11 +81,11 @@ export function importCandidates(doc, srcFile) {
   const plan = importCandidateData(doc, srcFile);
   if (plan.error) {
     if (plan.errors) showFormatErrors(plan.errors, srcFile);
-    else toast(plan.error);
+    else toast(plan.error, null, 'error');
     return null;
   }
   if (!plan.added.length && !plan.updated.length) {
-    toast(plan.skipped.length ? `清单里的 ${plan.skipped.length} 个候选都对不上句子` : '清单里没有候选');
+    toast(plan.skipped.length ? `清单里的 ${plan.skipped.length} 个候选都对不上句子` : '清单里没有候选', null, 'warn');
     return plan;
   }
   curBatch = plan.batch.batchId;
@@ -136,7 +136,7 @@ export function setDecision(id, d) {
   touched.add(id);
   const result = decideCandidate(id, d);
   if (!result || result.error) {
-    if (result?.error) toast(result.error);
+    if (result?.error) toast(result.error, null, 'error');
     return;
   }
   const { candidate: c, next, msg } = result;
@@ -144,7 +144,7 @@ export function setDecision(id, d) {
   if (next) advanceAfterDecision(c);
   renderVideoReview();
   if (next) stamp(c.id);
-  if (msg) toast(msg);
+  if (msg) toast(msg, null, 'ok');
 }
 export const setNote = setCandidateNote;
 
@@ -224,7 +224,7 @@ function confirmDeleteBatch() {
       clearTimeout(advanceTimer);
       curShot = curCand = null;
       deleteCandidateBatch(ids);
-      toast(`已删除「${batchLabel(batch)}」的 ${removed.length} 个候选 · ⌘Z 可撤销`);
+      toast(`已删除「${batchLabel(batch)}」的 ${removed.length} 个候选 · ⌘Z 可撤销`, null, 'ok');
     },
   );
 }
@@ -752,12 +752,12 @@ function dismissCurrentRework() {
   const s = curReworkItem();
   if (!s) return;
   dismissShotRework(s.lead);
-  toast(`${rangeText(s.lead)} 不用返工了 · ⌘Z 可撤销`);
+  toast(`${rangeText(s.lead)} 不用返工了 · ⌘Z 可撤销`, null, 'ok');
 }
 /* 待返工页 → 返工单：写到片段保存位置，再把交给 AI 的那句话复制好 */
 async function writeReworkDoc() {
   const list = reworkList();
-  if (!list.length) return toast('没有待返工的画面');
+  if (!list.length) return toast('没有待返工的画面', null, 'info');
   const dir = await ensureMediaDir();
   if (!dir) return;
   renumber();

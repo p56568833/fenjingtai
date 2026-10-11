@@ -91,7 +91,7 @@ function renderSummary() {
 
 export function openPdfExport() {
   if (busy) {
-    toast('PDF 正在生成，请稍候');
+    toast('PDF 正在生成，请稍候', null, 'info');
     return;
   }
   const p = loadPrefs();
@@ -125,7 +125,7 @@ async function runExport() {
   const tl = timeline();
   const title = project.title;
   try {
-    toast('正在排版 PDF…');
+    toast('正在排版 PDF…', null, 'info');
     const thumbs = opts.assets ? await collectThumbs(project.rows, project.assets) : new Map();
     const doc = buildPrintDoc(project, { ...opts, thumbs, timeline: tl });
     const name = `${safeFileName(title)}·分镜脚本.pdf`;
@@ -135,11 +135,12 @@ async function runExport() {
       footer: doc.footer,
       landscape: doc.landscape,
     });
-    if (r?.ok) toast(`已导出：${r.path.split(/[\\/]/).pop()}`, { label: '打开', cb: () => native.openAsset(r.path) });
-    else if (r?.canceled) toast('已取消导出');
-    else toast('PDF 生成失败' + (r?.error ? `：${r.error}` : ''));
+    if (r?.ok)
+      toast(`已导出：${r.path.split(/[\\/]/).pop()}`, { label: '打开', cb: () => native.openAsset(r.path) }, 'ok');
+    else if (r?.canceled) toast('已取消导出', null, 'info');
+    else toast('PDF 生成失败' + (r?.error ? `：${r.error}` : ''), null, 'error');
   } catch (error) {
-    toast('PDF 生成失败：' + (error?.message || error));
+    toast('PDF 生成失败：' + (error?.message || error), null, 'error');
   } finally {
     busy = false;
   }

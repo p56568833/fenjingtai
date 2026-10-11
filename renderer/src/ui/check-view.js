@@ -236,7 +236,7 @@ export function initCheck() {
       if (sItem) {
         closePop();
         if (sItem.classList.contains('disabled')) {
-          toast(sItem.querySelector('.desc')?.textContent || '现在不能拆分');
+          toast(sItem.querySelector('.desc')?.textContent || '现在不能拆分', null, 'info');
           return;
         }
         splitGroupAtAction(sItem.dataset.gid, +sItem.dataset.ckSplit);

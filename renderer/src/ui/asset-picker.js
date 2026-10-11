@@ -79,8 +79,8 @@ export function initAssetPicker() {
     const res = addRefsToShot(row, [asset.path]);
     if (res.added.length) {
       closeAssetPicker();
-      toast(`已关联「${asset.name || assetName(asset.path)}」· 不复制本地文件`);
-    } else if (res.dupes.length) toast('这个画面已经关联过这个素材了');
-    else toast('没有可添加的素材');
+      toast(`已关联「${asset.name || assetName(asset.path)}」· 不复制本地文件`, null, 'ok');
+    } else if (res.dupes.length) toast('这个画面已经关联过这个素材了', null, 'info');
+    else toast('没有可添加的素材', null, 'info');
   });
 }

@@ -194,7 +194,7 @@ function renderVideo(stage, tools, asset, usage) {
       </div>`;
     $('#pvSysErr').onclick = async () => {
       const err = await openAssetNative(asset.path);
-      if (err) toast(err);
+      if (err) toast(err, null, 'error');
     };
     $('#pvRetry').onclick = () => render();
   };
@@ -314,7 +314,7 @@ function renderClipPanel(tools, asset, usage) {
     if (bad) return err(bad);
     setUsageClip(row, ctx.usageIndex, { in: tin, out: tout });
     renderClipPanel($('#pvTools'), playerAsset(), playerUsage());
-    toast(`片段已设为 ${fmtTime(tin)}–${fmtTime(tout)}`);
+    toast(`片段已设为 ${fmtTime(tin)}–${fmtTime(tout)}`, null, 'ok');
   };
   $('#clipPreview').onclick = () => {
     const u = playerUsage();
@@ -333,7 +333,7 @@ function renderClipPanel(tools, asset, usage) {
     setUsageClip(row, ctx.usageIndex, null);
     stopAt = null;
     renderClipPanel($('#pvTools'), playerAsset(), playerUsage());
-    toast('已清除范围，使用整段视频');
+    toast('已清除范围，使用整段视频', null, 'ok');
   };
   $('#clipClear').onclick = clearRange;
 }
@@ -394,7 +394,7 @@ export function initPreview() {
     const a = playerAsset();
     if (!a) return;
     const err = await openAssetNative(a.path);
-    if (err) toast(err);
+    if (err) toast(err, null, 'error');
   };
   on('project-loaded', closePreview);
   registerCommand('preview:usage', (row, usageIndex) => openPreview({ row, usageIndex }));

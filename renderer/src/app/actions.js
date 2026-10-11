@@ -50,7 +50,7 @@ export function setType(ids, t) {
     change.emit('marks', { ids });
     change.emit('annotated', { ids, type: t });
     change.emit('project-changed');
-    if (t === null) change.notify(ids.length > 1 ? '已清除这些句子的标注' : '已清除这句的标注');
+    if (t === null) change.notify(ids.length > 1 ? '已清除这些句子的标注' : '已清除这句的标注', null, 'ok');
   });
 }
 
@@ -95,7 +95,7 @@ export function deleteRows(ids) {
     state.sel = nearestLine(firstDel)?.id ?? null; // 选中句停在删除位置，不跳回第一句
     change.normalize();
     change.emit('rows');
-    change.notify(`已删除 ${ids.length} 句`, { label: '撤销', cb: undo });
+    change.notify(`已删除 ${ids.length} 句`, { label: '撤销', cb: undo }, 'ok');
   });
 }
 
@@ -107,7 +107,7 @@ export function mergeToPrev(id) {
     prev = state.rows[i - 1];
   if (!prev || prev.kind !== 'line') return null;
   if ((cur.groupId || prev.groupId) && cur.groupId !== prev.groupId) {
-    notify('请先解除共用，再合并句子');
+    notify('请先解除共用，再合并句子', null, 'info');
     return null;
   }
   return changeProject('合并句子', change => {
@@ -145,8 +145,8 @@ export function mergeToPrev(id) {
     change.normalize();
     change.emit('rows');
     // 筛选下合并结果可能不可见，明说去向，避免「句子丢了」的错觉
-    if (!match(prev)) change.notify(`已并回上一句（第 ${prev.no} 句，当前筛选下不显示，切「全部」可见）`);
-    else change.notify('已并回上一句');
+    if (!match(prev)) change.notify(`已并回上一句（第 ${prev.no} 句，当前筛选下不显示，切「全部」可见）`, null, 'info');
+    else change.notify('已并回上一句', null, 'ok');
     return { id: prev.id, seam };
   });
 }
@@ -190,7 +190,7 @@ export function splitAt(id, offset) {
     state.sel = nid;
     change.normalize();
     change.emit('rows');
-    change.notify('已从光标处拆分');
+    change.notify('已从光标处拆分', null, 'ok');
     return nid;
   });
 }
@@ -253,7 +253,7 @@ export function addSectionBefore(id) {
   const i = rowIndex(id);
   if (i < 0 || state.rows[i].kind !== 'line') return null;
   if (i > 0 && state.rows[i - 1].kind === 'section') {
-    notify('这句已经是章节开头了');
+    notify('这句已经是章节开头了', null, 'info');
     return null;
   }
   return changeProject('分出新章节', change => {
@@ -262,7 +262,7 @@ export function addSectionBefore(id) {
     state.multi = null;
     change.normalize();
     change.emit('rows');
-    change.notify('已分出新章节，给它起个名');
+    change.notify('已分出新章节，给它起个名', null, 'ok');
     return sid;
   });
 }
@@ -298,7 +298,7 @@ export function deleteSectionHeader(id) {
     state.multi = null;
     change.normalize();
     change.emit('rows');
-    change.notify('已删章节标题，句子保留');
+    change.notify('已删章节标题，句子保留', null, 'ok');
   });
 }
 
@@ -326,7 +326,7 @@ export function deleteSectionAll(id) {
     state.sel = nearestLine(i)?.id ?? null;
     change.normalize();
     change.emit('rows');
-    change.notify(`已删除「${name}」和其中 ${n} 句`, { label: '撤销', cb: undo });
+    change.notify(`已删除「${name}」和其中 ${n} 句`, { label: '撤销', cb: undo }, 'ok');
   });
 }
 
@@ -356,6 +356,8 @@ export function applyImport(rows, title, { mode = 'replace' } = {}) {
     const n = rows.filter(r => r.kind === 'line').length;
     change.notify(
       `${mode === 'update' ? '稿件已更新' : `已导入「${title}」`} · ${n} 句 · 原项目副本已保留${dropped ? ` · ${dropped} 个视频候选对不上新稿，已移除` : ''}`,
+      null,
+      'ok',
     );
   });
 }
@@ -369,7 +371,7 @@ export const deleteSelection = () => deleteRows(currentSelection());
 export function extendGroupNextAction(groupId) {
   const plan = groupExtendNextPlan(state.rows, groupId);
   if (!plan.ok) {
-    notify(plan.reason);
+    notify(plan.reason, null, 'info');
     return false;
   }
   const nextNo = plan.next.no;
@@ -382,7 +384,7 @@ export function extendGroupNextAction(groupId) {
 
     change.emit('rows');
     change.emit('reveal', { id: res.members[0].id });
-    change.notify(`已把第 ${nextNo} 句加入这个画面 · ⌘Z 可撤销`);
+    change.notify(`已把第 ${nextNo} 句加入这个画面 · ⌘Z 可撤销`, null, 'ok');
     return true;
   });
 }
@@ -393,7 +395,7 @@ export function dropGroupLastAction(groupId) {
     state.rows.find(r => r.groupId === groupId),
   );
   if (members.length < 2) {
-    notify('这个画面不足两句');
+    notify('这个画面不足两句', null, 'info');
     return false;
   }
   const lastNo = members[members.length - 1].no;
@@ -403,7 +405,7 @@ export function dropGroupLastAction(groupId) {
 
     change.emit('rows');
     change.emit('reveal', { id: members[0].id });
-    change.notify(`第 ${lastNo} 句已移出，恢复独立画面 · ⌘Z 可撤销`);
+    change.notify(`第 ${lastNo} 句已移出，恢复独立画面 · ⌘Z 可撤销`, null, 'ok');
     return true;
   });
 }
@@ -412,7 +414,7 @@ export function splitGroupAtAction(groupId, rowId) {
   const target = rowById(rowId);
   const plan = groupSplitAtPlan(state.rows, groupId, rowId);
   if (!plan.ok) {
-    notify(plan.reason);
+    notify(plan.reason, null, 'info');
     return false;
   }
   return changeProject('从这句开始另一个画面', change => {
@@ -421,7 +423,7 @@ export function splitGroupAtAction(groupId, rowId) {
 
     change.emit('rows');
     change.emit('reveal', { id: res.back[0].id });
-    change.notify(`已从第 ${target?.no ?? ''} 句开始另一个画面 · ⌘Z 可撤销`);
+    change.notify(`已从第 ${target?.no ?? ''} 句开始另一个画面 · ⌘Z 可撤销`, null, 'ok');
     return true;
   });
 }
@@ -436,7 +438,7 @@ export function ungroupAction(ids) {
     normalizeUsageSpans(state.rows); // 每句只留下原本在这句出现的素材
 
     change.emit('rows');
-    change.notify('已解除共用 · ⌘Z 可撤销');
+    change.notify('已解除共用 · ⌘Z 可撤销', null, 'ok');
     return true;
   });
 }
@@ -445,7 +447,7 @@ export function ungroupAction(ids) {
 export function groupSelectionAction(ids) {
   if (!validGroup(state.rows, ids)) return false;
   if (sameGroupSelection(state.rows, ids)) {
-    notify('这些句子已经在同一个共用画面里');
+    notify('这些句子已经在同一个共用画面里', null, 'info');
     return false;
   }
   return changeProject('共用画面', change => {
@@ -456,7 +458,7 @@ export function groupSelectionAction(ids) {
 
     change.emit('rows');
     change.emit('reveal', { id: state.sel });
-    change.notify('已设为共用画面');
+    change.notify('已设为共用画面', null, 'ok');
     return true;
   });
 }
@@ -471,7 +473,7 @@ export function repairPunctuationAction() {
     state.multi = null;
 
     change.emit('rows');
-    change.notify(`已修复 ${fixes.length} 行`);
+    change.notify(`已修复 ${fixes.length} 行`, null, 'ok');
     return fixes.length;
   });
 }

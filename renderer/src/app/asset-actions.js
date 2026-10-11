@@ -58,7 +58,7 @@ export function removeUsage(row, index) {
     syncMirror(shotMembers(state.rows, row), state.assets);
 
     change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'association' });
-    change.notify('已移除关联，本地文件保留 · ⌘Z 可撤销');
+    change.notify('已移除关联，本地文件保留 · ⌘Z 可撤销', null, 'ok');
   });
 }
 

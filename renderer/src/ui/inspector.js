@@ -210,7 +210,11 @@ export function initInspector() {
       if (pid !== state.projectId || !paths?.length) return;
       const res = addRefsToShot(r, paths);
       renderInspector(true);
-      return toast(res.added.length ? `已添加 ${res.added.length} 个素材 · ⌘Z 可撤销` : '这些素材都已关联过');
+      return toast(
+        res.added.length ? `已添加 ${res.added.length} 个素材 · ⌘Z 可撤销` : '这些素材都已关联过',
+        null,
+        res.added.length ? 'ok' : 'info',
+      );
     }
     const removeButton = e.target.closest('#removeAsset');
     if (removeButton) {
@@ -233,7 +237,7 @@ export function initInspector() {
         if (sp.empty) from = to = k;
       } else if (k >= from && k <= to) {
         if (from === to) {
-          if (!hadManual) return toast('至少要配一句；不想用它就点「备选」');
+          if (!hadManual) return toast('至少要配一句；不想用它就点「备选」', null, 'warn');
         } else if (k === from) from++;
         else if (k === to) to--;
         else from = to = k;
@@ -241,28 +245,28 @@ export function initInspector() {
       else to = k;
       setUsageLines(r, index, from, to);
       renderInspector(true);
-      if (hadManual) toast('已改回按句子排（手动拖过的秒数清掉了） · ⌘Z 可撤销');
+      if (hadManual) toast('已改回按句子排（手动拖过的秒数清掉了） · ⌘Z 可撤销', null, 'ok');
       return;
     }
     const altBtn = e.target.closest('[data-alt-usage]');
     if (altBtn) {
       const role = toggleAlt(r, +altBtn.dataset.altUsage);
       renderInspector(true);
-      if (role) toast(role === 'alt' ? '已放进备选，不上屏 · ⌘Z 可撤销' : '已放回上屏 · ⌘Z 可撤销');
+      if (role) toast(role === 'alt' ? '已放进备选，不上屏 · ⌘Z 可撤销' : '已放回上屏 · ⌘Z 可撤销', null, 'ok');
       return;
     }
     const swapBtn = e.target.closest('[data-swap-a]');
     if (swapBtn) {
       if (swapPictures(r, swapBtn.dataset.swapA, swapBtn.dataset.swapB)) {
         renderInspector(true);
-        toast('已调换两个画面的位置 · ⌘Z 可撤销');
+        toast('已调换两个画面的位置 · ⌘Z 可撤销', null, 'ok');
       }
       return;
     }
     if (e.target.closest('#autoRoles')) {
       const n = autoAssignRoles(r);
       renderInspector(true);
-      if (n) toast(`已整理 ${n} 个素材的角色 · ⌘Z 可撤销`);
+      if (n) toast(`已整理 ${n} 个素材的角色 · ⌘Z 可撤销`, null, 'ok');
       return;
     }
     const vrBtn = e.target.closest('[data-vr-open]');
@@ -279,7 +283,7 @@ export function initInspector() {
     const sys = e.target.closest('[data-sys-open]');
     if (sys) {
       const error = await native.openAsset(sys.dataset.sysOpen);
-      if (error) toast(error);
+      if (error) toast(error, null, 'error');
       return;
     }
     const retry = e.target.closest('[data-thumb-retry]');

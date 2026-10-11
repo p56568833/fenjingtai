@@ -112,6 +112,8 @@ export function importProjectObject(proj, name, { from = '' } = {}) {
   const extra = candidates.length ? ` · ${candidates.length} 个视频候选` : '';
   toast(
     `已作为新项目导入「${state.title}」· ${rows.filter(r => r.kind === 'line').length} 句${extra}${from ? ` · ${from}` : ''}`,
+    null,
+    'ok',
   );
 }
 
@@ -119,7 +121,7 @@ function importText(txt, name, isJson) {
   if (isJson) return importAsNewProject(name, txt);
   const fileTypes = mdTypes(txt);
   const rows = parseAny(txt, fileTypes || types().list);
-  if (!rows.length) return toast('没识别出句子，检查一下文件内容');
+  if (!rows.length) return toast('没识别出句子，检查一下文件内容', null, 'warn');
   previewImport(rows, name.replace(/\.(md|markdown|txt|docx)$/i, ''), fileTypes);
 }
 
@@ -127,11 +129,11 @@ function importText(txt, name, isJson) {
    字幕 SRT / VTT → 对齐当前项目的时间；项目 JSON → 导入为新项目；MD / TXT / Word → 分句预览 */
 export function importLoadedFile(r) {
   if (!r) return;
-  if (r.error) return toast(r.error);
+  if (r.error) return toast(r.error, null, 'error');
   const ext = String(r.ext || r.name.split('.').pop() || '').toLowerCase();
   if (ext === 'srt' || ext === 'vtt') return runCommand('srt:start', r);
   if (ext === 'zip') return runCommand('pack:import', r); // 打包的项目：选位置、解压、建新项目
-  if (!String(r.content || '').trim()) return toast('这个文件是空的');
+  if (!String(r.content || '').trim()) return toast('这个文件是空的', null, 'warn');
   if (ext === 'json') {
     // Claude 找好的视频候选清单：进视频审核，挂到当前项目，不新建项目
     let doc = null;
@@ -307,7 +309,7 @@ export function initImportExport() {
         if (w === 'voice') runCommand('voice:pick');
         if (w === 'jsonnew') {
           const r = await native.importFile();
-          if (r?.error) toast(r.error);
+          if (r?.error) toast(r.error, null, 'error');
           else if (r?.ext === 'zip') runCommand('pack:import', r);
           else if (r) importAsNewProject(r.name, r.content);
         }
@@ -332,7 +334,7 @@ export function initImportExport() {
     const txt = $('#pasteArea').value;
     const fileTypes = mdTypes(txt);
     const rows = parseAny(txt, fileTypes || types().list);
-    if (!rows.length) return toast('先粘点内容进来');
+    if (!rows.length) return toast('先粘点内容进来', null, 'info');
     $('#pasteMask').classList.remove('show');
     $('#pasteArea').value = '';
     previewImport(rows, '粘贴的口播稿', fileTypes);
