@@ -1,9 +1,10 @@
-# 每次 push / PR：数据层与主进程回归 + ESLint（含分层规则）+ 格式检查。
-# 桌面交互自测需要起 Electron 窗口，在本机用 npm test 跑。
+# 每次 push / PR：
+# - data：数据层与主进程回归 + ESLint（含分层规则、提示种类检查）+ 格式检查
+# - ui：起隐藏的 Electron 窗口跑界面自测和主题回归（macOS 有图形环境，和用户的系统一致）
 name: ci
 on: [push, pull_request]
 jobs:
-  test:
+  data:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,3 +16,17 @@ jobs:
       - run: npm run test:data
       - run: npm run lint
       - run: npx prettier --check "electron/**/*.js" "renderer/**/*.{js,css,html}" "scripts/**/*.mjs"
+  ui:
+    runs-on: macos-latest
+    env:
+      ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: brew install ffmpeg # 自测要现场生成样片和口播音频
+      - run: npm ci --ignore-scripts --registry=https://registry.npmjs.org --replace-registry-host=always
+      - run: npm run test:ui
+      - run: npm run test:theme

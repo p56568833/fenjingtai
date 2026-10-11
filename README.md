@@ -40,6 +40,7 @@ dmg 挂载：`hdiutil attach FenJingTai-mac-arm64.dmg`，然后把 `分镜台.ap
 npm install
 npm start          # 直接跑
 npm test           # 全部自测（数据层 + 主进程 + 桌面交互，会起一个隐藏的 Electron 窗口）
+npm run test:ui    # 只跑桌面交互自测（GitHub 上每次推送也会在 macOS 上跑）
 npm run test:data  # 只跑不需要 Electron 的部分（GitHub Actions 每次 push 自动跑这个 + lint + 格式检查）
 npm run lint       # 模块循环依赖、数据操作边界和 ESLint 检查
 npm run format     # Prettier 统一格式
