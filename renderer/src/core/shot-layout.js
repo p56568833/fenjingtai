@@ -26,16 +26,6 @@ export const validAt = (at, ownerId) =>
   at.end - at.start >= MIN_LEN - 1e-6 &&
   (ownerId == null || at.of === ownerId);
 
-/* 读进来的 at 清洗：不合法就丢掉（载入 / 导入 / 拷贝时用） */
-export function cleanAt(at) {
-  if (!at || typeof at !== 'object') return null;
-  const start = Number(at.start),
-    end = Number(at.end);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end - start < MIN_LEN - 1e-6) return null;
-  if (at.of == null) return null;
-  return { start: round1(start), end: round1(end), of: at.of };
-}
-
 const visualOf = (registry, u) => {
   const a = registry[u.assetId];
   const kind = a?.kind || kindOf(a?.path || '');

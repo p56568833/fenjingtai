@@ -218,6 +218,3 @@ export function buildProjectJson({ title, rows, assets = {}, speechRate, timing,
     2,
   );
 }
-
-/* 交稿检查里的一行描述（供 UI 复用导出同一套说法） */
-export const issueText = x => `第 ${x.no} 句：${x.issues.join('、')}`;

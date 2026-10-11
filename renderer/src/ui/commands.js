@@ -11,4 +11,3 @@ export function runCommand(name, ...args) {
   fn(...args);
   return true;
 }
-export const hasCommand = name => registry.has(name);

@@ -14,7 +14,6 @@ import {
   kindOf,
   KIND_LABEL,
   clipText,
-  VIDEO_EXT,
   LINK_RE,
   referencedAssetIds,
 } from '../core/asset-model.js';
@@ -24,7 +23,6 @@ import { esc } from './dom.js';
 import { pop } from './motion.js';
 
 export { baseName as assetName };
-export const isVideo = ref => VIDEO_EXT.test(ref);
 
 /* 共用画面标签：第 x–y 句共用一个画面 */
 export function sharedScenes(rows) {
@@ -80,12 +78,6 @@ export function coverHTML(cov) {
   return `<span class="asset-cover cover-${cov.verdict}" title="${esc(COVER_TIP)}">${need}${usable}${file}<span class="cover-verdict">${verdict}</span></span>`;
 }
 const coverageFor = members => shotCoverage(layoutShot(state.assets || {}, members, timeline()));
-
-/* 旧接口兼容：r 的全部素材引用路径（一行一个，来自使用记录） */
-export const assetRefs = r =>
-  usageList(r)
-    .map(u => usagePath(state.assets || {}, u))
-    .filter(Boolean);
 
 const thumbText = kind => (kind === 'video' ? '▶ 视频' : kind === 'image' ? '图片' : kind === 'link' ? '链接' : '素材');
 

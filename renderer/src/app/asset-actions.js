@@ -201,21 +201,6 @@ export function autoAssignRoles(row) {
   });
 }
 
-/* 位置：在共用画面的第 from 句到第 to 句出现（members 下标，含两端）。
-   几个主画面落在同一段句子上时平分那段时间（见 core/shot-layout.js），不再互相挤掉 */
-export function setUsageSpan(row, index, from, to) {
-  const u = usageList(row)[index];
-  const members = shotMembers(state.rows, row);
-  if (!u || members.length < 2) return null;
-  return changeProject('设置素材位置', change => {
-    applySpan(members, u.assetId, from, to);
-    const demoted = u.role === 'main' ? applyRole(members, u.assetId, 'main') : [];
-
-    change.emit('assets-changed', { ids: shotMembers(state.rows, row).map(m => m.id), kind: 'usage' });
-    return demoted.map(id => state.assets?.[id]?.name || '素材');
-  });
-}
-
 /* ── 主画面的出现时间（1.8，「对着口播看画面」里调）──
    entries：[{assetId, start, end}]，start / end 是相对镜头开头的秒数。一次把这个镜头里所有画面的时间都写上，
    这样拖动一个之后，其他画面的位置也固定下来，不会再随句子范围变。没分配角色的画面（旧项目）顺手设成主画面。 */

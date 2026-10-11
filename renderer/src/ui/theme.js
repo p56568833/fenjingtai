@@ -15,7 +15,6 @@ const setPref = v => {
     localStorage.setItem('fjz:theme', v);
   } catch {}
 };
-export const themePref = getPref;
 
 /* 比例坐标避开高分屏 / 界面缩放下 View Transition 的像素裁剪坐标偏移。
    二次方缓出：立即起步、均匀减速；连点在同一份截图上反向播放，保持圆边连续。 */

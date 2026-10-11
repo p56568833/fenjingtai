@@ -13,7 +13,6 @@ const $ = s => document.querySelector(s);
 let reviewOpen = false;
 let assetMode = false; // 勾了「也检查素材交付」
 let missing = new Set();
-export const isReviewOpen = () => reviewOpen;
 
 /* 导出前的提醒只看分镜方案（素材没到位也允许导出清单去找素材） */
 export function deliveryIssues() {

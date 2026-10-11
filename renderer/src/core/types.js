@@ -25,7 +25,6 @@ export const ICONS = {
   mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
   dot: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/></svg>',
 };
-export const ICON_KEYS = Object.keys(ICONS);
 
 /* 新建类型时依次取的颜色（色相拉开，深浅两种主题下都分得清） */
 export const PALETTE = [

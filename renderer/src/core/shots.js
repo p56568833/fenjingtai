@@ -154,7 +154,6 @@ const mergeUsages = memberLists => {
 };
 /* 共用画面的共享字段（描述 / 类型 / 状态）统一从这里写：组内每句一起改，保证一致。
    返回被改到的句子，调用方据此刷界面。素材使用记录要逐句拷贝，走 assets.js 的 eachMember。 */
-export const SHARED_FIELDS = ['note', 'type', 'status'];
 export function setShotField(rows, row, key, value) {
   const members = shotMembers(rows, row);
   for (const m of members) m[key] = value;

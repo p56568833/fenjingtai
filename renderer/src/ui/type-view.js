@@ -7,10 +7,6 @@ const ARROW =
   '<svg class="arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>';
 
 export const typeIcon = t => ICONS[t?.icon] || ICONS.dot;
-export const tcStyle = id => {
-  const c = types().color(id);
-  return c ? `--tc:${c}` : '';
-};
 
 /* 表格「类型」格里的标签：只写短名（和筛选条一致），全名放在悬停提示里 */
 export function chipHTML(r) {

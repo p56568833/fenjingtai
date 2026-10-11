@@ -35,7 +35,6 @@ export const state = {
 /* 数据版本号：每次落盘（persist）都 +1，派生数据（时间轴等）据此失效重算 */
 let rev = 0;
 export const bumpRev = () => ++rev;
-export const dataRev = () => rev;
 
 /* 修改数据后广播。'rows' 全量重渲染；'selection' 只刷选中态；'view' 切视图 */
 export function update(evt = 'rows') {

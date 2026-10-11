@@ -63,7 +63,6 @@ export const isReleased = () => released;
 export function playerCurrentTime() {
   return video && isFinite(video.currentTime) ? video.currentTime : null;
 }
-export const isPreviewOpenFor = path => !released && !!playerAsset() && playerAsset().path === path;
 
 export function closePreview() {
   stopPlayer();
@@ -85,7 +84,6 @@ function open({ rowId, usageIndex, asset } = {}) {
 }
 
 export const openPreview = ({ row, usageIndex }) => open({ rowId: row.id, usageIndex });
-export const openPreviewAsset = ({ asset }) => open({ asset });
 
 function render() {
   const asset = playerAsset();

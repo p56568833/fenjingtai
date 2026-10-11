@@ -1,7 +1,6 @@
 /* 界面通用小工具：转义 / 高亮 / toast / 确认弹窗 / 可编辑文字读取 */
 
 export const $ = s => document.querySelector(s);
-export const $$ = s => [...document.querySelectorAll(s)];
 
 export const esc = s =>
   String(s ?? '')

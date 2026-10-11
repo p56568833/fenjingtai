@@ -513,10 +513,8 @@ export function renameProject(title) {
 export function setSentenceText(id, txt) {
   const r = rowById(id);
   if (!r || !txt || txt === r.text) return false;
-  return changeProject('修改文字', change => {
+  return changeProject('修改文字', () => {
     r.text = txt;
-
-    change.emit('text', { id });
     return true;
   });
 }
