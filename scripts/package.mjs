@@ -12,11 +12,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { installAppIcon } from './app-icon.mjs';
 import { shouldIgnore } from './package-filter.mjs';
-import { extractNotes, notesHistory, writeManifest } from './release-manifest.mjs';
+import { checkNotes, extractNotes, notesHistory, writeManifest } from './release-manifest.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.env.ELECTRON_MIRROR ||= 'https://npmmirror.com/mirrors/electron/';
+
+// 先查更新说明的格式：不合格就不打包（规则见 release-manifest.mjs 的 checkNotes 和 AGENTS.md）
+{
+  const { version } = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const problems = checkNotes(readFileSync(path.join(ROOT, 'UPDATE-NOTES.md'), 'utf8'), version);
+  if (problems.length) {
+    console.error(
+      `UPDATE-NOTES.md 里「# 分镜台 ${version}」这一节不合格式，先改好再打包：\n- ${problems.join('\n- ')}`,
+    );
+    process.exit(1);
+  }
+}
 
 const BUILD_ROOT = path.join(os.tmpdir(), `fenjingtai-release-${randomUUID()}.noindex`);
 const RELEASE_DIR = path.join(BUILD_ROOT, 'release');
@@ -89,7 +101,6 @@ try {
   const { version } = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const notesMd = readFileSync(path.join(ROOT, 'UPDATE-NOTES.md'), 'utf8');
   const notes = extractNotes(notesMd, version);
-  if (!notes) console.warn(`⚠️ UPDATE-NOTES.md 里没找到「# 分镜台 ${version}」这一节，软件里的更新说明会是空的`);
   const manifest = writeManifest(RELEASE_DIR, { version, notes, zips, history: notesHistory(notesMd) });
   console.log(`[清单] ${manifest}（软件内更新先读它，不占 GitHub API 次数）`);
   console.log(`\n全部完成，发布物在 ${RELEASE_DIR}（arm64 = M 系列芯片，x64 = Intel 芯片）`);

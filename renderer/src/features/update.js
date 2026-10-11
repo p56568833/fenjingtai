@@ -3,13 +3,74 @@
    有新版本时顶栏出现蓝色下载图标「更新」按钮，点开看更新说明 → 下载并校验 → 「重启并更新」：
    分镜台先存盘退出，换上新版后自动重新打开。项目数据不在应用里，更新不会动它。 */
 import * as native from '../platform/native.js';
-import { toast } from '../ui/dom.js';
+import { toast, esc } from '../ui/dom.js';
 import { registerCommand } from '../ui/commands.js';
 
 const $ = s => document.querySelector(s);
 let info = null; // 最近一次检查到的新版本
 let phase = 'idle'; // idle | downloading | ready | installing
 let checking = false;
+/* 更新说明 → 分组显示。UPDATE-NOTES.md 里一版的写法：
+     【新增】            ← 分组标题：新增 / 支持 / 优化 / 修复（也认 **新增**）
+     • 一条改动
+   这样写在旧版的纯文字更新窗口和 GitHub 发布页里也整齐。
+   隔了好几版时主进程把每一版拼成「【分镜台 x.y.z】」开头的几段；老版本写的是整段文字，照段落显示 */
+const KINDS = { 新增: 'add', 支持: 'support', 优化: 'improve', 修复: 'fix' };
+export function parseNotes(text) {
+  const versions = [];
+  let cur = null;
+  let group = null;
+  const start = version => {
+    cur = { version, groups: [], paras: [] };
+    group = null;
+    versions.push(cur);
+  };
+  start(null);
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    const ver = line.match(/^【分镜台 (.+)】$/);
+    if (ver) {
+      if (!cur.groups.length && !cur.paras.length) versions.pop();
+      start(ver[1]);
+      continue;
+    }
+    if (!line) continue; // 空行只是排版用，分组一直延续到下一个分组标题
+    const head = line
+      .replace(/^\*\*(.+)\*\*$/, '$1')
+      .replace(/^【(.+)】$/, '$1')
+      .replace(/[：:]$/, '');
+    if (KINDS[head]) {
+      group = { title: head, kind: KINDS[head], items: [] };
+      cur.groups.push(group);
+      continue;
+    }
+    const item = line.match(/^[-•*]\s+(.+)$/);
+    if (item && group) group.items.push(item[1]);
+    else if (item) cur.paras.push(item[1]);
+    else if (group) group.items.push(line);
+    else cur.paras.push(line);
+  }
+  return versions.filter(v => v.groups.length || v.paras.length);
+}
+function notesHTML(text) {
+  const versions = parseNotes(text);
+  if (!versions.length) return '<p class="upd-empty">这一版没有写更新说明。</p>';
+  return versions
+    .map(
+      v =>
+        `<section class="upd-version">${versions.length > 1 && v.version ? `<h4 class="upd-ver">分镜台 ${esc(v.version)}</h4>` : ''}` +
+        v.groups
+          .filter(g => g.items.length)
+          .map(
+            g =>
+              `<div class="upd-group upd-${g.kind}"><span class="upd-tag">${esc(g.title)}</span><ul>${g.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>`,
+          )
+          .join('') +
+        v.paras.map(t => `<p class="upd-para">${esc(t)}</p>`).join('') +
+        '</section>',
+    )
+    .join('');
+}
 const mb = n => (n > 0 ? `${(n / 1048576).toFixed(n > 104857600 ? 0 : 1)} MB` : '');
 
 export async function checkUpdate({ manual = false, open = manual } = {}) {
@@ -52,11 +113,13 @@ function paintButton() {
 
 function renderUpdate(progress = null) {
   if (!info) return;
-  $('#updTitle').textContent = `分镜台 ${info.version} 可以更新了`;
+  $('#updTitle').textContent = `分镜台 ${info.version}`;
   const n = info.versions?.length || 1;
-  $('#updMeta').textContent =
-    `现在用的是 ${info.current}${n > 1 ? ` · 一次更新到最新，包含 ${n} 个版本的改动` : ''}${info.size ? ` · 更新包 ${mb(info.size)}` : ''}`;
-  $('#updNotes').textContent = info.notes || '这一版没有写更新说明。';
+  $('#updMeta').innerHTML =
+    `<span class="upd-chip">${esc(info.current)} → ${esc(info.version)}</span>` +
+    (n > 1 ? `<span class="upd-chip">包含 ${n} 个版本的改动</span>` : '') +
+    (info.size ? `<span class="upd-chip">${mb(info.size)}</span>` : '');
+  $('#updNotes').innerHTML = notesHTML(info.notes);
   const reason = $('#updReason');
   reason.hidden = info.canInstall;
   reason.textContent = info.reason || '';
@@ -132,8 +195,8 @@ export function initUpdate() {
   document.body.insertAdjacentHTML(
     'beforeend',
     `<div class="modal-mask" id="updateMask"><div class="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="updTitle">
-      <h3 id="updTitle">有新版本</h3>
-      <p class="upd-meta" id="updMeta"></p>
+      <div class="upd-head"><img class="upd-icon" src="./assets/brand-mark.svg" alt="" draggable="false" />
+        <div><p class="upd-kicker">新版本可以更新了</p><h3 id="updTitle">有新版本</h3><p class="upd-meta" id="updMeta"></p></div></div>
       <div class="upd-notes" id="updNotes"></div>
       <p class="upd-reason" id="updReason" hidden></p>
       <div class="upd-bar" id="updBar" hidden><span></span></div>

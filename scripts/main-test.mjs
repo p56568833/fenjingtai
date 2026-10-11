@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { shouldIgnore } from './package-filter.mjs';
-import { buildManifest, extractNotes, notesHistory } from './release-manifest.mjs';
+import { buildManifest, checkNotes, extractNotes, notesHistory } from './release-manifest.mjs';
 
 const require = createRequire(import.meta.url);
 const { createStore, retentionKeep } = require('../electron/data-store.js');
@@ -622,6 +622,32 @@ test('更新：从 UPDATE-NOTES.md 取出某一版的说明，节与节之间以
   const real = fs.readFileSync(new URL('../UPDATE-NOTES.md', import.meta.url), 'utf8');
   const { version } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.ok(extractNotes(real, version), `UPDATE-NOTES.md 里要有「# 分镜台 ${version}」这一节（软件里显示的更新说明）`);
+});
+test('更新说明格式：只用【新增】【支持】【优化】【修复】，按顺序，每条「• 」开头一句话', () => {
+  const ok = '# 分镜台 2.0.0\n\n【新增】\n• 一条\n• 两条\n\n【修复】\n• 修了一处\n\n---\n';
+  assert.deepEqual(checkNotes(ok, '2.0.0'), []);
+  const bad = (body, re, why) => {
+    const errs = checkNotes(`# 分镜台 2.0.0\n\n${body}\n`, '2.0.0');
+    assert.ok(
+      errs.some(e => re.test(e)),
+      `${why}：${errs.join(' / ') || '没报错'}`,
+    );
+  };
+  bad('【新功能】\n• 一条', /不是允许的分组/, '分组名只能是四个之一');
+  bad('【修复】\n• 一条\n【新增】\n• 一条', /分组顺序/, '顺序固定');
+  bad('【新增】\n• 一条\n【新增】\n• 两条', /重复出现/, '同一分组只写一次');
+  bad('【新增】\n这一版做了很多事情，写成了一整段话', /以「• 」开头/, '不能写整段');
+  bad('**新增**\n- 一条', /以「• 」开头/, '不用 Markdown 写法');
+  bad('• 一条', /先有分组标题/, '条目要在分组下面');
+  bad('【新增】\n\n【修复】\n• 一条', /没有条目/, '空分组不写');
+  bad('【新增】\n• ' + '字'.repeat(41), /每条不超过/, '每条有字数上限');
+  bad('【新增】\n' + '• 一条\n'.repeat(11), /最多 10 条/, '一版有条数上限');
+  assert.match(checkNotes(ok, '9.9.9')[0], /没有「# 分镜台 9\.9\.9」/);
+  // 当前版本的真实说明必须合格（以前发过的旧版本不查）
+  const real = fs.readFileSync(new URL('../UPDATE-NOTES.md', import.meta.url), 'utf8');
+  const { version } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const errs = checkNotes(real, version);
+  assert.deepEqual(errs, [], `UPDATE-NOTES.md 里「# 分镜台 ${version}」这一节不合格式：\n- ${errs.join('\n- ')}`);
 });
 test('更新：只能原地更新装在可写位置的正式版；从安装盘、被系统隔离运行、开发版都给出原因', () => {
   const exe = '/Applications/分镜台.app/Contents/MacOS/分镜台';
