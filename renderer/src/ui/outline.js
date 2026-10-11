@@ -1,7 +1,7 @@
 /* 左侧章节目录：各章句数 / 未标数，点击跳转；高亮跟随正文浏览位置 */
 import { state } from '../app/state.js';
-import { esc } from './dom.js';
-import { glide, leave, cancelLeave, reduced, EASE_OUT } from './motion.js';
+import { esc } from './base/dom.js';
+import { glide, leave, cancelLeave, reduced, EASE_OUT } from './base/motion.js';
 
 let outlineOpen = true;
 let lastKey = '';

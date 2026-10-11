@@ -11,8 +11,8 @@ import { setType } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
 import { flushWriteBack, tagOldSavedClips, setDecision } from '../features/video-review.js';
 import { parseLines, parseClock, planImport, lineTag } from '../core/candidates.js';
-import { confirmModal } from '../ui/dom.js';
-import { anyModalOpen, topModal, menuAllowed } from '../ui/modal.js';
+import { confirmModal } from '../ui/base/dom.js';
+import { anyModalOpen, topModal, menuAllowed } from '../ui/base/modal.js';
 import { setView } from '../ui/render.js';
 
 const $ = s => document.querySelector(s);

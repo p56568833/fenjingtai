@@ -4,8 +4,8 @@
 import { state, types } from '../app/state.js';
 import { setProjectTypes } from '../app/types-actions.js';
 import { DEFAULT_TYPES, ICONS, MAX_TYPES, PALETTE, newTypeId, defaultTypes, typeUsage } from '../core/types.js';
-import { esc, toast } from '../ui/dom.js';
-import { registerCommand } from '../ui/commands.js';
+import { esc, toast } from '../ui/base/dom.js';
+import { registerCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 const ICON_NAMES = {

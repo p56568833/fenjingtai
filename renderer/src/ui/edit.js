@@ -10,12 +10,13 @@ import {
   setSentenceText,
   typeNote,
 } from '../app/actions.js';
-import { esc, composing, toast, readEditable } from './dom.js';
+import { esc, composing, toast, readEditable } from './base/dom.js';
 import { durCellHTML } from './time-view.js';
 import { renderStats } from './render-stats.js';
-import { registerEditFlush } from './edit-session.js';
-import { renderSelectionOnly } from './selection.js';
-import { openTypePopover, markPopAnchor, closePop } from './popover.js';
+import { registerEditFlush } from './base/edit-session.js';
+import { renderSelectionOnly } from './base/selection.js';
+import { markPopAnchor, closePop } from './base/popover.js';
+import { openTypePopover } from './popover.js';
 
 /* 打字时侧栏 / 徽标的刷新合并成停手后一次，长稿里每个按键不再全量刷新 */
 let wsTimer = null;

@@ -1,10 +1,10 @@
 /* 表格视图：逐句一行的标注主界面 */
 import { state, rowById, currentSelection, checkedIds, match, qMatch, types } from '../app/state.js';
 import { sharedScenes, shotTotalText } from './badges.js';
-import { esc, hiText } from './dom.js';
+import { esc, hiText } from './base/dom.js';
 import { durCellHTML, durHeading } from './time-view.js';
-import { chipHTML } from './type-view.js';
-import { takeAnimation } from './anim.js';
+import { chipHTML } from './base/type-view.js';
+import { takeAnimation } from './base/anim.js';
 import { syncSectionPins } from './section-pin.js';
 
 export function renderTable() {

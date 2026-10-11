@@ -9,7 +9,7 @@ import { startSrtAlign } from '../features/srt.js';
 import { clearTiming } from '../app/subtitle.js';
 import { importDroppedFiles } from '../ui/asset-drop.js';
 import { buildCsv } from '../core/export-doc.js';
-import { anyModalOpen } from '../ui/modal.js';
+import { anyModalOpen } from '../ui/base/modal.js';
 
 const $ = s => document.querySelector(s);
 const pause = ms => new Promise(r => setTimeout(r, ms));

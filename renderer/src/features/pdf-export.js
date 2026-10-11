@@ -3,8 +3,8 @@ import { state, types, timeline } from '../app/state.js';
 import { buildPrintDoc, planDocument, assetRefs, PDF_DEFAULTS } from '../core/print-doc.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
-import { toast } from '../ui/dom.js';
-import { registerCommand } from '../ui/commands.js';
+import { toast } from '../ui/base/dom.js';
+import { registerCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 const PREF_KEY = 'fjz:pdf';

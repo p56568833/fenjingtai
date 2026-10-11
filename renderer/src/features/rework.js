@@ -6,10 +6,9 @@ import { state } from '../app/state.js';
 import { saveRework } from '../app/candidate-actions.js';
 import { shotMembers } from '../core/shots.js';
 import { usageList, assetName } from '../core/asset-model.js';
-import { toast, esc } from '../ui/dom.js';
-import { registerModal } from '../ui/modal.js';
-import { registerCommand, runCommand } from '../ui/commands.js';
-import { renderInspector } from '../ui/inspector.js';
+import { toast, esc } from '../ui/base/dom.js';
+import { registerModal } from '../ui/base/modal.js';
+import { registerCommand, runCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 let target = null; // { rowId, assetId|null }
@@ -51,7 +50,7 @@ function apply(rework, label) {
   if (!row) return close();
   const assetId = target.assetId;
   saveRework(row, assetId, rework, label);
-  renderInspector(true);
+  runCommand('inspector:refresh');
   close();
   return row;
 }

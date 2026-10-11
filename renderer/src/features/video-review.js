@@ -33,11 +33,11 @@ import {
   saveAllLabel,
 } from './review-files.js';
 import {
-  getFrames,
   retainFrames,
   forgetFrames,
   clearReviewFrames,
-  queueFrames,
+  paintStrips,
+  stripHTML,
   paintDoneThumb,
   mediaOf,
 } from './review-frames.js';
@@ -57,12 +57,11 @@ import {
   setVoiceOn,
 } from './clip-player.js';
 import * as nat from '../platform/native.js';
-import { toast, confirmModal, esc } from '../ui/dom.js';
-import { setView, syncViewToggle } from '../ui/render.js';
-import { slideIn } from '../ui/anim.js';
-import { glide, roll, pop, SPRING } from '../ui/motion.js';
-import { registerCommand, runCommand } from '../ui/commands.js';
-import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/popover.js';
+import { toast, confirmModal, esc } from '../ui/base/dom.js';
+import { slideIn } from '../ui/base/anim.js';
+import { glide, roll, pop, SPRING } from '../ui/base/motion.js';
+import { registerCommand, runCommand } from '../ui/base/commands.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/base/popover.js';
 import { CANDIDATE_SPEC } from '../core/candidate-spec.js';
 import { reworkShots, buildReworkDoc } from '../core/rework.js';
 import { safeFileName } from '../core/text.js';
@@ -185,7 +184,7 @@ export function refreshVideoReviewButton() {
         ? '视频审核：这个项目的候选都审完了 (⌘T)'
         : '视频审核：让 Claude 找好候选清单后导入 (⌘T)';
   // 角标出现 / 消失会改变按钮宽度：刷新后再量，不能沿用刷新前的选中底块。
-  syncViewToggle();
+  runCommand('view:sync-toggle');
 }
 
 /* 句子所在章节名 */
@@ -313,12 +312,12 @@ export function openVideoReview(rowId = null) {
   curCand = null;
   pickDefaults(rowId);
   const wasOpen = state.view === 'review';
-  setView('review');
+  runCommand('view:set', 'review');
   if (!wasOpen) slideIn($('#reviewPage'), -1);
   else renderVideoReview();
 }
 export const closeVideoReview = () => {
-  if (state.view === 'review') setView('table');
+  if (state.view === 'review') runCommand('view:set', 'table');
 };
 const stopAll = stopAllVideos;
 /* 离开审核页时，只清已完成返工画面里的「不要」候选。
@@ -605,13 +604,7 @@ export function renderVideoReview() {
   paintLineFocus(state.candidates.find(c => c.id === curCand) || null);
   paintMotion(host, g, open);
   host.querySelector('.vr-shot-head')?.classList.toggle('stuck', host.scrollTop > 2);
-  for (const c of open) {
-    const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
-    if (!strip) continue;
-    const got = getFrames(c);
-    if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
-    else queueFrames(c);
-  }
+  paintStrips(host, open);
   for (const c of done) if (c.decision === 'ok' && c.savedPath) paintDoneThumb(c);
   // 截图只给右边这几个候选：换了画面，没轮到的截图任务取消
   retainFrames(open);
@@ -711,13 +704,7 @@ function renderRework(host) {
       ${shown.length ? `<div class="vr-line-cands">${cardsOf(shown.filter(c => c.decision !== 'ok'))}${cardsOf(shown.filter(c => c.decision === 'ok'))}</div>` : ''}
     </section>`;
   paintLineFocus(state.candidates.find(c => c.id === curCand) || null);
-  for (const c of open) {
-    const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
-    if (!strip) continue;
-    const got = getFrames(c);
-    if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
-    else queueFrames(c);
-  }
+  paintStrips(host, open);
   for (const c of shown) if (c.decision === 'ok' && c.savedPath && !touched.has(c.id)) paintDoneThumb(c);
   retainFrames(open);
 }
@@ -782,7 +769,7 @@ export function openRework(rowId = null) {
   touched.clear();
   curCand = null;
   const wasOpen = state.view === 'review';
-  setView('review');
+  runCommand('view:set', 'review');
   if (!wasOpen) slideIn($('#reviewPage'), -1);
   else renderVideoReview();
 }
@@ -824,7 +811,7 @@ function cardHTML(c) {
     <div class="vr-head"><strong>${esc(c.title || c.key || '（未命名）')}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
     <div class="vr-meta">建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）${c.best ? ` · <b class="vr-best" title="通过后自动设成可用片段；保存的文件仍是建议的整段，前后留着余量">精选 ${fmtTime(c.best.in)}–${fmtTime(c.best.out)}（${fmtLen(c.best.out - c.best.in)}）</b>` : ''} · ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
-    <div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(6)}</div>
+    ${stripHTML()}
     ${playerHTML(c)}
     <div class="vr-row">
       <button class="vr-btn play" data-vr-play="${c.id}">▶ 播放这段</button>

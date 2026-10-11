@@ -15,11 +15,11 @@ import { shotMembers, groupExtendNextPlan, groupSplitAtPlan } from '../core/shot
 import { usageList, assetUsageRefs, checkClip } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
 import * as native from '../platform/native.js';
-import { esc, toast, confirmModal } from './dom.js';
-import { openMenu, closePop, markPopAnchor } from './popover.js';
+import { esc, toast, confirmModal } from './base/dom.js';
+import { openMenu, closePop, markPopAnchor } from './base/popover.js';
 import { clearPreviewCache, refreshThumb, missingPaths } from './badges.js';
-import { registerCommand, runCommand } from './commands.js';
-import { probeDuration } from './media.js';
+import { registerCommand, runCommand } from './base/commands.js';
+import { probeDuration } from './base/media.js';
 
 const $ = s => document.querySelector(s);
 const actItem = (act, ids, label, desc, { disabled = false, danger = false } = {}) =>

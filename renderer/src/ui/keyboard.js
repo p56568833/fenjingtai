@@ -1,13 +1,14 @@
 /* 全局键盘：1-9 标注 / 删除 / 方向导航 / ⌘F / ⌘Z / 空格对着口播看画面 / Esc；原文视图的键位由 check-view.js 接管 */
 import { state, currentSelection, visibleLineIds, types } from '../app/state.js';
 import { deleteSelection, annotateSelection } from '../app/actions.js';
-import { composing, isEditing } from './dom.js';
-import { historyCommand } from './history.js';
-import { renderSelectionOnly, cycleView } from './render.js';
-import { closePop } from './popover.js';
+import { composing, isEditing } from './base/dom.js';
+import { historyCommand } from './base/history.js';
+import { cycleView } from './render.js';
+import { renderSelectionOnly } from './base/selection.js';
+import { closePop } from './base/popover.js';
 import { openSearch, closeSearch } from './search.js';
 import { handleCheckKey } from './check-view.js';
-import { runCommand } from './commands.js';
+import { runCommand } from './base/commands.js';
 
 function moveTo(dir) {
   const ids = visibleLineIds();

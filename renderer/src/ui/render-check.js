@@ -2,8 +2,8 @@
    只有渲染；点击 / 拖选 / 键盘交互在 check-view.js。 */
 import { state, rowById, currentSelection, qMatch, match, types } from '../app/state.js';
 import { sharedScenes } from './badges.js';
-import { esc, hiText } from './dom.js';
-import { takeAnimation } from './anim.js';
+import { esc, hiText } from './base/dom.js';
+import { takeAnimation } from './base/anim.js';
 
 /* 句子 span 的基础类名与配色（选中高亮 cur 由 renderSelectionOnly 统一管理，不在这里）。
    渲染与标注后的原地刷新共用同一份，状态永远和数据对得上 */

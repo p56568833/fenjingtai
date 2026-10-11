@@ -8,8 +8,8 @@ import {
   sectionSentenceCount,
   renameSection,
 } from '../app/actions.js';
-import { esc, toast, confirmModal, composing } from './dom.js';
-import { openMenu, closePop, popOpenFor, markPopAnchor } from './popover.js';
+import { esc, toast, confirmModal, composing } from './base/dom.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor } from './base/popover.js';
 import { startEdit } from './edit.js';
 
 /* ── 行内改名：进入即全选，Enter / 失焦保存，Esc 还原。打字过程不写数据，提交时才快照 ── */

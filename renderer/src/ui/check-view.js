@@ -4,11 +4,11 @@
 import { state, rowById, visibleLineIds, currentSelection, toggleLineSelection, types } from '../app/state.js';
 import { markSentences, setNote, splitGroupAtAction } from '../app/actions.js';
 import { groupSplitAtPlan } from '../core/shots.js';
-import { renderSelectionOnly } from './render.js';
-import { toast, composing, esc, readEditable } from './dom.js';
-import { openMenu, closePop, markPopAnchor, popEl } from './popover.js';
-import { typeMenuItems } from './type-view.js';
-import { runCommand } from './commands.js';
+import { renderSelectionOnly } from './base/selection.js';
+import { toast, composing, esc, readEditable } from './base/dom.js';
+import { openMenu, closePop, markPopAnchor, popEl } from './base/popover.js';
+import { typeMenuItems } from './base/type-view.js';
+import { runCommand } from './base/commands.js';
 
 const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 

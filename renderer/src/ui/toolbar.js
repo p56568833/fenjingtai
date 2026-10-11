@@ -4,9 +4,9 @@
 import { state, update, rowById, currentSelection, checkedIds, types } from '../app/state.js';
 import { groupSelectionAction, ungroupAction, annotateSelection } from '../app/actions.js';
 import { validGroup, sameGroupSelection } from '../core/shots.js';
-import { confirmModal, toast, esc } from './dom.js';
-import { closePop } from './popover.js';
-import { roll } from './motion.js';
+import { confirmModal, toast, esc } from './base/dom.js';
+import { closePop } from './base/popover.js';
+import { roll } from './base/motion.js';
 
 const $ = s => document.querySelector(s);
 

@@ -17,10 +17,10 @@ import {
   LINK_RE,
   referencedAssetIds,
 } from '../core/asset-model.js';
-import { preview, videoFrame, remoteVideoFrame, invalidateVideoFrame, probeDuration } from './media.js';
-export { preview, videoFrame, clearPreviewCache } from './media.js';
-import { esc } from './dom.js';
-import { pop } from './motion.js';
+import { preview, videoFrame, remoteVideoFrame, invalidateVideoFrame, probeDuration } from './base/media.js';
+export { preview, videoFrame, clearPreviewCache } from './base/media.js';
+import { esc } from './base/dom.js';
+import { pop } from './base/motion.js';
 
 export { baseName as assetName };
 

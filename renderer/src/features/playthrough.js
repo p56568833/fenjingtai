@@ -12,9 +12,9 @@ import { fmtTime, fmtLen } from '../core/text.js';
 import { fileUrl } from '../core/asset-model.js';
 import { layoutShot, itemAt, circled, clampSpan, MIN_LEN } from '../core/shot-layout.js';
 import { setShotTimes, clearShotTimes } from '../app/asset-actions.js';
-import { esc, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/dom.js';
-import { typeIcon } from '../ui/type-view.js';
-import { registerCommand } from '../ui/commands.js';
+import { esc, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/base/dom.js';
+import { typeIcon } from '../ui/base/type-view.js';
+import { registerCommand } from '../ui/base/commands.js';
 import { voicePlayer } from './voice.js';
 
 const $ = s => document.querySelector(s);

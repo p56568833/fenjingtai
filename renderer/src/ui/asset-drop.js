@@ -5,9 +5,9 @@ import { rowById } from '../app/state.js';
 import { addRefsToShot } from '../app/asset-actions.js';
 import { kindOf, assetName } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
-import { toast } from './dom.js';
-import { menuAllowed } from './modal.js';
-import { runCommand } from './commands.js';
+import { toast } from './base/dom.js';
+import { menuAllowed } from './base/modal.js';
+import { runCommand } from './base/commands.js';
 
 /* 口播音频的落点：顶部节奏色条 / 底部口播条 */
 const VOICE_ZONE = '#segbar, .stats, #voiceBar';

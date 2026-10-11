@@ -6,8 +6,8 @@ import { setUsageClip, rememberDuration } from '../app/asset-actions.js';
 import { usageList, kindOf, clipText, checkClip, fileUrl, assetName, LINK_RE, AUDIO_EXT } from '../core/asset-model.js';
 import { fmtTime, parseTime } from '../core/text.js';
 import * as native from '../platform/native.js';
-import { esc, toast } from '../ui/dom.js';
-import { registerCommand } from '../ui/commands.js';
+import { esc, toast } from '../ui/base/dom.js';
+import { registerCommand } from '../ui/base/commands.js';
 
 const openAssetNative = p => native.openAsset(p);
 

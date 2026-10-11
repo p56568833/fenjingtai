@@ -4,11 +4,11 @@ import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
 import { renameProject } from '../app/actions.js';
 import * as native from '../platform/native.js';
-import { toast, confirmModal, esc } from './dom.js';
-import { openMenu, closePop, popOpenFor, markPopAnchor } from './popover.js';
-import { armAnimation, slideIn } from './anim.js';
-import { registerCommand, runCommand } from './commands.js';
-import { registerModal } from './modal.js';
+import { toast, confirmModal, esc } from './base/dom.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor } from './base/popover.js';
+import { armAnimation, slideIn } from './base/anim.js';
+import { registerCommand, runCommand } from './base/commands.js';
+import { registerModal } from './base/modal.js';
 
 const timeAgo = t => {
   const s = (Date.now() - t) / 1000;

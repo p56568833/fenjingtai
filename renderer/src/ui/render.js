@@ -3,14 +3,13 @@ import { state, on, emit, renumber, visibleLineIds, rowById } from '../app/state
 import { renderStats } from './render-stats.js';
 import { renderTable, updateRowVisual, updateSectionBadges } from './render-table.js';
 import { renderCheck, updateCheckSpans, updateCheckNote } from './render-check.js';
-import { armAnimation, animationArmed } from './anim.js';
-import { flipCapture, flipPlay } from './motion.js';
-import { closePop } from './popover.js';
-import { flushPendingEdits } from './edit-session.js';
-import { renderSelectionOnly } from './selection.js';
-export { renderSelectionOnly } from './selection.js';
-import { revealRow } from './dom.js';
-import { runCommand } from './commands.js';
+import { armAnimation, animationArmed } from './base/anim.js';
+import { flipCapture, flipPlay } from './base/motion.js';
+import { closePop } from './base/popover.js';
+import { flushPendingEdits } from './base/edit-session.js';
+import { renderSelectionOnly } from './base/selection.js';
+import { revealRow } from './base/dom.js';
+import { registerCommand, runCommand } from './base/commands.js';
 
 function syncTitle() {
   const t = document.querySelector('#projTitle');
@@ -147,6 +146,8 @@ function onNotes({ ids }) {
 }
 
 export function initRender() {
+  registerCommand('view:set', setView);
+  registerCommand('view:sync-toggle', syncViewToggle);
   // 待审数字滚动结束、字体加载或顶栏布局变化时，按钮尺寸还可能再次改变。
   const toggle = document.querySelector('#viewToggle');
   if (toggle) {

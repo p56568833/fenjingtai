@@ -6,12 +6,12 @@ import { setType, markSentences, setNote } from '../app/actions.js';
 import { rememberCursor } from '../app/storage.js';
 import { shots } from '../core/shots.js';
 import { fmtTime } from '../core/text.js';
-import { esc, toast, composing } from '../ui/dom.js';
-import { historyCommand } from '../ui/history.js';
-import { closePop } from '../ui/popover.js';
-import { renderSelectionOnly } from '../ui/render.js';
-import { typeIcon } from '../ui/type-view.js';
-import { registerCommand, runCommand } from '../ui/commands.js';
+import { esc, toast, composing } from '../ui/base/dom.js';
+import { historyCommand } from '../ui/base/history.js';
+import { closePop } from '../ui/base/popover.js';
+import { renderSelectionOnly } from '../ui/base/selection.js';
+import { typeIcon } from '../ui/base/type-view.js';
+import { registerCommand, runCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 let open = false;

@@ -18,7 +18,7 @@ import { fmtTc, fmtLen } from '../core/text.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
 import { shotCoverage } from '../core/coverage.js';
 import * as native from '../platform/native.js';
-import { esc, toast } from './dom.js';
+import { esc, toast } from './base/dom.js';
 import {
   sharedScenes,
   assetName,
@@ -28,8 +28,8 @@ import {
   refreshThumb,
   missingPaths,
 } from './badges.js';
-import { registerCommand, runCommand } from './commands.js';
-import { openMenu, closePop, markPopAnchor, popOpenFor } from './popover.js';
+import { registerCommand, runCommand } from './base/commands.js';
+import { openMenu, closePop, markPopAnchor, popOpenFor } from './base/popover.js';
 import { preserveReadingPosition } from './reading-position.js';
 
 const $ = s => document.querySelector(s);
@@ -172,6 +172,7 @@ function openRemoveMenu(anchor, r) {
 
 export function initInspector() {
   registerCommand('inspector:open', openInspectorFor);
+  registerCommand('inspector:refresh', () => renderInspector(true));
   $('#btnDetail').onclick = () => {
     detailOpen = !detailOpen;
     renderInspector(true);

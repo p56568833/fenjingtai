@@ -4,10 +4,10 @@
 import { state, on, loadProjectIntoState } from './app/state.js';
 import * as storage from './app/storage.js';
 import * as native from './platform/native.js';
-import { initModal, toast, confirmModal } from './ui/dom.js';
-import { historyCommand } from './ui/history.js';
+import { initModal, toast, confirmModal } from './ui/base/dom.js';
+import { historyCommand } from './ui/base/history.js';
 import { renderAll, initRender, setView, cycleView, syncViewToggle } from './ui/render.js';
-import { armAnimation } from './ui/anim.js';
+import { armAnimation } from './ui/base/anim.js';
 import { initPopover } from './ui/popover.js';
 import { initEdit } from './ui/edit.js';
 import { initKeyboard } from './ui/keyboard.js';
@@ -23,8 +23,8 @@ import { initAssetPicker } from './ui/asset-picker.js';
 import { initShotMenu } from './ui/shot-menu.js';
 import { initHelp } from './ui/help.js';
 import { initTheme } from './ui/theme.js';
-import { registerModal, initModalKeys, menuAllowed } from './ui/modal.js';
-import { runCommand } from './ui/commands.js';
+import { registerModal, initModalKeys, menuAllowed } from './ui/base/modal.js';
+import { runCommand } from './ui/base/commands.js';
 import { initFocus, focusKey } from './features/focus.js';
 import { initSrt } from './features/srt.js';
 import { initPreview, closePreview, previewKey } from './features/preview.js';
@@ -37,7 +37,7 @@ import { initVideoReview } from './features/video-review.js';
 import { initProjectPack } from './features/project-pack.js';
 import { initRework } from './features/rework.js';
 import { initUpdate, updateKey } from './features/update.js';
-import { initMotion } from './ui/motion.js';
+import { initMotion } from './ui/base/motion.js';
 
 /* ── 保存状态指示 ── */
 let savedFlash = 0;

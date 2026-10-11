@@ -5,9 +5,9 @@
 import { state, on, types } from '../app/state.js';
 import { checkDelivery, unlinkedShots } from '../core/shots.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
-import { esc } from './dom.js';
-import { closePop } from './popover.js';
-import { registerCommand, runCommand } from './commands.js';
+import { esc } from './base/dom.js';
+import { closePop } from './base/popover.js';
+import { registerCommand, runCommand } from './base/commands.js';
 
 const $ = s => document.querySelector(s);
 let reviewOpen = false;

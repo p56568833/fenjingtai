@@ -55,14 +55,15 @@ npm run package    # 出 arm64 + x64 双架构安装包到输出所示的临时 
 | --- | --- | --- |
 | `renderer/src/core/` | 纯数据规则：分句、镜头 / 共用画面、素材模型、标注类型、时间轴、字幕对齐、导出文本 | 不碰界面、不碰应用状态，node 里能直接测 |
 | `renderer/src/app/` | 应用状态、存盘、撤销、所有改数据的操作 | 不碰界面；改完只广播事件、发提示 |
-| `renderer/src/ui/` | 视图和交互：表格、原文、侧栏、弹窗、菜单 | 不直接调用功能模块，用 `commands.js` 里登记的命令 |
-| `renderer/src/features/` | 独立功能：专注标注、字幕对齐、素材预览、口播播放、连播预览、类型编辑器、PDF 导出、视频审核 | 自己登记命令 |
+| `renderer/src/ui/base/` | 全应用共用的地基：DOM 小工具与提示、命令表、弹窗、弹出菜单、动效、媒体解码、选中态、类型色块 | 只依赖 app / core / platform 和 base 自己 |
+| `renderer/src/ui/` | 视图和交互：表格、原文、侧栏、项目菜单、类型 / 时长菜单 | 不直接调用功能模块，用 `base/commands.js` 里登记的命令 |
+| `renderer/src/features/` | 独立功能：专注标注、字幕对齐、素材预览、口播播放、连播预览、类型编辑器、PDF 导出、视频审核 | 只用 `ui/base/`；要用其他界面模块的能力走命令，自己也登记命令 |
 | `renderer/src/platform/` | 原生能力（文件、对话框、存盘）的唯一出入口 | 不依赖业务代码 |
 | `renderer/src/test/` | 桌面交互自测 | 不进安装包 |
 
 项目修改通过 `app/project-change.js` 同步完成：成功后登记撤销、保存、广播业务事件；失败操作不清空重做。异步文件任务先捕获项目、候选版本和地址，完成后核对归属再提交，不能在等待期间读取当前项目来决定结果写到哪里。
 
-视频审核的数据操作、清单写回和媒体任务分别在 `app/candidate-actions.js`、`candidate-sync.js`、`candidate-media.js`；页面、文件操作交互和截图组件分别在 `features/video-review.js`、`review-files.js`、`review-frames.js`。界面订阅 `assets-changed` 等业务事件决定刷新范围，数据层不传滚动位置、重绘方式等界面参数。共用媒体解码、超时、释放和缩略图缓存统一在 `ui/media.js`。
+视频审核的数据操作、清单写回和媒体任务分别在 `app/candidate-actions.js`、`candidate-sync.js`、`candidate-media.js`；页面、文件操作交互和截图组件分别在 `features/video-review.js`、`review-files.js`、`review-frames.js`。界面订阅 `assets-changed` 等业务事件决定刷新范围，数据层不传滚动位置、重绘方式等界面参数。共用媒体解码、超时、释放和缩略图缓存统一在 `ui/base/media.js`，全应用同时解码的视频数由 `withDecodeSlot` 统一封顶。截图条的结构和填图都归 `review-frames.js`。
 
 `renderer/styles.css` 只负责加载 `renderer/styles/` 下的组件样式。选中状态集中在 `selection.css`，组件标题和素材卡规则放回所属组件，避免借其他组件文件的加载顺序追加覆盖。整理样式时可运行 `node scripts/style-test.mjs`，将工作区样式与当前 Git 提交对照；使用隔离数据和临时隐藏窗口，不修改用户项目。
 

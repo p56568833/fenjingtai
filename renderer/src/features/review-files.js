@@ -10,7 +10,7 @@ import {
 import { retagPlan } from '../core/candidate-queries.js';
 import { fileTitle } from '../core/candidates.js';
 import { assetName } from '../core/asset-model.js';
-import { toast, confirmModal } from '../ui/dom.js';
+import { toast, confirmModal } from '../ui/base/dom.js';
 import * as nat from '../platform/native.js';
 const $ = s => document.querySelector(s);
 const native = name => nat[name];

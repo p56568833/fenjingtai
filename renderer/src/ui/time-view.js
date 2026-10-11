@@ -1,7 +1,7 @@
 /* 时间的界面呈现：表格「时长」格、时长标题。数据来自 app/state.js 的时间轴（字幕 > 口播音频 > 语速）。 */
 import { state, timeOf, lineSeconds, timeline } from '../app/state.js';
 import { fmtTime } from '../core/text.js';
-import { esc } from './dom.js';
+import { esc } from './base/dom.js';
 
 export const dur = r => lineSeconds(r).toFixed(1) + 's';
 

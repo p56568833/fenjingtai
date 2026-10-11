@@ -8,10 +8,9 @@ import { packPlan, toPacked, fromPacked } from '../core/pack.js';
 import { buildProjectJson } from '../core/export-doc.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
-import { toast, esc } from '../ui/dom.js';
-import { registerModal } from '../ui/modal.js';
-import { registerCommand } from '../ui/commands.js';
-import { exportProjectJson, importProjectObject } from '../ui/import-export.js';
+import { toast, esc } from '../ui/base/dom.js';
+import { registerModal } from '../ui/base/modal.js';
+import { registerCommand, runCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 let busy = null; // 'export' | 'import'
@@ -95,7 +94,7 @@ async function goExport() {
   const mode = $('#packExportMask input[name="packMode"]:checked')?.value;
   if (mode !== 'zip') {
     closeExport();
-    return exportProjectJson();
+    return runCommand('export:project-json');
   }
   if (!plan) return;
   commitProjectChange({ now: true });
@@ -188,7 +187,7 @@ async function goImport() {
   }
   $('#packImportMask').classList.remove('show');
   pending = null;
-  importProjectObject(proj, job.title, { from: `素材在 ${shortPath(r.dir)}` });
+  runCommand('project:import-object', proj, job.title, { from: `素材在 ${shortPath(r.dir)}` });
 }
 
 export function initProjectPack() {

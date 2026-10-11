@@ -29,7 +29,11 @@ export default [
     rules: {
       'no-restricted-imports': [
         'error',
-        { patterns: [{ group: ['../app/*', '../ui/*', '../features/*', '../platform/*'], message: 'core/ 只能依赖 core/' }] },
+        {
+          patterns: [
+            { group: ['../app/*', '../ui/*', '../features/*', '../platform/*'], message: 'core/ 只能依赖 core/' },
+          ],
+        },
       ],
       'no-restricted-globals': ['error', 'document', 'window', 'localStorage'],
     },
@@ -51,11 +55,43 @@ export default [
     },
   },
   {
-    files: ['renderer/src/ui/**/*.js'],
+    files: ['renderer/src/ui/*.js'],
     rules: {
       'no-restricted-imports': [
         'error',
         { patterns: [{ group: ['../features/*'], message: 'ui/ 不直接依赖功能模块（用 commands.js 的命令）' }] },
+      ],
+    },
+  },
+  {
+    files: ['renderer/src/ui/base/**/*.js'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['../*.js', '../../features/*'],
+              message: 'ui/base/ 是全应用共用的地基，只依赖 app / core / platform 和 base 自己',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['renderer/src/features/**/*.js'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['../ui/*', '!../ui/base'],
+              message: 'features/ 只能用 ui/base/ 的地基模块；要用其他界面模块的能力，走 commands.js 的命令',
+            },
+          ],
+        },
       ],
     },
   },

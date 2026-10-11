@@ -1,6 +1,6 @@
 /* 共用媒体服务：元数据、解帧、缩略图、超时和释放。页面只负责把结果放进自己的 DOM。 */
-import { LINK_RE, kindOf, fileUrl } from '../core/asset-model.js';
-import * as native from '../platform/native.js';
+import { LINK_RE, kindOf, fileUrl } from '../../core/asset-model.js';
+import * as native from '../../platform/native.js';
 
 export function releaseMedia(el) {
   el.removeAttribute('src');
@@ -80,6 +80,22 @@ export async function probeDuration(path, timeoutMs = 4000) {
 }
 
 /* 按地址合并并发请求、限制解码数与缓存量；表格和审核页共用同一个队列。 */
+/* 全应用同时解码的视频数上限：表格缩略图、在线抽帧、审核页截图各有自己的队列，
+   但都要先拿到这里的名额，合起来不超过 MAX_DECODES，长稿 + 审核页同时开也不会把机器拖慢 */
+const MAX_DECODES = 4;
+let decoding = 0;
+const waiting = [];
+export async function withDecodeSlot(task) {
+  if (decoding >= MAX_DECODES) await new Promise(resolve => waiting.push(resolve));
+  decoding++;
+  try {
+    return await task();
+  } finally {
+    decoding--;
+    waiting.shift()?.();
+  }
+}
+
 function mediaQueue(limit, keep, decode) {
   const cache = new Map(),
     pending = new Map(),
@@ -91,7 +107,7 @@ function mediaQueue(limit, keep, decode) {
       const job = queue.shift();
       running++;
       Promise.resolve()
-        .then(() => decode(job.path))
+        .then(() => withDecodeSlot(() => decode(job.path)))
         .catch(() => null)
         .then(result => {
           if (job.epoch === epoch && pending.get(job.path) === job.promise) {

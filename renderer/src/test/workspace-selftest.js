@@ -10,7 +10,7 @@ import { jumpTo, nextUnmarked, openReview } from '../ui/workspace.js';
 import { openDurPopover } from '../ui/popover.js';
 import { setMultiMode } from '../ui/toolbar.js';
 import * as storage from '../app/storage.js';
-import { runCommand } from '../ui/commands.js';
+import { runCommand } from '../ui/base/commands.js';
 const $ = s => document.querySelector(s),
   $$ = s => [...document.querySelectorAll(s)];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));

@@ -7,8 +7,8 @@ import { planAlignment, applyAlignment } from '../app/subtitle.js';
 import { parseSubtitles } from '../core/subtitle-align.js';
 import { fmtTime } from '../core/text.js';
 import * as native from '../platform/native.js';
-import { toast, esc } from '../ui/dom.js';
-import { registerCommand } from '../ui/commands.js';
+import { toast, esc } from '../ui/base/dom.js';
+import { registerCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 let pending = null; // { name, cues, times, stats }

@@ -3,7 +3,7 @@
 import { state, rowById, lines, timeOf, renumber } from '../app/state.js';
 import { shotMembers } from '../core/shots.js';
 import { parseLines } from '../core/candidates.js';
-import { esc } from '../ui/dom.js';
+import { esc } from '../ui/base/dom.js';
 import { voicePlayer } from './voice.js';
 
 const VOICE_PREF = 'fjz:vrVoice';

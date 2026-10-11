@@ -1,7 +1,7 @@
 /* 快捷键与帮助（⌘/）：分组列出，类型键位按本项目的类型表生成 */
 import { types } from '../app/state.js';
-import { esc } from './dom.js';
-import { registerCommand } from './commands.js';
+import { esc } from './base/dom.js';
+import { registerCommand } from './base/commands.js';
 
 const $ = s => document.querySelector(s);
 const k = s =>

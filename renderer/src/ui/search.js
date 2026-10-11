@@ -1,8 +1,9 @@
 /* ⌘F 搜索：浮条 + <mark> 高亮 + 其余淡化 + Enter/Shift+Enter 跳转 */
 import { state, rowById, visibleLineIds, emit, qMatch } from '../app/state.js';
-import { renderSelectionOnly, setView } from './render.js';
-import { closePop, syncPopToAnchor, popEl } from './popover.js';
-import { leave, cancelLeave, flash, reduced, SPRING } from './motion.js';
+import { setView } from './render.js';
+import { renderSelectionOnly } from './base/selection.js';
+import { closePop, syncPopToAnchor, popEl } from './base/popover.js';
+import { leave, cancelLeave, flash, reduced, SPRING } from './base/motion.js';
 
 function qMatches() {
   return visibleLineIds().filter(id => qMatch(rowById(id)));

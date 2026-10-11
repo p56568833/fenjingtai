@@ -2,9 +2,9 @@
    句子结构没变（只是改了类型 / 文字）时原地改颜色和宽度，不重建几百上千个按钮 */
 import { state, types, lineSeconds } from '../app/state.js';
 import { shots, linkedUsages } from '../core/shots.js';
-import { esc } from './dom.js';
-import { filterList } from './type-view.js';
-import { roll, reduced } from './motion.js';
+import { esc } from './base/dom.js';
+import { filterList } from './base/type-view.js';
+import { roll, reduced } from './base/motion.js';
 
 const segColor = r => types().color(r.type) || 'var(--seg-none)';
 const segTitle = r => `第 ${r.no} 句 · ${types().label(r.type)} · ${r.text.slice(0, 35)}`;

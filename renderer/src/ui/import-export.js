@@ -13,11 +13,12 @@ import { normalizeTypes } from '../core/types.js';
 import { CANDIDATE_TYPE, sanitizeProjectCandidates } from '../core/candidates.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
-import { toast, confirmModal, esc } from './dom.js';
-import { openMenu, closePop, popOpenFor, markPopAnchor, openDurPopover } from './popover.js';
-import { armAnimation } from './anim.js';
+import { toast, confirmModal, esc } from './base/dom.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor } from './base/popover.js';
+import { openDurPopover } from './popover.js';
+import { armAnimation } from './base/anim.js';
 import { deliveryIssues } from './review.js';
-import { registerCommand, runCommand } from './commands.js';
+import { registerCommand, runCommand } from './base/commands.js';
 
 const $ = s => document.querySelector(s);
 let pendingImport = null; // { rows, title, types? }
@@ -78,7 +79,7 @@ function importAsNewProject(name, txt) {
 }
 
 /* 解析好的项目数据 → 新项目（项目 JSON 和打包 ZIP 共用）；opts.from：提示里补一句来源 */
-export function importProjectObject(proj, name, { from = '' } = {}) {
+function importProjectObject(proj, name, { from = '' } = {}) {
   if (!proj || typeof proj !== 'object' || Array.isArray(proj))
     return toast('这个 JSON 不是分镜台的项目文件', null, 'error');
   if (Number(proj.v) > 4) return toast('这个项目文件来自更新版本的分镜台，请先升级软件再导入', null, 'error');
@@ -206,7 +207,7 @@ export async function doExport(kind, checked = false) {
 }
 
 /* 仅导出项目 JSON（不含素材文件本身） */
-export async function exportProjectJson() {
+async function exportProjectJson() {
   const title = state.title || '未命名项目';
   commitProjectChange({ now: true });
   await download(
@@ -275,6 +276,8 @@ export function initImportExport() {
   registerCommand('import:loaded', importLoadedFile);
   registerCommand('export', doExport);
   registerCommand('export:menu', () => openExportMenu($('#btnExport')));
+  registerCommand('export:project-json', exportProjectJson);
+  registerCommand('project:import-object', importProjectObject);
 
   $('#importMode').onchange = renderImportPreview;
   $('#acceptImport').onclick = acceptImport;

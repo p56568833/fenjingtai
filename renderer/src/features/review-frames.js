@@ -1,12 +1,33 @@
-/* 审核截图组件：队列、缓存与截图展示独立于审核数据操作。 */
+/* 审核截图组件：截图条（.vr-strip）的结构、排队截图、缓存和填图都在这里；
+   审核页只负责把 stripHTML() 放进卡片、渲染后调 paintStrips。 */
 import { state } from '../app/state.js';
 import { fileUrl } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
-import { loadMetadata, seekVideoFrame, drawVideoFrame, releaseMedia, videoFrame } from '../ui/media.js';
+import {
+  loadMetadata,
+  seekVideoFrame,
+  drawVideoFrame,
+  releaseMedia,
+  videoFrame,
+  withDecodeSlot,
+} from '../ui/base/media.js';
 const frames = new Map();
 const queue = [];
 const active = new Map();
 let running = 0;
+const CELLS = 6;
+export const stripHTML = () => `<div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(CELLS)}</div>`;
+const stripOf = id => document.querySelector(`[data-vr-id="${id}"] .vr-strip`);
+/* 渲染后把截图放进卡片：截过的直接放，没截的排队去截 */
+export function paintStrips(host, cands) {
+  for (const c of cands) {
+    const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
+    if (!strip) continue;
+    const got = getFrames(c);
+    if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
+    else queueFrames(c);
+  }
+}
 const signature = c => JSON.stringify([state.projectId, c.url, c.in, c.out, c.savedPath || '']);
 export const getFrames = c => {
   const cached = frames.get(c.id);
@@ -27,8 +48,8 @@ export function retainFrames(candidates) {
   for (const [id, controller] of active) if (!ids.has(id)) controller.abort();
   for (let i = queue.length - 1; i >= 0; i--) if (!ids.has(queue[i].c.id)) queue.splice(i, 1);
 }
-/* 同时最多解码两个视频；任务绑定项目和素材内容，换项目 / 更新候选就取消旧结果。 */
-export function queueFrames(c) {
+/* 审核页自己最多排两个截图任务（还要和全应用共用 withDecodeSlot 的名额）；任务绑定项目和素材内容，换项目 / 更新候选就取消旧结果。 */
+function queueFrames(c) {
   const sig = signature(c);
   if (getFrames(c) || queue.some(q => q.c.id === c.id && q.signature === sig)) return;
   if (active.has(c.id)) active.get(c.id).abort();
@@ -41,7 +62,7 @@ function pump() {
     const controller = new AbortController();
     active.set(job.c.id, controller);
     running++;
-    grab(job, controller.signal).finally(() => {
+    withDecodeSlot(() => grab(job, controller.signal)).finally(() => {
       if (active.get(job.c.id) === controller) active.delete(job.c.id);
       running--;
       pump();
@@ -76,17 +97,18 @@ async function grab(job, signal) {
       c = orig;
       await load(c.url);
     }
-    for (let i = 0; i < 6 && valid(); i++) {
-      const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / 6;
+    for (let i = 0; i < CELLS && valid(); i++) {
+      const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / CELLS;
       cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in), signal) });
       if (!valid()) break;
-      document
-        .querySelector(`[data-vr-id="${orig.id}"] .vr-strip`)
-        ?.replaceChildren(...cells.map(x => x.cell), ...Array.from({ length: 6 - cells.length }, () => loadingCell()));
+      stripOf(orig.id)?.replaceChildren(
+        ...cells.map(x => x.cell),
+        ...Array.from({ length: CELLS - cells.length }, () => loadingCell()),
+      );
     }
   } catch {
     if (valid()) {
-      const strip = document.querySelector(`[data-vr-id="${orig.id}"] .vr-strip`);
+      const strip = stripOf(orig.id);
       if (strip)
         strip.innerHTML = '<div class="vr-cell fail">截图失败（网站不让读或网络不通），点「播放这段」直接看</div>';
     }

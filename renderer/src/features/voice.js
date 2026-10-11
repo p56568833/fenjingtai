@@ -8,9 +8,9 @@ import { lineAt, spanOf } from '../core/timeline.js';
 import { fmtTime } from '../core/text.js';
 import { fileUrl } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
-import { toast, esc, confirmModal } from '../ui/dom.js';
-import { probeDuration } from '../ui/media.js';
-import { registerCommand } from '../ui/commands.js';
+import { toast, esc, confirmModal } from '../ui/base/dom.js';
+import { probeDuration } from '../ui/base/media.js';
+import { registerCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 let audio = null;

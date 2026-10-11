@@ -3,8 +3,8 @@
    有新版本时顶栏出现蓝色下载图标「更新」按钮，点开看更新说明 → 下载并校验 → 「重启并更新」：
    分镜台先存盘退出，换上新版后自动重新打开。项目数据不在应用里，更新不会动它。 */
 import * as native from '../platform/native.js';
-import { toast, esc } from '../ui/dom.js';
-import { registerCommand } from '../ui/commands.js';
+import { toast, esc } from '../ui/base/dom.js';
+import { registerCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 let info = null; // 最近一次检查到的新版本

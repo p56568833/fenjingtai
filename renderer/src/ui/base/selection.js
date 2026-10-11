@@ -1,5 +1,5 @@
 /* 选中态视图：可独立刷新，不依赖编辑或整页渲染。 */
-import { state, emit, currentSelection, checkedIds } from '../app/state.js';
+import { state, emit, currentSelection, checkedIds } from '../../app/state.js';
 import { glideSelection } from './motion.js';
 
 /* 只刷选中高亮，不重建 DOM（键盘导航 / 点选时不打断进行中的编辑） */

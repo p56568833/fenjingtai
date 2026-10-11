@@ -7,8 +7,8 @@ import { parseAny } from '../core/parse.js';
 import { applyImport } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
 import { closeVideoReview, flushWriteBack } from '../features/video-review.js';
-import { confirmModal, toast } from '../ui/dom.js';
-import { runCommand } from '../ui/commands.js';
+import { confirmModal, toast } from '../ui/base/dom.js';
+import { runCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 const pause = ms => new Promise(r => setTimeout(r, ms));

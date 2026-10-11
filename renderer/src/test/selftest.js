@@ -476,7 +476,7 @@ export async function runSelfTest() {
 
   // PDF 分镜脚本：菜单入口、选项弹窗、快捷键隔离、排版结构
   {
-    const { closePop } = await import('../ui/popover.js');
+    const { closePop } = await import('../ui/base/popover.js');
     closePop();
   }
   $('#reviewMask')?.classList.remove('show');
