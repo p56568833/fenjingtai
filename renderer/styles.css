@@ -7566,3 +7566,7 @@ body.dark .lo-head b {
   color: var(--text-3);
   margin-left: 4px;
 }
+/* 共用画面：类型色块里的图标和文字居中，和上面的「共 X 秒」对齐 */
+.typebox:has(> .shared-total) .tchip {
+  justify-content: center;
+}

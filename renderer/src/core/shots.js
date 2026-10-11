@@ -51,6 +51,35 @@ export function applySpan(members, assetId, from, to) {
     else u.off = true;
   });
 }
+/* 上屏画面按句子先后排：配前面句子的排在前面（①②… 跟着变），同样起点的保持原来的先后（「往前 / 往后」调的就是它）。
+   只在主画面之间挪位置，备选 / 未分配的原地不动；组内每句的列表一起排，顺序一致 */
+export function sortMainsBySentence(members) {
+  if (members.length < 2) return false;
+  const list0 = usagesOf(members[0]);
+  const mains = list0.filter(u => u.role === 'main').map(u => u.assetId);
+  if (mains.length < 2) return false;
+  const key = id => {
+    const sp = usageSpan(members, id);
+    return sp.empty ? Infinity : sp.from;
+  };
+  const at = id => list0.find(u => u.assetId === id)?.at?.start ?? Infinity;
+  const order = mains
+    .map((id, i) => ({ id, i, k: key(id), t: at(id) }))
+    .sort(
+      (a, b) => a.k - b.k || (a.t !== b.t && Number.isFinite(a.t) && Number.isFinite(b.t) ? a.t - b.t : 0) || a.i - b.i,
+    )
+    .map(x => x.id);
+  if (order.every((id, i) => id === mains[i])) return false;
+  for (const m of members) {
+    const list = usagesOf(m);
+    const slots = list.map((u, i) => (u.role === 'main' ? i : -1)).filter(i => i >= 0);
+    const byId = new Map(list.map(u => [u.assetId, u]));
+    const sorted = order.map(id => byId.get(id)).filter(Boolean);
+    if (sorted.length !== slots.length) continue; // 这句的列表和第一句对不上（不该发生）：不动
+    slots.forEach((slot, k) => (list[slot] = sorted[k]));
+  }
+  return true;
+}
 /* 设角色：组内每句同步。1.8 起一段可以有多个主画面（按时间先后排，见 shot-layout.js），不再把别的主画面挤成备选；
    返回值保留成「被降级的 assetId」列表（现在总是空），调用方不用改 */
 export function applyRole(members, assetId, role) {

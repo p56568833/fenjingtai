@@ -4,7 +4,7 @@ import { state, emit, timeline } from './state.js';
 import { notify } from './events.js';
 import { persist } from './storage.js';
 import { snapshot } from './undo.js';
-import { shotMembers, applyRole, applySpan, isRole } from '../core/shots.js';
+import { shotMembers, applyRole, applySpan, isRole, sortMainsBySentence } from '../core/shots.js';
 import { round1, linesOfTime } from '../core/shot-layout.js';
 import {
   LINK_RE,
@@ -137,6 +137,7 @@ export function setUsageLines(row, index, from, to) {
   applySpan(members, u.assetId, from, to);
   if (u.role !== 'main') applyRole(members, u.assetId, 'main');
   for (const m of members) for (const x of usageList(m)) delete x.at;
+  sortMainsBySentence(members); // 前面的画面改配到后面的句子：编号和卡片顺序跟着换
   persist();
   refreshAssets(row, { stats: false });
   return true;
@@ -243,6 +244,7 @@ export function setShotTimes(row, entries, label = '调整画面出现时间') {
     const lines = linesOfTime(members, tl, at.start, at.end);
     if (lines) applySpan(members, id, lines.from, lines.to);
   }
+  sortMainsBySentence(members);
   persist();
   refreshAssets(row);
   return true;

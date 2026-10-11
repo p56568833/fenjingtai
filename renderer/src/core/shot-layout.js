@@ -10,7 +10,7 @@
 
    上屏的画面 = 主画面（图片 / 视频）；一个主画面都没有时退回第一个「未分配」的画面（兼容旧项目）。
    叠加、备选不在这里排。 */
-import { isRole, shots, applySpan } from './shots.js';
+import { isRole, shots, applySpan, sortMainsBySentence } from './shots.js';
 import { usageList, kindOf } from './asset-model.js';
 import { spanOf } from './timeline.js';
 
@@ -236,6 +236,7 @@ export function syncSpansFromTimes(rows, tl) {
       applySpan(members, u.assetId, lines.from, lines.to);
       if (members.map(m => usageList(m).find(x => x.assetId === u.assetId)?.off || false).join() !== before) n++;
     }
+    if (sortMainsBySentence(members)) n++;
   }
   return n;
 }

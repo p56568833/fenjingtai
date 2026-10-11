@@ -1046,6 +1046,38 @@ test('手动时间属于哪几句：占一半以上算，都不到一半算占�
   );
   assert.equal(syncSpansFromTimes(rows, tl), 0); // 已经对上了，再跑一遍不改
 });
+test('上屏画面按句子先后自动排：前面的画面改配后面的句子，顺序跟着换', async () => {
+  const { sortMainsBySentence } = await import('../renderer/src/core/shots.js');
+  const rows = L8();
+  setUs(rows, [
+    { assetId: 'a', role: 'main' },
+    { assetId: 'c', role: 'alt' },
+    { assetId: 'b', role: 'main' },
+  ]);
+  rows[0].assetUsages[0].off = true; // 甲配第 2–3 句
+  rows[1].assetUsages[2].off = true;
+  rows[2].assetUsages[2].off = true; // 乙配第 1 句
+  assert.equal(sortMainsBySentence(rows), true);
+  assert.deepEqual(
+    rows.map(r => usageList(r).map(u => u.assetId)),
+    [
+      ['b', 'c', 'a'],
+      ['b', 'c', 'a'],
+      ['b', 'c', 'a'],
+    ],
+  ); // 备选丙原地不动
+  assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [
+    ['b', 0, 2],
+    ['a', 2, 6],
+  ]);
+  assert.equal(sortMainsBySentence(rows), false);
+  // 同样起点的不动（「往前 / 往后」排的先后保留）
+  setUs(rows, [
+    { assetId: 'b', role: 'main' },
+    { assetId: 'a', role: 'main' },
+  ]);
+  assert.equal(sortMainsBySentence(rows), false);
+});
 test('镜头排布：手动秒数照放，空着的地方是空白，超出口播的标出来', () => {
   const rows = L8();
   setUs(rows, [
