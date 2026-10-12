@@ -30,6 +30,47 @@ const CAND_KEYS = [
   'extra',
   'review', // 分镜台写回的审核结果
 ];
+/* url 必须是视频文件本身：图片、网页地址直接拒收（AI 常把配图或视频页面当成视频交上来，审核页根本播不出来）。
+   看扩展名；没有扩展名的 CDN 直链放行，但视频网站的页面地址（YouTube、B 站等）一律不行 */
+const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|ogv)$/i;
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|avif|heic|bmp|svg|tiff?|ico)$/i;
+const PAGE_EXT_RE = /\.(s?html?|php|aspx?|jsp)$/i;
+const PAGE_HOSTS = [
+  'youtube.com',
+  'youtu.be',
+  'bilibili.com',
+  'b23.tv',
+  'vimeo.com',
+  'douyin.com',
+  'tiktok.com',
+  'ixigua.com',
+  'v.qq.com',
+  'youku.com',
+  'weibo.com',
+  'x.com',
+  'twitter.com',
+  'facebook.com',
+  'instagram.com',
+];
+export function videoUrlIssue(url) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return '';
+  }
+  const file = decodeURIComponent(u.pathname);
+  if (VIDEO_EXT_RE.test(file)) return '';
+  const ext = (file.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
+  if (IMAGE_EXT_RE.test(file))
+    return `url 是图片地址（${ext}），不是视频。不要找图片，必须换成视频文件本身（mp4 / webm 等）`;
+  if (PAGE_EXT_RE.test(file))
+    return `url 是网页地址（${ext}），不是视频。必须换成视频文件本身（mp4 / webm 等），网页地址放进 page`;
+  const host = u.hostname.toLowerCase();
+  if (PAGE_HOSTS.some(h => host === h || host.endsWith('.' + h)))
+    return `url 是视频网站的页面（${host}），软件播不了。必须换成视频文件本身（mp4 / webm 等），页面地址放进 page`;
+  return '';
+}
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const filled = v => typeof v === 'string' && v.trim() !== '';
 const isNum = v => typeof v === 'number' && Number.isFinite(v);
@@ -84,6 +125,7 @@ export function validateCandidateDoc(doc) {
       if (!filled(c.title)) add(cw, 'title 必须写中文标题');
       if (typeof c.url !== 'string' || !URL_RE.test(c.url))
         add(cw, 'url 必须是能直接播放的视频文件地址（http / https）');
+      else if (videoUrlIssue(c.url)) add(cw, videoUrlIssue(c.url));
       if (c.page != null && (typeof c.page !== 'string' || !URL_RE.test(c.page)))
         add(cw, 'page 必须是网页地址（http / https）');
       if (!isNum(c.in) || c.in < 0) add(cw, 'in 必须是秒数（数字，≥ 0），不要写 "1:41" 或带引号');

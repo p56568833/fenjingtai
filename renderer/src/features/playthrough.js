@@ -111,13 +111,17 @@ function previewItem(u, t) {
   if (last && last.start <= rel + 1e-6 && rel >= layout.dur - 0.05 && last.end >= layout.dur - 0.05) return last;
   if (layout.timed || !prev) return null;
   const next = layout.items.find(it => it.start > rel);
-  if (!next) return null;
+  return next && heldThrough(u, prev, next) ? prev : null;
+}
+
+/* 按句子排时，prev 和 next 之间的空当没人说话（句间停顿）：prev 一直延续到 next 出现 */
+function heldThrough(u, prev, next) {
+  if (u.layout.timed || next.start <= prev.end + 1e-6) return false;
   const tl = timeline();
-  const spoken = u.members.some(r => {
+  return !u.members.some(r => {
     const tm = tl.times.get(r.id);
     return tm && tm.start < u.start + next.start - 1e-6 && tm.end > u.start + prev.end + 1e-6;
   });
-  return spoken ? null : prev;
 }
 
 const mediaKey = (i, item) => `${i}|${item.assetId}@${item.start}`;
@@ -209,6 +213,15 @@ function renderTrack(i) {
       return `<span class="ptt-sep" style="left:${pct(at)}"><b>${m.no}</b></span>`;
     })
     .join('');
+  // 句间停顿里延续的上一段画面：画成同色的淡尾巴，和预览里看到的对上
+  const holds = items
+    .map((it, k) => {
+      const next = items[k + 1];
+      if (!next || !heldThrough(u, it, next)) return '';
+      const s = Math.min(it.end, dur);
+      return `<span class="ptt-hold${k % 2 ? ' even' : ''}" style="left:${pct(s)};width:${pct(Math.min(next.start, dur) - s)}" title="句间停顿，${circled(it.n)} 接着播到 ${circled(next.n)} 出现"></span>`;
+    })
+    .join('');
   const blocks = items
     .map(it => {
       const end = Math.min(it.end, dur);
@@ -226,7 +239,7 @@ function renderTrack(i) {
     !items.length ? '' : (timed ? '手动' : '按句子自动') + ' · 拖色块调整，点中后按 I / O 把播放位置设为开始 / 结束'
   }</span><span class="ptt-warn" id="pttWarn"></span><span class="spacer"></span>${timed ? '<button class="ptt-reset" id="pttReset" title="去掉手动时间，按每个画面的出现位置（第几句到第几句）排">恢复按句子</button>' : ''}</div>
     <div class="ptt-ruler" id="pttRuler" title="点击或拖动：跳到这个时间">${ticks}<span class="ptt-rhead" id="pttRHead"></span></div>
-    <div class="ptt-lane" id="pttLane">${seps}${blocks}<span class="ptt-head" id="pttHead"></span>${
+    <div class="ptt-lane" id="pttLane">${seps}${holds}${blocks}<span class="ptt-head" id="pttHead"></span>${
       items.length
         ? ''
         : '<span class="ptt-empty">这段还没有主画面：在「画面与素材」里把素材设成主画面，就能在这里调它出现的秒数</span>'

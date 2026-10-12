@@ -1510,6 +1510,22 @@ test('1.10.4 不合格式的候选清单整份拒收，并写出每一处错在�
     '秒数带引号也不行',
   );
 });
+test('候选的 url 只能是视频：图片、网页、视频网站页面拒收，视频直链和无扩展名的 CDN 地址放行', () => {
+  const doc = url => v2([{ lines: '1', label: '甲', cands: [v2cand({ key: 'A', url, in: 1, out: 5 })] }]);
+  const errs = url => validateCandidateDoc(doc(url)).join('\n');
+  assert.match(errs('https://x/pic.jpg'), /图片地址（\.jpg）.*不要找图片/);
+  assert.match(errs('https://x/a/photo.WEBP?w=800'), /图片地址/);
+  assert.match(errs('https://x/news/123.html'), /网页地址/);
+  assert.match(errs('https://www.youtube.com/watch?v=abc'), /视频网站的页面/);
+  assert.match(errs('https://www.bilibili.com/video/BV1xx'), /视频网站的页面/);
+  for (const ok of [
+    'https://x/a.mp4',
+    'https://x/a.webm?token=1',
+    'https://cdn.example.com/v/abc123',
+    'https://player.vimeo.com/external/1.hd.mp4',
+  ])
+    assert.equal(errs(ok), '', ok);
+});
 test('1.10.4 保存过的片段又挂成了在线地址（撤回后再通过）：能找出来换回本地文件', () => {
   const rows = [1, 2].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n, groupId: 'g', assetUsages: [] }));
   const reg = {};

@@ -3,7 +3,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 
 export default [
-  { ignores: ['node_modules/**', 'dist/**', '备份-*/**', '分镜台.html'] },
+  { ignores: ['node_modules/**', 'dist/**', '备份-*/**', '素材补充/**', '分镜台.html'] },
   js.configs.recommended,
   {
     files: ['renderer/**/*.js'],

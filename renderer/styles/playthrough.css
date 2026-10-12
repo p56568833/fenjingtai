@@ -335,6 +335,19 @@
   border-left: 2px solid #f0a33a;
   pointer-events: none;
 }
+.ptt-hold {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  background: color-mix(in srgb, var(--accent) 30%, #1b2232);
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 70%, #ffffff);
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 70%, #ffffff);
+  box-sizing: border-box;
+}
+.ptt-hold.even {
+  background: color-mix(in srgb, #12945f 30%, #1b2232);
+  border-color: color-mix(in srgb, #12945f 70%, #ffffff);
+}
 .ptt-head {
   position: absolute;
   top: -4px;
