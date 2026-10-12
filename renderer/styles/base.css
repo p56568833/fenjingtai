@@ -3,9 +3,9 @@
   /* 浅色主题（默认） */
   --card: #ffffff;
   --card-hover: #fbfcfe;
-  --hairline-2: #dfe3ec;
-  --text: #1a2233;
-  --text-2: #5a6478;
+  --hairline-2: #dde1e8;
+  --text: #171c27;
+  --text-2: #586174;
   --accent: #3b74e8;
   --accent-2: #7b5cff;
 
@@ -31,9 +31,21 @@
 
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
   color-scheme: light;
-  --bg: #f6f7f8;
-  --hairline: #e5e7eb;
-  --text-3: #707b8c;
+  --bg: #f5f6f8;
+  --hairline: #e8eaee;
+  --text-3: #737e8f;
+  /* 质感：分层阴影（贴面一圈细边 + 柔和投影）、按钮顶部高光、统一圆角 */
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-1: 0 0 0 1px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-2: 0 0 0 1px rgba(16, 24, 40, 0.05), 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 16px -6px rgba(16, 24, 40, 0.1);
+  --shadow-3:
+    0 0 0 1px rgba(16, 24, 40, 0.06), 0 12px 32px -10px rgba(16, 24, 40, 0.22), 0 3px 8px -2px rgba(16, 24, 40, 0.08);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --btn-bg: linear-gradient(180deg, #ffffff, #fafbfc);
+  --primary-bg: linear-gradient(180deg, #4b78ab, #3d6697);
+  --primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(29, 56, 99, 0.28), 0 4px 12px -4px rgba(29, 56, 99, 0.45);
+  --track-bg: rgba(118, 128, 150, 0.1);
   --note-width: 250px;
   --row-sel-grad: none;
   /* 选中态改用中性墨色：不再和 A roll 的蓝色、强调色混在一起 */
@@ -41,8 +53,8 @@
   --sel-ring: rgba(26, 34, 51, 0.32);
 }
 body.dark {
-  --bg: #0b0e14;
-  --card: #141926;
+  --bg: #0c0f15;
+  --card: #141924;
   --card-hover: #181f30;
   --hairline: rgba(255, 255, 255, 0.06);
   --hairline-2: rgba(255, 255, 255, 0.1);
@@ -67,6 +79,17 @@ body.dark {
   --row-sel-grad: none;
   --row-sel-bg: rgba(255, 255, 255, 0.06);
   --sel-ring: rgba(238, 241, 248, 0.38);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-1: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2:
+    0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 8px 20px -8px rgba(0, 0, 0, 0.6);
+  --shadow-3: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px -10px rgba(0, 0, 0, 0.7);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --btn-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.04));
+  --primary-bg: linear-gradient(180deg, #4f7fb8, #3f6aa0);
+  --primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px -6px rgba(40, 90, 170, 0.55);
+  --track-bg: rgba(255, 255, 255, 0.05);
 }
 * {
   margin: 0;
@@ -91,6 +114,8 @@ body {
   flex-direction: column;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
 }
 /* 主题渐变底纹拆成两层做透明度交叉淡化：切换时整屏一起变，不会一部分先变 */
 body::before,
@@ -143,22 +168,23 @@ body.dark::after {
     border-color 0.13s,
     transform 0.07s,
     box-shadow 0.13s;
-  box-shadow: none;
-  border-radius: 7px;
+  background: var(--btn-bg);
+  box-shadow: var(--hi), var(--shadow-xs);
+  border-radius: 8px;
   height: 32px;
   font-size: 12px;
   padding: 0 11px;
 }
 body.dark .btn {
-  background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.09);
   color: #ccd4e4;
 }
 .btn:hover {
-  border-color: rgba(120, 132, 158, 0.45);
+  border-color: rgba(120, 132, 158, 0.42);
+  background: var(--card);
 }
 body.dark .btn:hover {
-  background: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.085);
   border-color: rgba(255, 255, 255, 0.16);
 }
 .btn:active {
@@ -177,11 +203,14 @@ body.dark .btn:hover {
   border-color: transparent;
   color: #fff;
   font-weight: 600;
-  background: #416c9d;
-  box-shadow: none;
+  background: var(--primary-bg);
+  box-shadow: var(--primary-shadow);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
 }
 .btn.primary:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.06);
+  background: var(--primary-bg);
+  border-color: transparent;
 }
 .btn .caret {
   width: 9px;
@@ -219,7 +248,16 @@ select {
   font: inherit;
 }
 .btn:hover {
+  box-shadow: var(--hi), var(--shadow-xs);
+}
+.btn.primary:hover {
+  box-shadow: var(--primary-shadow);
+}
+.btn.ghost:hover {
   box-shadow: none;
+}
+.btn.danger:hover {
+  box-shadow: 0 4px 16px rgba(240, 90, 60, 0.35);
 }
 .text-button {
   border: 0;

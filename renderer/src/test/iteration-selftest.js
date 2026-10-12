@@ -98,6 +98,10 @@ export async function runIterationTests(t) {
 
   /* ── 口播音频与时间轴 ── */
   t('没有口播时按语速估算', timeline().source === 'rate' && $('#voiceBar').hidden);
+  t(
+    '每句估算时长不显示约等于号',
+    $$('.dur .tc').every(el => !el.textContent.includes('≈')),
+  );
   const voicePath = fx?.hasVoice ? fx.dir + '/口播.wav' : '/tmp/不存在的口播.wav';
   setVoice(voicePath, 20);
   t('导入口播后按音频长度推算每句时间', timeline().source === 'fit' && Math.abs(timeline().total - 20) < 0.01);
@@ -107,6 +111,10 @@ export async function runIterationTests(t) {
   );
   const total = lines().reduce((s, r) => s + timeline().times.get(r.id).end - timeline().times.get(r.id).start, 0);
   t('各句时长加起来等于音频时长', Math.abs(total - 20) < 0.01);
+  t(
+    '按音频长度推算的每句时长不显示约等于号',
+    $$('.dur .tc').every(el => !el.textContent.includes('≈')),
+  );
   runCommand('inspector:open', lines()[1].id);
   await pause(20);
   t('画面面板显示这句对应的口播时间', !!$('.voice-block') && $('.voice-block').textContent.includes('按口播音频推算'));
@@ -132,6 +140,72 @@ export async function runIterationTests(t) {
   key(document.body, 'ArrowRight');
   t('→ 跳到下一个镜头', playthroughState().current === 1);
   key(document.body, 'Escape');
+
+  /* 录音只覆盖部分稿件：预览后面的共用画面不能被音频结尾拖回前面的句子。 */
+  if (fx?.hasVoice) {
+    const returnProject = state.projectId;
+    storage.createProject(
+      '口播长度不足回归',
+      parseAny('前面的口播。跨过录音结尾。所选画面的第一句。所选画面的第二句。'),
+    );
+    const rs = lines();
+    [
+      [0, 7.8],
+      [7.8, 8.2],
+      [8.2, 9.2],
+      [9.2, 10.2],
+    ].forEach(([start, end], i) => {
+      rs[i].time = { start, end, st: i === 3 ? 'low' : 'ok', conf: i === 3 ? 0.4 : 1 };
+    });
+    update('rows');
+    groupSelectionAction([rs[2].id, rs[3].id]);
+    addRefsToShot(rs[2], [fx.dir + '/样图.png']);
+    setVoice(voicePath, 8);
+    await pause(400);
+    runCommand('inspector:open', rs[3].id);
+    $('.sync-btn').click();
+    await pause(80);
+    t(
+      '超出口播音频的共用画面：从所选镜头开始静音预览，句子与素材不跳回音频结尾',
+      playthroughState().row === rs[2].id &&
+        !playthroughState().voiceClock &&
+        playthroughState().range.start === 8.2 &&
+        $('#ptSub').textContent === rs[2].text &&
+        !!$('#ptStage img.pt-media') &&
+        $('#ptHint').textContent.includes('这段没有对应口播'),
+      JSON.stringify(playthroughState()),
+    );
+    key(document.body, ' ');
+    const ruler = $('#pttRuler');
+    const rr = ruler.getBoundingClientRect();
+    ruler.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 1, clientX: rr.left + rr.width * 0.75 }),
+    );
+    ruler.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+    await pause(80);
+    t('超出录音的镜头仍能拖时间查看对应句子', $('#ptSub').textContent === rs[3].text && playthroughState().time > 9.2);
+    key(document.body, ' ');
+    await pause(60);
+    t('静音预览暂停后继续播放仍留在所选镜头', playthroughState().playing && playthroughState().row === rs[2].id);
+    key(document.body, 'ArrowLeft');
+    await pause(80);
+    t('返回录音覆盖的镜头时恢复口播', playthroughState().voiceClock && playthroughState().row === rs[1].id);
+    await pause(650);
+    t(
+      '播到录音结尾后继续静音预览后面的镜头',
+      playthroughState().playing &&
+        !playthroughState().voiceClock &&
+        playthroughState().row === rs[2].id &&
+        playthroughState().time >= 8.2,
+      JSON.stringify(playthroughState()),
+    );
+    t(
+      '低置信字幕每句时长不显示约等于号',
+      $$('.dur .tc').every(el => !el.textContent.includes('≈')),
+    );
+    key(document.body, 'Escape');
+    storage.switchProject(returnProject);
+  }
 
   /* ── 1.8：一个镜头多个主画面 + 镜头轨调秒数 ── */
   if (fx?.dir) {

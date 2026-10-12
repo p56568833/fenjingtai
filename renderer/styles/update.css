@@ -5,6 +5,9 @@ body.dark .btn.update-btn {
   color: #fff;
   border-color: transparent;
   background: #3b74e8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 1px 2px rgba(29, 56, 99, 0.28);
   font-weight: 600;
   white-space: nowrap;
   flex: none;

@@ -110,12 +110,33 @@ function registerFileIpc({ handle, win }) {
     'pptx',
     'docx',
   ];
+  /* 选素材的对话框记住上次所在的文件夹，下次从那里打开（记在数据目录旁边） */
+  const LAST_DIR_FILE = () => path.join(app.getPath('userData'), '素材位置.json');
+  function lastAssetDir() {
+    try {
+      const dir = JSON.parse(fs.readFileSync(LAST_DIR_FILE(), 'utf8')).dir;
+      if (typeof dir === 'string' && path.isAbsolute(dir) && fs.statSync(dir).isDirectory()) return dir;
+    } catch {
+      /* 第一次选素材，或上次的文件夹已经不在了：交给系统默认位置 */
+    }
+    return undefined;
+  }
+  function rememberAssetDir(dir) {
+    try {
+      writeAtomic(LAST_DIR_FILE(), JSON.stringify({ dir }));
+    } catch {
+      /* 记不下来也不影响这次选素材 */
+    }
+  }
   handle('assets:pick', async () => {
     const r = await dialog.showOpenDialog(win(), {
+      defaultPath: lastAssetDir(),
       properties: ['openFile', 'multiSelections'],
       filters: [{ name: '素材与文档', extensions: ASSET_EXTS }],
     });
-    return r.canceled ? [] : r.filePaths;
+    if (r.canceled) return [];
+    if (r.filePaths.length) rememberAssetDir(path.dirname(r.filePaths[0]));
+    return r.filePaths;
   });
   /* 口播音频：音频或视频（录屏 / 相机直出）都行 */
   const VOICE_EXTS = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'mp4', 'mov', 'm4v', 'webm', 'mkv'];
@@ -129,8 +150,13 @@ function registerFileIpc({ handle, win }) {
   });
   /* 按文件夹找回失联素材：选一个文件夹，列出里面（含子文件夹，最多 4 层 / 2 万个）的素材文件 */
   handle('assets:pick-folder', async () => {
-    const r = await dialog.showOpenDialog(win(), { title: '选择素材所在的文件夹', properties: ['openDirectory'] });
+    const r = await dialog.showOpenDialog(win(), {
+      title: '选择素材所在的文件夹',
+      defaultPath: lastAssetDir(),
+      properties: ['openDirectory'],
+    });
     if (r.canceled || !r.filePaths.length) return null;
+    rememberAssetDir(r.filePaths[0]);
     return listFilesDeep(r.filePaths[0], ASSET_EXTS);
   });
   /* 异步遍历：大文件夹也不卡住主进程（界面照常响应） */
@@ -154,13 +180,16 @@ function registerFileIpc({ handle, win }) {
   /* 重新定位失联文件：单选 */
   handle('assets:pick-one', async () => {
     const r = await dialog.showOpenDialog(win(), {
+      defaultPath: lastAssetDir(),
       properties: ['openFile'],
       filters: [
         { name: '素材与文档', extensions: ASSET_EXTS },
         { name: '所有文件', extensions: ['*'] },
       ],
     });
-    return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+    if (r.canceled || !r.filePaths.length) return null;
+    rememberAssetDir(path.dirname(r.filePaths[0]));
+    return r.filePaths[0];
   });
   /* 批量探测本地文件是否还在（文件失联检测） */
   handle('assets:probe', (_e, paths) => {

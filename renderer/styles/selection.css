@@ -46,9 +46,11 @@ body.dark .shared-scene.picked .shared-scene-lines > .row.selected {
 .row.selected:hover,
 .shared-scene-lines > .row.selected,
 .shared-scene.picked .shared-scene-lines > .row.selected {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  box-shadow: inset 3px 0 0 var(--accent);
-  border-radius: 4px 8px 8px 4px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 4px 10px 10px 4px;
 }
 body.dark .shared-scene.picked {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
@@ -67,10 +69,11 @@ body.dark .shared-scene.picked {
   align-items: center;
   gap: 8px;
   padding: 6px 8px 6px 14px;
-  border-radius: 10px;
-  background: var(--card);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
   border: 1px solid var(--hairline-2);
-  box-shadow: 0 8px 28px #14213124;
+  box-shadow: var(--shadow-3);
   animation: selectToolsIn 0.16s ease-out;
   max-width: calc(100% - 32px);
   flex-wrap: wrap;

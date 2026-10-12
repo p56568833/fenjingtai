@@ -15,7 +15,7 @@
   height: 10px;
   margin: 0;
   gap: 1px;
-  border-radius: 3px;
+  border-radius: 5px;
   transform: scaleY(0.4);
   filter: saturate(0.5) opacity(0.75);
   transition:
@@ -47,20 +47,20 @@
 }
 /* .chip-filter = 筛选标签（纯筛选，不承载动作） */
 .chip-filter {
-  height: 32px;
+  height: 30px;
   cursor: pointer;
   user-select: none;
   font-weight: 600;
   color: var(--text-2);
-  background: var(--card);
+  background: var(--btn-bg);
   border: 1px solid var(--hairline-2);
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
-  border-radius: 5px;
-  box-shadow: none;
-  padding: 5px 8px;
-  gap: 5px;
+  font-size: 11.5px;
+  border-radius: 8px;
+  box-shadow: var(--hi), var(--shadow-xs);
+  padding: 5px 7px 5px 10px;
+  gap: 6px;
 }
 /* 属于「基础」，放在这里是因为要压过上面的 .chip-filter：两条会命中同一元素、优先级相同，后写的生效 */
 .btn,
@@ -75,24 +75,23 @@
     transform 0.12s;
 }
 body.dark .chip-filter {
-  background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.08);
-  box-shadow: none;
 }
 .chip-filter .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   flex: none;
 }
 .chip-filter .n {
   font-family: var(--mono);
   font-size: 10.5px;
   color: var(--text-3);
-  background: rgba(120, 132, 158, 0.12);
-  border-radius: 9px;
+  background: rgba(120, 132, 158, 0.1);
+  border-radius: 6px;
   padding: 1px 6px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .chip-filter:hover {
   border-color: rgba(120, 132, 158, 0.5);
@@ -114,10 +113,11 @@ body.dark .chip-filter:hover {
   background: var(--filter-active-bg);
   border-color: var(--filter-active-bd);
   color: var(--filter-active-tx);
+  box-shadow: inset 0 1px 2px rgba(43, 95, 199, 0.08);
 }
 .chip-filter.active .n {
   color: var(--filter-active-tx);
-  background: rgba(120, 132, 158, 0.14);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .progress-txt {
   color: var(--text-2);
@@ -144,6 +144,7 @@ body.dark .chip-filter:hover {
   align-items: center;
   border-bottom: 1px solid var(--hairline);
   background: var(--card);
+  box-shadow: 0 1px 3px -1px rgba(16, 24, 40, 0.05);
   /* 工具条：筛选、标注工具、进度、类型、时长、面板开关合成一行 */
   /* 放不下时整组换到第二行（标注阶段多了标注工具、或窗口比较窄），不会把筛选挤出视野 */
   flex-wrap: wrap;
@@ -165,6 +166,8 @@ body.dark .chip-filter:hover {
 .chip-filter.chip-tool {
   /* 工具按钮（类型… / 时长 · 口播）：实线边框，和筛选芯片区分开靠透明底，不再用虚线（虚线像占位或禁用） */
   background: transparent;
+  box-shadow: none;
+  padding: 5px 10px;
   color: var(--text-2);
   cursor: pointer;
   font-family: inherit;

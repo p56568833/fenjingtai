@@ -9,13 +9,13 @@ import { state, on, timeline, rowById, types } from '../app/state.js';
 import { shots } from '../core/shots.js';
 import { spanOf } from '../core/timeline.js';
 import { fmtTime, fmtLen } from '../core/text.js';
-import { fileUrl } from '../core/asset-model.js';
 import { layoutShot, itemAt, circled, clampSpan, MIN_LEN } from '../core/shot-layout.js';
 import { setShotTimes, clearShotTimes } from '../app/asset-actions.js';
 import { esc, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/base/dom.js';
 import { typeIcon } from '../ui/base/type-view.js';
 import { registerCommand } from '../ui/base/commands.js';
 import { voicePlayer } from './voice.js';
+import { createPreviewMedia } from './playthrough-media.js';
 
 const $ = s => document.querySelector(s);
 let open = false;
@@ -24,6 +24,7 @@ let range = null; // {start, end} 本次播放范围
 let current = -1; // 当前镜头下标
 let playing = false;
 let clockT = 0; // 没有口播音频时的虚拟时钟
+let voiceClock = false; // 当前时间是否在口播文件内；超出音频的稿件用虚拟时钟
 let lastFrame = 0;
 let raf = 0;
 let untick = null;
@@ -31,12 +32,26 @@ let videoEl = null;
 let startedAt = 0;
 let shownKey = ''; // 当前上屏的是哪个镜头的哪个素材：变了才换画面
 let segStart = 0; // 当前素材在口播里开始出现的时间（视频从入点 + 这之后过去的时间播）
+let segEnd = 0; // 这段画面排到哪里；之后的自然停顿里视频接着播，直到下一个画面出现
 let trackUnit = -1; // 镜头轨现在画的是哪个镜头
 let pick = null; // 镜头轨上选中的画面（assetId）
 let drag = null; // 正在拖的色块
 let editMsg = ''; // 填的秒数被前后画面挡住时的提示（只显示一次）
+let media = null;
 
 const useVoice = () => voicePlayer.available();
+const voiceEnd = () => (state.voice?.duration > 0 ? state.voice.duration : Infinity);
+const voiceAt = t => useVoice() && t < voiceEnd();
+
+function renderHint() {
+  $('#ptHint').textContent = useVoice()
+    ? voiceClock
+      ? `口播：${state.voice.name}${timeline().source === 'srt' ? '（字幕实测时间）' : '（按音频长度推算每句时间）'}`
+      : `当前口播音频只到 ${fmtTime(voiceEnd())}，这段没有对应口播，按估算时间静音预览`
+    : state.voice
+      ? '口播音频读不出来，按估算时间静音播放'
+      : '还没导入口播音频：按估算时间静音播放（时长菜单 → 导入口播音频）';
+}
 
 function buildUnits() {
   const tl = timeline();
@@ -58,14 +73,10 @@ const unitAt = t => {
 };
 const unitOfRow = id => units.findIndex(u => u.members.some(r => r.id === id));
 
-/* 镜头里此刻正在说的那句 */
+/* 镜头里此刻正在说的那句；句间停顿算刚说完的那句（不跳回镜头第一句） */
 function rowAtIn(u, t) {
   const tl = timeline();
-  const hit = u.members.find(x => {
-    const tm = tl.times.get(x.id);
-    return tm && tm.start <= t + 1e-6 && t < tm.end;
-  });
-  return hit || (t < u.start ? u.members[0] : u.members[u.members.length - 1]);
+  return u.members.findLast(x => (tl.times.get(x.id)?.start ?? Infinity) <= t + 1e-6) || u.members[0];
 }
 
 /* 画面下面那行：类型 · 第几句 · 正在放的画面。每次都按当前排布重算（调换 / 拖过顺序后编号跟着变），内容没变不重画 */
@@ -87,51 +98,77 @@ function paintMeta(u, r, item) {
   $('#ptMeta').innerHTML = html;
 }
 
-/* ── 画面：按镜头排布换素材（空着的地方黑屏） ── */
+/* 字幕之间的自然停顿延续上一段画面（视频接着播到下一个画面出现）；手动留白、没有配素材的句子照常空着。 */
+function previewItem(u, t) {
+  const layout = u?.layout;
+  if (!layout) return null;
+  const rel = t - u.start;
+  const item = itemAt(layout, rel);
+  if (item) return item;
+  const prev = layout.items.findLast(it => it.end <= rel + 1e-6);
+  const last = layout.items.at(-1);
+  // 手动时间精确到 0.1 秒，字幕精确到毫秒：镜头末尾的舍入误差也延续末帧。
+  if (last && last.start <= rel + 1e-6 && rel >= layout.dur - 0.05 && last.end >= layout.dur - 0.05) return last;
+  if (layout.timed || !prev) return null;
+  const next = layout.items.find(it => it.start > rel);
+  if (!next) return null;
+  const tl = timeline();
+  const spoken = u.members.some(r => {
+    const tm = tl.times.get(r.id);
+    return tm && tm.start < u.start + next.start - 1e-6 && tm.end > u.start + prev.end + 1e-6;
+  });
+  return spoken ? null : prev;
+}
+
+const mediaKey = (i, item) => `${i}|${item.assetId}@${item.start}`;
+function prefetchNext(i, t) {
+  for (let j = i; j < units.length; j++) {
+    const u = units[j];
+    const item = u.layout?.items.find(it => u.start + it.start > t + 1e-6 && it.start < u.layout.dur);
+    if (item) return media.prefetch(mediaKey(j, item), item);
+  }
+  media.prefetch('', null);
+}
+
+/* ── 画面：按镜头排布换素材，下一段提前准备首帧 ── */
 function showUnit(i, t) {
   const u = units[i];
   const r = u ? rowAtIn(u, t) : null;
   const items = u?.layout?.items || [];
-  const item = u ? itemAt(u.layout, t - u.start) : null;
-  const key = `${i}|${item ? `${item.assetId}@${item.start}` : items.length ? 'gap' : 'card'}`;
+  const item = u ? previewItem(u, t) : null;
+  const key = item ? mediaKey(i, item) : `${i}|${items.length ? 'gap' : 'card'}`;
   if (i !== trackUnit) renderTrack(i);
   paintMeta(u, r, item);
   if (key === shownKey) return syncVideo(t);
   shownKey = key;
   current = i;
   const stage = $('#ptStage');
+  videoEl?.pause();
   videoEl = null;
-  if (!u) return stage.replaceChildren();
+  stage.classList.remove('pt-short');
+  if (!u) return media.clear();
   segStart = u.start + (item ? item.start : 0);
+  segEnd = u.start + (item ? Math.min(item.end, u.layout.dur) : 0);
   const ti = types();
   const color = ti.color(r.type) || '#8a93a6';
-  if (item && item.kind === 'video') {
-    const v = document.createElement('video');
-    v.className = 'pt-media';
-    v.muted = true;
-    v.playsInline = true;
-    v.preload = 'auto';
-    v.src = fileUrl(item.asset.path);
-    v.dataset.in = String(item.usage.clip?.in || 0);
-    v.dataset.out = String(item.usage.clip?.out ?? '');
-    v.addEventListener('loadedmetadata', () => syncVideo(currentTime(), true), { once: true });
-    v.addEventListener('error', () => {
-      if (v.isConnected) stage.innerHTML = cardHTML(r, color, '视频读不出来（文件失联或格式不支持）');
+  if (item) {
+    const target = (item.usage.clip?.in || 0) + Math.max(0, t - segStart);
+    const el = media.show(key, item, target, () => {
+      if (shownKey !== key) return;
+      media.clear();
+      videoEl = null;
+      stage.innerHTML = cardHTML(
+        r,
+        color,
+        `${item.kind === 'video' ? '视频' : '图片'}读不出来（文件失联或格式不支持）`,
+      );
     });
-    swapIn(stage, v, 'seeked');
-    videoEl = v;
-  } else if (item && item.kind === 'image') {
-    const img = document.createElement('img');
-    img.className = 'pt-media';
-    img.src = fileUrl(item.asset.path);
-    img.onerror = () =>
-      img.isConnected && (stage.innerHTML = cardHTML(r, color, '图片读不出来（文件失联或格式不支持）'));
-    swapIn(stage, img, 'load');
-  } else if (items.length) {
-    stage.innerHTML = '<div class="pt-gap">这段没有画面</div>';
+    if (item.kind === 'video' && el.isConnected) videoEl = el;
   } else {
-    stage.innerHTML = cardHTML(r, color);
+    media.clear();
+    stage.innerHTML = items.length ? '<div class="pt-gap">这段没有画面</div>' : cardHTML(r, color);
   }
+  prefetchNext(i, t);
   syncVideo(t, true);
 }
 
@@ -376,6 +413,8 @@ function refreshSoon() {
     refreshQueued = false;
     if (!open) return;
     const keep = units[trackUnit]?.members[0]?.id;
+    media.clear();
+    videoEl = null;
     buildUnits();
     const i = keep != null ? unitOfRow(keep) : -1;
     if (range && i >= 0) range = { start: units[i].start, end: units[i].end };
@@ -386,21 +425,6 @@ function refreshSoon() {
     tick(t);
     if (i >= 0 && trackUnit !== i) renderTrack(i);
   }, 0);
-}
-
-/* 换画面时先把新画面叠在下面加载，等它出了第一帧再撤掉旧的：拖进度条 / 切镜头时不会闪黑 */
-function swapIn(stage, el, readyEvent) {
-  el.classList.add('pt-pending');
-  stage.append(el);
-  const done = () => {
-    clearTimeout(timer);
-    if (!el.isConnected) return;
-    el.classList.remove('pt-pending');
-    for (const old of [...stage.children]) if (old !== el) old.remove();
-  };
-  const timer = setTimeout(done, 1500); // 读得慢 / 读不出来时也别一直挂着旧画面
-  el.addEventListener(readyEvent, done, { once: true });
-  if (readyEvent === 'load' && el.complete) done();
 }
 
 function cardHTML(r, color, why = '') {
@@ -424,17 +448,18 @@ function syncVideo(t, force = false) {
   const cout = v.dataset.out === '' ? v.duration : +v.dataset.out;
   const want = Math.min(cin + (t - segStart), Math.max(cin, (cout || v.duration) - 0.04));
   const over = cin + (t - segStart) >= (cout || v.duration);
-  if (force || Math.abs(v.currentTime - want) > 0.3) v.currentTime = Math.max(0, want);
+  if (Math.abs(v.currentTime - want) > (force ? 0.04 : 0.3)) v.currentTime = Math.max(0, want);
   if (playing && !over && v.paused) v.play().catch(() => {});
   if ((!playing || over) && !v.paused) v.pause();
-  $('#ptStage').classList.toggle('pt-short', over);
+  $('#ptStage').classList.toggle('pt-short', over && t < segEnd);
 }
 
 /* ── 时钟：有口播跟口播走，没有就自己走 ── */
-const currentTime = () => (useVoice() ? voicePlayer.currentTime() : clockT);
+const currentTime = () => (voiceClock && useVoice() ? voicePlayer.currentTime() : clockT);
 
 function tick(t) {
   if (!open) return;
+  clockT = t;
   if (range && t >= range.end - 0.02) {
     // 「对着口播看画面」播完这个镜头：接着播下一个镜头（镜头轨和进度条跟着换过去）；最后一个镜头才停
     const next = units.findIndex(x => x.start >= range.end - 0.05);
@@ -447,11 +472,7 @@ function tick(t) {
   const i = unitAt(t);
   showUnit(i, t);
   const u = units[i];
-  const r =
-    u?.members.find(x => {
-      const tm = timeline().times.get(x.id);
-      return tm && tm.start <= t + 1e-6 && t < tm.end;
-    }) || u?.members[0];
+  const r = u ? rowAtIn(u, t) : null;
   $('#ptSub').textContent = r ? r.text : '';
   $('#ptTime').textContent = `${fmtTime(t)} / ${fmtTime(range ? range.end : timeline().total)}`;
   movePlayhead(t);
@@ -463,14 +484,28 @@ function frame(now) {
   if (!playing) return;
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
-  if (!useVoice()) {
+  if (!voiceClock || !useVoice()) {
+    if (voiceClock) {
+      voiceClock = false;
+      renderHint();
+    }
     clockT += dt;
     tick(clockT);
     if (!range && clockT >= timeline().total) stop();
+  } else if (voicePlayer.currentTime() >= voiceEnd() && timeline().total > voiceEnd()) {
+    // 录音只覆盖部分稿件：到录音结尾后继续预览后面的画面，不能把画面拖回录音末尾。
+    clockT = voiceEnd();
+    voiceClock = false;
+    voicePlayer.pause();
+    renderHint();
+    tick(clockT);
   } else if (!voicePlayer.isPlaying() && now - startedAt > 800) {
     // 口播自己停了（播完 / 被别处暂停）：画面也停
     stop();
     return;
+  } else {
+    // 音频的 timeupdate 约每 250 毫秒才来一次；画面用每一帧的音频位置切换。
+    tick(voicePlayer.currentTime());
   }
   raf = requestAnimationFrame(frame);
 }
@@ -488,11 +523,14 @@ function play() {
       range = { start: u.start, end: u.end };
       t = u.start;
       clockT = t;
-      if (useVoice()) voicePlayer.seek(t);
     }
   }
   // 口播一路往下播，镜头之间的衔接由 tick 负责（不在镜头末尾让口播自己停下）
-  if (useVoice()) voicePlayer.playRange(t, null);
+  clockT = t;
+  voiceClock = voiceAt(t);
+  if (voiceClock) voicePlayer.playRange(t, null);
+  else voicePlayer.pause();
+  renderHint();
   lastFrame = performance.now();
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(frame);
@@ -502,14 +540,17 @@ function play() {
 function stop() {
   playing = false;
   cancelAnimationFrame(raf);
-  if (useVoice()) voicePlayer.pause();
+  voicePlayer.pause();
   videoEl?.pause();
   renderControls();
 }
 function seek(t) {
   if (range) t = Math.max(range.start, Math.min(range.end, t));
   clockT = t;
-  if (useVoice()) voicePlayer.seek(t);
+  voiceClock = voiceAt(t);
+  if (voiceClock) voicePlayer.seek(t);
+  else voicePlayer.pause();
+  renderHint();
   // 不重建画面：同一个素材里拖动只挪视频位置（重建 <video> 会先黑一下）
   tick(t);
   syncVideo(t, true);
@@ -523,6 +564,8 @@ function renderControls() {
 
 /* from：从哪句开始；only：只播这一个镜头 */
 function openPlaythrough(fromId, { only = false } = {}) {
+  if (open) stop();
+  media.clear();
   buildUnits();
   if (!units.length) return;
   let i = unitOfRow(fromId);
@@ -537,13 +580,8 @@ function openPlaythrough(fromId, { only = false } = {}) {
   pick = null;
   $('#ptMask').classList.add('show');
   $('#ptTitle').textContent = only ? '对着口播看画面' : '连播预览';
-  $('#ptHint').textContent = useVoice()
-    ? `口播：${state.voice.name}${timeline().source === 'srt' ? '（字幕实测时间）' : '（按音频长度推算每句时间）'}`
-    : state.voice
-      ? '口播音频读不出来，按估算时间静音播放'
-      : '还没导入口播音频：按估算时间静音播放（时长菜单 → 导入口播音频）';
   untick?.();
-  untick = voicePlayer.onTick(t => playing && tick(t));
+  untick = voicePlayer.onTick(t => playing && voiceClock && tick(t));
   seek(u.start);
   play();
 }
@@ -555,7 +593,7 @@ export function closePlaythrough() {
   untick?.();
   untick = null;
   videoEl = null;
-  $('#ptStage').replaceChildren();
+  media.clear();
   $('#ptMask').classList.remove('show');
 }
 
@@ -607,6 +645,7 @@ export function initPlaythrough() {
     </div></div>`,
   );
   $('#ptClose').onclick = closePlaythrough;
+  media = createPreviewMedia($('#ptStage'));
   $('#ptPlay').onclick = () => (playing ? stop() : play());
   $('#ptPrev').onclick = () => playthroughKey({ key: 'ArrowLeft', preventDefault() {} });
   $('#ptNext').onclick = () => playthroughKey({ key: 'ArrowRight', preventDefault() {} });
@@ -654,4 +693,6 @@ export const playthroughState = () => ({
   row: rowById(units[current]?.members[0]?.id)?.id,
   layout: units[trackUnit]?.layout || null,
   shown: shownKey,
+  time: currentTime(),
+  voiceClock,
 });

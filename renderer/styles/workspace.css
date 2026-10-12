@@ -9,6 +9,7 @@
 .side-title {
   font-size: 12px;
   font-weight: 650;
+  letter-spacing: 0.06em;
   display: flex;
   align-items: center;
   justify-content: space-between;

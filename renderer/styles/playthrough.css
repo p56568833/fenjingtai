@@ -15,6 +15,9 @@
   color: #e9edf5;
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
   overflow-y: auto;
+  /* 这块不分深浅主题、一直是深色：按钮高光和投影固定用深色那套，浅色主题的白色高光会在按钮顶上描出一道白边 */
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .pt-head {
   display: flex;
@@ -30,6 +33,11 @@
   background: rgba(255, 255, 255, 0.08);
   color: #e9edf5;
   border-color: rgba(255, 255, 255, 0.12);
+}
+.pt-head .btn:hover,
+.pt-controls .btn:not(.primary):hover {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 .pt-controls .btn.primary {
   background: var(--accent);
@@ -140,9 +148,12 @@
 .pt-head kbd {
   font-family: var(--mono);
   font-size: 10px;
-  padding: 0 4px;
+  line-height: 16px;
+  padding: 0 5px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #c4ccda;
 }
 .pt-controls svg {
   width: 14px;

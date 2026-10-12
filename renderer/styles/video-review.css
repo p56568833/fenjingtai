@@ -93,26 +93,31 @@
   margin: 0 0 6px;
 }
 .vr-cand {
-  border: 1px solid var(--hairline-2);
-  border-radius: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
   padding: 12px 14px;
   margin-bottom: 10px;
   background: var(--card);
+  box-shadow: var(--shadow-2);
   transition:
     border-color 0.2s,
     box-shadow 0.2s,
     transform 0.2s;
 }
 .vr-cand.d-ok {
-  border-color: var(--c-real);
-  box-shadow: inset 3px 0 0 var(--c-real);
+  border-color: color-mix(in srgb, var(--c-real) 45%, var(--hairline));
+  box-shadow:
+    inset 3px 0 0 var(--c-real),
+    var(--shadow-2);
 }
 .vr-cand.d-no {
   opacity: 0.55;
 }
 .vr-cand.d-re {
-  border-color: var(--c-stock);
-  box-shadow: inset 3px 0 0 var(--c-stock);
+  border-color: color-mix(in srgb, var(--c-stock) 45%, var(--hairline));
+  box-shadow:
+    inset 3px 0 0 var(--c-stock),
+    var(--shadow-2);
 }
 .vr-head {
   display: flex;
@@ -152,8 +157,9 @@
   position: relative;
   aspect-ratio: 16 / 9;
   background: #0d1117;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   display: grid;
   place-items: center;
   color: #8b93a3;
@@ -202,7 +208,8 @@
 }
 .vr-btn {
   border: 1px solid var(--hairline-2);
-  background: var(--card);
+  background: var(--btn-bg);
+  box-shadow: var(--hi), var(--shadow-xs);
   color: var(--text);
   border-radius: 8px;
   padding: 5px 12px;
@@ -225,6 +232,15 @@
   color: #fff;
   border-color: transparent;
 }
+/* 选中后按钮是彩色的：去掉中性按钮的白色高光（底下滑块自带质感）；快捷键小框改成半透明白，不再是一块灰白补丁 */
+.vr-btn.on {
+  box-shadow: none;
+}
+.vr-btn.on kbd {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+}
 .vr-note {
   flex: 1;
   min-width: 200px;
@@ -238,9 +254,10 @@
 }
 .vr-mini {
   border: 1px solid var(--hairline-2);
-  background: transparent;
+  background: var(--btn-bg);
+  box-shadow: var(--hi), var(--shadow-xs);
   color: var(--text-2);
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 3px 10px;
   font: inherit;
   font-size: 12px;
@@ -248,6 +265,8 @@
 }
 .vr-mini.ghost {
   border-color: transparent;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-3);
   margin-left: auto;
 }
@@ -308,9 +327,9 @@
 }
 .vr-nav-sec {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 650;
   color: var(--text-3);
-  letter-spacing: 1px;
+  letter-spacing: 0.08em;
   margin: 10px 6px 4px;
 }
 .vr-nav-sec:first-child {
@@ -332,7 +351,8 @@
   padding: 9px 10px;
   margin-bottom: 2px;
   font-size: 13.5px;
-  border-radius: 8px;
+  border-radius: 10px;
+  transition: background-color 0.15s;
 }
 .vr-nav-shot > span:first-child {
   flex: 1;
@@ -353,6 +373,7 @@
 }
 .vr-nav-shot.on {
   background: var(--filter-active-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   font-weight: 650;
 }
@@ -380,22 +401,26 @@
   color: #d9820b;
 }
 .vr-cand.focus {
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 8px 24px -10px color-mix(in srgb, var(--accent) 45%, transparent);
   transform: translateY(-1px);
 }
 .vr-tag {
   margin-left: auto;
   font-size: 11px;
   font-weight: 650;
-  padding: 1px 8px;
-  border-radius: 9px;
+  padding: 2px 9px;
+  border-radius: 999px;
   background: var(--bg);
   color: var(--text-2);
   white-space: nowrap;
+  letter-spacing: 0.04em;
 }
 .vr-tag.d-ok {
-  background: color-mix(in srgb, #12945f 14%, transparent);
-  color: #12945f;
+  background: color-mix(in srgb, #12945f 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #12945f 16%, transparent);
+  color: #0f8655;
 }
 .vr-tag.d-no {
   background: color-mix(in srgb, #e5484d 12%, transparent);
@@ -416,7 +441,9 @@
   gap: 8px;
   padding: 7px 10px;
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow-2);
   font-size: 12.5px;
   color: var(--text-2);
   /* 审过的一行：点开能看完整卡片（审核结果不变） */
@@ -618,6 +645,9 @@ body.dark .vr-sync {
 .vr-dpill {
   border-radius: 8px;
   background: var(--c-real);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 1px 2px rgba(16, 24, 40, 0.14);
 }
 .vr-dpill[data-d='no'] {
   background: var(--c-b);
@@ -626,20 +656,21 @@ body.dark .vr-sync {
   background: var(--c-stock);
 }
 .vr-shot-range {
-  font-family: var(--mono);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 650;
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-radius: 6px;
-  padding: 3px 8px;
-  letter-spacing: 0.2px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 7px;
+  padding: 3px 9px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 .vr-shot-label {
-  font-size: 18px;
-  font-weight: 750;
+  font-size: 19px;
+  font-weight: 700;
   color: var(--text);
-  letter-spacing: 0.2px;
+  letter-spacing: 0.03em;
 }
 /* 审核页：画面标题和口播原文钉在候选列表顶上——候选多、往下翻时，原文一直看得见。
    原文很长时最多占列表三分之一高，自己滚动，不把候选挤没了 */
@@ -691,6 +722,9 @@ body.dark .vr-sync {
   background: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--text-3);
 }
+.vr-done-thumbs .vr-cell {
+  border-radius: 9px;
+}
 .vr-done-thumbs .vr-cell img {
   width: 100%;
   height: 100%;
@@ -701,10 +735,11 @@ body.dark .vr-sync {
 }
 /* 左栏：批次 */
 .vr-bh {
-  padding: 11px 12px 12px;
+  padding: 12px 13px 13px;
   border: 1px solid var(--hairline);
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--card);
+  box-shadow: var(--shadow-2);
 }
 .vr-bheader {
   display: flex;
@@ -802,9 +837,9 @@ body.dark .vr-sync {
 }
 .vr-bbar {
   display: flex;
-  height: 3px;
-  margin-top: 6px;
-  border-radius: 2px;
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 999px;
   overflow: hidden;
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
@@ -815,7 +850,8 @@ body.dark .vr-sync {
   transition: width 0.3s;
 }
 .vr-bh.complete .vr-bbar i {
-  background: var(--c-real);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c-real) 75%, #ffffff), var(--c-real));
+  border-radius: 999px;
 }
 .vr-batch-more {
   flex: none;
@@ -871,7 +907,7 @@ body.dark .vr-sync {
 }
 /* 一句一行 */
 .vr-line {
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
   padding: 10px 0 2px;
 }
 .vr-line-text {
@@ -892,7 +928,8 @@ body.dark .vr-sync {
 .vr-page .vr-line-text p {
   margin: 0;
   font-size: 16px;
-  line-height: 1.7;
+  line-height: 1.75;
+  letter-spacing: 0.012em;
   color: var(--text);
 }
 .vr-line.hl > .vr-line-text {
@@ -904,11 +941,13 @@ body.dark .vr-sync {
 }
 .vr-cov {
   align-self: center;
-  padding: 2px 9px;
+  padding: 2px 10px;
   border-radius: 999px;
   font-size: 11.5px;
-  font-weight: 650;
+  font-weight: 600;
   white-space: nowrap;
+  letter-spacing: 0.03em;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 14%, transparent);
 }
 .vr-cov.ok {
   color: #12945f;
@@ -1099,8 +1138,9 @@ body.dark .vr-cov.miss {
   padding: 3px;
   margin-bottom: 10px;
   border-radius: 12px;
-  background: rgba(120, 132, 158, 0.1);
+  background: var(--track-bg);
   border: 1px solid var(--hairline);
+  box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 body.dark .vr-tabs {
   background: rgba(255, 255, 255, 0.05);
@@ -1109,11 +1149,15 @@ body.dark .vr-tabs {
   border-radius: 9px;
   background: var(--card);
   box-shadow:
-    0 1px 4px rgba(15, 23, 42, 0.12),
-    var(--row-shadow);
+    0 0 0 0.5px rgba(16, 24, 40, 0.08),
+    0 1px 2px rgba(16, 24, 40, 0.08),
+    0 3px 8px -2px rgba(16, 24, 40, 0.1);
 }
 body.dark .vr-tab-pill {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.11);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.4);
 }
 .vr-tab {
   position: relative;

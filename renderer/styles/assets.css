@@ -1,6 +1,6 @@
 /* ═════════ 素材卡：缩略图、角色、够不够 ═════════ */
 ::-webkit-scrollbar-thumb {
-  background: rgba(120, 132, 158, 0.35);
+  background: rgba(120, 132, 158, 0.3);
   border-radius: 8px;
   border: 3px solid transparent;
   background-clip: content-box;
