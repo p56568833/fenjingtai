@@ -21,7 +21,7 @@ writeFileSync(
 const { app, BrowserWindow } = require('electron');
 app.setPath('userData', ${JSON.stringify(path.join(work, 'data'))});
 app.commandLine.appendSwitch('remote-debugging-port', '0');
-BrowserWindow.prototype.show = function () {};
+if (!process.env.CI) BrowserWindow.prototype.show = function () {};
 app.on('browser-window-created', (_, w) => {
   w.webContents.setBackgroundThrottling(false);
   w.webContents.on('did-finish-load', () => {
@@ -64,12 +64,18 @@ try {
   browser = await puppeteer.connect({ browserWSEndpoint: endpoint, defaultViewport: null });
   const page = (await browser.pages()).find(page => page.url().includes('index.html'));
   assert.ok(page, '存在应用页面');
+  // 动画用例固定为正常动态效果，不继承 CI 主机的辅助功能偏好。
+  // CI 没有用户桌面，可显示窗口以保证 Chromium 真正执行整窗动画。
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const url = page.url().replace(/\?.*$/, '');
   for (const zoom of [1, 1.5, 0.8]) {
     await page.goto(`${url}?themeZoom=${zoom}`);
-    await page.waitForFunction(() => document.querySelectorAll('.row').length > 0);
+    await page.waitForFunction(
+      () => document.querySelectorAll('.row').length > 0 && document.querySelector('#btnTheme').onclick,
+    );
+    if (process.env.CI) await page.waitForFunction(() => !document.hidden);
     await pause(150);
     await page.evaluate(() => {
       const start = document.startViewTransition.bind(document);
