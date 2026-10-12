@@ -67,6 +67,8 @@ try {
   // 动画用例固定为正常动态效果，不继承 CI 主机的辅助功能偏好。
   // CI 没有用户桌面，可显示窗口以保证 Chromium 真正执行整窗动画。
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  // 固定测试视口与高分屏倍率，避免 CI 的小屏幕裁掉右上角采样点。
+  await page.setViewport({ width: 1440, height: 940, deviceScaleFactor: 2 });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const url = page.url().replace(/\?.*$/, '');
@@ -103,6 +105,8 @@ try {
       );
       a.currentTime = 0;
       const b = document.querySelector('#btnTheme').getBoundingClientRect();
+      if (b.left + b.width / 2 >= innerWidth || b.top + b.height / 2 + 22 >= innerHeight)
+        throw new Error('主题按钮采样点必须位于测试视口内');
       return {
         oldDark,
         x: b.left + b.width / 2,
