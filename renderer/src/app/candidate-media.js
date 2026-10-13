@@ -7,7 +7,8 @@ import { candidateVersion } from './candidate-actions.js';
 import { writeBack } from './candidate-sync.js';
 import { invalidateProbe, probePaths, isMissing } from './asset-actions.js';
 import { swapToLocal, fileTitle, staleOnlineClips, hasLineTag, lineTag } from '../core/candidates.js';
-import { assetName, syncMirror, referencedAssetIds } from '../core/asset-model.js';
+import { assetName, syncMirror, referencedAssetIds, usageList } from '../core/asset-model.js';
+import { fetchClip } from './collab.js';
 import * as native from '../platform/native.js';
 
 const jobs = new Map();
@@ -64,14 +65,23 @@ export async function saveCandidateSegment(task, dir) {
   emit('candidate-media');
   let result;
   try {
-    result = await native.saveVideoSegment({
-      url: task.url,
-      start: task.start,
-      end: task.end,
-      name: task.name,
-      dir,
-      token,
-    });
+    // 协作中：对方保存过同一段就从他电脑上拷，拷不到再从网站截取
+    const progress = p => emit('candidate-progress', { projectId: task.projectId, id: task.candidateId, p });
+    const copying = fetchClip(
+      task.projectId,
+      { id: task.candidateId, url: task.url, in: task.start, out: task.end },
+      { dir, name: task.name, onProgress: progress },
+    );
+    result =
+      (copying && (await copying)) ||
+      (await native.saveVideoSegment({
+        url: task.url,
+        start: task.start,
+        end: task.end,
+        name: task.name,
+        dir,
+        token,
+      }));
     if (!result?.ok) return result;
     const c = matchingCandidate(task);
     if (!c) return { ...result, attached: false };
@@ -82,7 +92,11 @@ export async function saveCandidateSegment(task, dir) {
         swapToLocal(c, result.path, p.rows, p.assets || {});
         invalidateProbe();
         writeBack(p.candidates);
-        change.emit('rows');
+        // 只换了这个素材的文件：原地刷新用到它的那几句，不整表重建（批量保存时表格不会一段一跳）
+        const ids = p.rows
+          .filter(r => r.kind === 'line' && usageList(r).some(u => u.assetId === c.assetId))
+          .map(r => r.id);
+        change.emit('assets-changed', { ids, kind: 'association' });
       },
       { projectId: task.projectId },
     );

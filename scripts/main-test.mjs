@@ -1136,6 +1136,69 @@ await atest('局域网协作网络层：主机广播 → 访客发现 → 连上
   }
 });
 
+await atest('协作保活：界面不处理消息仍在线，主进程停顿后不误断，失联仍会超时', async () => {
+  const { createCollabNet } = require('../electron/collab-net.js');
+  const net = await import('node:net');
+  const events = [];
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const wait = async pred => {
+    for (let i = 0; i < 100; i++) {
+      const hit = events.find(pred);
+      if (hit) return hit;
+      await pause(20);
+    }
+    throw new Error('等不到协作网络事件');
+  };
+  const options = { heartbeatMs: 50, heartbeatTimeoutMs: 300 };
+  const host = createCollabNet({ ...options, servicePort: 0, emit: e => events.push(e) });
+  // 模拟界面完全不响应：收到事件后不做任何处理，网络层仍要自行保活。
+  const guest = createCollabNet({ ...options, emit: () => {} });
+  let legacy;
+  try {
+    const { port } = await host.startHost({ hostId: 'heartbeat', shares: [] });
+    const r = await guest.connect({ address: '127.0.0.1', port });
+    guest.send(r.id, { type: 'hello' });
+    const first = await wait(e => e.type === 'open');
+    host.send(first.id, { type: 'welcome' });
+    await pause(900);
+    assert.ok(!events.some(e => e.type === 'close'), '超过三个失联期限，连接仍保持');
+    assert.ok(!events.some(e => ['ping', 'pong'].includes(e.msg?.type)), '心跳不依赖界面处理');
+    // 模拟本机挂起超过超时：恢复后应先探测，再判断对方是否失联。
+    const end = performance.now() + 400;
+    while (performance.now() < end) {
+      /* 模拟事件循环停顿 */
+    }
+    await pause(100);
+    assert.ok(!events.some(e => e.type === 'close'), '本机停顿不能被算成对方失联');
+    guest.send(r.id, { type: 'ops', n: 42 });
+    await wait(e => e.msg?.n === 42);
+    guest.close(r.id);
+    await wait(e => e.type === 'close' && e.id === first.id);
+
+    // 旧版只发 ping、不回复 pong，仍然能协作；停止一切消息后必须报超时。
+    legacy = net.connect({ host: '127.0.0.1', port });
+    legacy.on('error', () => {});
+    legacy.write(JSON.stringify({ type: 'hello' }) + '\n');
+    const second = await wait(e => e.type === 'open' && e.id !== first.id);
+    let received = '';
+    legacy.on('data', data => (received += data));
+    host.send(second.id, { type: 'welcome' });
+    for (let i = 0; i < 12; i++) {
+      legacy.write(JSON.stringify({ type: 'ping' }) + '\n');
+      await pause(50);
+    }
+    assert.ok(!events.some(e => e.type === 'close' && e.id === second.id), '兼容旧版心跳');
+    assert.match(received, /"type":"pong"/);
+    assert.match(received, /"type":"ping"/);
+    const closed = await wait(e => e.type === 'close' && e.id === second.id);
+    assert.equal(closed.reason, 'heartbeat-timeout');
+  } finally {
+    legacy?.destroy();
+    host.dispose();
+    guest.dispose();
+  }
+});
+
 await atest(
   '局域网协作传文件：访客从主机取、主机从访客取；重名自动加 (2)；取过一次作废；对方没有这个文件时报清楚',
   async () => {

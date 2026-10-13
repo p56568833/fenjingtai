@@ -8,6 +8,7 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { performance } = require('node:perf_hooks');
 
 const DISCOVERY_PORT = 47390;
 const SERVICE_PORT = 47391;
@@ -33,8 +34,11 @@ function createCollabNet({
   servicePort = SERVICE_PORT,
   announceMs = 2000,
   extraTargets = [],
+  heartbeatMs = 5000,
+  heartbeatTimeoutMs = 30000,
 } = {}) {
   const conns = new Map(); // id → socket
+  const heartbeats = new Map(); // id → 配对成功后启动保活
   let server = null;
   let serverPort = 0;
   let announcement = null;
@@ -57,9 +61,32 @@ function createCollabNet({
     conns.set(id, socket);
     socket.setNoDelay(true);
     socket.setKeepAlive(true, 5000);
+    let lastSeen = performance.now();
+    let lastTick = lastSeen;
+    let heartbeat = null;
+    let closeReason = 'closed';
+    const startHeartbeat = () => {
+      if (heartbeat) return;
+      lastSeen = lastTick = performance.now();
+      heartbeat = setInterval(() => {
+        const now = performance.now();
+        // 本机休眠或主进程繁忙后先给网络恢复时间，不能把本机停顿算成对方失联。
+        if (now - lastTick > heartbeatMs * 2) lastSeen = now;
+        lastTick = now;
+        if (now - lastSeen > heartbeatTimeoutMs) {
+          closeReason = 'heartbeat-timeout';
+          socket.destroy();
+        } else if (!socket.destroyed && !socket.writableEnded) {
+          socket.write(JSON.stringify({ type: 'ping' }) + '\n');
+        }
+      }, heartbeatMs);
+      heartbeat.unref?.();
+    };
+    heartbeats.set(id, startHeartbeat);
     let chunks = [];
     let size = 0;
     const onData = data => {
+      lastSeen = performance.now(); // 大项目仍在接收字节时也算在线
       let start = 0;
       for (let i = data.indexOf(10); i >= 0; i = data.indexOf(10, start)) {
         chunks.push(data.subarray(start, i));
@@ -75,6 +102,13 @@ function createCollabNet({
           socket.destroy();
           return;
         }
+        // 保活不经过界面，窗口最小化或界面繁忙都不影响响应；旧版的 ping 同样支持。
+        if (msg?.type === 'ping') {
+          if (!socket.destroyed && !socket.writableEnded) socket.write(JSON.stringify({ type: 'pong' }) + '\n');
+          continue;
+        }
+        if (msg?.type === 'pong') continue;
+        if (msg?.type === 'welcome') startHeartbeat();
         fire({ type: 'message', id, msg });
       }
       if (start < data.length) {
@@ -88,11 +122,13 @@ function createCollabNet({
     const done = reason => {
       if (closed) return;
       closed = true;
+      clearInterval(heartbeat);
+      heartbeats.delete(id);
       conns.delete(id);
       fire({ type: 'close', id, reason });
     };
     socket.on('error', err => done(String(err?.code || err?.message || err)));
-    socket.on('close', () => done('closed'));
+    socket.on('close', () => done(closeReason));
     fire({ type: 'open', id, ...info });
     if (pending?.length) onData(pending);
     return id;
@@ -512,8 +548,9 @@ function createCollabNet({
   }
   function send(id, msg) {
     const socket = conns.get(id);
-    if (!socket || socket.destroyed) return false;
+    if (!socket || socket.destroyed || socket.writableEnded) return false;
     socket.write(JSON.stringify(msg) + '\n');
+    if (msg?.type === 'welcome') heartbeats.get(id)?.();
     return true;
   }
   function close(id) {

@@ -379,6 +379,7 @@ function refreshReviewStatus() {
 }
 
 let reviewProject = null;
+let navShown = null; // 左栏上次滚进视野的是哪个画面
 export function renderVideoReview() {
   refreshReviewStatus();
   if (state.view !== 'review') return;
@@ -404,7 +405,10 @@ function paintVideoReview() {
   const nav = $('#vrNav');
   nav.innerHTML = navHTML(all, shots);
   paintTabs();
-  nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
+  // 换了画面才把它滚进视野：保存片段等后台重画时，不把你正在翻的左栏拽回去
+  const navKey = `${state.projectId}|${page.curBatch}|${page.curShot}`;
+  if (navKey !== navShown) nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
+  navShown = navKey;
   glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide'); // 左边的高亮块滑到当前画面
 
   // 右边：选中画面，按句子排

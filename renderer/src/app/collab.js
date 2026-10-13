@@ -46,6 +46,7 @@ const files = createCollabFiles({
 export const fileProgress = files.fileProgress;
 export const missingFiles = files.missingFiles;
 export const fetchFiles = files.fetchFiles;
+export const fetchClip = files.fetchClip;
 export const cancelFetch = files.cancelFetch;
 export const findProgress = files.findProgress;
 export const findLocal = files.findLocal;
@@ -315,7 +316,6 @@ function onHello(connId, msg) {
   s.conn = connId;
   conns.set(connId, s);
   s.status = 'online';
-  s.lastSeen = Date.now();
   s.peer = c.guest.name;
   s.peerSel = null;
   saveMeta(s);
@@ -399,7 +399,6 @@ function adopt(s, connId, msg) {
   const c = metaOf(s);
   c.host = { ...(c.host || {}), id: msg.hostId, name: msg.hostName };
   s.status = 'online';
-  s.lastSeen = Date.now();
   s.peer = msg.hostName || '主机';
   s.peerSel = null;
   if (redo) send(s, redo);
@@ -580,8 +579,6 @@ function onNetEvent(evt) {
   if (j) return onJoinReply(evt.id, j, msg);
   const s = conns.get(evt.id);
   if (!s || s.conn !== evt.id) return;
-  s.lastSeen = Date.now();
-  if (msg.type === 'ping') return;
   if (msg.type === 'welcome') return adopt(s, evt.id, msg);
   if (msg.type === 'denied') return onDenied(s, msg);
   if (msg.type === 'ops') return onOps(s, msg);
@@ -758,14 +755,7 @@ export async function initCollab() {
     changed();
   });
   on('library-replaced', resetSessions);
-  // 心跳：对方电脑睡眠 / 断网时 TCP 可能好几分钟都不报错，20 秒没有任何消息就当断线（改动不会丢，重连后补上）
-  setInterval(() => {
-    for (const s of sessions.values()) {
-      if (!s.conn || s.status !== 'online') continue;
-      if (Date.now() - (s.lastSeen || 0) > 20000) native.collabClose(s.conn).catch(() => {});
-      else send(s, { type: 'ping' });
-    }
-  }, 5000);
+  // 心跳由主进程网络层处理，不依赖后台可能被暂停的界面计时器。
   for (const p of storage.allProjects()) if (p.collab?.role === 'host' || p.collab?.role === 'guest') openSession(p.id);
   syncHosting();
   for (const s of sessions.values()) if (s.rep.role === 'guest') scheduleReconnect(s, 500);

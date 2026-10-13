@@ -89,16 +89,19 @@ try {
   let host, share;
   await step('B 在局域网里找到 A 共享的项目（广播不通时用地址查）', async () => {
     await run(B.p, async () => (await import('./src/app/collab.js')).watchHosts(true));
+    // 只认 A：同一个局域网里可能还有别的分镜台在共享
+    const aId = await run(A.p, async () => (await import('./src/app/collab.js')).collabState().me.id);
     try {
       ({ host, share } = await until(
         B.p,
-        async () => {
+        async aId => {
           const st = (await import('./src/app/collab.js')).collabState();
-          const h = st.hosts.find(x => x.shares.length);
+          const h = st.hosts.find(x => x.hostId === aId && x.shares.length);
           return h && { host: h, share: h.shares[0] };
         },
         '广播',
         5000,
+        aId,
       ));
     } catch {
       const r = await run(B.p, async a => (await import('./src/app/collab.js')).queryHost(a), `127.0.0.1:${hostPort}`);
@@ -144,6 +147,29 @@ try {
       async () => (await import('./src/app/collab.js')).collabSession()?.status === 'online',
       'A 看到在线',
     );
+  });
+
+  await step('访客界面暂停 35 秒：主进程继续保活，恢复后双方仍在线且没有断连', async () => {
+    for (const p of [A.p, B.p])
+      await run(p, () => {
+        window.collabTestCloses = [];
+        window.native.onCollabEvent(evt => {
+          if (evt.type === 'close') window.collabTestCloses.push(evt);
+        });
+      });
+    const debuggerSession = await B.p.createCDPSession();
+    await debuggerSession.send('Debugger.enable');
+    try {
+      await debuggerSession.send('Debugger.pause');
+      await sleep(35000);
+      assert.equal(await run(A.p, async () => (await import('./src/app/collab.js')).collabSession()?.status), 'online');
+      assert.deepEqual(await run(A.p, () => window.collabTestCloses), []);
+    } finally {
+      await debuggerSession.send('Debugger.resume');
+      await debuggerSession.detach();
+    }
+    assert.equal(await run(B.p, async () => (await import('./src/app/collab.js')).collabSession()?.status), 'online');
+    assert.deepEqual(await run(B.p, () => window.collabTestCloses), []);
   });
 
   const setNote = async (p, i, text) =>
@@ -370,6 +396,73 @@ try {
       fs.rmSync(dir, { recursive: true, force: true });
     },
   );
+
+  await step('保存已通过的片段：A 存过的同一段直接从 A 的电脑拷，A 没存过的不拷（照常去网站下载）', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), '分镜台协作拷片段-'));
+    const aClip = path.join(dir, 'A的片段', 'A存的片段.mp4');
+    fs.mkdirSync(path.dirname(aClip));
+    fs.writeFileSync(aClip, Buffer.alloc(150000, 4));
+    await run(
+      A.p,
+      async aClip => {
+        const { state } = await import('./src/app/state.js');
+        const { changeProject } = await import('./src/app/project-change.js');
+        const r = state.rows.filter(x => x.kind === 'line')[18];
+        const base = { decision: 'ok', rowId: r.id, title: '测试片段', in: 10, out: 20 };
+        changeProject('加候选', change => {
+          state.candidates.push(
+            { ...base, id: 'e2eC1', url: 'https://example.invalid/a.mp4', assetId: 'e2eCa', savedPath: aClip },
+            { ...base, id: 'e2eC2', url: 'https://example.invalid/b.mp4', assetId: 'e2eCb' },
+          );
+          state.assets.e2eCa = { id: 'e2eCa', kind: 'video', path: aClip, name: aClip.split('/').pop() };
+          state.assets.e2eCb = { id: 'e2eCb', kind: 'video', path: 'https://example.invalid/b.mp4#t=10,20' };
+          r.assetUsages = [...(r.assetUsages || []), { assetId: 'e2eCa' }, { assetId: 'e2eCb' }];
+          change.emit('rows');
+        });
+      },
+      aClip,
+    );
+    await until(
+      B.p,
+      async () => (await import('./src/app/state.js')).state.candidates.some(c => c.id === 'e2eC2'),
+      'B 收到 A 的候选',
+    );
+    const got = await run(
+      B.p,
+      async to => {
+        const { state } = await import('./src/app/state.js');
+        const media = await import('./src/app/candidate-media.js');
+        const r = await media.saveCandidateSegment(media.captureSaveTask('e2eC1'), to);
+        const c = state.candidates.find(x => x.id === 'e2eC1');
+        return { r, savedPath: c.savedPath, asset: state.assets.e2eCa.path };
+      },
+      path.join(dir, 'B的素材'),
+    );
+    assert.ok(got.r?.ok && got.r.peer, JSON.stringify(got));
+    assert.match(path.basename(got.r.path), /^第\d+句_测试片段_0m10s-0m20s\.mp4$/, '和从网站截取的同一套文件名');
+    assert.ok(fs.readFileSync(got.r.path).equals(fs.readFileSync(aClip)));
+    assert.equal(got.savedPath, got.r.path, 'B 记下自己的本地片段');
+    assert.equal(got.asset, got.r.path, 'B 的表格换成本地文件');
+    const none = await run(
+      B.p,
+      async (to, pid) =>
+        (await import('./src/app/collab.js')).fetchClip(
+          pid,
+          { id: 'e2eC2', url: 'https://example.invalid/b.mp4', in: 10, out: 20 },
+          { dir: to, name: '测试片段' },
+        ),
+      path.join(dir, 'B的素材'),
+      await run(B.p, async () => (await import('./src/app/state.js')).state.projectId),
+    );
+    assert.equal(none, null, 'A 没存过的片段不拷');
+    await sleep(800);
+    assert.equal(
+      await run(A.p, async () => (await import('./src/app/state.js')).state.assets.e2eCa.path),
+      aClip,
+      'A 的路径没被改',
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   let beforeStopMine, beforeStopTheirs;
   await step('A 停止共享：B 的项目变成普通项目，内容保留', async () => {

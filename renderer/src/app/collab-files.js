@@ -13,8 +13,11 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
   /* ── 从对方电脑取文件：这台电脑上找不到、对方电脑上有的素材 / 口播音频，拷一份到自己选的文件夹 ── */
   const fileReqs = new Map(); // 请求 id → 收到 file-ready / file-none 时的回调
   let fileJob = null; // 正在取的一批：{ total, index, name, done, size, token, got, failed }
+  const clipJobs = new Map(); // 保存片段时从对方电脑拷：token → 进度回调（0–1）
   const fileProgress = () => (fileJob ? { ...fileJob } : null);
   function onFileProgress(evt) {
+    const clip = clipJobs.get(evt.token);
+    if (clip) return evt.total && clip(Math.min(1, evt.done / evt.total));
     if (!fileJob || evt.token !== fileJob.token) return;
     fileJob.done = evt.done;
     if (evt.total) fileJob.size = evt.total;
@@ -48,14 +51,15 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
       send(s, req);
     });
   }
-  async function fetchOne(s, item, dir) {
-    const token = crypto.randomUUID();
+  /* 取一个文件。item.clip：要的是对方保存过的视频片段（{ id, url, in, out }），item.segment：存成片段文件名 */
+  async function fetchOne(s, item, dir, token, waitMs) {
     const req = { type: 'file-req', rid: crypto.randomUUID(), token, kind: item.kind, assetId: item.id };
-    fileJob.token = token;
+    if (item.clip) req.clip = item.clip;
+    const save = { token, dir, name: item.name, segment: item.segment };
     if (s.rep.role === 'host') {
       // 主机不能连访客：先登记「等这个文件」，再请访客连过来送
-      const done = native.collabFileExpect({ token, dir, name: item.name });
-      const reply = await askPeer(s, req);
+      const done = native.collabFileExpect(save);
+      const reply = await askPeer(s, req, waitMs);
       if (reply.type !== 'file-ready') {
         native.collabFileCancel(token).catch(() => {});
         await done;
@@ -63,11 +67,32 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
       }
       return done;
     }
-    const reply = await askPeer(s, req);
+    const reply = await askPeer(s, req, waitMs);
     if (reply.type !== 'file-ready') return { error: reply.reason || '对方没给文件' };
-    fileJob.size = reply.size || 0;
+    if (fileJob?.token === token) fileJob.size = reply.size || 0;
     const c = metaOf(s);
-    return native.collabFileFetch({ address: c.host.address, port: c.host.port, token, dir, name: item.name });
+    return native.collabFileFetch({ ...save, address: c.host.address, port: c.host.port });
+  }
+  /* 保存已通过的片段：对方保存过同一段（同一链接、同样的入出点）就从他电脑上拷，不用再从网站下载。
+     不在线时直接返回 null（不等待，网站下载照常立刻开始）；对方没存过、传输失败也得到 null，调用方照常去网站下载 */
+  function fetchClip(pid, clip, opts = {}) {
+    const s = sessionOf(pid);
+    return s && s.status === 'online' && s.conn && opts.dir ? copyClip(s, clip, opts) : null;
+  }
+  async function copyClip(s, clip, { dir, name, onProgress }) {
+    const token = crypto.randomUUID();
+    clipJobs.set(token, p => onProgress?.(p));
+    try {
+      const item = {
+        kind: 'clip',
+        clip: { id: clip.id, url: clip.url, in: clip.in, out: clip.out },
+        segment: { name, start: clip.in, end: clip.out },
+      };
+      const r = await fetchOne(s, item, dir, token, 10000).catch(() => null);
+      return r?.ok && r.path ? { ok: true, path: r.path, peer: s.peer || '对方' } : null;
+    } finally {
+      clipJobs.delete(token);
+    }
   }
   /* 取到了：这台电脑上的素材 / 口播改指向新文件（不进撤销，只算本机） */
   function useFetched(s, item, local) {
@@ -104,9 +129,10 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
       failed = [];
     try {
       for (const item of items) {
-        Object.assign(fileJob, { index: fileJob.index + 1, name: item.name, done: 0, size: 0 });
+        const token = crypto.randomUUID();
+        Object.assign(fileJob, { index: fileJob.index + 1, name: item.name, done: 0, size: 0, token });
         emit('collab-files');
-        const r = await fetchOne(s, item, dir).catch(error => ({ error: String(error?.message || error) }));
+        const r = await fetchOne(s, item, dir, token).catch(error => ({ error: String(error?.message || error) }));
         if (r?.ok) {
           useFetched(s, item, r.path);
           got.push({ ...item, local: r.path });
@@ -199,14 +225,26 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
     );
     send(s, { type: 'file-info', rid: msg.rid, items });
   }
-  /* 对方来要文件：只给这个共享项目里用到的素材和口播，别的文件一概不给 */
+  /* 这台电脑保存过的那段已通过片段（同一链接、同样的入出点才算），没有返回 null */
+  function savedClip(p, clip) {
+    const c = (p.candidates || []).find(x => String(x.id) === String(clip?.id));
+    return c?.decision === 'ok' && c.savedPath && c.url === clip.url && c.in === clip.in && c.out === clip.out
+      ? c.savedPath
+      : null;
+  }
+  /* 对方来要文件：只给这个共享项目里用到的素材、口播和保存过的已通过片段，别的文件一概不给 */
   async function onFileReq(s, msg) {
     const no = reason => send(s, { type: 'file-none', rid: msg.rid, reason });
     const p = projectOf(s.pid);
     if (!p) return no('对方那边找不到这个项目');
-    const used = msg.kind === 'voice' || referencedAssetIds(p.rows || []).has(msg.assetId);
-    const file = msg.kind === 'voice' ? p.voice?.path : p.assets?.[msg.assetId]?.path;
-    if (!used || !isLocalFile(file)) return no('对方那边也没有这个文件');
+    const used = msg.kind === 'voice' || msg.kind === 'clip' || referencedAssetIds(p.rows || []).has(msg.assetId);
+    const file =
+      msg.kind === 'voice'
+        ? p.voice?.path
+        : msg.kind === 'clip'
+          ? savedClip(p, msg.clip)
+          : p.assets?.[msg.assetId]?.path;
+    if (!used || !isLocalFile(file)) return no(msg.kind === 'clip' ? '对方没保存过这一段' : '对方那边也没有这个文件');
     const probe = await probePaths([file]);
     if (isMissing(probe[file])) return no(`${myName() || '对方'} 的电脑上也找不到这个文件了`);
     if (s.rep.role === 'host') {
@@ -225,6 +263,7 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
     findProgress,
     missingFiles,
     fetchFiles,
+    fetchClip,
     cancelFetch,
     findLocal,
     cancelFind,

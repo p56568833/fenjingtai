@@ -142,7 +142,7 @@ function paint() {
              <p class="cl-help">主机那边重新配对过，原来的连接失效了。请对方在「协作」里看一下新的配对码。</p>`
           : `<p class="cl-help">你和 ${esc(who || '主机')} 的改动会实时合并。断线期间的改动先存在你电脑上，连上后自动同步。</p>`
       }
-      <p class="cl-help">保存视频片段时存到你自己的电脑上，不会传给对方；对方存的片段在你这边显示为在线视频，需要时自己再存一份。</p>
+      <p class="cl-help">保存视频片段时存到你自己的电脑上，不会传给对方；对方存的片段在你这边显示为在线视频。点「保存已通过的片段」时，对方存过的会直接从他电脑上拷，没存过的才从网站下载。</p>
       ${filesSection(cur)}
       ${nameRow}
       <div class="m-btns"><button class="btn ghost danger-text" data-cl="leave">退出协作</button><span class="cl-grow"></span><button class="btn primary" data-cl="close" data-autofocus>完成</button></div>`;

@@ -56,7 +56,7 @@ export async function saveSegment(id, { quiet = false } = {}) {
     if (!quiet) toast(`片段已保存到 ${assetName(r.path)}，但这个候选已经变了，没有挂到画面上`, null, 'warn');
   } else if (!quiet)
     toast(
-      `「${task.projectTitle}」的片段已保存：${assetName(r.path)}`,
+      `「${task.projectTitle}」的片段已${r.peer ? `从 ${r.peer} 的电脑拷来` : '保存'}：${assetName(r.path)}`,
       { label: '在访达中显示', cb: () => native('revealAsset')(r.path) },
       'ok',
     );
@@ -111,7 +111,8 @@ export async function saveAllApproved() {
   if (!(await ensureMediaDir())) return;
   if (batchRun || state.projectId !== pid) return;
   let ok = 0,
-    fail = 0;
+    fail = 0,
+    copied = 0; // 其中从对方电脑拷来的
   const reasons = new Map(); // 失败原因 → 段数：批量时不逐条弹提示，最后汇总告诉用户为什么失败
   batchRun = { i: 0, n: list.length, id: null };
   try {
@@ -121,8 +122,10 @@ export async function saveAllApproved() {
       batchRun.id = c.id;
       paintProgress(c.id);
       const r = await saveSegment(c.id, { quiet: true });
-      if (r?.ok) ok++;
-      else {
+      if (r?.ok) {
+        ok++;
+        if (r.peer) copied++;
+      } else {
         fail++;
         if (r?.needFfmpeg) return;
         const why = r?.error || '未知原因';
@@ -133,11 +136,12 @@ export async function saveAllApproved() {
     batchRun = null;
     emit('candidate-media');
   }
-  if (!fail) return toast(`已保存 ${ok} 段`, null, 'ok');
+  const fromPeer = copied ? `（${copied} 段从对方电脑拷来）` : '';
+  if (!fail) return toast(`已保存 ${ok} 段${fromPeer}`, null, 'ok');
   const [top, n] = [...reasons].sort((a, b) => b[1] - a[1])[0] || ['未知原因', fail];
   const more = reasons.size > 1 ? `等 ${reasons.size} 种原因` : '';
   toast(
-    `已保存 ${ok} 段，${fail} 段失败（可再次批量尝试）。${n < fail || more ? `主要原因（${n} 段）` : '原因'}：${top}${more ? '，' + more : ''}`,
+    `已保存 ${ok} 段${fromPeer}，${fail} 段失败（可再次批量尝试）。${n < fail || more ? `主要原因（${n} 段）` : '原因'}：${top}${more ? '，' + more : ''}`,
     null,
     ok ? 'warn' : 'error',
   );

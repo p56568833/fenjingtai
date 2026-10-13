@@ -3,6 +3,7 @@ const { execFile } = require('node:child_process');
 const os = require('node:os');
 const { createCollabNet } = require('./collab-net');
 const { fingerprint, findByContent } = require('./file-match');
+const { segmentFileBase } = require('./video-tools');
 
 /* 这台电脑在「系统设置 → 通用 → 共享」里的名字（取不到就用主机名） */
 function machineName() {
@@ -21,6 +22,9 @@ function registerCollabIpc({ handle, win, app }) {
   };
   const collab = createCollabNet({ emit: send });
   const text = v => String(v ?? '').slice(0, 200);
+  // 视频片段从对方电脑拷来时，和从网站截取的用同一套文件名（名字_入点-出点.mp4）
+  const fileName = req =>
+    req?.segment ? `${segmentFileBase(req.segment.name, req.segment.start, req.segment.end)}.mp4` : text(req?.name);
   const announcement = info => ({
     proto: Number(info?.proto) || 1,
     version: app.getVersion(),
@@ -55,11 +59,11 @@ function registerCollabIpc({ handle, win, app }) {
       port: req?.port,
       token: text(req?.token),
       dir: String(req?.dir || ''),
-      name: text(req?.name),
+      name: fileName(req),
     }),
   );
   handle('collab:file-expect', (_e, req) =>
-    collab.expectFile({ token: text(req?.token), dir: String(req?.dir || ''), name: text(req?.name) }),
+    collab.expectFile({ token: text(req?.token), dir: String(req?.dir || ''), name: fileName(req) }),
   );
   handle('collab:file-push', (_e, req) =>
     collab.pushFile({

@@ -1,4 +1,4 @@
-import { state, update } from '../app/state.js';
+import { state, update, emit } from '../app/state.js';
 import { groupRows } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
 import { addRefsToShot, removeUsage } from '../app/asset-actions.js';
@@ -35,6 +35,7 @@ export async function runInspectorScrollTests(t) {
   }
   storage.createProject('面板滚动定位测试', rows);
   const project = state.projectId;
+  let insertProject = null;
   try {
     for (const view of ['table', 'check']) {
       state.view = view;
@@ -101,10 +102,44 @@ export async function runInspectorScrollTests(t) {
         afterRemoveNode === afterAddNode && Math.abs(positionOf(afterRemoveNode) - beforeRemove) <= 2,
       );
     }
+
+    // 协作时同事在前面插句：整表重建后，正在看的句子不能被挤走。
+    // 直接跳到长稿后段：前面的行从没展开过，重建后先按真实高度排一遍、下一帧又缩回占位高度，校准要跟得上。
+    const text = Array.from(
+      { length: 400 },
+      (_, i) =>
+        `第${i + 1}句口播${i % 7 ? '' : '，这一句特别长，会在表格里折成两行甚至三行，模拟真实稿子里长短不一的句子'}。`,
+    ).join('\n');
+    storage.createProject('插句位置测试', parseAny(text));
+    insertProject = state.projectId;
+    state.view = 'table';
+    update('rows');
+    await pause(650);
+    const target = state.rows.filter(r => r.kind === 'line')[299];
+    const sentence = () => $(`.sent[data-id="${target.id}"]`);
+    sentence().scrollIntoView({ block: 'center' });
+    await pause(200);
+    const before = sentence().getBoundingClientRect().top;
+    const track = [];
+    for (let k = 0; k < 3; k++) {
+      state.rows.splice(3, 0, { id: 900000 + k, kind: 'line', type: 'real', text: '同事在前面新插的一句。' });
+      emit('collab-remote');
+      for (let f = 0; f < 6; f++) {
+        // 这一帧画完之后再量：看到的就是屏幕上真正出现过的位置
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        track.push(Math.round(sentence().getBoundingClientRect().top - before));
+      }
+    }
+    t(
+      '同事在前面插句时，正在看的句子位置不动',
+      track.every(d => Math.abs(d) <= 2),
+      JSON.stringify(track),
+    );
   } finally {
     if (!$('#inspector').hidden) $('#btnDetail').click();
     storage.switchProject(original);
     storage.deleteProject(project);
+    if (insertProject) storage.deleteProject(insertProject);
     state.view = oldView;
     update('rows');
     if (wasOpen) $('#btnDetail').click();

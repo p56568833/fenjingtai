@@ -19,9 +19,19 @@ function syncTitle() {
 
 /* 整表重建会换掉所有行：屏幕外的新行只按 contain-intrinsic-size 占位（72px），和原来的真实行高对不上，
    scrollTop 不变的话视口会「闪现」到很远的地方。重建前记下一句锚点（优先当前选中句）离视口顶部的距离，
-   重建后把它放回原处；下一帧行高展开后再校准一次。切项目 / 切视图不保持（各自有定位逻辑）。 */
+   重建后把它放回原处，行高稳定前持续校准。切项目 / 切视图不保持（各自有定位逻辑）。 */
 const ROW_SEL = '.row[data-id],.as[data-id]';
 let lastRendered = null;
+
+/* 句子的排版位置：去掉重画过渡动画（FLIP）临时加在它和外层上的位移，量到动画中途的位置会校准错 */
+function layoutTop(el) {
+  let top = el.getBoundingClientRect().top;
+  for (let e = el; e && e.id !== 'tableWrap'; e = e.parentElement) {
+    const t = getComputedStyle(e).transform;
+    if (t && t !== 'none') top -= new DOMMatrixReadOnly(t).m42;
+  }
+  return top;
+}
 
 function captureAnchor() {
   if (state.view === 'review') return null;
@@ -37,19 +47,50 @@ function captureAnchor() {
     state.sel != null ? document.querySelector(`.row[data-id="${state.sel}"],.as[data-id="${state.sel}"]`) : null;
   if (!el || !inView(el)) el = [...document.querySelectorAll(ROW_SEL)].find(inView) || null;
   if (!el) return null;
-  return { wrap, id: el.dataset.id, top: el.getBoundingClientRect().top };
+  return { wrap, id: el.dataset.id, top: layoutTop(el) };
 }
 
+/* 重建当下浏览器会把新行都按真实高度排一遍，下一帧屏幕外的行才缩回占位高度：只校准一两次赶不上，视口会漂走。
+   接下来几帧里，每次排版后（绘制前）都把锚点句放回原处；你一滚动 / 点击 / 按键就停，不和你抢视口。 */
+let releaseAnchor = null;
 function restoreAnchor(a) {
+  releaseAnchor?.();
   if (!a) return;
-  const fix = () => {
-    const el = document.querySelector(`.row[data-id="${a.id}"],.as[data-id="${a.id}"]`);
-    if (!el) return;
-    const d = el.getBoundingClientRect().top - a.top;
-    if (Math.abs(d) >= 1) a.wrap.scrollTop += d;
+  const { wrap } = a;
+  const rows = document.querySelector('#rows');
+  wrap.classList.add('holding-anchor');
+  let scrollTop = null,
+    frame = null,
+    frames = 8;
+  const release = () => {
+    if (releaseAnchor !== release) return;
+    releaseAnchor = null;
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    wrap.classList.remove('holding-anchor');
+    for (const event of ['wheel', 'pointerdown', 'keydown']) document.removeEventListener(event, release, true);
   };
+  const fix = () => {
+    if (releaseAnchor !== release) return;
+    // 别处滚动过（跳转到某句、搜索定位…）：以那边为准
+    if (scrollTop != null && Math.abs(wrap.scrollTop - scrollTop) > 1) return release();
+    const el = document.querySelector(`.row[data-id="${a.id}"],.as[data-id="${a.id}"]`);
+    if (!el) return release();
+    const d = layoutTop(el) - a.top;
+    if (Math.abs(d) >= 1) wrap.scrollTop += d;
+    scrollTop = wrap.scrollTop;
+  };
+  const observer = new ResizeObserver(fix);
+  releaseAnchor = release;
+  for (const event of ['wheel', 'pointerdown', 'keydown']) document.addEventListener(event, release, true);
   fix();
-  requestAnimationFrame(fix);
+  if (rows) observer.observe(rows);
+  const tick = () => {
+    fix();
+    if (releaseAnchor === release && --frames > 0) frame = requestAnimationFrame(tick);
+    else release();
+  };
+  frame = requestAnimationFrame(tick);
 }
 
 let rendering = false;
