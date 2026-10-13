@@ -284,3 +284,40 @@ body.dark .shared-scene::before {
   color: var(--text-3);
   overflow-wrap: anywhere;
 }
+
+/* 共用画面标题旁的「每句的画面」：一句一格，红「空」= 这句没画面；点一下在右边面板里补 */
+.scene-cover {
+  flex: 0 1 420px;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 6px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.scene-cover:hover {
+  background: var(--row-hover);
+}
+.scene-cover .lo-strip {
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+}
+.scene-cover .lo-cell {
+  height: 16px;
+  min-width: 14px;
+  border-radius: 5px;
+  font-size: 10px;
+}
+/* 都有画面：整条淡一点，不抢句子的注意力 */
+.scene-cover:not(.bad) .lo-strip {
+  opacity: 0.55;
+}

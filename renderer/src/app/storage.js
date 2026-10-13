@@ -6,6 +6,7 @@ import { state, loadProjectIntoState, bumpRev } from './state.js';
 import { emit, notify } from './events.js';
 import { demoProject } from '../core/demo.js';
 import { normalizeTypes } from '../core/types.js';
+import { applyProjectData } from '../core/project-data.js';
 import * as native from '../platform/native.js';
 
 let library = null;
@@ -14,6 +15,7 @@ let revision = 0;
 let loadInfo = { status: 'ok' };
 let retryTimer = null;
 const dirtyIds = new Set(); // 待写盘的项目
+const writeHooks = new Set(); // 项目内容改了（局域网协作据此把改动发给对方）
 let metaDirty = false; // currentId / settings / trash 变了
 let fullDirty = false; // 整库替换（恢复备份）
 export const dataLoadInfo = () => loadInfo;
@@ -76,6 +78,12 @@ export const settings = () => library.settings;
 
 /* 新项目默认用的类型表（用户在类型编辑器里勾了「以后新建项目也用这套」才有） */
 export const defaultTypesForNew = () => normalizeTypes(library?.settings?.defaultTypes);
+/* 设置改了（局域网协作的名字等）：记下待写盘 */
+export function saveSettings() {
+  if (!library) return;
+  metaDirty = true;
+  schedule();
+}
 export function setDefaultTypes(types) {
   library.settings.defaultTypes = normalizeTypes(types);
   metaDirty = true;
@@ -86,20 +94,8 @@ export function setDefaultTypes(types) {
 export function syncFromState() {
   const p = current();
   if (!p || state.projectId !== library.currentId) return;
-  p.title = state.title;
-  p.rows = state.rows;
+  applyProjectData(p, state, 'storage');
   p.cursorId = state.sel;
-  p.speechRate = state.speechRate;
-  p.assets = state.assets;
-  p.types = state.types;
-  if (state.timing) p.timing = state.timing;
-  else delete p.timing;
-  if (state.voice) p.voice = state.voice;
-  else delete p.voice;
-  if (state.candidates && state.candidates.length) p.candidates = state.candidates;
-  else delete p.candidates;
-  if (state.mediaDir) p.mediaDir = state.mediaDir;
-  else delete p.mediaDir;
   p.updatedAt = Date.now();
   dirtyIds.add(p.id);
 }
@@ -135,7 +131,26 @@ export function persist(now = false) {
   syncFromState();
   bumpRev();
   schedule(now);
+  notifyWrite(library?.currentId);
 }
+
+/* 项目内容改了就通知订阅方（参数：项目 id）。协作模块自己记的东西用 saveProjectMeta 存，不触发这里 */
+export const onProjectWrite = fn => {
+  writeHooks.add(fn);
+  return () => writeHooks.delete(fn);
+};
+function notifyWrite(id) {
+  if (!id) return;
+  for (const fn of writeHooks) fn(id);
+}
+/* 只存项目上的附属信息（协作状态等），不算内容改动 */
+export function saveProjectMeta(id) {
+  if (!library?.projects?.[id]) return;
+  dirtyIds.add(id);
+  schedule();
+}
+/* 这个项目的协作信息（角色、用过的最大句子编号）；没在协作返回 null */
+export const collabOf = id => library?.projects?.[id]?.collab || null;
 
 /* 写盘；失败（磁盘满 / 权限）时 5 秒后自动重试，不等下一次改动才再试 */
 async function doSave(version) {
@@ -169,6 +184,7 @@ export function markProjectDirty(id) {
   if (!library?.projects?.[id]) return;
   dirtyIds.add(id);
   schedule();
+  notifyWrite(id);
 }
 
 export function archiveCurrentCopy(label) {
@@ -176,6 +192,7 @@ export function archiveCurrentCopy(label) {
   const p = current();
   const id = 'p_' + crypto.randomUUID();
   library.projects[id] = { ...structuredClone(p), id, title: p.title + ' · ' + label, updatedAt: Date.now() };
+  delete library.projects[id].collab; // 副本是普通项目，不跟着协作
   dirtyIds.add(id);
 }
 
@@ -221,6 +238,8 @@ export function deleteProject(id) {
   if (id === library.currentId) syncFromState();
   library.trash[id] = { project: p, deletedAt: Date.now() };
   delete library.projects[id];
+  emit('project-removed', { id, collab: p.collab || null });
+  delete p.collab; // 从「最近删除」找回来时是普通项目
   dirtyIds.add(id); // 补丁里 null = 从项目表删掉
   metaDirty = true;
   if (library.currentId === id) {
@@ -264,6 +283,7 @@ export function restoreLibrary(data) {
   loadProjectIntoState(library.projects[library.currentId]);
   fullDirty = true;
   persist(true);
+  emit('library-replaced');
   return true;
 }
 
@@ -277,6 +297,7 @@ export function importProjectCopy(project, suffix = '（从备份恢复）') {
     title: (project.title || '未命名') + suffix,
     updatedAt: Date.now(),
   };
+  delete library.projects[id].collab;
   dirtyIds.add(id);
   metaDirty = true;
   schedule(true);

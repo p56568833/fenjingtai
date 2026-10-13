@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { noteImage } from '../renderer/src/core/update-notes.js';
 
 const { REPO, MANIFEST_NAME } = createRequire(import.meta.url)('../electron/updater.js');
 
@@ -29,7 +30,6 @@ export function extractNotes(markdown, version) {
    不合格式时返回每一处问题（打包和 npm run test:data 都会拦下） */
 export const NOTE_GROUPS = ['新增', '支持', '优化', '修复'];
 export const NOTE_MAX_ITEM = 40; // 每条最多几个字
-export const NOTE_MAX_ITEMS = 10; // 一版最多几条
 export function checkNotes(markdown, version) {
   const notes = extractNotes(markdown, version);
   if (!notes) return [`UPDATE-NOTES.md 里没有「# 分镜台 ${version}」这一节（软件里显示的更新说明）`];
@@ -41,6 +41,7 @@ export function checkNotes(markdown, version) {
   for (const raw of notes.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
+    if (noteImage(line)) continue;
     const head = line.match(/^【(.+)】$/);
     if (head) {
       const name = head[1];
@@ -72,7 +73,6 @@ export function checkNotes(markdown, version) {
   }
   for (const g of seen) if (!counts[g]) errors.push(`【${g}】下面没有条目，空的分组不要写`);
   if (!total) errors.push('这一版没有任何条目');
-  if (total > NOTE_MAX_ITEMS) errors.push(`一共 ${total} 条，一版最多 ${NOTE_MAX_ITEMS} 条，挑最重要的写`);
   return errors;
 }
 

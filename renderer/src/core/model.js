@@ -1,4 +1,5 @@
-/* 数据模型说明（只有类型注释，没有代码）。各模块的 JSDoc 用这里的名字。
+/* 数据模型说明。字段的保存 / 撤销 / 协作策略统一在 project-data.js 中定义。
+   各模块的 JSDoc 用这里的名字。
 
    @typedef {'line'|'section'} RowKind
 
@@ -19,6 +20,9 @@
    @typedef {Object} AssetUsage  某个画面对某个素材的使用
    @property {string} assetId
    @property {{in:number,out:number,needsAdjust?:boolean}} [clip]  只用这一段（秒）
+   @property {'main'|'overlay'|'alt'} [role]
+   @property {boolean} [off]        共用画面内，此素材不在这句出现
+   @property {{start:number,end:number,of:number}} [at]  相对镜头起点的手动时间
 
    @typedef {Object} Asset  项目素材库里的一个文件 / 链接（只记路径，不复制文件）
    @property {string} id
@@ -44,6 +48,9 @@
    @property {number} [speechRate]     字 / 秒
    @property {{name:string,at:number,duration:number,cues:Array}} [timing]  对齐用的剪映字幕
    @property {{path:string,name:string,duration:number|null}} [voice]       口播音频
+   @property {Object[]} [candidates] 视频候选及审核结果
+   @property {string} [mediaDir]     本机片段保存位置，不随普通编辑撤销
+   @property {Object} [collab]       本机协作连接信息，不进入交换文件和撤销
    @property {number} [cursorId]
    @property {number} updatedAt
 

@@ -190,6 +190,7 @@ export function unlinkedShots(rows, types = DEFAULT_TYPES) {
   return shots(rows).filter(g => g[0].type && ti.needsVisual(g[0].type) && !g.some(m => linkedUsages(m).length));
 }
 /* 交稿检查。默认是「分镜方案」检查：类型、画面描述、主画面、片段、字幕；
+   opts.gaps：Map(镜头第一句 id → 空白说明)，由界面按画面排布算好传进来（core/coverage.js 的 blankShots）；
    opts.assets = true 时再加「素材交付」检查：需要画面却没关联素材、素材文件失联（opts.missing = 失联路径集合，opts.registry = 素材库） */
 export function checkDelivery(rows, types = DEFAULT_TYPES, opts = {}) {
   const ti = typeIndex(types);
@@ -204,7 +205,9 @@ export function checkDelivery(rows, types = DEFAULT_TYPES, opts = {}) {
     if (r.type && ti.needsVisual(r.type)) {
       // 只在开始用角色之后提醒，旧项目不会一下子冒出一堆待处理
       const cov = mainCoverage(group);
+      const gap = opts.gaps?.get(r.id); // 按排布算出来的空白（「第 436–437 句没画面」），比只看有没有主画面更准
       if (cov.anyRole && !cov.hasMain) issues.push('未指定主画面');
+      else if (gap) issues.push(`画面有空白：${gap}`);
       else if (cov.anyRole && !cov.full) issues.push('部分句子没有主画面');
     }
     if (group.some(x => x.time && x.time.st === 'est')) issues.push('字幕里没找到这句');

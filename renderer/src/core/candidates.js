@@ -6,30 +6,33 @@ import { ensureAsset, usageList, syncMirror, assetName, referencedAssetIds } fro
 
 export const CANDIDATE_TYPE = 'fenjingtai-candidates';
 export const DECISION = { ok: '通过', no: '不要', re: '换一个' };
-export const CANDIDATE_VERSION = 2;
+export const CANDIDATE_VERSION = 3;
+export const LEGACY_VERSION = 2; // v2（没有方案、可以写 for / coverage）的清单照样能导入，一律当作只有方案一
+export const FILL_EPS = 0.5; // 方案加起来比口播短不到 0.5 秒算填满（没录音时口播时长是按语速估的）
+export const MARGIN_MAX = 5; // 下载范围比「最好用的几秒」每边最多宽 5 秒
 
-/* ── 候选清单格式检查（v2，硬性规定）：不合格的整份拒收，返回每一处错在哪（空数组 = 合格）。
-   规范说明在 core/candidate-spec.js；字段增减时两边一起改 ── */
+/* ── 候选清单格式检查（v3，硬性规定）：不合格的整份拒收，返回每一处错在哪（空数组 = 合格）。
+   规范说明在 core/candidate-spec.js；字段增减时两边一起改。
+   v3：画面 → 方案（几选一）→ 视频（按顺序接起来播）；v2：画面 → 候选，当作只有方案一 ── */
 const LINES_RE = /^\d+(-\d+)?$/;
 const URL_RE = /^https?:\/\/\S+$/i;
 const TOP_KEYS = ['type', 'version', 'project', 'batch', 'createdAt', 'shots', 'extra', 'reviewedAt'];
-const SHOT_KEYS = ['lines', 'label', 'need', 'cands', 'extra'];
-const CAND_KEYS = [
-  'key',
-  'title',
-  'url',
-  'page',
-  'in',
-  'out',
-  'best',
-  'for',
-  'license',
-  'why',
-  'coverage',
-  'limitations',
-  'extra',
-  'review', // 分镜台写回的审核结果
-];
+const SHOT_KEYS = { 3: ['lines', 'label', 'need', 'plans', 'extra'], 2: ['lines', 'label', 'need', 'cands', 'extra'] };
+const PLAN_KEYS = ['cands', 'short', 'extra'];
+const CAND_BASE = ['key', 'title', 'url', 'page', 'in', 'out', 'best', 'license', 'why', 'limitations', 'extra'];
+const CAND_KEYS = {
+  3: [...CAND_BASE, 'review'], // review：分镜台写回的审核结果
+  2: [...CAND_BASE, 'for', 'coverage', 'review'],
+};
+/* 画面里的方案：v3 写在 plans 里；v2 的 cands 整个算方案一。返回 [{ short, cands, raw }]，不合格的跳过 */
+export const plansOfShot = (s, version) =>
+  version === LEGACY_VERSION
+    ? [{ short: '', cands: Array.isArray(s?.cands) ? s.cands : [], raw: null }]
+    : (Array.isArray(s?.plans) ? s.plans : []).map(p => ({
+        short: isObj(p) && typeof p.short === 'string' ? p.short.trim() : '',
+        cands: isObj(p) && Array.isArray(p.cands) ? p.cands : [],
+        raw: p,
+      }));
 /* url 必须是视频文件本身：图片、网页地址直接拒收（AI 常把配图或视频页面当成视频交上来，审核页根本播不出来）。
    看扩展名；没有扩展名的 CDN 直链放行，但视频网站的页面地址（YouTube、B 站等）一律不行 */
 const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|mkv|ogv)$/i;
@@ -59,7 +62,24 @@ export function videoUrlIssue(url) {
   } catch {
     return '';
   }
-  const file = decodeURIComponent(u.pathname);
+  // 这台电脑 / 局域网里的临时地址（AI 自己起的本地服务）：别的电脑打不开，那个服务一关这里也打不开
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (
+    h === 'localhost' ||
+    h === '::1' ||
+    h === '0.0.0.0' ||
+    h.endsWith('.local') ||
+    /^(127|10)\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+  )
+    return `url 是这台电脑上的临时地址（${u.host}），别的电脑打不开，那个临时服务一关也会失效。请给视频在网上的原始地址，in / out 写原片里的秒数，不要自己剪好再放到本地服务上`;
+  let file;
+  try {
+    file = decodeURIComponent(u.pathname);
+  } catch {
+    return 'url 含有无效的百分号编码，请提供正确的视频地址（百分号应写成 %25）';
+  }
   if (VIDEO_EXT_RE.test(file)) return '';
   const ext = (file.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
   if (IMAGE_EXT_RE.test(file))
@@ -70,6 +90,41 @@ export function videoUrlIssue(url) {
   if (PAGE_HOSTS.some(h => host === h || host.endsWith('.' + h)))
     return `url 是视频网站的页面（${host}），软件播不了。必须换成视频文件本身（mp4 / webm 等），页面地址放进 page`;
   return '';
+}
+
+/* ── 重复画面：同一段画面不能配给两处不同的句子 ──
+   同一个视频文件（地址去掉 # 片段；以视频扩展名结尾的再去掉 ? 参数，那多半是临时令牌），
+   用的时间段（写了 best 看 best，否则看 in–out）重叠 2 秒以上，或重叠超过较短那段的一半，就算同一段画面。
+   同一个长视频里不重叠的两段可以分别配两处；同一画面的不同方案最后只用一个，之间不算重复
+   （同一个方案里的重复在 validateCandidateDoc 里单独查） */
+const footageKey = url => {
+  try {
+    const u = new URL(String(url).trim());
+    const base = `${u.hostname.toLowerCase()}${decodeURIComponent(u.pathname)}`;
+    return VIDEO_EXT_RE.test(u.pathname) ? base : base + u.search;
+  } catch {
+    return String(url || '').trim();
+  }
+};
+const usedRange = c => cleanBest(c.best, Number(c.in), Number(c.out)) || { in: Number(c.in), out: Number(c.out) };
+export function footageOverlap(a, b) {
+  if (!a?.url || !b?.url || footageKey(a.url) !== footageKey(b.url)) return 0;
+  const x = usedRange(a),
+    y = usedRange(b);
+  const overlap = Math.min(x.out, y.out) - Math.max(x.in, y.in);
+  if (!(overlap > 0)) return 0;
+  const shorter = Math.min(x.out - x.in, y.out - y.in);
+  return overlap >= 2 || overlap >= shorter / 2 ? overlap : 0;
+}
+const spanText = c => {
+  const r = usedRange(c);
+  return `${fmtTime(r.in)}–${fmtTime(r.out)}`;
+};
+/* 已经否掉 / 要换的候选不算「用上」，它的画面可以挪去配别的句子 */
+const dropped = decision => decision === 'no' || decision === 're';
+/* 这个候选的画面已经在别的句子上用了：返回那个占用者（项目里已通过或待审、画面不同的候选），没有返回 null */
+export function footageTakenBy(c, others) {
+  return others.find(o => o !== c && o.rowId !== c.rowId && !dropped(o.decision) && footageOverlap(c, o)) || null;
 }
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const filled = v => typeof v === 'string' && v.trim() !== '';
@@ -86,11 +141,12 @@ export function validateCandidateDoc(doc) {
       if (!keys.includes(k)) add(where, `不认识的字段「${k}」（规范外的内容请放进 extra）`);
   };
   if (!isObj(doc)) return ['文件内容不是一个 JSON 对象'];
+  const v = doc.version === LEGACY_VERSION ? LEGACY_VERSION : CANDIDATE_VERSION;
   if (doc.type !== CANDIDATE_TYPE) add('顶层', `type 必须是 "${CANDIDATE_TYPE}"`);
-  if (doc.version !== CANDIDATE_VERSION)
+  if (doc.version !== CANDIDATE_VERSION && doc.version !== LEGACY_VERSION)
     add(
       '顶层',
-      `version 必须是数字 ${CANDIDATE_VERSION}${doc.version === 1 || doc.version === '1' ? '（这是旧格式 version 1，请按 v2 规范重写）' : ''}`,
+      `version 必须是数字 ${CANDIDATE_VERSION}${doc.version === 1 || doc.version === '1' ? `（这是旧格式 version 1，请按 v${CANDIDATE_VERSION} 规范重写）` : ''}`,
     );
   if (!filled(doc.project)) add('顶层', 'project 必须写项目名');
   if (!filled(doc.batch)) add('顶层', 'batch 必须写这一批的名字');
@@ -113,50 +169,120 @@ export function validateCandidateDoc(doc) {
     }
     if (!filled(s.label)) add(sw, 'label 必须写这个画面的简短名字');
     if (s.need != null && typeof s.need !== 'string') add(sw, 'need 必须是文字');
-    unknown(s, SHOT_KEYS, sw);
-    if (!Array.isArray(s.cands) || !s.cands.length) return add(sw, 'cands 必须是数组，至少一个候选');
+    unknown(s, SHOT_KEYS[v], sw);
+    if (v === LEGACY_VERSION) {
+      if (!Array.isArray(s.cands) || !s.cands.length) return add(sw, 'cands 必须是数组，至少一个候选');
+    } else {
+      if (s.cands != null) add(sw, '视频要写在 plans 的方案里（plans[].cands），不要直接写 cands');
+      if (!Array.isArray(s.plans) || !s.plans.length) return add(sw, 'plans 必须是数组，至少一个方案');
+    }
     const keys = new Set();
-    s.cands.forEach((c, j) => {
-      const cw = `${sw} cands[${j}]${isObj(c) && filled(c.key) ? `（key "${c.key}"）` : ''}`;
-      if (!isObj(c)) return add(cw, '必须是对象');
-      if (!filled(c.key)) add(cw, 'key 必须写');
-      else if (keys.has(c.key)) add(cw, `key "${c.key}" 在这个画面里重复了`);
-      else keys.add(c.key);
-      if (!filled(c.title)) add(cw, 'title 必须写中文标题');
-      if (typeof c.url !== 'string' || !URL_RE.test(c.url))
-        add(cw, 'url 必须是能直接播放的视频文件地址（http / https）');
-      else if (videoUrlIssue(c.url)) add(cw, videoUrlIssue(c.url));
-      if (c.page != null && (typeof c.page !== 'string' || !URL_RE.test(c.page)))
-        add(cw, 'page 必须是网页地址（http / https）');
-      if (!isNum(c.in) || c.in < 0) add(cw, 'in 必须是秒数（数字，≥ 0），不要写 "1:41" 或带引号');
-      if (!isNum(c.out)) add(cw, 'out 必须是秒数（数字），不要写 "1:41" 或带引号');
-      else if (isNum(c.in) && c.out <= c.in) add(cw, 'out 必须大于 in');
-      if (c.best != null) {
-        const b = c.best;
-        if (!isObj(b) || !isNum(b.in) || !isNum(b.out) || Object.keys(b).some(k => k !== 'in' && k !== 'out'))
-          add(cw, 'best 必须写成 { "in": 秒数, "out": 秒数 }（数字），不要写别的字段');
-        else if (b.out <= b.in) add(cw, 'best 的 out 必须大于 in');
-        else if (isNum(c.in) && isNum(c.out) && (b.in < c.in - 0.01 || b.out > c.out + 0.01))
-          add(cw, `best（${b.in}–${b.out}）必须在 in–out（${c.in}–${c.out}）范围内`);
+    plansOfShot(s, v).forEach((p, pi) => {
+      const pw = v === LEGACY_VERSION ? sw : `${sw} plans[${pi}]（方案${pi + 1}）`;
+      if (v !== LEGACY_VERSION) {
+        if (!isObj(p.raw)) return add(pw, '必须是对象');
+        unknown(p.raw, PLAN_KEYS, pw);
+        if (p.raw.short != null && typeof p.raw.short !== 'string') add(pw, 'short 必须是文字');
+        if (!Array.isArray(p.raw.cands) || !p.raw.cands.length) return add(pw, 'cands 必须是数组，至少一个视频');
       }
-      if (c.for != null) {
-        if (typeof c.for !== 'string' || !LINES_RE.test(c.for)) add(cw, 'for 必须是文字句号，如 "252" 或 "252-253"');
-        else if (span) {
-          const f = spanOf(c.for);
-          if (f.to < f.from || f.from < span.from || f.to > span.to)
-            add(cw, `for "${c.for}" 必须在这个画面的 lines "${s.lines}" 范围内`);
+      p.cands.forEach((c, j) => {
+        const cw = `${pw} cands[${j}]${isObj(c) && filled(c.key) ? `（key "${c.key}"）` : ''}`;
+        if (!isObj(c)) return add(cw, '必须是对象');
+        if (!filled(c.key)) add(cw, 'key 必须写');
+        else if (keys.has(c.key)) add(cw, `key "${c.key}" 在这个画面里重复了（所有方案加起来不能重复）`);
+        else keys.add(c.key);
+        if (!filled(c.title)) add(cw, 'title 必须写中文标题');
+        if (typeof c.url !== 'string' || !URL_RE.test(c.url))
+          add(cw, 'url 必须是能直接播放的视频文件地址（http / https）');
+        else if (videoUrlIssue(c.url)) add(cw, videoUrlIssue(c.url));
+        if (c.page != null && (typeof c.page !== 'string' || !URL_RE.test(c.page)))
+          add(cw, 'page 必须是网页地址（http / https）');
+        if (!isNum(c.in) || c.in < 0) add(cw, 'in 必须是秒数（数字，≥ 0），不要写 "1:41" 或带引号');
+        if (!isNum(c.out)) add(cw, 'out 必须是秒数（数字），不要写 "1:41" 或带引号');
+        else if (isNum(c.in) && c.out <= c.in) add(cw, 'out 必须大于 in');
+        if (c.best == null) {
+          if (v !== LEGACY_VERSION) add(cw, 'best 必须写：{ "in": 秒数, "out": 秒数 }，这段里真正要用的那几秒');
+        } else {
+          const b = c.best;
+          if (!isObj(b) || !isNum(b.in) || !isNum(b.out) || Object.keys(b).some(k => k !== 'in' && k !== 'out'))
+            add(cw, 'best 必须写成 { "in": 秒数, "out": 秒数 }（数字），不要写别的字段');
+          else if (b.out <= b.in) add(cw, 'best 的 out 必须大于 in');
+          else if (isNum(c.in) && isNum(c.out) && (b.in < c.in - 0.01 || b.out > c.out + 0.01))
+            add(cw, `best（${b.in}–${b.out}）必须在 in–out（${c.in}–${c.out}）范围内`);
+          else if (
+            v !== LEGACY_VERSION &&
+            isNum(c.in) &&
+            isNum(c.out) &&
+            (b.in - c.in > MARGIN_MAX + 0.01 || c.out - b.out > MARGIN_MAX + 0.01)
+          )
+            add(
+              cw,
+              `下载范围 in–out（${c.in}–${c.out}）比 best（${b.in}–${b.out}）宽太多：每边最多宽 ${MARGIN_MAX} 秒，请把 in / out 收窄到 best 前后 1–3 秒`,
+            );
         }
-      }
-      if (!filled(c.license)) add(cw, 'license 必须写版权情况（不清楚就写「版权未核实」）');
-      if (!filled(c.why)) add(cw, 'why 必须写为什么选它、画面里看到了什么');
-      if (c.coverage != null && c.coverage !== 'full' && c.coverage !== 'partial')
-        add(cw, 'coverage 只能是 "full" 或 "partial"');
-      if (c.limitations != null && typeof c.limitations !== 'string') add(cw, 'limitations 必须是文字');
-      else if (c.coverage === 'partial' && !filled(c.limitations))
-        add(cw, 'coverage 是 "partial" 时必须写 limitations（缺了哪部分）');
-      unknown(c, CAND_KEYS, cw);
+        if (v === LEGACY_VERSION && c.for != null) {
+          if (typeof c.for !== 'string' || !LINES_RE.test(c.for)) add(cw, 'for 必须是文字句号，如 "252" 或 "252-253"');
+          else if (span) {
+            const f = spanOf(c.for);
+            if (f.to < f.from || f.from < span.from || f.to > span.to)
+              add(cw, `for "${c.for}" 必须在这个画面的 lines "${s.lines}" 范围内`);
+          }
+        }
+        if (!filled(c.license)) add(cw, 'license 必须写版权情况（不清楚就写「版权未核实」）');
+        if (!filled(c.why)) add(cw, 'why 必须写为什么选它、画面里看到了什么');
+        if (v === LEGACY_VERSION && c.coverage != null && c.coverage !== 'full' && c.coverage !== 'partial')
+          add(cw, 'coverage 只能是 "full" 或 "partial"');
+        if (c.limitations != null && typeof c.limitations !== 'string') add(cw, 'limitations 必须是文字');
+        else if (v === LEGACY_VERSION && c.coverage === 'partial' && !filled(c.limitations))
+          add(cw, 'coverage 是 "partial" 时必须写 limitations（缺了哪部分）');
+        unknown(c, CAND_KEYS[v], cw);
+      });
+      // 同一个方案里同一段画面用了两次：方案里的视频是接起来播的，等于同一个镜头放两遍
+      // （v2 的候选当初写的是「互为备选」，旧清单不追究）
+      const live = v === LEGACY_VERSION ? [] : p.cands.filter(usableCand).filter(c => !dropped(c.review?.decision));
+      live.forEach((a, k) => {
+        for (const b of live.slice(k + 1))
+          if (footageOverlap(a, b))
+            add(
+              '重复画面',
+              `lines "${s.lines}" 方案${pi + 1} 里 key "${a.key}"（${spanText(a)}）和 key "${b.key}"（${spanText(b)}）是同一个视频里同一段画面，同一个方案里不能用两次`,
+            );
+      });
     });
   });
+  // 同一份清单里，同一段画面配给了不同的句子：每一对都指出来
+  const used = doc.shots.flatMap(s =>
+    isObj(s)
+      ? plansOfShot(s, v).flatMap(p =>
+          p.cands.filter(usableCand).map(c => ({ ...c, rowId: s.lines, decision: c.review?.decision })),
+        )
+      : [],
+  );
+  used.forEach((a, i) => {
+    if (dropped(a.decision)) return;
+    for (const b of used.slice(i + 1))
+      if (b.rowId !== a.rowId && !dropped(b.decision) && footageOverlap(a, b))
+        add(
+          '重复画面',
+          `lines "${a.rowId}" 的 key "${a.key}"（${spanText(a)}）和 lines "${b.rowId}" 的 key "${b.key}"（${spanText(b)}）是同一个视频里同一段画面，同一段画面不能配给两处不同的句子。请给其中一处换别的视频，或换成这个视频里不重叠的另一段`,
+        );
+  });
+  return errs;
+}
+const usableCand = c => isObj(c) && typeof c.url === 'string' && isNum(c.in) && isNum(c.out) && c.out > c.in;
+
+/* 新清单里的候选，和项目里别的批次已经通过 / 待审、配在别的句子上的候选用了同一段画面：一条一条列出来 */
+export function duplicateFootageErrors(incoming, existing, rows) {
+  const errs = [];
+  const noOf = id => rows.find(r => r.id === id)?.no;
+  for (const c of incoming) {
+    const o = footageTakenBy(c, existing);
+    if (!o) continue;
+    const where = o.decision === 'ok' ? '已经通过并用在' : '已经作为待审候选配在';
+    errs.push(
+      `重复画面：lines "${c.lines}" 的 key "${c.key}"（${spanText(c)}）这段画面${where}第 ${noOf(o.rowId) ?? o.lines} 句（${o.title || o.key}，${spanText(o)}），同一段画面不能配给两处不同的句子。请换别的视频，或换成这个视频里不重叠的另一段`,
+    );
+  }
   return errs;
 }
 
@@ -188,71 +314,245 @@ export const noteLine = c =>
   `视频：${c.title || assetName(c.url)}｜${fmtTime(c.in)}–${fmtTime(c.out)}｜${c.license || '版权未注明'}｜${c.page || c.url}`;
 export const remotePath = c => `${c.url.split('#')[0]}#t=${c.in},${c.out}`;
 
-/* 候选清单 → 候选记录（按当前句号找到画面；找不到的列进 skipped） */
-export function planImport(doc, srcFile, rows, existing = []) {
+/* 候选清单 → 候选记录（按当前句号找到画面；找不到的列进 skipped）。
+   每条记录带 plan（第几个方案，从 1 开始）、seq（在方案里的先后）、short（方案填不满的理由）。
+   shotSeconds：画面 → 口播秒数（界面按时间轴传进来）；给了才检查「每个方案填满口播」 */
+export function planImport(doc, srcFile, rows, existing = [], { shotSeconds } = {}) {
   if (!doc || doc.type !== CANDIDATE_TYPE) return { error: '这不是视频候选清单' };
   const errors = validateCandidateDoc(doc);
   if (errors.length) return { error: `候选清单格式不对（${errors.length} 处）`, errors };
+  const v = doc.version === LEGACY_VERSION ? LEGACY_VERSION : CANDIDATE_VERSION;
   const byNo = new Map(rows.filter(r => r.kind === 'line').map(r => [r.no, r]));
+  // v3：画面范围必须和分镜表一模一样（v2 只认第一句，照旧）
+  if (v !== LEGACY_VERSION) {
+    const off = [];
+    for (const s of doc.shots) {
+      const range = parseLines(s.lines);
+      const row = range && byNo.get(range.from);
+      if (!row) continue; // 找不到这句：照旧列进 skipped
+      const real = rangeOf(shotMembers(rows, row));
+      if (real !== s.lines)
+        off.push(
+          `lines "${s.lines}" 和分镜表对不上：第 ${range.from} 句所在的画面是「${real.includes('-') ? `第 ${real.replace('-', '–')} 句` : `第 ${real} 句（单句）`}」。lines 要照抄分镜表里的画面范围`,
+        );
+    }
+    if (off.length) return { error: `候选清单里有画面和分镜表对不上（${off.length} 处）`, errors: off };
+  }
   const added = [],
     updated = [],
     skipped = [];
+  const touchedShots = new Set(); // 有新视频或改过的视频的画面：只查这些画面的方案够不够长
   for (const s of doc.shots) {
     const range = parseLines(s.lines);
     const row = range && byNo.get(range.from);
-    for (const raw of Array.isArray(s.cands) ? s.cands : []) {
-      const url = String(raw.url || '').trim();
-      const tin = parseClock(raw.in),
-        tout = parseClock(raw.out);
-      if (!row || !/^https?:\/\//i.test(url) || !(tout > tin)) {
-        skipped.push(`${s.lines || '?'} ${raw.key || ''}`.trim());
-        continue;
-      }
-      const base = {
-        key: String(raw.key || ''),
-        lines: String(s.lines),
-        label: String(s.label || ''),
-        rowId: row.id,
-        title: String(raw.title || assetName(url)),
-        url,
-        page: String(raw.page || ''),
-        in: tin,
-        out: tout,
-        best: cleanBest(raw.best, tin, tout), // 精选段：通过时预填成「可用片段」；null = 整段都用
-        license: String(raw.license || ''),
-        why: String(raw.why || ''),
-        for: raw.for != null ? String(raw.for) : '', // 这段配画面里的哪几句（句号，如 "200" 或 "200-201"）；空 = 整个画面
-        need: String(s.need || ''), // 这个画面要什么画面（审核页标题下显示）
-        coverage: raw.coverage === 'partial' ? 'partial' : '', // 只覆盖一部分（比如两家公司只拍到一家）
-        limits: String(raw.limitations || ''),
-        srcFile: srcFile || '',
-      };
-      const old = existing.find(c => c.srcFile === base.srcFile && c.lines === base.lines && c.key === base.key);
-      if (old) {
-        const changed = candidateChanged(old, { url, in: tin, out: tout });
-        // 链接或片段变了：回到待审，旧的素材关联 / 已保存状态都作废（旧文件留在磁盘上，不删）
-        const next = { ...old, ...base, ...(changed ? { decision: '', note: old.note || '' } : {}) };
-        if (changed) {
-          delete next.assetId;
-          delete next.savedPath;
-          delete next.decidedAt;
+    plansOfShot(s, v).forEach((p, pi) => {
+      p.cands.forEach((raw, seq) => {
+        const url = String(raw.url || '').trim();
+        const tin = parseClock(raw.in),
+          tout = parseClock(raw.out);
+        if (!row || !/^https?:\/\//i.test(url) || !(tout > tin)) {
+          skipped.push(`${s.lines || '?'} ${raw.key || ''}`.trim());
+          return;
         }
-        updated.push({ old, next, changed });
-      } else if (raw.review?.decision === 'no') {
-        // 以前已经标成「不要」、被清掉的：同一份清单再导入时不让它回来
-        continue;
-      } else added.push({ id: 'vc-' + crypto.randomUUID(), ...base, decision: '', note: raw.review?.note || '' });
-    }
+        const base = {
+          key: String(raw.key || ''),
+          lines: String(s.lines),
+          label: String(s.label || ''),
+          rowId: row.id,
+          plan: pi + 1, // 第几个方案；方案之间几选一
+          seq, // 在方案里的先后：按这个顺序接起来播
+          short: p.short, // 方案填不满时写的理由
+          title: String(raw.title || assetName(url)),
+          url,
+          page: String(raw.page || ''),
+          in: tin,
+          out: tout,
+          best: cleanBest(raw.best, tin, tout), // 精选段：通过时预填成「可用片段」；null = 整段都用（只有 v2 会没有）
+          license: String(raw.license || ''),
+          why: String(raw.why || ''),
+          need: String(s.need || ''), // 这个画面要什么画面（审核页标题下显示）
+          limits: String(raw.limitations || ''), // 画面内容只对上一部分时缺了什么
+          srcFile: srcFile || '',
+        };
+        const old = existing.find(c => c.srcFile === base.srcFile && c.lines === base.lines && c.key === base.key);
+        if (old) {
+          const changed = candidateChanged(old, { url, in: tin, out: tout });
+          // 链接或片段变了：回到待审，旧的素材关联 / 已保存状态都作废（旧文件留在磁盘上，不删）
+          const next = { ...old, ...base, ...(changed ? { decision: '', note: old.note || '' } : {}) };
+          delete next.for; // 旧记录上的 for / coverage 不再用
+          delete next.coverage;
+          if (changed) {
+            delete next.assetId;
+            delete next.savedPath;
+            delete next.decidedAt;
+            touchedShots.add(s);
+          }
+          updated.push({ old, next, changed });
+        } else if (raw.review?.decision === 'no') {
+          // 以前已经标成「不要」、被清掉的：同一份清单再导入时不让它回来
+          return;
+        } else {
+          added.push({ id: 'vc-' + crypto.randomUUID(), ...base, decision: '', note: raw.review?.note || '' });
+          touchedShots.add(s);
+        }
+      });
+    });
+  }
+  // 和项目里已有的候选比：这份清单自己的旧版本不算（重新导入同一份文件时按 lines + key 对上的就是它自己）
+  const mine = new Set([...added, ...updated.map(x => x.next)].map(c => `${c.srcFile}|${c.lines}|${c.key}`));
+  const others = existing.filter(c => !mine.has(`${c.srcFile}|${c.lines}|${c.key}`));
+  const dupes = duplicateFootageErrors(
+    [...added, ...updated.filter(x => x.changed).map(x => x.next)], // 没改过的候选本来就在项目里，不重新追究
+    others,
+    rows,
+  );
+  if (dupes.length) return { error: `候选清单里有重复画面（${dupes.length} 处）`, errors: dupes };
+  if (v !== LEGACY_VERSION && shotSeconds) {
+    const records = [...added, ...updated.map(x => x.next)];
+    const short = fillErrors(
+      doc.shots.filter(s => touchedShots.has(s)),
+      records,
+      s => {
+        const range = parseLines(s.lines);
+        const row = range && byNo.get(range.from);
+        return row ? shotSeconds(shotMembers(rows, row)) : null;
+      },
+    );
+    if (short.length) return { error: `候选清单里有方案填不满口播（${short.length} 处）`, errors: short };
   }
   return { added, updated, skipped };
 }
+const rangeOf = members => {
+  const nos = members.map(m => m.no).filter(n => n > 0);
+  if (!nos.length) return '';
+  const a = Math.min(...nos),
+    b = Math.max(...nos);
+  return a === b ? String(a) : `${a}-${b}`;
+};
+const sec1 = x => String(Math.round(x * 10) / 10);
 
-/* 通过：挂到画面上，一律当主画面（不是主画面的由用户在面板里点成备选，比反过来少点很多次）。
-   原来的占位主画面（照片等，非视频审核来的）让位成备选；别的已通过视频继续当主画面，同一句上几个主画面平分时间 */
-export function attachCandidate(c, rows, registry) {
+/* ── 方案（v3）：画面里几选一的几套视频，方案里的视频按顺序接起来播 ── */
+export const planOf = c => (Number.isSafeInteger(c?.plan) && c.plan > 0 ? c.plan : 1);
+export const PLAN_NAMES = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+export const planName = n => `方案${PLAN_NAMES[n - 1] || n}`;
+/* 一个视频能用几秒：有精选段按精选段，否则整个下载范围 */
+export function usableSeconds(c) {
+  const b = cleanBest(c.best, c.in, c.out);
+  return b ? b.out - b.in : Math.max(0, c.out - c.in);
+}
+/* 一个画面的各个方案，按方案号排：[{ plan, cands（按播放顺序）, live（没被否掉的）, okLen, liveLen, short, filled, fits }]。
+   need：这个画面的口播秒数；filled = 通过的视频已经填满，fits = 没被否掉的视频加起来够长 */
+export function shotPlans(cands, need) {
+  const map = new Map();
+  for (const c of cands) {
+    const n = planOf(c);
+    if (!map.has(n)) map.set(n, []);
+    map.get(n).push(c);
+  }
+  return [...map]
+    .sort((a, b) => a[0] - b[0])
+    .map(([plan, list]) => {
+      const ordered = [...list].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      const live = ordered.filter(c => !dropped(c.decision));
+      const ok = ordered.filter(c => c.decision === 'ok');
+      const okLen = ok.reduce((t, c) => t + usableSeconds(c), 0);
+      const liveLen = live.reduce((t, c) => t + usableSeconds(c), 0);
+      const known = Number.isFinite(need) && need > 0;
+      return {
+        plan,
+        cands: ordered,
+        live,
+        ok,
+        okLen,
+        liveLen,
+        need: known ? need : null,
+        short: ordered.find(c => c.short)?.short || '',
+        filled: known ? ok.length > 0 && okLen + FILL_EPS >= need : false,
+        fits: known ? liveLen + FILL_EPS >= need : true,
+      };
+    });
+}
+/* 每个方案都要填满口播：不够长的必须写 short，而且只有一个能填满的方案都没有时，才能交这一个不够长的 */
+function fillErrors(shots, records, needOf) {
+  const errs = [];
+  for (const s of shots) {
+    const need = needOf(s);
+    if (!(need > 0)) continue;
+    const plans = shotPlans(
+      records.filter(c => c.lines === String(s.lines)),
+      need,
+    );
+    const anyFits = plans.some(p => p.fits);
+    for (const p of plans) {
+      if (p.fits) continue;
+      const where = `lines "${s.lines}" ${planName(p.plan)}`;
+      const gap = `视频加起来 ${sec1(p.liveLen)} 秒，口播 ${sec1(need)} 秒，还差 ${sec1(need - p.liveLen)} 秒`;
+      if (anyFits) errs.push(`${where}：${gap}。这个画面已经有能填满的方案，不够长的方案不要交，删掉或者补够长`);
+      else if (plans.length > 1)
+        errs.push(`${where}：${gap}。一个能填满的方案都没有时，只能交一个不够长的方案，其他的删掉`);
+      else if (!p.short)
+        errs.push(`${where}：${gap}。请补视频填满；实在找不到，在这个方案的 short 里写明缺了什么、为什么找不到`);
+    }
+  }
+  return errs;
+}
+/* 画面现在用的是哪个方案：当主画面的那些审核通过的视频属于哪个方案（没有返回 null） */
+export function currentPlan(members, registry, cands) {
+  const byId = new Map(cands.map(c => [c.id, c]));
+  for (const u of usageList(members[0] || {})) {
+    if (u.role !== 'main') continue;
+    const c = byId.get(registry[u.assetId]?.source?.candidate);
+    if (c && c.decision === 'ok' && c.assetId === u.assetId) return planOf(c);
+  }
+  return null;
+}
+/* 主画面按方案里的先后排：审核来的视频之间按 seq 排，占它们原来的位置；别的主画面不动 */
+export function orderPlanMains(members, registry, cands) {
+  const byId = new Map(cands.map(c => [c.id, c]));
+  const candOf = u => {
+    const c = byId.get(registry[u.assetId]?.source?.candidate);
+    return c && c.assetId === u.assetId ? c : null;
+  };
+  for (const m of members) {
+    const list = usageList(m);
+    const slots = list.map((u, i) => (u.role === 'main' && candOf(u) ? i : -1)).filter(i => i >= 0);
+    const sorted = slots
+      .map(i => list[i])
+      .sort((a, b) => planOf(candOf(a)) - planOf(candOf(b)) || (candOf(a).seq ?? 0) - (candOf(b).seq ?? 0));
+    slots.forEach((slot, k) => (list[slot] = sorted[k]));
+  }
+}
+/* 改用某个方案：这个画面里审核通过的视频，属于这个方案的当主画面、其他方案的当备选（都还挂着，随时能换回来）。
+   返回有没有改动 */
+export function usePlan(rows, row, registry, cands, plan) {
+  const members = shotMembers(rows, row);
+  const ids = new Set(members.map(m => m.id));
+  const mine = cands.filter(c => ids.has(c.rowId) && c.decision === 'ok' && c.assetId);
+  if (!mine.some(c => planOf(c) === plan)) return false;
+  let changed = false;
+  for (const c of mine) {
+    const role = planOf(c) === plan ? 'main' : 'alt';
+    if (members.some(m => usageList(m).some(u => u.assetId === c.assetId && u.role !== role))) {
+      applyRole(members, c.assetId, role);
+      changed = true;
+    }
+  }
+  orderPlanMains(members, registry, cands);
+  if (changed) syncMirror(members, registry);
+  return changed;
+}
+
+/* 通过：挂到画面上，配整个画面。
+   这个画面还没在用哪个方案、或者用的就是它所在的方案：当主画面，按方案里的先后排（几个视频按各自长度接起来播）；
+   原来的占位主画面（照片等，非视频审核来的）让位成备选。
+   画面已经在用别的方案：先当备选存着，表格里切换方案就能换上（返回 current: false）。
+   cands：项目里所有候选（用来认出画面现在用的是哪个方案） */
+export function attachCandidate(c, rows, registry, cands = []) {
   const row = rows.find(r => r.id === c.rowId);
   if (!row) return { error: '找不到这个画面（句子可能被删了）' };
   const members = shotMembers(rows, row);
+  const using = currentPlan(members, registry, cands);
+  const current = using == null || using === planOf(c);
   const asset = ensureAsset(registry, remotePath(c), { kind: 'video', name: c.title });
   asset.source = { candidate: c.id, url: c.url, page: c.page, license: c.license };
   for (const m of members) {
@@ -266,25 +566,15 @@ export function attachCandidate(c, rows, registry) {
     u.clip = best ? { ...best } : { in: c.in, out: c.out };
     delete u.off;
   }
-  applyRole(members, asset.id, 'main');
-  applyFor(c, members, asset.id);
-  const demoted = resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate);
+  applyRole(members, asset.id, current ? 'main' : 'alt');
+  applySpan(members, asset.id, 0, members.length - 1);
+  const demoted = current ? resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate) : [];
+  if (current) orderPlanMains(members, registry, [...cands.filter(x => x.id !== c.id), { ...c, assetId: asset.id }]);
   const line = noteLine(c);
   if (!(row.note || '').includes(line))
     setShotField(rows, row, 'note', (row.note ? row.note.replace(/\s+$/, '') + '\n' : '') + line);
   syncMirror(members, registry);
-  return { assetId: asset.id, role: 'main', demoted };
-}
-/* 写了「配哪几句」（for）：素材只在那几句出现，和面板里「出现在 第 x 句 到 第 y 句」一样；没写 / 对不上 = 整段 */
-export function applyFor(c, members, assetId) {
-  const r = c.for ? parseLines(c.for) : null;
-  const idx = r
-    ? members
-        .map((m, i) => (m.no >= Math.min(r.from, r.to) && m.no <= Math.max(r.from, r.to) ? i : -1))
-        .filter(i => i >= 0)
-    : [];
-  if (idx.length) applySpan(members, assetId, idx[0], idx[idx.length - 1]);
-  else applySpan(members, assetId, 0, members.length - 1);
+  return { assetId: asset.id, role: current ? 'main' : 'alt', current, using, demoted };
 }
 /* 撤回通过：把这个视频从画面上拿掉，画面描述里那一行也删掉 */
 export function detachCandidate(c, rows, registry) {
@@ -419,9 +709,10 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
       best: cleanBest(raw.best, tin, tout),
       license: String(raw.license || ''),
       why: String(raw.why || ''),
-      for: raw.for != null ? String(raw.for) : '',
+      plan: planOf(raw),
+      seq: Number.isSafeInteger(raw.seq) && raw.seq >= 0 ? raw.seq : 0,
+      short: String(raw.short || ''),
       need: String(raw.need || ''),
-      coverage: raw.coverage === 'partial' ? 'partial' : '',
       limits: String(raw.limits || ''),
       srcFile: typeof raw.srcFile === 'string' ? raw.srcFile : '',
       decision: decision === 'ok' && !assetId ? '' : decision,
@@ -441,8 +732,15 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
 /* 同一候选的链接或片段改了：原来通过时挂上的素材、保存好的本地片段都不再代表这个候选 */
 export const candidateChanged = (old, next) => old.url !== next.url || old.in !== next.in || old.out !== next.out;
 
-/* 写回候选清单的内容：每个来源文件一份 */
-export function reviewPayload(cands) {
+/* 表格里当主画面的素材（写回时据此标出「正在用的方案」） */
+export function mainAssetIds(rows) {
+  const out = new Set();
+  for (const r of rows || [])
+    if (r.kind === 'line') for (const u of usageList(r)) if (u.role === 'main' && !u.off) out.add(u.assetId);
+  return out;
+}
+/* 写回候选清单的内容：每个来源文件一份。inUse：素材 id 集合，通过的视频在里面 = 它所在的方案正在用 */
+export function reviewPayload(cands, inUse = new Set()) {
   const byFile = new Map();
   for (const c of cands) {
     if (!c.srcFile) continue;
@@ -453,6 +751,7 @@ export function reviewPayload(cands) {
       decision: c.decision || '',
       note: c.note || '',
       savedPath: c.savedPath || '',
+      inUse: c.decision === 'ok' && !!c.assetId && inUse.has(c.assetId),
     });
   }
   return byFile;

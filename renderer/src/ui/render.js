@@ -1,12 +1,12 @@
 /* 渲染总入口：订阅数据事件，决定重渲染粒度（全量 / 原地刷新） */
-import { state, on, emit, renumber, visibleLineIds, rowById } from '../app/state.js';
+import { state, on, emit, update, renumber, visibleLineIds, rowById } from '../app/state.js';
 import { renderStats } from './render-stats.js';
 import { renderTable, updateRowVisual, updateSectionBadges } from './render-table.js';
 import { renderCheck, updateCheckSpans, updateCheckNote } from './render-check.js';
 import { armAnimation, animationArmed } from './base/anim.js';
 import { flipCapture, flipPlay } from './base/motion.js';
 import { closePop } from './base/popover.js';
-import { flushPendingEdits } from './base/edit-session.js';
+import { flushPendingEdits, deferRenderWhileEditing, clearDeferredRender } from './base/edit-session.js';
 import { renderSelectionOnly } from './base/selection.js';
 import { revealRow } from './base/dom.js';
 import { registerCommand, runCommand } from './base/commands.js';
@@ -52,7 +52,25 @@ function restoreAnchor(a) {
   requestAnimationFrame(fix);
 }
 
+let rendering = false;
 export function renderAll() {
+  if (rendering) return;
+  if (
+    lastRendered === `${state.projectId}|${state.view}` &&
+    deferRenderWhileEditing('main-view', '#rows, #inspector, #focusMask, #vrList', renderAll)
+  )
+    return;
+  clearDeferredRender('main-view');
+  rendering = true;
+  try {
+    flushPendingEdits();
+    paintAll();
+  } finally {
+    rendering = false;
+  }
+}
+
+function paintAll() {
   const anchor = captureAnchor();
   // 同一个项目、同一个视图里重画（筛选、删句、撤销、组成共用画面…）：记下屏幕上每句的位置，
   // 重画后从老位置滑到新位置。切项目 / 切视图 / 导入时走整页入场动画，不做这个。
@@ -145,6 +163,11 @@ function onNotes({ ids }) {
   }
 }
 
+/* 远端修改和后台任务使用同一个编辑保护：只广播刷新请求，由渲染入口等待输入结束。 */
+function onRemoteRows() {
+  update('rows');
+}
+
 export function initRender() {
   registerCommand('view:set', setView);
   registerCommand('view:sync-toggle', syncViewToggle);
@@ -159,6 +182,7 @@ export function initRender() {
   on('selection', renderSelectionOnly);
   on('marks', onMarks);
   on('notes', onNotes);
+  on('collab-remote', onRemoteRows);
   on('title', syncTitle);
   on('project-loaded', () => {
     armAnimation();

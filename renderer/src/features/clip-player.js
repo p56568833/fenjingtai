@@ -1,10 +1,12 @@
 /* 视频审核里的片段播放器：只显示建议片段这几秒的进度条、叠口播字幕、可同时放口播音频。
-   口播时间轴：片段第 0 秒对齐到它「配的那句」（候选的 for 字段；没写就是整个画面的第一句）的开头。 */
+   口播时间轴：方案里的视频按顺序接起来播，精选段的开头对齐到它在方案里排到的位置
+   （画面开头 + 前面几个没被否掉的视频的可用长度）；方案里最后一个视频配到画面末尾。 */
 import { state, rowById, lines, timeOf, renumber } from '../app/state.js';
 import { shotMembers } from '../core/shots.js';
-import { parseLines } from '../core/candidates.js';
+import { planOf, usableSeconds, cleanBest } from '../core/candidates.js';
 import { esc } from '../ui/base/dom.js';
 import { voicePlayer } from './voice.js';
+import { releaseMedia } from '../ui/base/media.js';
 
 const VOICE_PREF = 'fjz:vrVoice';
 const voiceOn = () => {
@@ -20,25 +22,44 @@ export const setVoiceOn = on => {
   } catch {}
 };
 
-/* 这个候选配的句子：for 写了且落在画面里 → 那几句；否则整个画面 */
+/* 这个候选配的句子：方案里的视频都配整个画面 */
 export function targetLines(c) {
   const lead = rowById(c.rowId);
   if (!lead) return { members: [], target: [], whole: true };
   const members = shotMembers(state.rows, lead);
-  const r = c.for ? parseLines(c.for) : null;
-  const target = r ? members.filter(m => m.no >= Math.min(r.from, r.to) && m.no <= Math.max(r.from, r.to)) : [];
-  return target.length ? { members, target, whole: false } : { members, target: members, whole: true };
+  return { members, target: members, whole: true };
 }
 
-/* 片段在口播时间轴上的位置 */
-function voWindow(c) {
+/* 这个视频在方案里排到的那段口播（绝对秒数）：画面开头 + 前面几个没被否掉的视频的可用长度；
+   方案里最后一个视频配到画面末尾。不知道时间返回 null */
+export function slotOf(c) {
   renumber();
-  const { target } = targetLines(c);
+  const { members } = targetLines(c);
+  const first = members[0] && timeOf(members[0].id);
+  if (!first) return null;
+  const last = timeOf(members[members.length - 1].id) || first;
+  const ids = new Set(members.map(m => m.id));
+  const seq = state.candidates
+    .filter(
+      x => ids.has(x.rowId) && planOf(x) === planOf(c) && (x === c || (x.decision !== 'no' && x.decision !== 're')),
+    )
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+  const k = seq.indexOf(c);
+  const start = Math.min(
+    last.end,
+    first.start + seq.slice(0, Math.max(0, k)).reduce((t, x) => t + usableSeconds(x), 0),
+  );
+  const end = k === seq.length - 1 ? last.end : Math.min(last.end, start + usableSeconds(c));
+  return { start, end };
+}
+
+/* 片段在口播时间轴上的位置：start = 视频入点对应的口播秒数（精选段开头对齐到排到的位置），targetEnd = 排到的那段的结尾 */
+function voWindow(c) {
   const dur = Math.max(0.1, c.out - c.in);
-  const first = target[0] && timeOf(target[0].id);
-  const last = target.length && timeOf(target[target.length - 1].id);
-  const start = first ? first.start : 0;
-  return { dur, start, targetEnd: last ? last.end : start + dur, ok: !!first };
+  const slot = slotOf(c);
+  if (!slot) return { dur, start: 0, targetEnd: dur, ok: false };
+  const bestIn = cleanBest(c.best, c.in, c.out)?.in ?? c.in;
+  return { dur, start: Math.max(0, slot.start - (bestIn - c.in)), targetEnd: slot.end, ok: true };
 }
 function lineAt(t) {
   for (const r of lines()) {
@@ -78,9 +99,12 @@ let active = null; // { c, card, v, w, usingVoice }
 
 export function stopClip() {
   if (!active) return;
-  active.v.pause();
-  if (active.usingVoice) voicePlayer.pause();
+  const old = active;
   active = null;
+  old.cleanup?.();
+  old.v.pause();
+  if (old.usingVoice) voicePlayer.pause();
+  releaseMedia(old.v);
 }
 
 /* 进度条：片段内的位置；句子分界画成刻度（标句号）；配的那几句画成浅色底 */
@@ -116,10 +140,15 @@ function paintNow(card, c, w, v) {
   card.querySelector('.vr-pp').textContent = v.paused ? '▶' : '❚❚';
 }
 
+/* 视频还没跳到入点（刚开始播、跳转还没完成）时，currentTime 还是 0 附近：
+   这时按「句子开头 + (视频位置 - 入点)」算口播位置会倒退几分钟，放出别处的口播。没到入点就先不放口播 */
+const atClip = (c, v) => v.currentTime >= c.in - 0.3 && v.currentTime <= c.out + 0.3;
 function syncVoice(c, w, v) {
-  if (!active?.usingVoice) return;
-  const want = w.start + (v.currentTime - c.in);
+  if (active?.v !== v || !active.usingVoice) return;
+  if (!atClip(c, v)) return voicePlayer.pause();
+  const want = w.start + Math.max(0, v.currentTime - c.in);
   if (Math.abs(voicePlayer.currentTime() - want) > 0.35) voicePlayer.seek(want);
+  if (!v.paused && !voicePlayer.isPlaying()) voicePlayer.playRange(want, w.start + w.dur);
 }
 
 /* 播放这段：一点就加载并从入点开始播；按钮和画面中间会提示「载入中…」 */
@@ -138,48 +167,75 @@ export function playClip(card, c, { onState } = {}) {
   const w = voWindow(c);
   const box = card.querySelector('[data-vr-voice]');
   const usingVoice = () => !!(box?.checked && state.voice && voicePlayer.available() && w.ok);
-  active = { c, card, v, w, usingVoice: usingVoice() };
+  const session = { c, card, v, w, usingVoice: usingVoice() };
+  active = session;
   paintTrack(card, c, w);
   const startVoice = () => {
-    active && (active.usingVoice = usingVoice());
-    if (active?.usingVoice) voicePlayer.playRange(w.start + (v.currentTime - c.in), w.start + w.dur);
+    if (active !== session) return;
+    session.usingVoice = usingVoice();
+    if (session.usingVoice && atClip(c, v))
+      voicePlayer.playRange(w.start + Math.max(0, v.currentTime - c.in), w.start + w.dur);
   };
   v.ontimeupdate = () => {
+    if (active !== session) return;
     if (v.currentTime >= c.out) {
       v.pause();
       v.currentTime = c.in;
-    }
+    } else if (v.currentTime < c.in - 0.5 && !v.seeking) v.currentTime = c.in; // 跳转没生效、从头播起来了：拉回入点
     paintNow(card, c, w, v);
     syncVoice(c, w, v);
   };
   v.onwaiting = () => {
+    if (active !== session) return;
     wait.hidden = false;
     onState?.('载入中…');
     if (active?.usingVoice) voicePlayer.pause();
   };
   v.onplaying = () => {
+    if (active !== session) return;
     wait.hidden = true;
     onState?.('↻ 重播这段');
     if (active?.v === v) startVoice();
     paintNow(card, c, w, v);
   };
   v.onpause = () => {
+    if (active !== session) return;
     if (active?.v === v && active.usingVoice) voicePlayer.pause();
     paintNow(card, c, w, v);
   };
   v.onerror = () => {
+    if (active !== session) return;
     wait.hidden = true;
     onState?.('播放失败 · 再试一次');
   };
   if (box)
     box.onchange = () => {
       setVoiceOn(box.checked);
+      if (active !== session) return;
+      session.usingVoice = usingVoice();
       if (!box.checked) voicePlayer.pause();
       else if (!v.paused) startVoice();
     };
   const go = () => {
+    if (active !== session) return;
+    // 入点比视频本身还长（比如 AI 把剪好的几秒小片段当原片给，入出点却还写原片里的时间）：跳不过去，说清楚，不要卡在结尾
+    if (Number.isFinite(v.duration) && c.in >= v.duration - 0.05) {
+      wait.hidden = false;
+      wait.classList.add('err');
+      wait.textContent = `入出点 ${fmt(c.in)}–${fmt(c.out)} 超出了这个视频的长度（${fmt(v.duration)}）：清单里的时间写错了`;
+      onState?.('片段时间写错了');
+      stopClip();
+      return;
+    }
+    wait.classList.remove('err');
+    wait.textContent = '载入中…';
     v.currentTime = c.in;
     v.play().catch(() => {});
+  };
+  session.cleanup = () => {
+    v.removeEventListener('loadedmetadata', go);
+    v.ontimeupdate = v.onwaiting = v.onplaying = v.onpause = v.onerror = null;
+    if (box) box.onchange = null;
   };
   wait.hidden = false;
   onState?.('载入中…');

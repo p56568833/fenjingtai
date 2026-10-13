@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { installAppIcon } from './app-icon.mjs';
+import { applyAppPlist } from './app-plist.mjs';
 import { shouldIgnore } from './package-filter.mjs';
 import { checkNotes, extractNotes, notesHistory, writeManifest } from './release-manifest.mjs';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +63,7 @@ async function buildOne(arch) {
   const plist = path.join(APP, 'Contents/Info.plist');
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleIdentifier', '-string', 'com.andychen.fenjingtai', plist]);
   execFileSync('/usr/bin/plutil', ['-replace', 'CFBundleName', '-string', '分镜台', plist]);
+  applyAppPlist(plist);
   // 应用分类：视频（访达「应用程序」按类别排列、启动台归类时用）
   execFileSync('/usr/bin/plutil', [
     '-replace',

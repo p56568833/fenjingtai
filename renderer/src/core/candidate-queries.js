@@ -11,10 +11,21 @@ export function candidateBatches(candidates) {
     map.get(id).cands.push(c);
   }
   const all = [...map.values()].sort((a, b) => b.at - a.at);
-  return all.map((b, i) => ({
-    ...b,
-    number: b.cands.find(c => Number.isSafeInteger(c.batchNo) && c.batchNo > 0)?.batchNo || all.length - i,
-  }));
+  const nos = all.map(
+    (b, i) => b.cands.find(c => Number.isSafeInteger(c.batchNo) && c.batchNo > 0)?.batchNo || all.length - i,
+  );
+  // 协作时两人同时导入，各自算出的批号会撞上：先导入的保留，后导入的往后顺延。
+  // 只看合并后的数据，两台电脑算出来一样
+  const taken = new Set(),
+    dups = [];
+  const oldest = all.map((_, i) => i).sort((i, j) => all[i].at - all[j].at || (all[i].id < all[j].id ? -1 : 1));
+  for (const i of oldest) {
+    if (taken.has(nos[i])) dups.push(i);
+    else taken.add(nos[i]);
+  }
+  let next = Math.max(0, ...taken);
+  for (const i of dups) nos[i] = ++next;
+  return all.map((b, i) => ({ ...b, number: nos[i] }));
 }
 
 export function retagPlan(rows, assets, candidates) {

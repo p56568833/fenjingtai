@@ -158,7 +158,11 @@ export async function runVideoReviewTests(t) {
     ...DOC,
     version: 1,
     shots: [
-      { lines: '1-3', label: '坏', cands: [{ key: 'X', title: '坏', url: 'ftp://nope', in: '1:41', out: 2, note: 1 }] },
+      {
+        lines: '1-3',
+        label: '坏',
+        plans: [{ cands: [{ key: 'X', title: '坏', url: 'ftp://nope', in: '1:41', out: 2, note: 1 }] }],
+      },
     ],
   };
   importLoadedFile({ name: '坏清单.json', ext: 'json', content: JSON.stringify(badDoc), path: '/tmp/坏清单.json' });
@@ -167,7 +171,7 @@ export async function runVideoReviewTests(t) {
     '不合格式的候选清单整份拒收，弹窗逐条写出错在哪',
     state.candidates.length === 0 &&
       $('#modalMask').classList.contains('show') &&
-      ['version 必须是数字 2', 'url 必须是', 'in 必须是秒数', 'license 必须写', '不认识的字段「note」'].every(x =>
+      ['version 必须是数字 3', 'url 必须是', 'in 必须是秒数', 'license 必须写', '不认识的字段「note」'].every(x =>
         $('#mBody').textContent.includes(x),
       ),
   );
@@ -175,7 +179,7 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t(
     '「复制给 AI」复制全部问题和格式规范',
-    copied.length === 1 && copied[0].includes('不认识的字段「note」') && copied[0].includes('分镜台候选清单格式 v2'),
+    copied.length === 1 && copied[0].includes('不认识的字段「note」') && copied[0].includes('分镜台候选清单格式 v3'),
   );
   delete window.fjtHooks.copyText;
 
@@ -280,12 +284,23 @@ export async function runVideoReviewTests(t) {
   click('#vrBatchPick');
   t('再点批次卡片收起菜单', !$('.popover'));
   t(
-    '右边按句子排：一句一行带句号和画面状态，没写配哪句的候选归在「整段」，前后句淡色露出',
-    $$('#vrList .vr-line[data-vo-no]').length === 3 &&
-      !!$(`#vrList .vr-line.whole [data-vr-id="${cand('A1').id}"]`) &&
+    '右边分两栏：左边口播一句一行带句号和画面状态，右边按播放顺序排视频；只有一个方案时不显示方案 Tab；前后句淡色露出',
+    $$('#vrList .vr-lines .vr-line[data-vo-no]').length === 3 &&
+      !!$(`#vrList .vr-plist [data-vr-id="${cand('A1').id}"]`) &&
+      $$('#vrList .vr-pitem .vr-pno')
+        .map(x => x.textContent)
+        .join('') === '①②' &&
+      !$('#vrList .vr-ptabs') &&
       $$('#vrList .vr-line[data-vo-no] .vr-cov').every(x => x.textContent.includes('待审')) &&
       !!$('#vrList .vr-ctx.after') &&
       !$('#vrList .vr-ctx.before'),
+  );
+  t(
+    '每句标出口播要几秒；方案上面一条填满进度，一段一个视频',
+    $$('#vrList .vr-line[data-vo-no] .vr-cov em').every(x => /^需 [\d.]+ 秒$/.test(x.textContent)) &&
+      $$('#vrList .vr-pfill-bar .vr-pseg').length >= 1 &&
+      $('#vrList .vr-pfill-head')?.textContent.includes('口播') &&
+      !$('#vrList .vr-also'),
   );
   click('#vrBatchMore');
   t(
@@ -417,6 +432,16 @@ export async function runVideoReviewTests(t) {
     JSON.stringify(last),
   );
 
+  t('画面填满、没有待审了：自动跳到下一个画面', $('#vrList .vr-shot')?.dataset.vrShot === String(lines()[3].id));
+  click(`#vrNav [data-vr-goto="${ids[0]}"]`);
+  await pause(30);
+  t(
+    '画面已经填满：同一方案里没审的视频收成「未采用」，不算待审',
+    !!$(`#vrList .vr-done.d-idle[data-vr-id="${cand('A2').id}"]`) && !btn('A2', 'ok'),
+  );
+  click($(`#vrList .vr-done.d-idle[data-vr-id="${cand('A2').id}"]`));
+  await pause(30);
+  t('点开「未采用」的视频还能审', !!btn('A2', 'ok'));
   click(btn('A2', 'ok'));
   await pause(30);
   const a2 = cand('A2').assetId;
@@ -428,7 +453,9 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t('撤销通过：候选回到待审，素材拿掉', !cand('A2').decision && !us(0).some(x => x.assetId === a2));
 
-  /* 意见 */
+  /* 意见（换画面回来后，审过的 A1 收成了一行：点开再写） */
+  if (!card('A1')?.querySelector('[data-vr-note]')) click(`#vrList .vr-done[data-vr-id="${cand('A1').id}"]`);
+  await pause(30);
   const note = card('A1').querySelector('[data-vr-note]');
   note.value = '再找个近景';
   note.dispatchEvent(new Event('input', { bubbles: true }));
@@ -441,10 +468,19 @@ export async function runVideoReviewTests(t) {
     cand('A1').note === '再找个近景' && writes.at(-1).results.some(r => r.note === '再找个近景'),
   );
 
-  /* 换一个 → 这个画面审完，自动跳到下一个画面 */
+  /* 换一个 → 这个画面审完，自动跳到下一个画面（A1 已经填满，撤销后的 A2 是「未采用」，点开再审） */
+  if (!btn('A2', 're')) {
+    click(`#vrNav [data-vr-goto="${ids[0]}"]`);
+    await pause(30);
+    click(`#vrList .vr-done[data-vr-id="${cand('A2').id}"]`);
+    await pause(30);
+  }
   click(btn('A2', 're'));
   await pause(30);
-  t('换一个记下来，刚审过的卡片先留在原处', cand('A2').decision === 're' && !!card('A2') && !!card('A1'));
+  t(
+    '换一个记下来，刚审过的收成一行留在原处；只有选中的那个展开',
+    cand('A2').decision === 're' && !!card('A2') && !!card('A1') && $$('#vrList .vr-cand').length <= 1,
+  );
   await pause(750);
   t(
     '这个画面审完，自动跳到下一个还有待审的画面',
@@ -766,6 +802,87 @@ export async function runVideoReviewTests(t) {
   click('#mOk');
   t('确认期间切了项目，不会删除新项目候选', JSON.stringify(state.candidates) === otherCandidates);
   storage.deleteProject(deletePid);
+
+  /* v3 方案：Tab 换着看；画面在用方案一时，方案二通过的先存成备选；表格里切换方案，主画面跟着换 */
+  storage.createProject('方案测试', parseAny('甲乙丙丁戊己庚辛壬癸。子丑寅卯辰巳午未申酉。'));
+  const planPid = state.projectId;
+  const two = lines().map(r => r.id);
+  state.multi = two;
+  state.sel = two[0];
+  state.multiMode = true;
+  update('selection');
+  click('#btnGroup');
+  click('#mOk');
+  state.multiMode = false;
+  setType(two, 'real');
+  update('rows');
+  const v3c = (key, len) => ({
+    key,
+    title: '视频 ' + key,
+    url: `https://x.org/${key}.mp4`,
+    in: 0,
+    out: len + 2,
+    best: { in: 1, out: 1 + len },
+    license: '版权未核实',
+    why: '测试',
+  });
+  const planDoc = {
+    type: 'fenjingtai-candidates',
+    version: 3,
+    project: '方案测试',
+    batch: '方案批',
+    shots: [
+      { lines: '1-2', label: '两句', plans: [{ cands: [v3c('P1a', 3), v3c('P1b', 3)] }, { cands: [v3c('P2', 6)] }] },
+    ],
+  };
+  importLoadedFile({ name: '方案.json', ext: 'json', content: JSON.stringify(planDoc), path: '/tmp/方案.json' });
+  await pause(60);
+  const tabs = () => $$('#vrList .vr-ptab');
+  t(
+    '有两个方案：右边是方案 Tab，默认看方案一，Tab 上写待审数',
+    tabs().length === 2 &&
+      tabs()[0].classList.contains('on') &&
+      tabs()[0].textContent.includes('待审 2') &&
+      !!card('P1a') &&
+      !card('P2'),
+  );
+  click(tabs()[1]);
+  await pause(30);
+  t('点方案二的 Tab：只换着看，不改表格', !!card('P2') && !card('P1a') && tabs()[1].classList.contains('on'));
+  click(tabs()[0]);
+  await pause(30);
+  setDecision(cand('P1a').id, 'ok');
+  await pause(30);
+  t(
+    '方案一通过一个：成了正在用的方案',
+    $('#vrList .vr-ptab.on .vr-puse')?.textContent === '正在用' &&
+      us(0).find(u => u.assetId === cand('P1a').assetId)?.role === 'main',
+  );
+  click(tabs()[1]);
+  await pause(30);
+  setDecision(cand('P2').id, 'ok');
+  await pause(30);
+  t(
+    '方案二通过：画面还在用方案一，先存成备选；方案二填满了，提示里能直接改用',
+    us(0).find(u => u.assetId === cand('P2').assetId)?.role === 'alt' && $('#toastAct')?.textContent === '改用方案二',
+  );
+  setView('table');
+  await pause(30);
+  const opts = () => $$('#rows .plan-switch .plan-opt');
+  t('表格里出现方案切换，当前是方案一', opts().length === 2 && opts()[0].classList.contains('on'));
+  click(opts()[1]);
+  await pause(30);
+  t(
+    '表格里改用方案二：方案二当主画面，方案一的视频挪到备选',
+    us(0).find(u => u.assetId === cand('P2').assetId)?.role === 'main' &&
+      us(0).find(u => u.assetId === cand('P1a').assetId)?.role === 'alt' &&
+      opts()[1]?.classList.contains('on'),
+  );
+  undo();
+  await pause(30);
+  t('改用方案可以撤销', us(0).find(u => u.assetId === cand('P1a').assetId)?.role === 'main');
+  storage.switchProject(original);
+  storage.deleteProject(planPid);
 
   /* 清场 */
   storage.switchProject(original);

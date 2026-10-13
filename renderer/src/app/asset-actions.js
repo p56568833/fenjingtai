@@ -261,6 +261,7 @@ export function relocateAsset(assetId, newPath, { durationSec } = {}) {
   if (!asset || !newPath) return null;
   return changeProject('重新定位素材', change => {
     const oldName = asset.name;
+    const oldPath = asset.path;
     asset.path = String(newPath).trim();
     asset.name = assetName(asset.path);
     const kind = kindOf(asset.path);
@@ -273,6 +274,7 @@ export function relocateAsset(assetId, newPath, { durationSec } = {}) {
     invalidateProbe();
 
     change.emit('assets-changed', { ids: null, kind: 'association' });
+    change.emit('asset-relocated', { moves: [[oldPath, asset.path]] });
     return { oldName, asset, adjusted };
   });
 }
@@ -292,10 +294,13 @@ export function relinkByNames(missingIds, candidates) {
   }
   if (!plan.length) return 0;
   return changeProject('批量重新定位素材', change => {
+    const moves = [];
     for (const { id, path } of plan) {
+      moves.push([state.assets[id].path, path]);
       state.assets[id].path = path;
       state.assets[id].name = assetName(path);
     }
+    change.emit('asset-relocated', { moves });
     syncMirror(state.rows, state.assets);
     invalidateProbe();
 

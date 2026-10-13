@@ -1,5 +1,5 @@
 /* 异步保存必须归属启动时的项目和候选；全部原生任务用替身，不碰真实素材。 */
-import { state, on } from '../app/state.js';
+import { state, on, rowById, types } from '../app/state.js';
 import * as storage from '../app/storage.js';
 import { parseAny } from '../core/parse.js';
 import {
@@ -13,8 +13,9 @@ import { renameProject } from '../app/actions.js';
 import { captureSaveTask, saveCandidateSegment, isCandidateBusy } from '../app/candidate-media.js';
 import { flushWriteBack } from '../app/candidate-sync.js';
 import { changeProject } from '../app/project-change.js';
-import { clearUndo, canUndo, canRedo, undo } from '../app/undo.js';
+import { clearUndo, canUndo, canRedo, undo, redo, setSnapshotHooks, rebaseHistory } from '../app/undo.js';
 import { addRefsToShot, rememberDuration } from '../app/asset-actions.js';
+import { createReplica, receiveOps, rebaseSnapshot, LOG_MAX } from '../core/collab-sync.js';
 
 const doc = url => ({
   type: 'fenjingtai-candidates',
@@ -126,6 +127,19 @@ export async function runArchitectureTests(t) {
     );
 
     c = fresh();
+    pending = begin(c);
+    changeProject(null, () => {
+      state.candidates.splice(0, 1);
+      c.note = '失败修改';
+      return false;
+    });
+    result = await complete(pending);
+    t(
+      '失败恢复保留候选对象，进行中的正常保存仍能完成',
+      result.attached && state.candidates[0] === c && c.savedPath === result.path && !c.note,
+    );
+
+    c = fresh();
     fail = true;
     result = await begin(c);
     fail = false;
@@ -195,6 +209,144 @@ export async function runArchitectureTests(t) {
       '失败修改恢复项目库共享引用',
       state.rows[0].text === text && storage.current().rows === state.rows && storage.current().rows[0].text === text,
     );
+    let writes = 0,
+      events = 0;
+    const stopWrite = storage.onProjectWrite(() => writes++);
+    const stopEvent = on('failed-change-test', () => events++);
+    const before = JSON.stringify(state);
+    const row = state.rows[0];
+    try {
+      changeProject(null, change => {
+        state.title = '失败标题';
+        state.speechRate = 9;
+        state.mediaDir = '/failed';
+        state.filter = 'none';
+        row.text = '失败正文';
+        state.rows = [];
+        change.emit('failed-change-test');
+        throw new Error('无撤销名称的修改失败');
+      });
+    } catch {}
+    t('不记撤销的失败修改也恢复数据和界面状态', JSON.stringify(state) === before && state.rows[0] === row);
+    t('失败操作不会通知保存、协作或业务订阅方', writes === 0 && events === 0 && canRedo());
+    const rowId = row.id,
+      typeId = state.types[0].id,
+      typeLabel = state.types[0].label;
+    changeProject(null, () => {
+      row.id = 999999;
+      rowById(row.id); // 在失败修改中也可能读取派生查询。
+      state.types[0].label = '失败类型';
+      types().label(typeId);
+      return false;
+    });
+    t(
+      '失败恢复使句子和类型缓存失效',
+      rowById(rowId) === row && !rowById(999999) && types().label(typeId) === typeLabel,
+    );
+
+    const backgroundId = storage.createProject('后台失败回归', parseAny('后台原文。'));
+    storage.switchProject(previous);
+    const background = storage.projectById(backgroundId),
+      backgroundBefore = JSON.stringify(background);
+    writes = 0;
+    changeProject(
+      null,
+      (change, project) => {
+        project.title = '后台失败标题';
+        project.rows[0].text = '后台失败正文';
+        project.mediaDir = '/failed';
+        return { error: '模拟后台校验失败' };
+      },
+      { projectId: backgroundId },
+    );
+    t('后台项目校验失败恢复原项目，不触发保存', JSON.stringify(background) === backgroundBefore && writes === 0);
+    storage.switchProject(backgroundId);
+    const normalizeBefore = JSON.stringify(state);
+    try {
+      changeProject(
+        '规范化失败',
+        () => {
+          state.title = '不能留下的标题';
+          state.rows = [null];
+        },
+        { normalize: true },
+      );
+    } catch {}
+    t('提交前规范化失败也恢复完整数据', JSON.stringify(state) === normalizeBefore);
+    stopWrite();
+    stopEvent();
+
+    // 日志多次裁剪后，撤销和重做仍保留对方修改；主机 / 访客都走同一条保护路径。
+    for (const role of ['host', 'guest']) {
+      fresh();
+      const rep = createReplica(state, { role });
+      const restoreHooks = setSnapshotHooks({
+        mark: () => rep.seq,
+        rebase: (data, entry) => rebaseSnapshot(rep, data, entry.mark),
+      });
+      try {
+        clearUndo();
+        const originalTitle = state.title;
+        renameProject('自己的修改');
+        undo(); // 保留一条重做历史，验证两边的栈都能补上对方修改。
+        const id = state.rows.find(r => r.kind === 'line').id;
+        for (let i = 0; i < LOG_MAX * 2 + 1; i++) {
+          receiveOps(
+            rep,
+            state,
+            { ops: [{ t: 'rf', id, k: i === 0 ? 'text' : 'note', v: i === 0 ? '同事改过的正文' : `意见 ${i}` }] },
+            {
+              beforePrune: through =>
+                rebaseHistory(
+                  state.projectId,
+                  (data, entry) => rebaseSnapshot(rep, data, entry.mark, through),
+                  through,
+                ),
+            },
+          );
+        }
+        redo();
+        t(
+          `${role} 多轮日志清理后重做仍保留同事正文`,
+          state.title === '自己的修改' && state.rows.find(r => r.id === id).text === '同事改过的正文',
+        );
+        undo();
+        t(
+          `${role} 多轮日志清理后撤销仍保留同事最新修改`,
+          state.title === originalTitle &&
+            state.rows.find(r => r.id === id).text === '同事改过的正文' &&
+            state.rows.find(r => r.id === id).note === `意见 ${LOG_MAX * 2}` &&
+            rep.log.length <= LOG_MAX,
+        );
+      } finally {
+        restoreHooks();
+        clearUndo();
+      }
+    }
+    fresh();
+    const staleRep = createReplica(state, { role: 'host' });
+    const restoreStaleHooks = setSnapshotHooks({
+      mark: () => staleRep.seq,
+      rebase: (data, entry) => rebaseSnapshot(staleRep, data, entry.mark),
+    });
+    try {
+      renameProject('过期历史不能覆盖');
+      const id = state.rows.find(r => r.kind === 'line').id;
+      for (let i = 0; i <= LOG_MAX; i++)
+        receiveOps(staleRep, state, { ops: [{ t: 'rf', id, k: 'text', v: `同事正文 ${i}` }] });
+      undo();
+      t(
+        '过期撤销被拒绝且不丢历史、不覆盖同事正文',
+        canUndo() &&
+          !canRedo() &&
+          state.title === '过期历史不能覆盖' &&
+          state.rows.find(r => r.id === id).text === `同事正文 ${LOG_MAX}`,
+      );
+    } finally {
+      restoreStaleHooks();
+      clearUndo();
+    }
+    fresh();
     clearUndo();
     const assetsBefore = Object.keys(state.assets).sort().join();
     addRefsToShot(

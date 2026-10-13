@@ -13,10 +13,13 @@ import {
 import { esc, composing, toast, readEditable } from './base/dom.js';
 import { durCellHTML } from './time-view.js';
 import { renderStats } from './render-stats.js';
+import { rowBadges } from './badges.js';
 import { registerEditFlush } from './base/edit-session.js';
 import { renderSelectionOnly } from './base/selection.js';
 import { markPopAnchor, closePop } from './base/popover.js';
 import { openTypePopover } from './popover.js';
+import { switchPlan } from '../app/candidate-actions.js';
+import { planName } from '../core/candidates.js';
 
 /* 打字时侧栏 / 徽标的刷新合并成停手后一次，长稿里每个按键不再全量刷新 */
 let wsTimer = null;
@@ -63,6 +66,12 @@ export function startEdit(el, { inserting = false } = {}) {
     if (s !== el) commitSentEdit(s);
   }
   el._inserting = inserting;
+  el._projectId = state.projectId;
+  // 改字时不标红：去掉没画面的标记，提交后重新标
+  if (el.querySelector('.gap-txt')) {
+    const plain = el.textContent;
+    el.textContent = plain;
+  }
   el.contentEditable = 'true';
   el.spellcheck = false;
   el.focus();
@@ -78,6 +87,7 @@ export function startEdit(el, { inserting = false } = {}) {
 
 function commitSentEdit(el) {
   el.contentEditable = 'false';
+  if (el._projectId && el._projectId !== state.projectId) return;
   const r = rowById(+el.dataset.id);
   const txt = el.textContent.trim();
   if (!r) return;
@@ -93,6 +103,7 @@ function commitSentEdit(el) {
     else el.innerHTML = esc(r.text); // 老句不允许被清空
   }
   el._inserting = false;
+  if (el.isConnected) rowBadges([r.id]); // 没画面的字重新标红（编辑时去掉了）
 }
 
 /* 切换视图 / 重建界面前把进行中的编辑提交掉（改字、批注、章节改名），不丢输入 */
@@ -139,9 +150,10 @@ let noteEdit = null; // {id, baseline}
 
 function onNoteFocus(el) {
   const r = rowById(+el.dataset.id);
-  noteEdit = r ? { id: r.id, baseline: r.note || '', snapped: false } : null;
+  noteEdit = r ? { projectId: state.projectId, id: r.id, baseline: r.note || '', snapped: false } : null;
 }
 function onNoteInput(el) {
+  if ((noteEdit && noteEdit.projectId !== state.projectId) || el._composing) return;
   const r = rowById(+el.dataset.id);
   if (!r) return;
   typeNote(r, readEditable(el), noteEdit).forEach(x => {
@@ -198,6 +210,20 @@ export function initEdit() {
     if (clamped) n.title = '点击展开全文';
     else n.removeAttribute('title');
   });
+
+  // 方案切换（表格里的素材格、右侧面板里都有）：换成那个方案，不选中句子、不打开面板
+  document.addEventListener(
+    'click',
+    e => {
+      const opt = e.target.closest?.('[data-use-plan]');
+      if (!opt) return;
+      e.stopPropagation();
+      const row = rowById(+opt.dataset.planRow);
+      const plan = +opt.dataset.usePlan;
+      if (row && switchPlan(row, plan)) toast(`已改用${planName(plan)} · ⌘Z 可撤销`, null, 'ok');
+    },
+    true,
+  );
 
   rows.addEventListener('click', e => {
     if (e.target.closest('[data-detail]')) return;
@@ -261,6 +287,13 @@ export function initEdit() {
     }
   });
   rows.addEventListener('input', e => {
+    if (e.target.classList.contains('note') && !e.isComposing) onNoteInput(e.target);
+  });
+  rows.addEventListener('compositionstart', e => {
+    e.target._composing = true;
+  });
+  rows.addEventListener('compositionend', e => {
+    e.target._composing = false;
     if (e.target.classList.contains('note')) onNoteInput(e.target);
   });
 

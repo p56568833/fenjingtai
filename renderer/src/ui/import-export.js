@@ -4,12 +4,12 @@ import { state, update, types, timeline } from '../app/state.js';
 import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
 import { commitProjectChange } from '../app/project-change.js';
-import { applyImport } from '../app/actions.js';
+import { applyImport, rowIdOptions } from '../app/actions.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
 import { normalizeProjectRows, reconcileDraft } from '../core/project-import.js';
 import { buildAnnotatedMd, buildAssetListMd, buildCsv, buildProjectJson } from '../core/export-doc.js';
 import { parseAny, migrateSections, mdTypes } from '../core/parse.js';
-import { normalizeTypes } from '../core/types.js';
+import { normalizeProjectData } from '../core/project-data.js';
 import { CANDIDATE_TYPE, sanitizeProjectCandidates } from '../core/candidates.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
@@ -33,7 +33,7 @@ export function previewImport(rows, title, fileTypes = null) {
 function renderImportPreview() {
   if (!pendingImport) return;
   const mode = $('#importMode').value;
-  const result = mode === 'update' ? reconcileDraft(state.rows, pendingImport.rows) : null;
+  const result = mode === 'update' ? reconcileDraft(state.rows, pendingImport.rows, rowIdOptions()) : null;
   const rows = result ? result.rows : pendingImport.rows;
   $('#importSummary').textContent = result
     ? `保留 ${result.kept} 句的标注 · ${result.review} 句新增或改过（需重新标注） · ${result.removed} 句原文未匹配。重复句子不继承标注。`
@@ -57,7 +57,7 @@ function acceptImport() {
     storage.createProject(name, rows, {}, fileTypes ? { types: fileTypes } : {});
     clearUndo();
   } else {
-    const result = mode === 'update' ? reconcileDraft(state.rows, rows).rows : rows;
+    const result = mode === 'update' ? reconcileDraft(state.rows, rows, rowIdOptions()).rows : rows;
     storage.archiveCurrentCopy('改稿前');
     applyImport(result, mode === 'update' ? state.title : name, { mode });
   }
@@ -83,7 +83,8 @@ function importProjectObject(proj, name, { from = '' } = {}) {
   if (!proj || typeof proj !== 'object' || Array.isArray(proj))
     return toast('这个 JSON 不是分镜台的项目文件', null, 'error');
   if (Number(proj.v) > 4) return toast('这个项目文件来自更新版本的分镜台，请先升级软件再导入', null, 'error');
-  const projTypes = proj.types ? normalizeTypes(proj.types) : normalizeTypes(null);
+  const data = normalizeProjectData(proj);
+  const projTypes = data.types;
   let rows;
   const info = {};
   try {
@@ -92,20 +93,18 @@ function importProjectObject(proj, name, { from = '' } = {}) {
     return toast(error.message, null, 'error');
   }
   if (!rows.length) return toast('这个 JSON 里没有句子', null, 'error');
-  const assets = proj.assets && typeof proj.assets === 'object' && !Array.isArray(proj.assets) ? proj.assets : {};
-  const candidates = sanitizeProjectCandidates(proj.candidates, {
+  const assets = data.assets;
+  const candidates = sanitizeProjectCandidates(data.candidates, {
     idMap: info.idMap,
     rowIds: new Set(rows.filter(r => r.kind === 'line').map(r => r.id)),
     assets,
   });
-  const rate = Number(proj.speechRate);
-  storage.createProject(proj.title || name, rows, assets, {
-    types: projTypes,
-    ...(proj.voice && typeof proj.voice.path === 'string' ? { voice: proj.voice } : {}),
-    ...(proj.timing && Array.isArray(proj.timing.cues) ? { timing: proj.timing } : {}),
-    ...(candidates.length ? { candidates } : {}),
-    ...(typeof proj.mediaDir === 'string' && proj.mediaDir ? { mediaDir: proj.mediaDir } : {}),
-    speechRate: rate >= 1 && rate <= 10 ? rate : 4.5,
+  storage.createProject(data.title || name, rows, assets, {
+    ...data,
+    title: data.title || name,
+    rows,
+    assets,
+    candidates,
   });
   clearUndo();
   armAnimation();
@@ -170,7 +169,7 @@ export async function doExport(kind, checked = false) {
   if (!checked && kind !== 'json' && issues.length) {
     confirmModal(
       '交稿还有待处理项',
-      `${issues.length} 个镜头存在未标注、缺画面描述、主画面缺失或片段待调整。可取消后打开交稿检查，也可带缺项导出。`,
+      `${issues.length} 个镜头存在未标注、缺画面描述、主画面缺失、画面有空白或片段待调整。可取消后打开交稿检查，也可带缺项导出。`,
       '带缺项导出',
       () => doExport(kind, true),
       { danger: false },

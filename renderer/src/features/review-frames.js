@@ -97,6 +97,8 @@ async function grab(job, signal) {
       c = orig;
       await load(c.url);
     }
+    if (Number.isFinite(v.duration) && c.in >= v.duration - 0.05)
+      throw Object.assign(new Error('入出点超出视频长度'), { outOfRange: v.duration });
     for (let i = 0; i < CELLS && valid(); i++) {
       const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / CELLS;
       cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in), signal) });
@@ -106,11 +108,13 @@ async function grab(job, signal) {
         ...Array.from({ length: CELLS - cells.length }, () => loadingCell()),
       );
     }
-  } catch {
+  } catch (error) {
     if (valid()) {
       const strip = stripOf(orig.id);
       if (strip)
-        strip.innerHTML = '<div class="vr-cell fail">截图失败（网站不让读或网络不通），点「播放这段」直接看</div>';
+        strip.innerHTML = error?.outOfRange
+          ? `<div class="vr-cell fail">入出点 ${fmtTime(c.in)}–${fmtTime(c.out)} 超出了这个视频的长度（${fmtTime(error.outOfRange)}）：清单里的时间写错了，点「换一个」让 AI 改</div>`
+          : '<div class="vr-cell fail">截图失败（网站不让读或网络不通），点「播放这段」直接看</div>';
     }
     if (frames.get(orig.id) === cached) frames.delete(orig.id);
   } finally {

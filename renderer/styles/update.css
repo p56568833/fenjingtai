@@ -37,6 +37,43 @@ body.dark .btn.update-btn:hover {
   width: min(540px, 92vw);
   padding: 26px 26px 20px;
 }
+.modal.update-modal.has-images {
+  width: min(700px, 92vw);
+}
+.upd-image {
+  margin: 14px 0 4px;
+}
+.upd-image-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--card);
+  cursor: zoom-in;
+}
+.upd-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.upd-image img[hidden],
+.upd-image-fallback[hidden] {
+  display: none;
+}
+.upd-image-fallback {
+  display: block;
+  padding: 20px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.upd-image figcaption {
+  margin-top: 7px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
 /* 顶部：图标 + 版本号 + 从哪版到哪版、更新包多大 */
 .upd-head {
   display: flex;

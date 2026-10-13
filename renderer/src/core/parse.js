@@ -1,5 +1,6 @@
 /* 导入解析：整篇口播稿 → rows；带批注 MD → rows（类型和备注一起恢复）。纯函数，无 DOM。 */
 import { DEFAULT_TYPES, normalizeTypes } from './types.js';
+import { cleanRework } from './asset-usage.js';
 
 export function splitSentences(text) {
   const parts =
@@ -99,6 +100,7 @@ export function parseAnnotatedMd(text, types = DEFAULT_TYPES) {
   if (!hits || !lines.some(known)) return null; // 不像批注稿，按普通文本处理
 
   const rows = [];
+  const idMap = new Map();
   for (const line of lines) {
     if (line === '<!-- fj-review -->') break;
     if (line.startsWith('> 交稿提示：') || TYPES_RE.test(line)) continue;
@@ -108,6 +110,7 @@ export function parseAnnotatedMd(text, types = DEFAULT_TYPES) {
         const value = JSON.parse(decodeURIComponent(meta[1])),
           last = rows[rows.length - 1];
         if (last?.kind === 'line') {
+          if (Number.isInteger(value.id) && value.id > 0 && !idMap.has(value.id)) idMap.set(value.id, last.id);
           if (typeof value.note === 'string' && last.note === value.displayNote) last.note = value.note;
           if (typeof value.groupId === 'string' && GROUP_ID.test(value.groupId)) last.groupId = value.groupId;
           if (typeof value.type === 'string' && list.some(t => t.id === value.type)) last.type = value.type;
@@ -116,6 +119,9 @@ export function parseAnnotatedMd(text, types = DEFAULT_TYPES) {
           if (['todo', 'making', 'ready'].includes(value.status)) last.status = value.status;
           if (value.time && Number.isFinite(+value.time.start) && Number.isFinite(+value.time.end))
             last.time = value.time;
+          const rework = cleanRework(value.rework);
+          if (rework) last.rework = rework;
+          if (Number.isFinite(+value.reworkOff) && +value.reworkOff > 0) last.reworkOff = +value.reworkOff;
         }
       } catch {}
       continue;
@@ -152,6 +158,12 @@ export function parseAnnotatedMd(text, types = DEFAULT_TYPES) {
       rows.push({ id: nid(), kind: 'line', text: p, note: '', type: null, para: i === 0 }),
     );
   }
+  for (const row of rows)
+    for (const usage of row.assetUsages || [])
+      if (usage?.at) {
+        if (idMap.has(usage.at.of)) usage.at = { ...usage.at, of: idMap.get(usage.at.of) };
+        else delete usage.at; // 原镜头起点已被删掉，不能继续引用别的句子。
+      }
   return rows;
 }
 

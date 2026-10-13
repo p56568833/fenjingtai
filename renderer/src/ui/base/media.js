@@ -87,12 +87,14 @@ let decoding = 0;
 const waiting = [];
 export async function withDecodeSlot(task) {
   if (decoding >= MAX_DECODES) await new Promise(resolve => waiting.push(resolve));
-  decoding++;
+  else decoding++;
   try {
     return await task();
   } finally {
-    decoding--;
-    waiting.shift()?.();
+    // 直接把名额交给队首；被唤醒的任务恢复前，新任务不能抢走这个名额。
+    const next = waiting.shift();
+    if (next) next();
+    else decoding--;
   }
 }
 

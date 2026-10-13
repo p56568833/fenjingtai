@@ -2,6 +2,7 @@
    片段范围永远写成人能读懂的 00:12–00:18 / 整段，导出后不悄悄丢失。
    ctx 通用字段：{ title, rows, issues, registry, missing, types, timeline | (speechRate, voiceDuration) } */
 import { DEFAULT_TYPES, typeIndex } from './types.js';
+import { projectData } from './project-data.js';
 import { shots, roleLabel, spanText, isRole } from './shots.js';
 import { fmtTc } from './text.js';
 import { buildTimeline, SOURCE_TEXT } from './timeline.js';
@@ -53,6 +54,7 @@ const embedUsages = (r, registry) =>
   usageList(r).map(u => {
     const a = registry[u.assetId] || {};
     return {
+      assetId: u.assetId,
       path: a.path || '',
       name: a.name || '',
       kind: a.kind || kindOf(a.path || '') || 'doc',
@@ -61,6 +63,8 @@ const embedUsages = (r, registry) =>
         : {}),
       ...(isRole(u.role) ? { role: u.role } : {}),
       ...(u.off ? { off: true } : {}),
+      ...(u.at ? { at: { ...u.at } } : {}),
+      ...(u.rework ? { rework: { ...u.rework } } : {}),
     };
   });
 
@@ -81,6 +85,7 @@ export function buildAnnotatedMd({ title, rows, issues = [], registry = {}, type
     out += `- [${tag}] ${r.text}${note.replace(/\n/g, ' / ')}\n`;
     out += `<!-- fj-meta ${encodeURIComponent(
       JSON.stringify({
+        id: r.id,
         type: r.type || null,
         groupId: r.groupId,
         note: r.note || '',
@@ -89,6 +94,8 @@ export function buildAnnotatedMd({ title, rows, issues = [], registry = {}, type
         status: r.status || 'todo',
         assetUsages: embedUsages(r, registry),
         ...(r.time ? { time: r.time } : {}),
+        ...(r.rework ? { rework: r.rework } : {}),
+        ...(r.reworkOff ? { reworkOff: r.reworkOff } : {}),
       }),
     )} -->\n`;
   }
@@ -199,19 +206,11 @@ export function buildCsv(ctx) {
 
 /* 项目 JSON（v4）：项目里的全部数据——句子、素材库、类型、字幕、口播、视频候选（含审核结果与批次）、片段保存位置。
    本地素材只记路径，不含文件本身；换电脑后路径对不上的素材会显示「文件失联」，可以重新定位 */
-export function buildProjectJson({ title, rows, assets = {}, speechRate, timing, types, voice, candidates, mediaDir }) {
+export function buildProjectJson(project) {
   return JSON.stringify(
     {
       v: 4,
-      title,
-      speechRate,
-      ...(types ? { types } : {}),
-      rows,
-      assets,
-      ...(timing ? { timing } : {}),
-      ...(voice ? { voice } : {}),
-      ...(Array.isArray(candidates) && candidates.length ? { candidates } : {}),
-      ...(mediaDir ? { mediaDir } : {}),
+      ...projectData(project, 'exchange'),
       savedAt: new Date().toISOString(),
     },
     null,

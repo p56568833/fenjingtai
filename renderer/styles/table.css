@@ -404,6 +404,13 @@ body.multi-mode .shared-scene-body {
   font-size: 11px;
   line-height: 1.3;
 }
+/* 这句没画面 / 画面只盖住一部分：没盖住的那几个字标红（位置按字数估算） */
+.sent .gap-txt {
+  color: #c82d35;
+}
+body.dark .sent .gap-txt {
+  color: #ff8e94;
+}
 .dur .tc.dur-est {
   color: var(--todo);
   cursor: help;

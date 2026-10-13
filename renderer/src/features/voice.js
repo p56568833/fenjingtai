@@ -10,7 +10,8 @@ import { fileUrl } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
 import { toast, esc, confirmModal } from '../ui/base/dom.js';
 import { probeDuration } from '../ui/base/media.js';
-import { registerCommand } from '../ui/base/commands.js';
+import { registerCommand, runCommand } from '../ui/base/commands.js';
+import { collabSession } from '../app/collab.js';
 
 const $ = s => document.querySelector(s);
 let audio = null;
@@ -233,12 +234,19 @@ function renderBar() {
   bar.hidden = !show;
   document.body.classList.toggle('has-voice', show);
   if (!show) return (bar.innerHTML = '');
-  bar.innerHTML = `<span class="vb-name">口播音频失联：${esc(state.voice.name)}</span><button class="btn" id="vbRelocate">重新定位…</button><button class="text-button" id="vbClear">移除</button>`;
+  // 局域网协作中：口播文件多半在对方电脑上，可以直接取过来；「移除」会连对方的口播一起去掉，协作时不放在这里
+  const peer = collabSession();
+  const fetch =
+    peer?.status === 'online' && state.voice.path?.startsWith('/')
+      ? `<button class="btn primary" id="vbFetch" title="通过局域网从 ${esc(peer.peer || '对方')} 的电脑拷一份到你的素材文件夹">从对方电脑取</button>`
+      : '';
+  bar.innerHTML = `<span class="vb-name">口播音频${peer ? '不在这台电脑上' : '失联'}：${esc(state.voice.name)}</span>${fetch}<button class="btn" id="vbRelocate">重新定位…</button>${peer ? '' : '<button class="text-button" id="vbClear">移除</button>'}`;
 }
 
 function initBarEvents() {
   $('#voiceBar').addEventListener('click', e => {
     const id = e.target.closest('button')?.id;
+    if (id === 'vbFetch') runCommand('collab:fetch-voice');
     if (id === 'vbRelocate') relocate();
     if (id === 'vbClear') {
       releaseAudio();
@@ -270,6 +278,7 @@ export function initVoice() {
     renderBar();
     if (state.voice) ensureAudio();
   });
+  on('collab-status', renderBar);
   // 重渲染后把「正在说」的高亮补回去
   on('rows', () => {
     playingId = null;

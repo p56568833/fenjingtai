@@ -2,7 +2,11 @@
    里面可以有多个主画面，按时间先后自动编号 ①②③…，每个占其中一段，没排到的地方就是空白（预览里黑屏）。
 
    两种排法：
-   · 按句子（默认）：每个主画面跟着它的「出现位置」（第几句到第几句）走；几个主画面落在同一段句子上时平分那段时间。
+   · 按句子（默认）：每个主画面跟着它的「出现位置」（第几句到第几句）走。
+       几个主画面配的是同一段句子（视频审核里同一个方案的视频都配整个画面）：按顺序一个接一个，视频占它可用片段那么长，
+       图片和还不知道时长的视频平分剩下的时间；跨过末尾的截到末尾，整个排在末尾之后的标 over（排不下），
+       不够长的最后一个拉到这段末尾（后面是空白）。
+       配的句子不一样、又有重叠时，重叠的那几句平分。
    · 手动：在「对着口播看画面」里拖过 / 填过秒数后，每个主画面带一个 at = {start, end, of}：
        start / end 是相对这个镜头开头的秒数，of 记下设置时镜头第一句的 id。
        镜头的第一句变了（拆分 / 解除共用 / 往前并句）时 of 对不上，自动退回按句子排，不会拿旧秒数乱放。
@@ -10,7 +14,7 @@
 
    上屏的画面 = 主画面（图片 / 视频）；一个主画面都没有时退回第一个「未分配」的画面（兼容旧项目）。
    叠加、备选不在这里排。 */
-import { isRole, shots, applySpan, sortMainsBySentence } from './shots.js';
+import { isRole, shots, applySpan, sortMainsBySentence, usageSpan } from './shots.js';
 import { usageList, kindOf } from './asset-model.js';
 import { spanOf } from './timeline.js';
 
@@ -85,8 +89,50 @@ function perSentence(items, members, tl, base) {
   return true;
 }
 
+/* 视频能用几秒：标了可用片段按片段，否则整个文件；在线视频没保存时看地址里的 #t=入,出。图片 / 还不知道时长 = null */
+export function usableLength(it) {
+  if (it.kind !== 'video') return null;
+  const c = it.usage?.clip;
+  if (c && Number.isFinite(c.in) && Number.isFinite(c.out) && c.out > c.in) return c.out - c.in;
+  const d = it.asset?.durationSec;
+  if (Number.isFinite(d) && d > 0) return d;
+  const m = String(it.asset?.path || '').match(/#t=([\d.]+),([\d.]+)/);
+  return m && +m[2] > +m[1] ? +m[2] - +m[1] : null;
+}
+/* 几个画面配的是同一段句子：按列表顺序一个接一个排，视频按长度、其余平分剩下的。返回是否用了这种排法 */
+function bySequence(items, members, tl, base) {
+  if (items.length < 2) return false;
+  const ranges = items.map(it => {
+    const sp = usageSpan(members, it.assetId);
+    return sp.empty ? '0-' + (members.length - 1) : `${sp.from}-${sp.to}`;
+  });
+  if (ranges.some(r => r !== ranges[0])) return false;
+  const [from, to] = ranges[0].split('-').map(Number);
+  const a = tl.times.get(members[from]?.id),
+    b = tl.times.get(members[to]?.id);
+  if (!a || !b) return false;
+  const s0 = a.start - base,
+    e0 = b.end - base;
+  const lens = items.map(usableLength);
+  const flex = lens.filter(x => x == null).length;
+  const known = lens.reduce((t, x) => t + (x ?? 0), 0);
+  const share = flex ? Math.max(MIN_LEN, (e0 - s0 - known) / flex) : 0;
+  let t = s0;
+  items.forEach((it, k) => {
+    it.start = t;
+    t += Math.max(MIN_LEN, lens[k] ?? share);
+    it.end = t;
+  });
+  const last = items[items.length - 1];
+  if (last.end < e0) last.end = e0; // 不够长：最后一个拉到这段末尾，后面没盖住的就是空白（按可用长度算）
+  // 太长：跨过这段末尾的那个截到末尾；整个排在末尾之后的才是排不下（over）
+  for (const it of items) if (it.start < e0 - 1e-6 && it.end > e0) it.end = e0;
+  return true;
+}
+
 /* 老办法：每个画面占它出现的那几句；时间上重叠的几个画面平分重叠的那一整段（按列表顺序先后） */
 function bySentence(items, members, tl, base) {
+  if (bySequence(items, members, tl, base)) return;
   if (perSentence(items, members, tl, base)) return;
   for (const it of items) {
     const on = members.filter(m => usageList(m).some(u => u.assetId === it.assetId && !u.off));

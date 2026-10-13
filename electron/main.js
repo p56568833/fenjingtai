@@ -10,13 +10,14 @@ const { registerFileIpc } = require('./ipc-files');
 const { registerVideoIpc } = require('./ipc-video');
 const { registerPackIpc } = require('./ipc-pack');
 const { registerUpdateIpc } = require('./ipc-update');
+const { registerCollabIpc } = require('./ipc-collab');
 
 /* 自测 / 预览只在开发环境（未打包）可用：发布版不接受 --selftest，不会开远程调试端口 */
 const IS_SELFTEST = !app.isPackaged && process.argv.includes('--selftest');
 if (!app.isPackaged && process.argv.includes('--preview'))
   app.setPath('userData', fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台预览-')));
 if (IS_SELFTEST) {
-  app.commandLine.appendSwitch('remote-debugging-port', '9222');
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.FJT_DEBUG_PORT || '9222'); // 协作测试同时起两个实例，各用一个端口
   // 自测跑在一次性沙箱数据目录里：不碰真实数据，也不和正在运行的正式实例抢单实例锁
   // （必须在 requestSingleInstanceLock 之前设置，锁就是按 userData 路径算的）
   app.setPath('userData', fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台自测-')));
@@ -90,6 +91,7 @@ const deps = { handle, win };
 registerFileIpc(deps);
 registerVideoIpc(deps);
 registerPackIpc(deps);
+registerCollabIpc({ ...deps, app });
 const { cleanStaleUpdates } = registerUpdateIpc({ handle, isSelftest: IS_SELFTEST });
 
 app.whenReady().then(() => {

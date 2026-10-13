@@ -44,7 +44,8 @@ function createMainWindow({ indexFile, isAppPage, isSelftest }) {
     },
   });
   if (!isSelftest) w.once('ready-to-show', () => w.show());
-  w.loadFile(indexFile, isSelftest ? { query: { selftest: '1' } } : {});
+  // selftest=e2e：只开调试端口、不跑内置自测（局域网协作测试用两个实例互相连）
+  w.loadFile(indexFile, isSelftest ? { query: { selftest: process.env.FJT_SELFTEST_MODE || '1' } } : {});
 
   // 导航护栏：界面只允许停在自己的 index.html；外链交给系统浏览器，任何新窗口都不开
   w.webContents.setWindowOpenHandler(({ url }) => {

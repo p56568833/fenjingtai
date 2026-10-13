@@ -172,6 +172,7 @@ export function initInspector() {
     renderInspector(true);
   };
   on('cursor', () => renderInspector());
+  on('collab-status', () => renderInspector(true)); // 局域网协作连上 / 断开：失联素材上的「从对方电脑取」跟着变
   on('voice', () => renderInspector(true));
   on('types', () => renderInspector(true));
   on('durations', () => renderInspector()); // 读到了文件时长：卡片上的「文件 / 可用」补上数（正在输入时不打断）
@@ -266,6 +267,8 @@ export function initInspector() {
     }
     const vrBtn = e.target.closest('[data-vr-open]');
     if (vrBtn) return runCommand('video:open', +vrBtn.dataset.vrOpen);
+    const fetchBtn = e.target.closest('[data-fetch-asset]');
+    if (fetchBtn) return runCommand('collab:fetch-asset', fetchBtn.dataset.fetchAsset);
     const relocate = e.target.closest('[data-relocate-usage]');
     if (relocate) {
       runCommand('assets:relocate', r, +relocate.dataset.relocateUsage, () => renderInspector(true));

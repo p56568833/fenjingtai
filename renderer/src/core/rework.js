@@ -9,6 +9,7 @@
    这个画面里有候选被通过：要求都算解决，标了不满意的旧素材挪到备选，从这一页消失。 */
 import { shotMembers, applyRole } from './shots.js';
 import { usageList } from './asset-model.js';
+import { planOf, planName } from './candidates.js';
 
 const REJECT = new Set(['no', 're']);
 export const isRejected = c => REJECT.has(c?.decision);
@@ -136,7 +137,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
     project: title,
     createdAt: new Date().toISOString(),
     reply:
-      '按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v2 写一份新的候选清单（shots[].lines 用这里的 lines）。replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。',
+      '按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v3 写一份新的候选清单（shots[].lines 用这里的 lines，每个方案都要填满口播）。rejected 里标了方案的「换一个」，就在那个方案里接替它的位置；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。',
     shots: shots.map(s => ({
       lines: rangeOf(s.members),
       text: s.members.map(m => m.text).join(''),
@@ -166,6 +167,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
         in: c.in,
         out: c.out,
         decision: DEC[c.decision],
+        plan: planName(planOf(c)),
         note: c.note || '',
         batch: batchName(c),
       })),

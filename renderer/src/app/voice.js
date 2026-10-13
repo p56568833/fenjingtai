@@ -52,7 +52,9 @@ export function clearVoice() {
 export function relocateVoice(path) {
   if (!state.voice || !isVoiceFile(path)) return false;
   return changeProject('重新定位口播音频', change => {
+    const from = state.voice.path;
     state.voice = { ...state.voice, path, name: assetName(path) };
+    change.emit('asset-relocated', { moves: [[from, path]] });
 
     change.emit('voice');
     change.emit('rows');

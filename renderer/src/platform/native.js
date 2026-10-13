@@ -63,6 +63,26 @@ export const packExtract = call('packExtract');
 export const packCancel = call('packCancel');
 export const onPackProgress = cb => n()?.onPackProgress?.(cb);
 
+/* 局域网协作 */
+export const collabMachine = call('collabMachine');
+export const collabHostStart = call('collabHostStart');
+export const collabHostUpdate = call('collabHostUpdate');
+export const collabHostStop = call('collabHostStop');
+export const collabDiscover = call('collabDiscover');
+export const collabConnect = call('collabConnect');
+export const collabSend = call('collabSend');
+export const collabClose = call('collabClose');
+export const collabAddresses = call('collabAddresses');
+export const collabFileOffer = call('collabFileOffer');
+export const collabFileFetch = call('collabFileFetch');
+export const collabFileExpect = call('collabFileExpect');
+export const collabFilePush = call('collabFilePush');
+export const collabFileCancel = call('collabFileCancel');
+export const collabFileInfo = call('collabFileInfo');
+export const collabFindFiles = call('collabFindFiles');
+export const collabFindCancel = call('collabFindCancel');
+export const onCollabEvent = cb => n()?.onCollabEvent?.(cb);
+
 /* 应用内更新 */
 export const checkUpdate = call('checkUpdate');
 export const downloadUpdate = call('downloadUpdate');

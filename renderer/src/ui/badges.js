@@ -1,11 +1,14 @@
 /* 表格行徽标：片段待调整 / 待返工 + 素材卡片（只在内容变了时重画，换了的卡片带动效）。
    卡片 HTML 在 asset-html.js，缩略图在 asset-thumbs.js，文件失联 / 时长在 asset-files.js。 */
 import { state, rowById } from '../app/state.js';
+import { shotMembers } from '../core/shots.js';
 import { usageList } from '../core/asset-model.js';
 import { pop } from './base/motion.js';
-import { assetCards } from './asset-html.js';
+import { assetCards, shotLineCoverage, coverStrip } from './asset-html.js';
 import { hydrateAssetCards } from './asset-thumbs.js';
 import { probeDurations } from './asset-files.js';
+import { esc, hiText } from './base/dom.js';
+import { charRangesForTimes } from '../core/text.js';
 
 function statusText(r) {
   const clipTodo = usageList(r).some(u => u.clip && u.clip.needsAdjust);
@@ -34,6 +37,68 @@ function animateCards(id, assets) {
   });
 }
 
+/* 每句有没有画面：已经放了画面的镜头里，没画面的句子整句字标红，只盖住一部分的把没盖住的那几个字标红
+   （句内按字数估算位置）；共用画面的标题旁边放一条「每句的画面」，一眼看出哪几句是空的 */
+function sentHtml(text, ranges) {
+  const q = state.query && text.toLowerCase().includes(state.query.toLowerCase()) ? state.query : '';
+  if (!ranges.length) return q ? hiText(text, q) : esc(text);
+  // 搜索高亮和红字可能交叠：按所有边界切开，每一小段各自包上
+  const qi = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  const cuts = new Set([0, text.length]);
+  for (const r of ranges) cuts.add(r.from).add(r.to);
+  if (qi >= 0) cuts.add(qi).add(qi + q.length);
+  const pts = [...cuts].sort((a, b) => a - b);
+  let html = '';
+  for (let k = 0; k < pts.length - 1; k++) {
+    const a = pts[k],
+      b = pts[k + 1];
+    let part = esc(text.slice(a, b));
+    if (qi >= 0 && a >= qi && b <= qi + q.length) part = `<mark>${part}</mark>`;
+    const r = ranges.find(x => a >= x.from && b <= x.to);
+    if (r) {
+      const tip = r.from === 0 && r.to === text.length ? '这句没有画面' : '这里没有画面';
+      part = `<span class="gap-txt" title="${tip}，约 ${(Math.round(r.sec * 10) / 10).toFixed(1)} 秒">${part}</span>`;
+    }
+    html += part;
+  }
+  return html;
+}
+function paintSent(sent, text, ranges) {
+  if (!sent || sent.isContentEditable) return; // 正在改这句：不标，免得光标乱跳
+  const html = ranges.length ? sentHtml(text, ranges) : null;
+  const marked = !!sent.querySelector('.gap-txt');
+  if (!html && !marked) return;
+  if (html && marked && sent._gapHtml === html) return;
+  sent.innerHTML = html ?? sentHtml(text, []);
+  sent._gapHtml = html;
+}
+function paintGaps(el, r) {
+  const members = shotMembers(state.rows, r);
+  let cov = shotLineCoverage(members);
+  // 一个画面都还没放的镜头（还在找素材）不标：满屏红色反而看不出真正漏掉的那几句
+  if (cov?.every(x => x.state === 'empty')) cov = null;
+  for (const x of cov || members.map(row => ({ row, state: 'ok', gaps: [] }))) {
+    const row = el.matches('.row') ? el : el.querySelector(`.row[data-id="${x.row.id}"]`);
+    const text = x.row.text || '';
+    paintSent(row?.querySelector('.sent'), text, charRangesForTimes(text, x.need, x.gaps));
+  }
+  const head = el.matches('.shared-scene') ? el.querySelector('.shared-scene-header') : null;
+  if (!head) return;
+  let box = head.querySelector('.scene-cover');
+  if (!cov) return box?.remove();
+  const { cells, sum, bad } = coverStrip(members, cov);
+  const html = cells; // 只放格子，几句没画面 / 差几秒看格子和悬停说明
+  if (!box) {
+    box = document.createElement('button');
+    box.className = 'scene-cover';
+    box.dataset.detail = String(r.id);
+    head.querySelector('.shared-scene-title').after(box);
+  }
+  box.classList.toggle('bad', bad);
+  box.title = bad ? `${sum}：点开在右边给这几句加画面` : '这几句都有画面';
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+
 const cardHtml = new WeakMap(); // .row-assets → 上次画进去的 HTML
 function badgeOne(el) {
   const r = rowById(+(el.dataset.owner || el.dataset.id));
@@ -58,6 +123,7 @@ function badgeOne(el) {
       animateCards(r.id, assets);
     }
   }
+  paintGaps(el, r);
 }
 
 /* ids 给了就只刷这几句所在的行 / 共用画面；不给就全部 */

@@ -2,7 +2,8 @@
    规则：改了数据就走 update() 广播，由订阅方决定重渲染粒度；这里不碰 DOM。 */
 import { emit } from './events.js';
 import { hydrateProjectAssets } from '../core/asset-model.js';
-import { normalizeTypes, typeIndex } from '../core/types.js';
+import { typeIndex } from '../core/types.js';
+import { projectData, normalizeProjectData } from '../core/project-data.js';
 import { buildTimeline } from '../core/timeline.js';
 import { syncSpansFromTimes } from '../core/shot-layout.js';
 import { speechUnits } from '../core/text.js';
@@ -12,15 +13,7 @@ export { on, emit } from './events.js';
 export const state = {
   // 当前项目
   projectId: null,
-  title: '',
-  rows: [], // {id, kind:'line'|'section', text, note?, type?, assetUsages?, groupId?, time?}
-  assets: {}, // 项目级素材库 { [assetId]: {id, kind, path, name, durationSec?} }
-  types: normalizeTypes(null), // 本项目的标注类型表（顺序 = 快捷键 1–9）
-  timing: null, // 对齐过的剪映字幕 {name, at, duration, cues}；句子上的 r.time 是对齐结果
-  voice: null, // 口播音频 {path, name, duration}
-  candidates: [], // 视频候选：[{id, key, rowId, lines, label, title, url, page, in, out, license, why, decision, note, assetId, savedPath, srcFile}]
-  mediaDir: '', // 视频片段保存位置（按项目记住）
-  speechRate: 4.5,
+  ...projectData({}),
   // 纯 UI 状态（不进撤销栈）
   filter: 'all',
   sel: null,
@@ -35,6 +28,14 @@ export const state = {
 /* 数据版本号：每次落盘（persist）都 +1，派生数据（时间轴等）据此失效重算 */
 let rev = 0;
 export const bumpRev = () => ++rev;
+
+/* 失败恢复会原地还原对象，引用可能保持不变；所有派生缓存都必须失效。 */
+export function invalidateProjectQueries() {
+  indexRows = null;
+  typesRef = null;
+  tl = null;
+  rev++;
+}
 
 /* 修改数据后广播。'rows' 全量重渲染；'selection' 只刷选中态；'view' 切视图 */
 export function update(evt = 'rows') {
@@ -118,15 +119,9 @@ export function lineSeconds(r) {
    老项目只有 r.assets 文本，hydrateProjectAssets 载入时迁移成素材库 + 使用记录（含片段范围） */
 export function loadProjectIntoState(p) {
   state.projectId = p.id;
-  state.title = p.title;
-  state.rows = p.rows;
-  state.assets = hydrateProjectAssets(p);
-  p.types = normalizeTypes(p.types);
-  state.types = p.types;
-  state.timing = p.timing && Array.isArray(p.timing.cues) ? p.timing : null;
-  state.voice = p.voice && typeof p.voice.path === 'string' ? p.voice : null;
-  state.candidates = Array.isArray(p.candidates) ? p.candidates : [];
-  state.mediaDir = typeof p.mediaDir === 'string' ? p.mediaDir : '';
+  Object.assign(p, normalizeProjectData(p));
+  hydrateProjectAssets(p);
+  Object.assign(state, projectData(p));
   // 清掉 v1.1 短暂存在过的「B roll·未细分」试验类型
   for (const r of state.rows) if (r.kind === 'line' && r.type === 'b' && !types().has('b')) r.type = null;
   state.filter = 'all';
@@ -135,7 +130,6 @@ export function loadProjectIntoState(p) {
   state.query = '';
   const first = state.rows.find(r => r.kind === 'line');
   state.sel = state.rows.some(r => r.kind === 'line' && r.id === p.cursorId) ? p.cursorId : (first?.id ?? null);
-  state.speechRate = Number(p.speechRate) >= 1 && Number(p.speechRate) <= 10 ? Number(p.speechRate) : 4.5;
   rev++;
   syncSpansFromTimes(state.rows, timeline()); // 拖过时间的画面：句子范围跟着时间走
   emit('project-loaded');

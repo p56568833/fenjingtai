@@ -334,6 +334,32 @@ await atest('下载完整原片：跟随跳转，写临时文件再改名，命�
   assert.equal(path.basename(r.path), '福特_完整原片.mp4');
   assert.equal(fs.readFileSync(r.path, 'utf8'), 'hello');
 });
+test('审核结果写回 v3 候选清单：方案里的视频也能对上，通过的写明是不是正在用的方案', () => {
+  const dir = tmp();
+  const f = path.join(dir, '候选.json');
+  fs.writeFileSync(
+    f,
+    JSON.stringify({
+      type: 'fenjingtai-candidates',
+      version: 3,
+      shots: [{ lines: '5', plans: [{ cands: [{ key: 'A' }, { key: 'B' }] }, { cands: [{ key: 'C' }] }] }],
+    }),
+  );
+  const r = vt.writeReview(
+    f,
+    [
+      { key: 'A', lines: '5', decision: 'ok', note: '', inUse: true },
+      { key: 'B', lines: '5', decision: 're', note: '太暗', inUse: false },
+      { key: 'C', lines: '5', decision: 'ok', note: '' },
+    ],
+    { now: () => 'T' },
+  );
+  assert.deepEqual(r, { ok: true, updated: 3 });
+  const [p1, p2] = JSON.parse(fs.readFileSync(f, 'utf8')).shots[0].plans;
+  assert.deepEqual(p1.cands[0].review, { decision: 'ok', note: '', inUse: true, at: 'T' });
+  assert.deepEqual(p1.cands[1].review, { decision: 're', note: '太暗', at: 'T' }, '没通过的不写 inUse');
+  assert.deepEqual(p2.cands[0].review, { decision: 'ok', note: '', inUse: false, at: 'T' });
+});
 test('审核结果写回候选清单：只改 fenjingtai-candidates 文件，按 句号|编号 对上', () => {
   const dir = tmp();
   const f = path.join(dir, '候选.json');
@@ -355,7 +381,13 @@ test('审核结果写回候选清单：只改 fenjingtai-candidates 文件，按
   );
   assert.deepEqual(r, { ok: true, updated: 1 });
   const doc = JSON.parse(fs.readFileSync(f, 'utf8'));
-  assert.deepEqual(doc.shots[0].cands[0].review, { decision: 'ok', note: '好', savedPath: '/x.mp4', at: 'T' });
+  assert.deepEqual(doc.shots[0].cands[0].review, {
+    decision: 'ok',
+    note: '好',
+    savedPath: '/x.mp4',
+    inUse: false,
+    at: 'T',
+  });
   assert.equal(doc.shots[0].cands[1].review, undefined);
   assert.equal(doc.reviewedAt, 'T');
   const other = path.join(dir, '项目.json');
@@ -641,7 +673,13 @@ test('更新说明格式：只用【新增】【支持】【优化】【修复�
   bad('• 一条', /先有分组标题/, '条目要在分组下面');
   bad('【新增】\n\n【修复】\n• 一条', /没有条目/, '空分组不写');
   bad('【新增】\n• ' + '字'.repeat(41), /每条不超过/, '每条有字数上限');
-  bad('【新增】\n' + '• 一条\n'.repeat(11), /最多 10 条/, '一版有条数上限');
+  assert.deepEqual(checkNotes('# 分镜台 2.0.0\n【新增】\n' + '• 一条\n'.repeat(12), '2.0.0'), [], '条数不设上限');
+  assert.deepEqual(
+    checkNotes('# 分镜台 2.0.0\n【新增】\n• 一条\n![配对码加入](https://example.com/pairing.png)', '2.0.0'),
+    [],
+    '可在分类内附功能图片，不计为更新条目',
+  );
+  bad('【新增】\n• 一条\n![图片](javascript:alert(1))', /以「• 」开头/, '图片不能使用脚本地址');
   assert.match(checkNotes(ok, '9.9.9')[0], /没有「# 分镜台 9\.9\.9」/);
   // 当前版本的真实说明必须合格（以前发过的旧版本不查）
   const real = fs.readFileSync(new URL('../UPDATE-NOTES.md', import.meta.url), 'utf8');
@@ -987,6 +1025,249 @@ await atest('项目打包 ZIP：取消后不留 .part；解压中途取消报「
     ]),
     /重名/,
   );
+});
+
+await atest(
+  '协作认文件：不看文件名，大小 + 首尾指纹一致才算同一个；子文件夹也找；同名不同内容不认；可取消',
+  async () => {
+    const { fingerprint, findByContent } = require('../electron/file-match.js');
+    const dir = tmp();
+    try {
+      const big = Buffer.alloc(3 * 1024 * 1024, 7);
+      big.write('开头', 0);
+      big.write('结尾', big.length - 10);
+      const src = path.join(dir, '对方', 'A001.mov');
+      fs.mkdirSync(path.dirname(src));
+      fs.writeFileSync(src, big);
+      fs.writeFileSync(path.join(dir, '对方', 'note.txt'), '小文件');
+      const want = await fingerprint(src);
+      const small = await fingerprint(path.join(dir, '对方', 'note.txt'));
+      assert.equal(want.size, big.length);
+      // 本机：改了名、放在深层子文件夹；另有一个同名、同大小但结尾不同的文件
+      const mine = path.join(dir, '我的', '项目', '2024', '素材', '第一天');
+      fs.mkdirSync(mine, { recursive: true });
+      fs.writeFileSync(path.join(mine, '改过名.mov'), big);
+      const fake = Buffer.from(big);
+      fake.write('不同', fake.length - 10);
+      fs.mkdirSync(path.join(dir, '我的', '别处'));
+      fs.writeFileSync(path.join(dir, '我的', '别处', 'A001.mov'), fake);
+      fs.writeFileSync(path.join(dir, '我的', '.隐藏.mov'), big);
+      const r = await findByContent({ dirs: [path.join(dir, '我的')], wants: [want, small, null] });
+      assert.deepEqual(r.found, { 0: path.join(mine, '改过名.mov') });
+      assert.equal(r.canceled, false);
+      // 大小差一个字节就不认（原文件删掉，只剩短一字节的）
+      const shorter = path.join(dir, '我的', 'shorter.mov');
+      fs.writeFileSync(shorter, big.subarray(0, big.length - 1));
+      fs.rmSync(path.join(mine, '改过名.mov'));
+      assert.deepEqual((await findByContent({ dirs: [path.join(dir, '我的')], wants: [want] })).found, {});
+      // 取消：一开始就取消，什么都不找
+      const c = await findByContent({ dirs: [path.join(dir, '对方')], wants: [want], isCanceled: () => true });
+      assert.deepEqual(c.found, {});
+      assert.equal(c.canceled, true);
+      // 相对路径 / 不存在的文件夹直接跳过
+      assert.deepEqual((await findByContent({ dirs: ['对方', path.join(dir, '没有')], wants: [want] })).found, {});
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+await atest('局域网协作网络层：主机广播 → 访客发现 → 连上收发消息 → 停止共享后从列表消失', async () => {
+  const { createCollabNet } = require('../electron/collab-net.js');
+  const discoveryPort = 47000 + Math.floor(Math.random() * 900);
+  const servicePort = 0; // 测试用随机端口
+  const hostEvents = [],
+    guestEvents = [];
+  const waitFor = (list, pred, ms = 4000) =>
+    new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        const hit = list.find(pred);
+        if (hit) return resolve(hit);
+        if (Date.now() - t0 > ms) return reject(new Error('等不到事件：' + JSON.stringify(list.map(e => e.type))));
+        setTimeout(tick, 20);
+      };
+      tick();
+    });
+  const host = createCollabNet({
+    emit: e => hostEvents.push(e),
+    discoveryPort,
+    servicePort,
+    announceMs: 100,
+    extraTargets: ['127.0.0.1'],
+  });
+  const guest = createCollabNet({ emit: e => guestEvents.push(e), discoveryPort, servicePort });
+  try {
+    assert.equal(await guest.startDiscovery(), true);
+    const info = await host.startHost({ proto: 1, hostId: 'h1', name: '主机', shares: [{ id: 's1', title: '稿子' }] });
+    assert.ok(info.port > 0);
+    const found = await waitFor(guestEvents, e => e.type === 'hosts' && e.hosts.some(h => h.hostId === 'h1'));
+    const h = found.hosts.find(x => x.hostId === 'h1');
+    assert.equal(h.port, info.port);
+    assert.deepEqual(h.shares, [{ id: 's1', title: '稿子' }]);
+    const r = await guest.connect({ address: '127.0.0.1', port: info.port });
+    assert.ok(r.id, r.error);
+    // 大消息（模拟整份项目）也能完整收到，多条消息按顺序到
+    const big = {
+      type: 'welcome',
+      doc: { rows: Object.fromEntries(Array.from({ length: 3000 }, (_, i) => [i, { text: '句'.repeat(40) }])) },
+    };
+    assert.equal(guest.send(r.id, { type: 'hello', n: 1 }), true);
+    assert.equal(guest.send(r.id, { type: 'ops', n: 2 }), true);
+    // 连进来的连接要等第一行到了才知道是消息连接还是传文件，所以 open 在第一条消息之前一刻才报
+    const opened = await waitFor(hostEvents, e => e.type === 'open' && e.incoming);
+    await waitFor(hostEvents, e => e.type === 'message' && e.msg.n === 2);
+    assert.deepEqual(
+      hostEvents.filter(e => e.type === 'message').map(e => e.msg.n),
+      [1, 2],
+    );
+    host.send(opened.id, big);
+    const got = await waitFor(guestEvents, e => e.type === 'message' && e.msg.type === 'welcome');
+    assert.equal(Object.keys(got.msg.doc.rows).length, 3000);
+    host.stopHost();
+    await waitFor(guestEvents, e => e.type === 'hosts' && !e.hosts.some(x => x.hostId === 'h1'));
+    guest.close(r.id);
+    await waitFor(guestEvents, e => e.type === 'close' && e.id === r.id);
+    const refused = await guest.connect({ address: '127.0.0.1', port: info.port }, 1000);
+    assert.ok(refused.error);
+  } finally {
+    host.dispose();
+    guest.dispose();
+  }
+});
+
+await atest(
+  '局域网协作传文件：访客从主机取、主机从访客取；重名自动加 (2)；取过一次作废；对方没有这个文件时报清楚',
+  async () => {
+    const { createCollabNet } = require('../electron/collab-net.js');
+    const events = [];
+    const host = createCollabNet({ emit: e => events.push(e), servicePort: 0, discoveryPort: 47990 });
+    const guest = createCollabNet({ emit: () => {} });
+    const dir = tmp();
+    const hostDir = path.join(dir, '主机'),
+      guestDir = path.join(dir, '访客');
+    fs.mkdirSync(hostDir);
+    fs.mkdirSync(guestDir);
+    const big = Buffer.alloc(3 * 1024 * 1024 + 17);
+    for (let i = 0; i < big.length; i++) big[i] = (i * 31) & 255;
+    fs.writeFileSync(path.join(hostDir, '封面 视频.mp4'), big);
+    fs.writeFileSync(path.join(guestDir, '封面 视频.mp4'), 'guest 已经有一个同名文件');
+    fs.writeFileSync(path.join(guestDir, '录音.wav'), 'voice-bytes');
+    try {
+      const { port } = await host.startHost({ proto: 1, hostId: 'h', name: '主机', shares: [] });
+      // 访客取主机的文件
+      const offer = await host.offerFile('t1', path.join(hostDir, '封面 视频.mp4'));
+      assert.equal(offer.size, big.length);
+      const got = await guest.fetchFile({ address: '127.0.0.1', port, token: 't1', dir: guestDir, name: offer.name });
+      assert.ok(got.ok, got.error);
+      assert.equal(path.basename(got.path), '封面 视频 (2).mp4', '重名不覆盖');
+      assert.ok(fs.readFileSync(got.path).equals(big));
+      assert.ok(!fs.readdirSync(guestDir).some(f => f.endsWith('.part')));
+      // 同一个 token 不能再取
+      const again = await guest.fetchFile({ address: '127.0.0.1', port, token: 't1', dir: guestDir, name: 'x' });
+      assert.match(again.error, /过期/);
+      // 不存在的文件
+      assert.match((await host.offerFile('t2', path.join(hostDir, '没有.mp4'))).error, /找不到/);
+      // 主机取访客的文件
+      const waiting = host.expectFile({ token: 't3', dir: hostDir, name: '录音.wav' });
+      const pushed = await guest.pushFile({
+        address: '127.0.0.1',
+        port,
+        token: 't3',
+        file: path.join(guestDir, '录音.wav'),
+      });
+      assert.ok(pushed.ok, pushed.error);
+      const recv = await waiting;
+      assert.ok(recv.ok, recv.error);
+      assert.equal(fs.readFileSync(recv.path, 'utf8'), 'voice-bytes');
+      assert.ok(events.some(e => e.type === 'file-progress' && e.token === 't3'));
+      // 没登记过的送文件连接直接断开
+      const stray = await guest.pushFile({
+        address: '127.0.0.1',
+        port,
+        token: 'nope',
+        file: path.join(guestDir, '录音.wav'),
+      });
+      assert.ok(stray.ok || stray.error);
+      assert.ok(!fs.readdirSync(hostDir).some(f => f.endsWith('.part')));
+      // 普通消息连接照常可用
+      const c = await guest.connect({ address: '127.0.0.1', port });
+      assert.ok(c.id);
+      guest.send(c.id, { type: 'hello' });
+      const t0 = Date.now();
+      while (!events.some(e => e.type === 'message' && e.msg.type === 'hello') && Date.now() - t0 < 3000)
+        await new Promise(r => setTimeout(r, 20));
+      assert.ok(events.some(e => e.type === 'message' && e.msg.type === 'hello'));
+    } finally {
+      host.dispose();
+      guest.dispose();
+    }
+  },
+);
+
+await atest('更新下载写盘失败能返回错误并取消读取，进程不崩溃', async () => {
+  const dir = tmp();
+  let canceled = false;
+  const dest = path.join(dir, '不存在的目录', '更新.zip');
+  const result = await up.downloadUpdate({ url: 'https://x/u.zip' }, dest, {
+    fetchImpl: async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(128 * 1024));
+          },
+          cancel() {
+            canceled = true;
+          },
+        }),
+      ),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /ENOENT/);
+  assert.equal(canceled, true);
+  assert.deepEqual(fs.readdirSync(dir), []);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+await atest('外来 ZIP 虚报项目大小被拒绝，素材超出声明大小的块不落盘', async () => {
+  const dir = tmp();
+  const lie = (data, name, usize) => {
+    const buffer = Buffer.from(data);
+    let at = buffer.readUInt32LE(buffer.length - 22 + 16);
+    const count = buffer.readUInt16LE(buffer.length - 22 + 10);
+    for (let i = 0; i < count; i++) {
+      const length = buffer.readUInt16LE(at + 28);
+      if (buffer.subarray(at + 46, at + 46 + length).toString('utf8') === name) {
+        buffer.writeUInt32LE(usize, at + 24);
+        buffer.writeUInt32LE(usize, buffer.readUInt32LE(at + 42) + 22);
+      }
+      at += 46 + length + buffer.readUInt16LE(at + 30) + buffer.readUInt16LE(at + 32);
+    }
+    return buffer;
+  };
+  try {
+    const projectZip = path.join(dir, 'project.zip');
+    fs.writeFileSync(
+      projectZip,
+      lie(
+        zip({ [pack.PROJECT_ENTRY]: JSON.stringify({ title: 'x'.repeat(1024 * 1024), rows: [] }) }),
+        pack.PROJECT_ENTRY,
+        100,
+      ),
+    );
+    await assert.rejects(pack.inspectPack(projectZip), /大小不符/);
+    const assetZip = path.join(dir, 'asset.zip');
+    fs.writeFileSync(
+      assetZip,
+      lie(zip({ [pack.PROJECT_ENTRY]: '{}', '素材/a.txt': 'x'.repeat(1024 * 1024) }), '素材/a.txt', 100),
+    );
+    const out = path.join(dir, 'out');
+    fs.mkdirSync(out);
+    await assert.rejects(pack.extractPack(assetZip, out), /大小不符/);
+    assert.ok(fs.statSync(path.join(out, '素材', 'a.txt')).size <= 100);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 console.log(`${count} 项主进程回归通过`);

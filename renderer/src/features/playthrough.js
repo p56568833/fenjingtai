@@ -36,6 +36,13 @@ let segEnd = 0; // 这段画面排到哪里；之后的自然停顿里视频接�
 let trackUnit = -1; // 镜头轨现在画的是哪个镜头
 let pick = null; // 镜头轨上选中的画面（assetId）
 let drag = null; // 正在拖的色块
+let dragCleanup = null;
+function clearDrag() {
+  const cleanup = dragCleanup;
+  dragCleanup = null;
+  drag = null;
+  cleanup?.();
+}
 let editMsg = ''; // 填的秒数被前后画面挡住时的提示（只显示一次）
 let media = null;
 
@@ -360,6 +367,13 @@ function onLaneDown(e) {
     return Math.abs(hit - x) <= tol ? hit : x;
   };
   drag = { k, it, mode, x0: e.clientX, s0: it.start, e0: Math.min(it.end, dur), moved: false, cur: null };
+  dragCleanup = () => {
+    lane.onpointermove = lane.onpointerup = lane.onpointercancel = lane.onlostpointercapture = null;
+    block.classList.remove('dragging');
+    try {
+      if (lane.hasPointerCapture(e.pointerId)) lane.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
   block.classList.add('dragging');
   try {
     lane.setPointerCapture(e.pointerId);
@@ -385,10 +399,9 @@ function onLaneDown(e) {
     block.style.width = `${((Math.min(drag.cur.end, dur) - drag.cur.start) / dur) * 100}%`;
   };
   lane.onpointerup = () => {
-    lane.onpointermove = lane.onpointerup = null;
     const d = drag;
-    drag = null;
-    block.classList.remove('dragging');
+    clearDrag();
+    if (!d) return;
     if (!d.moved || !d.cur) {
       // 只是点一下：选中它，停着的时候顺便跳到它开头看一眼
       renderTrack(trackUnit);
@@ -397,6 +410,13 @@ function onLaneDown(e) {
     }
     commitTimes({ assetId: it.assetId, ...d.cur }, mode === 'move' ? '移动画面时间' : '调整画面出现时间');
     if (!playing) seek(u.start + (mode === 'end' ? Math.max(d.cur.start, d.cur.end - 0.1) : d.cur.start) + 0.01);
+  };
+  lane.onpointercancel = lane.onlostpointercapture = () => {
+    clearDrag();
+    if (open) {
+      renderTrack(trackUnit);
+      refreshSoon();
+    }
   };
 }
 
@@ -601,6 +621,7 @@ function openPlaythrough(fromId, { only = false } = {}) {
 
 export function closePlaythrough() {
   if (!open) return;
+  clearDrag();
   stop();
   open = false;
   untick?.();

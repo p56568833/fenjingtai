@@ -1,6 +1,8 @@
 /* 素材的样子：表格素材卡片、右面板素材条目、句子条、够不够提示（纯拼 HTML，不碰 DOM）。
    数据在 core/asset-model.js（素材库 + 使用记录 + 片段）。 */
 import { state, timeline } from '../app/state.js';
+import { shotLineCoverage, shotSeconds } from '../app/line-coverage.js';
+import { shotPlans, currentPlan, planOf, planName } from '../core/candidates.js';
 import { layoutShot, circled, validAt } from '../core/shot-layout.js';
 import { shotCoverage } from '../core/coverage.js';
 import { spanOf } from '../core/timeline.js';
@@ -8,8 +10,9 @@ import { fmtTime } from '../core/text.js';
 import { shots, shotMembers, spanText, usageSpan, ROLES, ROLE_ORDER } from '../core/shots.js';
 import { usageList, usagePath, assetName as baseName, kindOf, KIND_LABEL, clipText } from '../core/asset-model.js';
 import { esc } from './base/dom.js';
+import { collabSession } from '../app/collab.js';
 
-export { baseName as assetName };
+export { baseName as assetName, shotLineCoverage };
 
 /* 共用画面标签：第 x–y 句共用一个画面 */
 export function sharedScenes(rows) {
@@ -84,6 +87,22 @@ export function orderedUsages(r) {
 }
 const roleClass = role => (role in ROLES ? `role-${role}` : 'role-none');
 
+/* 方案切换：这个画面有两个以上方案都有通过的视频时显示，点一下表格、连播预览、导出都换成那个方案 */
+export function planSwitchHTML(members) {
+  const ids = new Set(members.map(m => m.id));
+  const ok = (state.candidates || []).filter(c => ids.has(c.rowId) && c.decision === 'ok' && c.assetId);
+  const plans = [...new Set(ok.map(planOf))].sort((a, b) => a - b);
+  if (plans.length < 2) return '';
+  const using = currentPlan(members, state.assets || {}, state.candidates || []);
+  const lead = members[0].id;
+  return `<div class="plan-switch" role="group" aria-label="方案">${plans
+    .map(
+      n =>
+        `<button class="plan-opt${n === using ? ' on' : ''}" data-use-plan="${n}" data-plan-row="${lead}" aria-pressed="${n === using}" title="${n === using ? '正在用这个方案' : `改用${planName(n)}：表格、连播预览、导出都换成它`}">${planName(n)}</button>`,
+    )
+    .join('')}</div>`;
+}
+
 export function assetCards(r) {
   const registry = state.assets || {};
   const usages = usageList(r);
@@ -113,7 +132,7 @@ export function assetCards(r) {
   const altBtn = alts.length
     ? `<button class="asset-alts" data-detail="${r.id}" title="${esc(alts.map(x => (registry[x.u.assetId] || x.u).name || '').join('\n'))}">备选 ${alts.length} 个 · 查看</button>`
     : '';
-  return cards + altBtn;
+  return planSwitchHTML(members) + cards + altBtn;
 }
 
 /* 面板里每条素材的句子条：组里每句一格（宽度按这句口播的秒数），点亮 = 这个画面配这几句；右边「备选」= 先存着不上屏 */
@@ -149,19 +168,35 @@ function lineControls(u, index, members, layout, it) {
   </div>`;
 }
 
-/* 面板顶部：组里每句配了几个画面，红色 = 这句没画面（播出来是黑屏） */
-function lineOverview(members) {
-  if (members.length < 2) return '';
-  const tl = timeline();
-  const cells = members
-    .map(m => {
-      const n = usageList(m).filter(u => u.role !== 'alt' && u.role !== 'overlay' && !u.off).length;
-      const sec = secOf(tl, m);
-      return `<span class="lo-cell${n ? '' : ' empty'}" style="flex:${Math.max(0.6, sec).toFixed(2)}" title="第 ${m.no} 句 · ${(Math.round(sec * 10) / 10).toFixed(1)} 秒 · ${n ? `${n} 个画面` : '没有画面'}">${n ? (members.length > 10 ? String(m.no).slice(-2) : m.no) : '空'}</span>`;
+const sec1 = x => (Math.round(x * 10) / 10).toFixed(1);
+/* 每句的画面条：一句一格（宽度按口播秒数）。绿 = 有画面；橙 = 只盖住一部分（绿色那截是盖住的比例）；红「空」= 没画面，播出来是黑屏 */
+export function coverStrip(members, cov) {
+  const short = members.length > 10; // 句子多、格子窄：只写句号后两位，完整的悬停看
+  const cells = cov
+    .map(x => {
+      const no = short ? String(x.row.no).slice(-2) : x.row.no;
+      const got = x.need ? Math.round((x.got / x.need) * 100) : 100;
+      const tip =
+        x.state === 'ok'
+          ? `第 ${x.row.no} 句 · ${sec1(x.need)} 秒 · 有画面`
+          : x.state === 'part'
+            ? `第 ${x.row.no} 句 · ${sec1(x.need)} 秒 · 画面只盖住 ${sec1(x.got)} 秒，后面 ${sec1(x.need - x.got)} 秒是空的`
+            : `第 ${x.row.no} 句 · ${sec1(x.need)} 秒 · 没有画面（播出来是黑屏）`;
+      return `<span class="lo-cell ${x.state}" style="flex:${Math.max(0.6, x.need).toFixed(2)};--got:${got}%" title="${esc(tip)}">${x.state === 'empty' ? '空' : no}</span>`;
     })
     .join('');
-  const empty = members.filter(m => !usageList(m).some(u => u.role !== 'alt' && u.role !== 'overlay' && !u.off)).length;
-  return `<div class="line-overview"><div class="lo-head">每句的画面${empty ? `<b>${empty} 句没画面</b>` : ''}</div><div class="lo-strip">${cells}</div></div>`;
+  const empty = cov.filter(x => x.state === 'empty').length;
+  const part = cov.filter(x => x.state === 'part').length;
+  const sum = [empty ? `${empty} 句没画面` : '', part ? `${part} 句画面不够长` : ''].filter(Boolean).join(' · ');
+  return { cells: `<div class="lo-strip">${cells}</div>`, sum, bad: !!(empty || part) };
+}
+/* 面板顶部：组里每句有没有画面 */
+function lineOverview(members) {
+  if (members.length < 2) return '';
+  const cov = shotLineCoverage(members);
+  if (!cov) return '';
+  const { cells, sum } = coverStrip(members, cov);
+  return `<div class="line-overview"><div class="lo-head">每句的画面${sum ? `<b>${sum}</b>` : ''}</div>${cells}</div>`;
 }
 
 /* 面板里上屏画面的先后：和前一个 / 后一个对调（①② 换位置） */
@@ -179,17 +214,22 @@ function orderControls(it, layout) {
 const ICON_FIND =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>';
 
+const ICON_FETCH = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-4-4 4 4 4-4M5 19h14"/></svg>';
+
 export function inspectorAssets(r, { missing } = {}) {
   const registry = state.assets || {};
   const usages = usageList(r);
   const members = shotMembers(state.rows, r);
   const ids = new Set(members.map(m => m.id));
   const cands = (state.candidates || []).filter(c => ids.has(c.rowId));
-  const todo = cands.filter(c => !c.decision).length;
+  // 已经有方案填满了：别的没审的视频算「未采用」，不再提示待审
+  const todo = shotPlans(cands, shotSeconds(members)).some(p => p.filled) ? 0 : cands.filter(c => !c.decision).length;
   const vr = cands.length
     ? `<button class="vr-open${todo ? ' has-todo' : ''}" data-vr-open="${r.id}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10.5 5-3v9l-5-3"/></svg><span class="vr-open-main">视频候选 ${cands.length} 个</span>${todo ? `<b>${todo} 个待审</b>` : ''}<span class="vr-open-go">去审核<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4.5 3 3 3-3 3"/></svg></span></button>`
     : '';
   if (!usages.length) return vr + '<p class="asset-none">尚未关联素材</p>';
+  const planSwitch = planSwitchHTML(members);
+  const peer = collabSession(); // 局域网协作中：失联的文件可以从对方电脑取
   // 每个上屏画面的编号和出现秒数（相对这段口播开头）
   const layout = layoutShot(registry, members, timeline());
   const placed = new Map((layout?.items || []).map(it => [it.assetId, it]));
@@ -197,6 +237,7 @@ export function inspectorAssets(r, { missing } = {}) {
   const sec = x => (Math.round(x * 10) / 10).toFixed(1);
   return (
     vr +
+    planSwitch +
     lineOverview(members) +
     (usages.some(u => !(u.role in ROLES))
       ? `<button class="asset-mini auto-roles" id="autoRoles">还有素材未分配 · 第一个上屏，其余放备选</button>`
@@ -207,6 +248,7 @@ export function inspectorAssets(r, { missing } = {}) {
         const path = a.path || '';
         const kind = a.kind || kindOf(path) || 'doc';
         const gone = missing ? missing.has(path) : false;
+        const fetchable = gone && peer?.status === 'online' && path.startsWith('/');
         const bits = [KIND_LABEL[kind] || '素材'];
         const cov = gone ? null : covers.get(u.assetId);
         if (u.clip && !cov) bits.push(`片段 ${clipText(u.clip)}`);
@@ -229,7 +271,7 @@ export function inspectorAssets(r, { missing } = {}) {
         ${thumbHTML(path, kind)}
         <span class="asset-caption"><strong>${esc(a.name || baseName(path))}</strong><small>${esc(stateLine)}</small>${coverHTML(cov)}</span>
       </button>
-      ${gone ? `<div class="asset-actions"><button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button></div>` : ''}
+      ${gone ? `<div class="asset-actions">${fetchable ? `<button class="asset-mini" data-fetch-asset="${esc(u.assetId)}" title="这个文件在 ${esc(peer.peer || '对方')} 的电脑上：通过局域网拷一份到你自己的素材文件夹">${ICON_FETCH}<span>从对方电脑取</span></button>` : ''}<button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button></div>` : ''}
 
       ${lineControls(u, index, members, layout, it)}
       <button class="rework-btn${u.rework ? ' on' : ''}" data-rework-usage="${index}" title="${u.rework ? '点开修改意见，或者不用换了' : '写下哪里不满意，生成返工单交给 AI 找新的'}">${

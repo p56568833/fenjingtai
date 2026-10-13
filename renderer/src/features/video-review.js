@@ -7,8 +7,9 @@
    审核页是一个「收件箱」，和表格共用顶栏：
    · 批次：每次导入算一批。左栏顶上固定一张当前批次卡片（第 N 批 · 日期 · 待审数 · 进度条），点它在菜单里
      换批次 / 导入新批次；卡片的「⋯」里是更换保存位置、删除此批次。卡片下面是这一批的全部画面。
-   · 右边按句子排：每句原文下面直接挂配它的候选，句尾标这句有没有画面（有 / 只覆盖一部分 / 待审 / 还缺）；
-     截图只给右边这几个候选截。
+   · 右边分两栏：左边口播一句一行（标这句有没有画面），右边是方案——几个方案时用 Tab 换着看，
+     方案上面一条填满进度，下面按播放顺序 ①②③ 排视频；聚焦哪个视频，左边亮它排到的那几句。
+     画面已经填满后，别的没审的视频收成「未采用」。截图只给正在看的方案里的候选截。
    · 审完就走：审过的候选收成一行（能撤回），不再有「已通过」页——通过的结果在表格的画面上看；
      「不要」的在待返工里保留；画面有候选通过后，离开审核页时清掉已写回清单的否决项。
    · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
@@ -21,6 +22,7 @@ import {
   purgeRejectedCandidates,
   setReworkNote as updateReworkNote,
   dismissShotRework,
+  switchPlan,
 } from '../app/candidate-actions.js';
 import { flushWriteBack, writeBackFailures } from '../app/candidate-sync.js';
 import { isCandidateBusy, relinkSavedClips, initCandidateMedia } from '../app/candidate-media.js';
@@ -42,11 +44,13 @@ import {
 } from './review-frames.js';
 import { shotMembers } from '../core/shots.js';
 import { assetName } from '../core/asset-model.js';
-import { CANDIDATE_TYPE, CANDIDATE_VERSION } from '../core/candidates.js';
-import { targetLines, togglePause, seekTrack, stopAllVideos, stopClip, setVoiceOn } from './clip-player.js';
+import { CANDIDATE_TYPE, CANDIDATE_VERSION, planName, planOf, usableSeconds } from '../core/candidates.js';
+import { circled } from '../core/shot-layout.js';
+import { togglePause, seekTrack, stopAllVideos, stopClip, setVoiceOn } from './clip-player.js';
 import * as nat from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/base/dom.js';
 import { slideIn } from '../ui/base/anim.js';
+import { shotLineCoverage } from '../app/line-coverage.js';
 import { glide, roll, pop } from '../ui/base/motion.js';
 import { registerCommand, runCommand } from '../ui/base/commands.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/base/popover.js';
@@ -72,6 +76,12 @@ import {
   openOf,
   candidatesForRow,
   coverageOf,
+  secText,
+  plansOfGroup,
+  activePlan,
+  usingPlan,
+  planStatus,
+  isIdle,
   rangeText,
   curReworkItem,
   reworkList,
@@ -82,6 +92,7 @@ import { stamp, cardHTML, doneHTML, paintLineFocus, paintMotion, play } from './
 import { renderRework } from './review-rework.js';
 import { navHTML, paintTabs } from './review-nav.js';
 import { safeFileName } from '../core/text.js';
+import { deferRenderWhileEditing, clearDeferredRender } from '../ui/base/edit-session.js';
 
 export { CANDIDATE_TYPE };
 const $ = s => document.querySelector(s);
@@ -155,12 +166,18 @@ export function setDecision(id, d) {
     if (result?.error) toast(result.error, null, 'error');
     return;
   }
-  const { candidate: c, next, msg } = result;
+  const { candidate: c, next, msg, offer } = result;
   if (next === 'ok') relinkSavedClips();
   if (next) advanceAfterDecision(c);
   renderVideoReview();
   if (next) stamp(c.id);
-  if (msg) toast(msg, null, 'ok');
+  if (offer)
+    toast(
+      `${planName(offer.plan)}已经填满，表格里还在用别的方案`,
+      { label: `改用${planName(offer.plan)}`, cb: () => switchPlan(offer.row, offer.plan) && renderVideoReview() },
+      'ok',
+    );
+  else if (msg) toast(msg, null, 'ok');
 }
 export const setNote = setCandidateNote;
 
@@ -251,8 +268,12 @@ function advanceAfterDecision(c) {
   if (page.mode === 'rework') return; // 待返工页：通过的画面自己会离开列表，不用跳
   const g = curGroup();
   if (!g || !g.cands.includes(c)) return;
-  const next = layoutShot(g).order.find(x => x !== c && isPending(x)); // 按界面上从上到下的顺序
+  // 先在这个方案里往下找；这个方案审完了、别的方案还有待审（画面还没填满），切到那个方案的 Tab
+  const order = layoutShot(g).order;
+  const next =
+    order.find(x => x !== c && isPending(x) && planOf(x) === planOf(c)) || order.find(x => x !== c && isPending(x));
   if (next) {
+    if (planOf(next) !== planOf(c)) page.plans.set(g.key, planOf(next));
     page.curCand = next.id;
     return;
   }
@@ -357,7 +378,18 @@ function refreshReviewStatus() {
   $('#reviewPage .vr-top').hidden = saveAll.hidden && sync.hidden;
 }
 
+let reviewProject = null;
 export function renderVideoReview() {
+  refreshReviewStatus();
+  if (state.view !== 'review') return;
+  if (reviewProject === state.projectId && deferRenderWhileEditing('video-review', '#vrList', renderVideoReview))
+    return;
+  clearDeferredRender('video-review');
+  reviewProject = state.projectId;
+  paintVideoReview();
+}
+
+function paintVideoReview() {
   refreshVideoReviewButton();
   const host = $('#vrList');
   if (!host || state.view !== 'review') return;
@@ -386,29 +418,79 @@ export function renderVideoReview() {
     host.innerHTML = '<p class="vr-empty">这一批没有候选。</p>';
     return;
   }
-  const { members, whole, byNo } = layoutShot(g);
+  const { members } = layoutShot(g);
+  const plans = plansOfGroup(g);
+  const plan = activePlan(g, plans);
+  const cur = plans.find(p => p.plan === plan) || null;
+  const using = usingPlan(g);
   const open = openOf(g);
-  const done = g.cands.filter(c => !isPending(c) && !touched.has(c.id));
   if (!open.some(c => c.id === page.curCand)) page.curCand = open.find(isPending)?.id || open[0]?.id || null;
+  const done = g.cands.filter(c => c.id !== page.curCand && !isPending(c));
   const shotCands = candidatesForRow(g.lead);
-  const spanOf = c => {
-    const t = targetLines(c);
-    return !t.whole && t.target.length > 1
-      ? `<p class="vr-span">配 第 ${t.target[0].no}–${t.target[t.target.length - 1].no} 句</p>`
-      : '';
-  };
-  const group = list => {
-    const o = list.filter(c => isPending(c) || touched.has(c.id));
-    const d = list.filter(c => !isPending(c) && !touched.has(c.id));
-    if (!o.length && !d.length) return '';
-    return `<div class="vr-line-cands">${o.map(c => spanOf(c) + cardHTML(c)).join('')}${d.length ? `<div class="vr-done-list">${d.map(doneHTML).join('')}</div>` : ''}</div>`;
-  };
+  const lineCov = members.length ? shotLineCoverage(members) : null; // 每句实际有没有画面（和表格同一套算法）
+  // 左边：口播一句一行，句尾标这句有没有画面
   const lineHTML = m => {
-    const cov = coverageOf(m, shotCands);
+    const cov = coverageOf(m, shotCands, lineCov);
     return `<div class="vr-line" data-vo-no="${m.no}">
-        <div class="vr-line-text"><span class="vr-line-no">${m.no}</span><p>${esc(m.text)}</p><span class="vr-cov ${cov.cls}"${cov.tip ? ` title="${esc(cov.tip)}"` : ''}>${cov.text}</span></div>
-        ${group(byNo.get(m.no) || [])}
+        <div class="vr-line-text"><span class="vr-line-no">${m.no}</span><p>${esc(m.text)}</p><span class="vr-cov ${cov.cls}"${cov.tip ? ` title="${esc(cov.tip)}"` : ''}>${cov.text}${cov.sec ? `<em>${cov.sec}</em>` : ''}</span>${cov.note ? `<p class="vr-cov-note">缺：${esc(cov.note)}</p>` : ''}</div>
       </div>`;
+  };
+  // 右边：方案 Tab（只有一个方案时不显示 Tab），下面是填满进度和按顺序排的视频
+  const tabsHTML =
+    plans.length > 1
+      ? `<div class="vr-ptabs" role="tablist" aria-label="方案">${plans
+          .map(p => {
+            const st = planStatus(p);
+            return `<button class="vr-ptab${p.plan === plan ? ' on' : ''}" role="tab" aria-selected="${p.plan === plan}" data-vr-plan="${p.plan}">${planName(p.plan)}<span class="vr-pst ${st.cls}">${st.text}</span>${p.plan === using ? '<span class="vr-puse" title="表格、连播预览、导出用的是这个方案">正在用</span>' : ''}</button>`;
+          })
+          .join('')}</div>`
+      : '';
+  const fillHTML = p => {
+    if (!p) return '';
+    const total = p.need || p.live.reduce((t, c) => t + usableSeconds(c), 0) || 1;
+    let used = 0;
+    const segs = p.live
+      .map((c, i) => {
+        const len = usableSeconds(c);
+        const left = used;
+        used += len;
+        const w = Math.max(0, Math.min(len, total - left));
+        const cls = c.decision === 'ok' ? 'ok' : isIdle(c) ? 'idle' : 'wait';
+        return w > 0
+          ? `<i class="vr-pseg ${cls}" style="width:${(w / total) * 100}%" title="${circled(i + 1)} ${esc(c.title || c.key || '')} · ${secText(len)} 秒"></i>`
+          : '';
+      })
+      .join('');
+    // 最后一个超出一点会被截掉，不算问题；整个视频都排不进口播里才提醒「排不下」
+    let at = 0;
+    const out = p.need ? p.live.filter(c => (at += usableSeconds(c)) - usableSeconds(c) >= p.need - 0.05).length : 0;
+    const st = planStatus(p);
+    const head = p.need
+      ? `通过的 ${secText(p.okLen)} / 口播 ${secText(p.need)} 秒${p.live.length > p.ok.length ? ` · 全部通过共 ${secText(p.liveLen)} 秒` : ''}`
+      : `通过的 ${secText(p.okLen)} 秒`;
+    const switchBtn =
+      p.ok.length && using != null && p.plan !== using
+        ? `<button class="vr-mini" data-vr-useplan="${p.plan}" title="表格、连播预览、导出改用这个方案；${planName(using)}存成备选，随时能换回来">改用${planName(p.plan)}</button>`
+        : '';
+    return `<div class="vr-pfill">
+        <div class="vr-pfill-head"><span>${head}</span>${plans.length > 1 ? '' : `<span class="vr-pst ${st.cls}">${st.text}</span>`}${out ? `<span class="vr-pst miss" title="方案里的视频加起来比口播长很多，排在最后的 ${out} 个放不进口播里">排不下 ${out} 个</span>` : ''}<span class="vr-spacer"></span>${switchBtn}</div>
+        <div class="vr-pfill-bar">${segs}</div>
+        ${p.short ? `<p class="vr-pfill-short"><b>找不到够长的</b>${esc(p.short)}</p>` : ''}
+      </div>`;
+  };
+  // 只有选中的那个视频展开成完整卡片，其余都收成一行：待审 / 未采用 / 审过的，点一行就展开它
+  const rowOf = (c, cls, tag, tip) =>
+    `<div class="vr-done d-${cls}" data-vr-id="${c.id}" title="${tip}"><span class="vr-tag d-${cls}">${tag}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span><span class="vr-spacer"></span><span class="vr-done-note">${secText(usableSeconds(c))} 秒</span></div>`;
+  const itemHTML = (c, i) => {
+    const body =
+      c.id === page.curCand
+        ? cardHTML(c)
+        : isIdle(c)
+          ? rowOf(c, 'idle', '未采用', '这个画面已经填满，点开还能审')
+          : isPending(c)
+            ? rowOf(c, 'wait', '待审', '点开看画面、审核')
+            : doneHTML(c);
+    return `<div class="vr-pitem"><span class="vr-pno" aria-hidden="true">${circled(i + 1)}</span>${body}</div>`;
   };
   // 前后各露一句（淡色），判断画面能不能接上
   const allLines = state.rows.filter(r => r.kind === 'line');
@@ -424,21 +506,38 @@ export function renderVideoReview() {
       <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4>
       ${need ? `<p class="vr-need"><b>要的画面</b>${esc(need)}</p>` : ''}</div>
       ${i0 > 0 ? ctx(allLines[i0 - 1], 'before') : ''}
-      ${
-        whole.length
-          ? `<div class="vr-line whole"><div class="vr-line-text"><span class="vr-line-no">整段</span><p>${members.length ? `配${rangeText(g.lead)}全部` : '找不到对应句子'}</p></div>${group(whole)}</div>`
-          : ''
-      }
-      ${members.map(lineHTML).join('')}
+      <div class="vr-split">
+        <div class="vr-lines">${members.length ? members.map(lineHTML).join('') : '<p class="vr-empty">找不到对应句子</p>'}</div>
+        <div class="vr-plans">
+          ${tabsHTML}
+          <div class="vr-pbody" role="tabpanel">${fillHTML(cur)}<div class="vr-plist">${(cur?.cands || []).map(itemHTML).join('')}</div></div>
+        </div>
+      </div>
       ${i1 >= 0 && i1 < allLines.length - 1 ? ctx(allLines[i1 + 1], 'after') : ''}
     </section>`;
   paintLineFocus(state.candidates.find(c => c.id === page.curCand) || null);
-  paintMotion(host, g, open);
+  const shown = open.filter(c => c.id === page.curCand);
+  paintMotion(host, g, shown);
   host.querySelector('.vr-shot-head')?.classList.toggle('stuck', host.scrollTop > 2);
-  paintStrips(host, open);
+  paintStrips(host, shown);
   for (const c of done) if (c.decision === 'ok' && c.savedPath) paintDoneThumb(c);
-  // 截图只给右边这几个候选：换了画面，没轮到的截图任务取消
-  retainFrames(open);
+  // 截图只给展开的那个候选：换了画面、换了选中，没轮到的截图任务取消
+  retainFrames(shown);
+}
+/* 换方案 Tab：只是换着看，不改表格 */
+function selectPlan(plan) {
+  const g = curGroup();
+  if (!g || activePlan(g) === plan) return;
+  page.plans.set(g.key, plan);
+  page.curCand = null;
+  stopAll();
+  renderVideoReview();
+}
+/* 表格、连播预览、导出改用这个方案 */
+function usePlanHere(plan) {
+  const g = curGroup();
+  if (!g?.lead || !switchPlan(g.lead, plan)) return;
+  toast(`${rangeText(g.lead)} 改用${planName(plan)} · ⌘Z 可撤销`, null, 'ok');
 }
 function setMode(next) {
   if (next === page.mode) return;
@@ -488,7 +587,7 @@ async function writeReworkDoc() {
   page.reworkDocAt = Date.now();
   renderVideoReview();
   await copyText(
-    `读一下「${file}」：这是分镜台的返工单，${list.length} 个画面。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v2 写一份新的候选清单给我导入。`,
+    `读一下「${file}」：这是分镜台的返工单，${list.length} 个画面。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单给我导入。`,
     `返工单已生成（${list.length} 个画面），交给 AI 的话已复制`,
   );
 }
@@ -637,7 +736,22 @@ export function initVideoReview() {
     if (fold) {
       stopAll();
       touched.delete(fold.dataset.vrFold);
+      if (page.curCand === fold.dataset.vrFold) page.curCand = null;
       return renderVideoReview();
+    }
+    const tab = t.closest('[data-vr-plan]');
+    if (tab) return selectPlan(+tab.dataset.vrPlan);
+    const use = t.closest('[data-vr-useplan]');
+    if (use) return usePlanHere(+use.dataset.vrUseplan);
+    const go = t.closest('[data-vr-goto]');
+    if (go) {
+      const id = go.dataset.vrGoto;
+      const target = $(`#vrList [data-vr-id="${id}"]`);
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      target?.classList.remove('vr-flash');
+      void target?.offsetWidth;
+      target?.classList.add('vr-flash');
+      return;
     }
     const doneRow = t.closest('.vr-done[data-vr-id]');
     if (doneRow && !t.closest('button')) {

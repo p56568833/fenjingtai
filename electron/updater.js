@@ -10,6 +10,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { Readable, Transform } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
 const { execFileSync, spawn } = require('node:child_process');
 
 const REPO = 'p56568833/fenjingtai';
@@ -144,23 +146,26 @@ async function downloadUpdate({ url, sha256, size }, dest, { fetchImpl, onProgre
     const total = Number(res.headers?.get?.('content-length')) || size || 0;
     const hash = crypto.createHash('sha256');
     out = fs.createWriteStream(tmp);
-    const reader = res.body.getReader();
     let got = 0,
       tick = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const buf = Buffer.from(value);
-      hash.update(buf);
-      got += buf.length;
-      if (!out.write(buf)) await new Promise(r => out.once('drain', r));
-      const now = Date.now();
-      if (onProgress && now - tick >= 250) {
-        tick = now;
-        onProgress(got, total);
-      }
-    }
-    await new Promise((resolve, reject) => out.end(err => (err ? reject(err) : resolve())));
+    const measure = new Transform({
+      transform(buf, _encoding, callback) {
+        try {
+          hash.update(buf);
+          got += buf.length;
+          const now = Date.now();
+          if (onProgress && now - tick >= 250) {
+            tick = now;
+            onProgress(got, total);
+          }
+          callback(null, buf);
+        } catch (error) {
+          callback(error);
+        }
+      },
+    });
+    // pipeline 同时处理读取、写盘、背压和取消，流错误不会逃出到主进程。
+    await pipeline(Readable.fromWeb(res.body), measure, out, { signal });
     out = null;
     if (total && got !== total) throw new Error('下载不完整，连接中途断开了');
     const actual = hash.digest('hex');

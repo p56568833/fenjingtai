@@ -1,19 +1,31 @@
 /* 审核页的候选卡片：完整卡片、审过收成的一行、当前候选配的句子高亮、通过 / 不要 / 换一个的动效、播放。 */
-import { state } from '../app/state.js';
+import { state, timeOf } from '../app/state.js';
 import { assetName } from '../core/asset-model.js';
 import { fmtTime, fmtLen } from '../core/text.js';
 import { DECISION } from '../core/candidates.js';
 import { esc } from '../ui/base/dom.js';
 import { glide, pop, SPRING } from '../ui/base/motion.js';
-import { playerHTML, targetLines, playClip } from './clip-player.js';
+import { playerHTML, targetLines, playClip, slotOf } from './clip-player.js';
 import { stripHTML, mediaOf } from './review-frames.js';
 import { page } from './review-model.js';
 
 const $ = s => document.querySelector(s);
 
-/* 当前候选配的那几句：句子左边亮一条主色 */
+/* 当前候选在方案里排到的那几句：句子左边亮一条主色（待返工页没有方案顺序，亮整个画面） */
 export function paintLineFocus(c) {
-  const nos = new Set(c ? targetLines(c).target.map(r => r.no) : []);
+  const slot = c && page.mode !== 'rework' ? slotOf(c) : null;
+  const hit = r => {
+    if (!slot) return true;
+    const t = timeOf(r.id);
+    return !t || Math.min(t.end, slot.end) - Math.max(t.start, slot.start) > 0.05;
+  };
+  const nos = new Set(
+    c
+      ? targetLines(c)
+          .target.filter(hit)
+          .map(r => r.no)
+      : [],
+  );
   document
     .querySelectorAll('#vrList .vr-line[data-vo-no]')
     .forEach(el => el.classList.toggle('hl', nos.has(+el.dataset.voNo)));

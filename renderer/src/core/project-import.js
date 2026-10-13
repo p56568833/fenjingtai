@@ -3,6 +3,7 @@ import { DEFAULT_TYPES } from './types.js';
 import { GROUP_ID } from './parse.js';
 import { cloneUsages } from './asset-usage.js';
 import { STATUS, shots, validGroup } from './shots.js';
+import { nextRowId } from './collab-doc.js';
 
 const validTime = t => t && Number.isFinite(+t.start) && Number.isFinite(+t.end) && +t.end >= +t.start;
 /* 项目 JSON 导入：清洗句子。
@@ -81,22 +82,42 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
   return result;
 }
 /* Conservative draft update: only unique, unchanged sentences inherit their shot; repeated or edited ones start blank. */
-export function reconcileDraft(oldRows, newRows) {
+export function reconcileDraft(oldRows, newRows, idOptions = {}) {
   const key = r => r.text.trim();
   const oldMap = new Map(),
     newCounts = new Map();
   oldRows.filter(r => r.kind === 'line').forEach(r => oldMap.set(key(r), [...(oldMap.get(key(r)) || []), r]));
   newRows.filter(r => r.kind === 'line').forEach(r => newCounts.set(key(r), (newCounts.get(key(r)) || 0) + 1));
-  let next = Math.max(0, ...oldRows.map(r => r.id)) + 1,
+  // 协作中的项目按主机 / 访客各用双数 / 单数编号（见 nextRowId），隔一个取一个保持奇偶
+  let next = nextRowId(oldRows, idOptions),
     kept = 0;
+  const inherited = new Set();
+  const step = idOptions.parity === 0 || idOptions.parity === 1 ? 2 : 1;
+  const fresh = () => {
+    const id = next;
+    next += step;
+    return id;
+  };
   const result = newRows.map(r => {
     const matches = oldMap.get(key(r));
     if (r.kind === 'line' && matches?.length === 1 && newCounts.get(key(r)) === 1) {
       kept++;
-      return { ...matches[0], para: r.para };
+      const row = { ...matches[0], para: r.para };
+      inherited.add(row);
+      return row;
     }
-    return { ...r, id: next++ };
+    return { ...r, id: fresh() };
   });
+  const idMap = new Map(newRows.map((row, i) => [row.id, result[i].id]));
+  for (const row of result)
+    if (!inherited.has(row) && Array.isArray(row.assetUsages)) {
+      row.assetUsages = cloneUsages(row.assetUsages);
+      for (const usage of row.assetUsages)
+        if (usage.at) {
+          if (idMap.has(usage.at.of)) usage.at.of = idMap.get(usage.at.of);
+          else delete usage.at;
+        }
+    }
   for (const group of shots(oldRows).filter(g => g[0].groupId)) {
     const ids = group.map(r => r.id),
       matched = result.filter(r => ids.includes(r.id));

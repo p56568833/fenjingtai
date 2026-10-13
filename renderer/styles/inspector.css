@@ -385,9 +385,24 @@
   color: #c82d35;
   background: color-mix(in srgb, #c82d35 12%, transparent);
 }
+/* 只盖住一部分：左边绿色那截是盖住的，后面橙色是空的 */
+.lo-cell.part {
+  color: #b26a06;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--c-real) 18%, transparent) var(--got, 50%),
+    color-mix(in srgb, #d9820b 20%, transparent) var(--got, 50%)
+  );
+}
+.lo-head b {
+  color: #c82d35;
+}
 body.dark .lo-cell.empty,
 body.dark .lo-head b {
   color: #ff8e94;
+}
+body.dark .lo-cell.part {
+  color: #f0a43a;
 }
 .line-sum i {
   font-style: normal;

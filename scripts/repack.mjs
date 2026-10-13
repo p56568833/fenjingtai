@@ -4,6 +4,7 @@ import { cpSync, existsSync, readFileSync, mkdirSync, renameSync, rmSync, symlin
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { installAppIcon } from './app-icon.mjs';
+import { applyAppPlist } from './app-plist.mjs';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const staging = path.join(ROOT, 'dist', '.asar-staging');
@@ -32,6 +33,7 @@ try {
     const plist = path.join(app, 'Contents', 'Info.plist');
     for (const key of ['CFBundleShortVersionString', 'CFBundleVersion'])
       run('/usr/bin/plutil', ['-replace', key, '-string', version, plist]);
+    applyAppPlist(plist);
     run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app]);
     run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
     utimesSync(app, new Date(), new Date());

@@ -1,0 +1,389 @@
+/* ═════════ 局域网协作（2.0） ═════════ */
+:root {
+  --peer: #e0702a; /* 对方停着的那句：暖橙色，和类型色、选中色都分得开 */
+  --online: #12a06b;
+}
+body.dark {
+  --peer: #ff9a52;
+  --online: #2fcf8e;
+}
+
+/* 顶栏按钮。没协作时和「项目」一样是普通按钮，悬停泛起主色；
+   协作中整颗按钮换成状态色（--c）：在线是绿底 + 对方头像，连接中琥珀色、要配对码橙红、
+   共享等人主色、未连接灰。用 id 选择器压过 base 里 body.dark .btn / .btn:hover 的配色 */
+#btnCollab {
+  --c: var(--accent);
+  gap: 6px;
+  white-space: nowrap;
+  flex: none;
+  font-weight: 600;
+}
+#btnCollab svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.7;
+  color: var(--accent);
+  transition: color 0.16s;
+}
+#btnCollab:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+#btnCollab.on {
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 10%, var(--card));
+  border-color: color-mix(in srgb, var(--c) 36%, transparent);
+  box-shadow: none;
+}
+#btnCollab.on:hover {
+  background: color-mix(in srgb, var(--c) 17%, var(--card));
+  border-color: color-mix(in srgb, var(--c) 55%, transparent);
+}
+#btnCollab.on svg {
+  color: inherit;
+}
+#btnCollab[data-status='online'] {
+  --c: var(--online);
+  padding-left: 5px;
+}
+#btnCollab[data-status='connecting'] {
+  --c: #d9820b;
+}
+#btnCollab[data-status='needs-code'] {
+  --c: #e8502f;
+}
+#btnCollab[data-status='offline'] {
+  --c: var(--text-3);
+}
+/* 非在线状态：图标前一个状态点 */
+#btnCollab.on:not([data-status='online'])::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c);
+  flex: none;
+}
+#btnCollab[data-status='connecting']::before {
+  animation: saveBreath 0.9s ease-in-out infinite;
+}
+/* 在线：对方名字首字做头像（和表格里对方位置同一个暖橙色），右下角一个会扩散的绿点 */
+.cl-av {
+  display: none;
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--peer);
+  flex: none;
+}
+#btnCollab[data-status='online'] .cl-av {
+  display: grid;
+}
+#btnCollab[data-status='online'] svg {
+  display: none;
+}
+.cl-av::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--online);
+  border: 2px solid var(--card);
+  animation: clPing 2.4s ease-out infinite;
+}
+@keyframes clPing {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--online) 55%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cl-av::after,
+  #btnCollab[data-status='connecting']::before {
+    animation: none;
+  }
+}
+
+/* 弹窗 */
+.modal.collab-modal {
+  width: min(500px, 92vw);
+}
+.collab-modal .cl-help {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+.cl-card {
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+}
+.cl-card:first-of-type {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cl-card-head {
+  flex: 1;
+  min-width: 0;
+}
+.cl-card-head b,
+.cl-share-main b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.cl-card-head small,
+.cl-share-main small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cl-join .cl-card-head {
+  margin-bottom: 10px;
+}
+.cl-shares {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.cl-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+.cl-share.active {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.cl-share-main {
+  flex: 1;
+  min-width: 0;
+}
+.cl-share input,
+.cl-join-row input,
+.cl-name input {
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.cl-share input,
+.cl-join-row input#collabCode {
+  width: 92px;
+  font-family: var(--mono);
+  letter-spacing: 3px;
+  text-align: center;
+}
+.cl-join-row {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.cl-join-row input#collabAddr {
+  flex: 1;
+  min-width: 0;
+}
+.cl-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.cl-spin {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid color-mix(in srgb, var(--text-3) 35%, transparent);
+  border-top-color: var(--text-2);
+  border-radius: 50%;
+  animation: clSpin 0.9s linear infinite;
+}
+@keyframes clSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.cl-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 18px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.cl-name input {
+  flex: 1;
+  min-width: 0;
+}
+.collab-modal .m-btns {
+  align-items: center;
+}
+.cl-grow {
+  flex: 1;
+}
+.btn.danger-text {
+  color: #d4472a;
+}
+body.dark .btn.danger-text {
+  color: #ff7a5c;
+}
+
+/* 主机：大号配对码 */
+.cl-code-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.cl-code-label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.cl-code {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+}
+.cl-code span {
+  width: 38px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--card);
+  box-shadow: var(--shadow-1);
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+.cl-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+.cl-status i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.cl-status[data-status='online'] i {
+  background: var(--online);
+}
+.cl-status[data-status='connecting'] i {
+  background: #d9820b;
+}
+.cl-status[data-status='needs-code'] i {
+  background: #e8502f;
+}
+.collab-modal .cl-addr {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.cl-addr code {
+  font-family: var(--mono);
+  color: var(--text);
+  user-select: all;
+}
+
+/* 项目菜单里的「共享中 / 协作」小标 */
+.proj-collab {
+  color: var(--online);
+  font-weight: 600;
+}
+
+/* 表格：对方停着的那句，左边一条竖线 + 名字 */
+.row.peer-here {
+  box-shadow: inset 3px 0 0 var(--peer);
+}
+.row.peer-here::after {
+  content: attr(data-peer);
+  position: absolute;
+  left: 6px;
+  top: 3px;
+  max-width: 120px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--peer);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 16px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* 「对方电脑上的文件」：缺几个 + 一键取过来；正在取时显示进度 */
+.cl-files {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+}
+.cl-files-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.cl-files-text b {
+  display: block;
+  font-size: 13px;
+}
+.cl-files-text small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.cl-files-acts {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+.cl-files .pack-bar {
+  margin-top: 8px;
+}

@@ -2,7 +2,8 @@
    · 分镜方案：未标注 / 缺画面描述 / 主画面缺失 / 片段待调整 / 字幕没找到（素材还没到位也能通过）
    · 素材交付：在方案检查之外，再看需要画面的镜头有没有关联素材、素材文件是否失联
    成功提示只说检查了什么，不把「方案齐了」说成「素材齐了」。 */
-import { state, on, types } from '../app/state.js';
+import { state, on, types, timeline } from '../app/state.js';
+import { blankShots, linesText } from '../core/coverage.js';
 import { checkDelivery, unlinkedShots } from '../core/shots.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
 import { esc } from './base/dom.js';
@@ -14,9 +15,26 @@ let reviewOpen = false;
 let assetMode = false; // 勾了「也检查素材交付」
 let missing = new Set();
 
+/* 有句子没画面的镜头：第一句 id → 「第 436–437 句没画面」 */
+function gapNotes() {
+  const map = new Map();
+  for (const { lead, lines } of blankShots(state.rows, state.assets || {}, timeline(), types().list)) {
+    const nos = st => lines.filter(x => x.state === st).map(x => x.row.no);
+    const empty = nos('empty'),
+      part = nos('part');
+    map.set(
+      lead.id,
+      [empty.length ? `${linesText(empty)}没画面` : '', part.length ? `${linesText(part)}画面不够长` : '']
+        .filter(Boolean)
+        .join('，'),
+    );
+  }
+  return map;
+}
+
 /* 导出前的提醒只看分镜方案（素材没到位也允许导出清单去找素材） */
 export function deliveryIssues() {
-  return checkDelivery(state.rows, types().list);
+  return checkDelivery(state.rows, types().list, { gaps: gapNotes() });
 }
 
 async function refreshMissing() {
@@ -35,7 +53,12 @@ function renderReview() {
   const host = $('#reviewList');
   if (!host) return;
   const ti = types().list;
-  const list = checkDelivery(state.rows, ti, assetMode ? { assets: true, missing, registry: state.assets } : {});
+  const gaps = gapNotes();
+  const list = checkDelivery(
+    state.rows,
+    ti,
+    assetMode ? { gaps, assets: true, missing, registry: state.assets } : { gaps },
+  );
   const unlinked = unlinkedShots(state.rows, ti).length;
   let summary;
   if (list.length) summary = `${list.length} 个镜头待处理${assetMode ? '（含素材交付）' : ''}；可以带缺项导出。`;

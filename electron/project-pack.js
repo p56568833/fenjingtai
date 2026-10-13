@@ -9,7 +9,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const { pipeline } = require('node:stream/promises');
-const { Transform } = require('node:stream');
+const { Transform, Readable } = require('node:stream');
 const { freePath } = require('./fs-utils');
 const {
   MAX32,
@@ -276,13 +276,30 @@ async function dataOffset(fh, entry) {
 /* 读出一个小文件（项目 JSON）到内存 */
 async function readZipText(zipPath, entry, limit = 64 * 1024 * 1024) {
   if (entry.usize > limit) throw new Error('项目文件太大');
+  if (entry.csize > limit + 1024 * 1024) throw new Error('项目文件太大');
   const fh = await fsp.open(zipPath, 'r');
   try {
     const start = await dataOffset(fh, entry);
+    const { size } = await fh.stat();
+    if (start + entry.csize > size) throw new Error('项目文件数据不完整');
     const buf = Buffer.alloc(entry.csize);
-    await fh.read(buf, 0, entry.csize, start);
-    const data = entry.method === 0 ? buf : entry.method === 8 ? zlib.inflateRawSync(buf) : null;
+    const { bytesRead } = await fh.read(buf, 0, entry.csize, start);
+    if (bytesRead !== entry.csize) throw new Error('项目文件数据不完整');
+    let data;
+    try {
+      data =
+        entry.method === 0
+          ? buf
+          : entry.method === 8
+            ? zlib.inflateRawSync(buf, { maxOutputLength: Math.max(1, Math.min(limit, entry.usize)) })
+            : null;
+    } catch (error) {
+      if (error.code === 'ERR_BUFFER_TOO_LARGE') throw new Error('项目文件大小不符或超过上限', { cause: error });
+      throw error;
+    }
     if (!data) throw new Error('不支持的压缩方式');
+    if (data.length > limit) throw new Error('项目文件太大');
+    if (data.length !== entry.usize) throw new Error('项目文件大小不符，压缩包可能损坏');
     if (crc32(data) >>> 0 !== entry.crc >>> 0) throw new Error('项目文件校验失败，压缩包可能损坏');
     return data.toString('utf8');
   } finally {
@@ -305,9 +322,13 @@ async function inspectPack(zipPath) {
     if (e.symlink) throw new Error(`压缩包里有符号链接，不导入：${e.name}`);
     if (e.encrypted) throw new Error('压缩包加了密码，不能导入');
     if (e.method !== 0 && e.method !== 8) throw new Error(`不支持的压缩方式：${e.name}`);
+    if (!Number.isSafeInteger(e.usize) || !Number.isSafeInteger(e.csize)) throw new Error('压缩包里的文件大小无效');
+    if (e.method === 0 && e.usize !== e.csize) throw new Error(`文件大小不符，压缩包可能损坏：${e.name}`);
   }
   const text = await readZipText(zipPath, proj);
-  return { root, project: text, files, bytes: files.reduce((s, e) => s + e.usize, 0) };
+  const bytes = files.reduce((s, e) => s + e.usize, 0);
+  if (!Number.isSafeInteger(bytes)) throw new Error('压缩包总大小无效');
+  return { root, project: text, files, bytes };
 }
 const skipEntry = name => /(^|\/)__MACOSX\//.test(name) || /(^|\/)\.DS_Store$/.test(name);
 
@@ -339,7 +360,7 @@ async function extractPack(zipPath, destDir, { onProgress, signal } = {}) {
       const out = fs.createWriteStream(dest, { flags: 'wx' });
       if (e.csize === 0) {
         // 空文件：读取流的 end 会小于 start（Node 直接报参数越界），不读，直接建空文件
-        await new Promise((res, rej) => out.end(err => (err ? rej(err) : res())));
+        await pipeline(Readable.from([]), out, { signal });
         if (e.usize !== 0 || e.crc >>> 0 !== 0) throw new Error(`文件校验失败，压缩包可能损坏：${rel}`);
         continue;
       }
@@ -347,6 +368,8 @@ async function extractPack(zipPath, destDir, { onProgress, signal } = {}) {
       const check = new Transform({
         transform(chunk, _enc, cb) {
           if (signal?.aborted) return cb(abortError());
+          // 声明大小只用于预算；实际输出超出预算的块不能写入磁盘。
+          if (written + chunk.length > e.usize) return cb(new Error(`文件大小不符，压缩包可能损坏：${rel}`));
           crc = crc32(chunk, crc);
           written += chunk.length;
           done += chunk.length;

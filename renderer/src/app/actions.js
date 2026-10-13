@@ -24,8 +24,16 @@ import {
   groupSplitAtPlan,
 } from '../core/shot-groups.js';
 import { syncMirror, usageList, cloneUsages, hydrateProjectAssets } from '../core/asset-model.js';
+import { nextRowId } from '../core/collab-doc.js';
+import { parityOf } from '../core/collab-sync.js';
+import { collabOf } from './storage.js';
 
-const nextId = () => state.rows.reduce((m, r) => (r.id > m ? r.id : m), 0) + 1;
+/* 新句子编号：协作中的项目主机用双数、加入的人用单数，两人同时插句不撞号 */
+export function rowIdOptions(projectId = state.projectId) {
+  const c = collabOf(projectId);
+  return c ? { parity: parityOf(c.role), floor: Number(c.maxId) || 0 } : {};
+}
+const nextId = () => nextRowId(state.rows, rowIdOptions());
 const commit = () => commitProjectChange({ normalize: true, events: [['rows']] });
 const tName = t => types().label(t);
 

@@ -1,6 +1,6 @@
 import { state, on } from './state.js';
 import { emit, notify } from './events.js';
-import { reviewPayload } from '../core/candidates.js';
+import { reviewPayload, mainAssetIds } from '../core/candidates.js';
 import * as native from '../platform/native.js';
 
 /* ── 写回候选清单 ──
@@ -12,7 +12,7 @@ const lastWritten = new Map(); // 文件 → 上次写成功的内容（JSON）
 const failedFiles = new Map(); // 文件 → 失败原因
 export const writeBackFailures = () => [...failedFiles.entries()];
 function queueWrites(cands) {
-  for (const [file, results] of reviewPayload(cands)) {
+  for (const [file, results] of reviewPayload(cands, mainAssetIds(state.rows))) {
     if (
       lastWritten.get(file) === JSON.stringify(results) &&
       !failedFiles.has(file) &&
@@ -77,7 +77,7 @@ export const flushWriteBack = (cands = state.candidates) => {
 /* 这些候选的结果是否已经原样在清单文件里了 */
 export function syncedFiles(cands) {
   const ok = new Set();
-  for (const [file, results] of reviewPayload(cands))
+  for (const [file, results] of reviewPayload(cands, mainAssetIds(state.rows)))
     if (!failedFiles.has(file) && lastWritten.get(file) === JSON.stringify(results)) ok.add(file);
   return ok;
 }

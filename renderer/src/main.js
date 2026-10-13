@@ -37,6 +37,7 @@ import { initVideoReview } from './features/video-review.js';
 import { initProjectPack } from './features/project-pack.js';
 import { initRework } from './features/rework.js';
 import { initUpdate, updateKey } from './features/update.js';
+import { initCollab } from './features/collab.js';
 import { initMotion } from './ui/base/motion.js';
 
 /* ── 保存状态指示 ── */
@@ -223,6 +224,7 @@ async function boot() {
   initRework();
   initHelp();
   initUpdate();
+  initCollab();
   registerModals();
   initMotion(); // 弹窗从按钮长出来：要在所有弹窗都建好之后
 
@@ -261,7 +263,7 @@ async function boot() {
   showDataRecoveryNotice(storage.dataLoadInfo());
 
   // 自动化自测钩子（npm test 时由 test/selftest.js 接管）
-  if (new URLSearchParams(location.search).get('selftest')) {
+  if (new URLSearchParams(location.search).get('selftest') === '1') {
     const { runSelfTest } = await import('./test/selftest.js');
     try {
       window.__SELFTEST_RESULT__ = await runSelfTest();

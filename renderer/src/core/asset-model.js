@@ -6,7 +6,7 @@
    at：手动设的出现时间 {start, end, of}（相对镜头开头的秒数），规则见 core/shot-layout.js。
    off：共用画面里这条素材不在这一句出现（每句各存一份副本，所以位置天然跟着句子走）。
    旧项目只有 r.assets 文本（一行一个路径/链接），载入时迁移成上述结构。 */
-import { usageList } from './asset-usage.js';
+import { usageList, cleanRework } from './asset-usage.js';
 export { usageList, cloneUsage, cloneUsages } from './asset-usage.js';
 import { fmtTime } from './text.js';
 import { shots, isRole, normalizeUsageSpans } from './shots.js';
@@ -57,10 +57,12 @@ const cleanAtField = at => {
 };
 export const extraOf = u => {
   const at = cleanAtField(u?.at);
+  const rework = cleanRework(u?.rework);
   return {
     ...(isRole(u?.role) ? { role: u.role } : {}),
     ...(u?.off ? { off: true } : {}),
     ...(at ? { at } : {}),
+    ...(rework ? { rework } : {}),
   };
 };
 
@@ -112,6 +114,7 @@ export function pruneTypingJunk(registry, usedIds) {
    ① 旧的 r.assets 文本 → 素材库条目 + 使用记录；② 带内联信息的使用记录 → 补进素材库；③ 同一路径全项目去重 */
 export function hydrateProjectAssets(p) {
   const registry = p.assets && typeof p.assets === 'object' ? { ...p.assets } : {};
+  const idMap = new Map();
   for (const r of p.rows || []) {
     if (r.kind !== 'line') continue;
     if (Array.isArray(r.assetUsages)) {
@@ -120,6 +123,7 @@ export function hydrateProjectAssets(p) {
           if (!u || typeof u !== 'object') return null;
           if (u.path) {
             const a = ensureAsset(registry, u.path, { name: u.name, kind: u.kind });
+            if (u.assetId) idMap.set(u.assetId, a.id);
             return { assetId: a.id, ...(u.clip ? { clip: { ...u.clip } } : {}), ...extraOf(u) };
           }
           if (typeof u.assetId === 'string' && registry[u.assetId])
@@ -135,6 +139,9 @@ export function hydrateProjectAssets(p) {
         .map(ref => ({ assetId: ensureAsset(registry, ref).id }));
     }
   }
+  for (const r of p.rows || [])
+    if (r.rework?.assetId && idMap.has(r.rework.assetId))
+      r.rework = { ...r.rework, assetId: idMap.get(r.rework.assetId) };
   normalizeUsageSpans(p.rows || []);
   pruneTypingJunk(registry, referencedAssetIds(p.rows || []));
   syncMirror(p.rows || [], registry);

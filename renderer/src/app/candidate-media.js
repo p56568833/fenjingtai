@@ -13,7 +13,7 @@ import * as native from '../platform/native.js';
 const jobs = new Map();
 const jobKey = (pid, id) => `${pid}|${id}`;
 export const isCandidateBusy = (id, pid = state.projectId) => jobs.has(jobKey(pid, id));
-const sourceOf = c => JSON.stringify([c.url, c.in, c.out, c.rowId, c.for || '', c.best || null, c.assetId]);
+const sourceOf = c => JSON.stringify([c.url, c.in, c.out, c.rowId, c.best || null, c.assetId]);
 const projectOf = pid => (pid === state.projectId ? state : projectById(pid));
 
 export function captureSaveTask(id) {

@@ -34,6 +34,16 @@ const DOC = {
   ],
 };
 
+/* 审核页只展开选中的那个候选：先点开它那一行，再点结果 */
+async function decide(key, d) {
+  const id = cand(key)?.id;
+  if (!$(`.vr-cand[data-vr-id="${id}"]`)) {
+    $(`#vrList .vr-done[data-vr-id="${id}"]`)?.click();
+    await pause(20);
+  }
+  $(`[data-vr-id="${id}"] [data-vr-d="${d}"]`)?.click();
+}
+
 export async function runRelease110Tests(t) {
   const original = state.projectId;
   const writes = [];
@@ -56,7 +66,7 @@ export async function runRelease110Tests(t) {
     /* 撤销「通过」后，清单文件也改回去 */
     importLoadedFile({ name: '候选.json', ext: 'json', content: JSON.stringify(DOC), path: '/tmp/候选-110.json' });
     await pause(60);
-    $(`[data-vr-id="${cand('A').id}"] [data-vr-d="ok"]`)?.click();
+    await decide('A', 'ok');
     await flushWriteBack();
     const okWritten = writes.at(-1)?.results.find(r => r.key === 'A')?.decision === 'ok';
     undo();
@@ -66,7 +76,7 @@ export async function runRelease110Tests(t) {
 
     /* 回写失败：关窗口时不清掉「不要」，窗口里能看到没写回 */
     writeFails = true;
-    $(`[data-vr-id="${cand('B').id}"] [data-vr-d="no"]`)?.click();
+    await decide('B', 'no');
     await pause(20);
     closeVideoReview();
     await pause(80);
@@ -85,7 +95,7 @@ export async function runRelease110Tests(t) {
     );
     runCommand('video:open');
     await pause(40);
-    $(`[data-vr-id="${cand('A').id}"] [data-vr-d="ok"]`)?.click();
+    await decide('A', 'ok');
     await flushWriteBack();
     closeVideoReview();
     await pause(80);
@@ -172,6 +182,7 @@ export async function runRelease110Tests(t) {
 
     /* 应用内更新：有新版本 → 顶栏按钮 → 看更新说明 → 下载 → 重启并更新 */
     const installs = [];
+    const openedImages = [];
     window.fjtHooks = {
       ...window.fjtHooks,
       checkUpdate: async () => ({
@@ -179,13 +190,14 @@ export async function runRelease110Tests(t) {
         available: true,
         version: '9.9.9',
         current: '1.10.0',
-        notes: '修了很多问题\n第二行',
+        notes: '【新增】\n• 第二行\n![配对码加入](https://example.com/pairing.png)\n![危险图片](javascript:alert(1))',
         size: 130 * 1048576,
         canInstall: true,
         page: 'https://github.com/x/y/releases/latest',
       }),
       downloadUpdate: async () => ({ ok: true, version: '9.9.9', verified: true }),
       installUpdate: async () => (installs.push(1), { ok: true }),
+      openAsset: async url => openedImages.push(url),
     };
     runCommand('update:check');
     await pause(40);
@@ -198,6 +210,17 @@ export async function runRelease110Tests(t) {
         $('#updateMask').classList.contains('show') &&
         $('#updNotes').textContent.includes('第二行'),
     );
+    const updateImage = $('#updNotes img');
+    t(
+      '更新窗口按分类展示图片和说明，拒绝脚本图片地址',
+      $('#updNotes').querySelectorAll('img').length === 1 &&
+        updateImage?.getAttribute('src') === 'https://example.com/pairing.png' &&
+        $('#updNotes figcaption')?.textContent === '配对码加入',
+    );
+    updateImage?.dispatchEvent(new Event('error'));
+    t('更新配图加载失败保留说明和查看入口', updateImage?.hidden && !$('#updNotes .upd-image-fallback').hidden);
+    $('#updNotes .upd-image-open').click();
+    t('更新配图可以点击查看大图', openedImages[0] === 'https://example.com/pairing.png');
     $('#updGo').click();
     await pause(40);
     t(

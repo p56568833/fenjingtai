@@ -412,7 +412,8 @@ function retagLineFile(oldPath, tag) {
 }
 
 /* ── 候选清单回写 ──
-   results: [{ key, lines, decision, note, savedPath }]；按 key（同时核对 lines）找到候选，写进它的 review 字段。
+   results: [{ key, lines, decision, note, savedPath, inUse }]；按 key（同时核对 lines）找到候选，写进它的 review 字段。
+   v3 的候选在 shots[].plans[].cands 里，v2 的在 shots[].cands 里，两种都认。
    只改 type 为 fenjingtai-candidates 的 .json 文件，其他文件一律拒绝 */
 function writeReview(file, results, { now = () => new Date().toISOString(), write } = {}) {
   if (typeof file !== 'string' || !path.isAbsolute(file) || !/\.json$/i.test(file))
@@ -426,14 +427,20 @@ function writeReview(file, results, { now = () => new Date().toISOString(), writ
   if (!doc || doc.type !== CANDIDATE_TYPE || !Array.isArray(doc.shots)) return { ok: false, error: '不是候选清单文件' };
   const map = new Map((Array.isArray(results) ? results : []).map(r => [`${r.lines}|${r.key}`, r]));
   let n = 0;
+  const candsOf = s => [
+    ...(Array.isArray(s?.cands) ? s.cands : []),
+    ...(Array.isArray(s?.plans) ? s.plans.flatMap(p => (Array.isArray(p?.cands) ? p.cands : [])) : []),
+  ];
   for (const s of doc.shots)
-    for (const c of Array.isArray(s.cands) ? s.cands : []) {
+    for (const c of candsOf(s)) {
+      if (!c || typeof c !== 'object') continue;
       const r = map.get(`${s.lines}|${c.key}`);
       if (!r) continue;
       c.review = {
         decision: ['ok', 'no', 're'].includes(r.decision) ? r.decision : '',
         note: String(r.note || ''),
         ...(r.savedPath ? { savedPath: r.savedPath } : {}),
+        ...(r.decision === 'ok' ? { inUse: !!r.inUse } : {}),
         at: now(),
       };
       n++;

@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { installAppIcon } from './app-icon.mjs';
+import { applyAppPlist } from './app-plist.mjs';
 import { fileURLToPath } from 'node:url';
 
 if (process.platform !== 'darwin') throw new Error('只能在 macOS 上安装');
@@ -42,6 +43,7 @@ try {
   const plist = path.join(app, 'Contents', 'Info.plist');
   for (const key of ['CFBundleShortVersionString', 'CFBundleVersion'])
     run('/usr/bin/plutil', ['-replace', key, '-string', version, plist]);
+  applyAppPlist(plist);
   // 重打 app.asar 后同步完整性校验值，避免保留旧包的哈希。
   const integrity = {
     'Resources/app.asar': {

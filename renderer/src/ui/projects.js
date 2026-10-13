@@ -41,7 +41,7 @@ function openProjectsMenu(anchor) {
     .map(p => {
       const cur = p.id === state.projectId;
       return `<div class="pop-item pi-even" data-proj="${esc(p.id)}">${FOLDER}
-      <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}</span></span>
+      <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}${p.collab ? ` · <span class="proj-collab">${p.collab.role === 'host' ? '共享中' : '协作'}</span>` : ''}</span></span>
       ${cur ? '<span class="chk">✓</span>' : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${TRASH_PATH}"/></svg></button>`}
     </div>`;
     })

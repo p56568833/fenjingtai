@@ -115,6 +115,16 @@ export async function runRoleTests(t) {
     '面板顶上标出没画面的句子',
     $$('#inspector .lo-cell.empty').length === 2 && /2 句没画面/.test($('.lo-head').textContent),
   );
+  await pause(30);
+  t(
+    '表格里没画面的句子整句字标红、秒数下不挂标签，共用画面标题旁的「每句的画面」条只有格子、不带文字总结',
+    $$('.shared-scene .sent .gap-txt').length === 2 &&
+      $$('.shared-scene .sent .gap-txt').every(x => x.textContent === x.closest('.sent').textContent) &&
+      !$('.shared-scene .dur[data-gap]') &&
+      $$('.shared-scene .scene-cover.bad .lo-cell.empty').length === 2 &&
+      !$('.shared-scene .scene-cover .sc-sum'),
+    $('.shared-scene .scene-cover')?.textContent || '没有画面条',
+  );
   const md = buildAssetListMd({ title: 't', rows: state.rows, issues: [], registry: state.assets, speechRate: 4.5 });
   t(
     '素材清单只列要用的，备选只报个数',
