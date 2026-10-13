@@ -390,6 +390,8 @@ export function renderVideoReview() {
   paintVideoReview();
 }
 
+/* 上次写进页面的内容：一样就不重写（见 paintVideoReview） */
+const painted = { nav: null, navEl: null, shot: null, shotEl: null };
 function paintVideoReview() {
   refreshVideoReviewButton();
   const host = $('#vrList');
@@ -403,7 +405,13 @@ function paintVideoReview() {
   if (page.mode === 'rework') return renderRework(host);
   // 左栏：批次 → 画面
   const nav = $('#vrNav');
-  nav.innerHTML = navHTML(all, shots);
+  // 别人改了别处 / 后台保存都会走到这里：左栏内容没变就不重写，悬停、滚动和动效都不被打断
+  const navNext = navHTML(all, shots);
+  if (navNext !== painted.nav || painted.navEl?.parentNode !== nav) {
+    nav.innerHTML = navNext;
+    painted.nav = navNext;
+    painted.navEl = nav.firstElementChild;
+  }
   paintTabs();
   // 换了画面才把它滚进视野：保存片段等后台重画时，不把你正在翻的左栏拽回去
   const navKey = `${state.projectId}|${page.curBatch}|${page.curShot}`;
@@ -414,11 +422,13 @@ function paintVideoReview() {
   // 右边：选中画面，按句子排
   const g = shots.find(x => x.key === page.curShot);
   if (!state.candidates.length) {
+    painted.shot = null;
     host.innerHTML =
       '<p class="vr-empty">还没有视频候选。先点左边「复制格式规范」发给找素材的 AI，让它按规范写好候选清单（.json），再拖进窗口或点「导入候选清单」。</p>';
     return;
   }
   if (!g) {
+    painted.shot = null;
     host.innerHTML = '<p class="vr-empty">这一批没有候选。</p>';
     return;
   }
@@ -436,7 +446,7 @@ function paintVideoReview() {
   const lineHTML = m => {
     const cov = coverageOf(m, shotCands, lineCov);
     return `<div class="vr-line" data-vo-no="${m.no}">
-        <div class="vr-line-text"><span class="vr-line-no">${m.no}</span><p>${esc(m.text)}</p><span class="vr-cov ${cov.cls}"${cov.tip ? ` title="${esc(cov.tip)}"` : ''}>${cov.text}${cov.sec ? `<em>${cov.sec}</em>` : ''}</span>${cov.note ? `<p class="vr-cov-note">缺：${esc(cov.note)}</p>` : ''}</div>
+        <div class="vr-line-text"><span class="vr-line-no">${m.no}</span><p>${esc(m.text)}</p><span class="vr-cov ${cov.cls}"${cov.tip ? ` title="${esc(cov.tip)}"` : ''}>${cov.text}${cov.sec ? `<em>${cov.sec}</em>` : ''}</span></div>
       </div>`;
   };
   // 右边：方案 Tab（只有一个方案时不显示 Tab），下面是填满进度和按顺序排的视频
@@ -505,8 +515,7 @@ function paintVideoReview() {
       ? `<p class="vr-ctx ${where}"><span class="vr-line-no">${r.no}</span><span>${where === 'before' ? '上一句' : '下一句'} · ${esc(r.text)}</span></p>`
       : '';
   const need = g.cands.find(c => c.need)?.need || '';
-  stopClip(); // 重画会换掉播放器：先停掉，口播声音不会留在后台继续放
-  host.innerHTML = `<section class="vr-shot" data-vr-shot="${esc(String(g.key))}">
+  const shotHTML = `<section class="vr-shot" data-vr-shot="${esc(String(g.key))}">
       <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4>
       ${need ? `<p class="vr-need"><b>要的画面</b>${esc(need)}</p>` : ''}</div>
       ${i0 > 0 ? ctx(allLines[i0 - 1], 'before') : ''}
@@ -519,6 +528,25 @@ function paintVideoReview() {
       </div>
       ${i1 >= 0 && i1 < allLines.length - 1 ? ctx(allLines[i1 + 1], 'after') : ''}
     </section>`;
+  // 这个画面显示的内容一点没变（协作者改的是别的句子、后台存了文件…）：不重建，正在播的视频、截图和滚动位置都留着
+  if (shotHTML === painted.shot && painted.shotEl?.parentNode === host) {
+    paintStrips(
+      host,
+      open.filter(c => c.id === page.curCand),
+    );
+    return;
+  }
+  // 同一个画面重画时，左边句子栏滚到哪还在哪
+  const sameShot = painted.shotEl?.parentNode === host && painted.shotEl.dataset.vrShot === String(g.key);
+  const linesTop = sameShot ? host.querySelector('.vr-lines')?.scrollTop || 0 : 0;
+  stopClip(); // 重画会换掉播放器：先停掉，口播声音不会留在后台继续放
+  host.innerHTML = shotHTML;
+  painted.shot = shotHTML;
+  painted.shotEl = host.firstElementChild;
+  if (linesTop) {
+    const lines = host.querySelector('.vr-lines');
+    if (lines) lines.scrollTop = linesTop;
+  }
   paintLineFocus(state.candidates.find(c => c.id === page.curCand) || null);
   const shown = open.filter(c => c.id === page.curCand);
   paintMotion(host, g, shown);

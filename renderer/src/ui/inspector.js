@@ -91,16 +91,14 @@ export function renderInspector(force = false) {
   const r = rowById(state.sel);
   if (!r || r.kind !== 'line') {
     panel.innerHTML = '<div class="side-title">画面与素材</div><p class="side-empty">先选择一句口播。</p>';
+    panel._html = null;
     return;
   }
   const members = shotMembers(state.rows, r);
-  session = null;
-  panel.dataset.row = String(r.id);
-  panel.dataset.project = state.projectId;
   const ti = types();
   const visual = !r.type || ti.needsVisual(r.type);
   const voice = voiceParts(members);
-  panel.innerHTML = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}</div>
+  const html = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}</div>
     <section class="detail-assets">
       <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span><span class="spacer"></span>${voice.sync}</div>
       ${voice.meta}
@@ -115,6 +113,14 @@ export function renderInspector(force = false) {
     </section>
     <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
 `;
+  // 后台刷新（别人改了别的句子、存了文件…）时面板内容没变就不重写：缩略图、滚动位置、展开的片段都留着
+  if (!force && panel._html === html && panel.dataset.row === String(r.id) && panel.dataset.project === state.projectId)
+    return;
+  session = null;
+  panel.dataset.row = String(r.id);
+  panel.dataset.project = state.projectId;
+  panel.innerHTML = html;
+  panel._html = html;
   hydrateAssetCards();
   markNoteClamp();
 }
@@ -165,6 +171,8 @@ function openRemoveMenu(anchor, r) {
 }
 
 export function initInspector() {
+  // 在面板里打过字 / 改过值：页面上的内容已经和记下的不一样，下次刷新按数据重画（撤销回原样时不会以为「没变」）
+  for (const type of ['input', 'change']) $('#inspector').addEventListener(type, e => (e.currentTarget._html = null));
   registerCommand('inspector:open', openInspectorFor);
   registerCommand('inspector:refresh', () => renderInspector(true));
   $('#btnDetail').onclick = () => {

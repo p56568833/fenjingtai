@@ -7,10 +7,6 @@
   min-width: 0;
   overflow-x: auto;
 }
-/* 整表重建后正在把阅读位置放回原处：浏览器自带的滚动锚点先停用，免得两边同时调整 */
-.table-wrap.holding-anchor {
-  overflow-anchor: none;
-}
 .table {
   max-width: 1400px;
   margin: 0 auto;

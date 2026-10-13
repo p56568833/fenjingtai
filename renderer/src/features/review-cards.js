@@ -68,6 +68,7 @@ export function cardHTML(c) {
     <div class="vr-head"><strong>${esc(c.title || c.key || '（未命名）')}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
     <div class="vr-meta">建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）${c.best ? ` · <b class="vr-best" title="通过后自动设成可用片段；保存的文件仍是建议的整段，前后留着余量">精选 ${fmtTime(c.best.in)}–${fmtTime(c.best.out)}（${fmtLen(c.best.out - c.best.in)}）</b>` : ''} · ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
+    ${c.limits ? `<p class="vr-cov-note">缺：${esc(c.limits)}</p>` : ''}
     ${stripHTML()}
     ${playerHTML(c)}
     <div class="vr-row">

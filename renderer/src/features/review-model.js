@@ -124,9 +124,6 @@ export const fmtDate = t => {
 };
 export const batchNo = b => (b.id === 'legacy' ? '之前导入的' : `第 ${b.number} 批`);
 
-/* 画面内容只对上口播的一部分：清单写了 limitations（缺了什么） */
-export const isPartial = c => !!c.limits;
-
 /* 一个画面的候选按方案、再按方案里的先后排（方案里的视频都配整个画面） */
 export function layoutShot(g) {
   const members = g?.lead ? shotMembers(state.rows, g.lead) : [];
@@ -170,7 +167,8 @@ export const openOf = g => {
 export const secText = x => String(Math.round(Math.max(0, x) * 10) / 10);
 /* 这句有没有画面：先看表格里实际的画面排布（和预览、表格的「每句的画面」同一套算法），再看候选审到哪一步。
    cov：这个画面每句的盖住情况（shotLineCoverage 的结果，渲染时整组算一次传进来）。
-   sec：标签里的秒数（有画面时「盖住 / 需要」，没画面时「需 N 秒」）；note：只覆盖一部分时缺了什么 */
+   sec：标签里的秒数（有画面时「盖住 / 需要」，没画面时「需 N 秒」）。
+   清单里写的「缺了什么」只在审核卡片上提示；审过并通过就算接受了，句子标签不再因为它报问题 */
 export function coverageOf(row, shotCands, cov) {
   const hits = shotCands.filter(c => targetLines(c).target.some(r => r.id === row.id));
   const ok = hits.filter(c => c.decision === 'ok');
@@ -187,10 +185,6 @@ export function coverageOf(row, shotCands, cov) {
   }
   if (x?.state === 'ok') {
     const sec = `${secText(need)} / ${secText(need)} 秒`;
-    if (ok.length && !ok.some(c => !isPartial(c))) {
-      const note = [...new Set(ok.map(c => c.limits).filter(Boolean))].join('；');
-      return { cls: 'part', text: '只覆盖一部分', sec, note: note || '通过的画面只拍到口播内容的一部分' };
-    }
     if (ok.length) return { cls: 'ok', text: '✓ 有画面', sec };
     if (hits.some(isPending)) return { cls: 'wait', text: '待审', sec: `需 ${secText(need)} 秒` };
     return { cls: 'has', text: '表格里有其他素材', sec };

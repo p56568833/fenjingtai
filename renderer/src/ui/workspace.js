@@ -14,6 +14,7 @@ import { refreshMissing, resetMissing } from './asset-files.js';
 import { renderStats } from './render-stats.js';
 import { preserveReadingPosition } from './reading-position.js';
 import { registerCommand } from './base/commands.js';
+import { scrollGuard } from './base/scroll-guard.js';
 
 const $ = s => document.querySelector(s);
 let lastProject = null;
@@ -44,21 +45,20 @@ export function jumpTo(id) {
     view = state.view;
   let frame = 0,
     remaining = 3;
-  const cancel = () => {
+  const guard = scrollGuard(() => {
     cancelAnimationFrame(frame);
-    for (const event of ['wheel', 'pointerdown', 'keydown']) document.removeEventListener(event, cancel, true);
-    if (cancelJump === cancel) cancelJump = null;
+    if (cancelJump === guard.cancel) cancelJump = null;
     releaseOutline();
-  };
-  cancelJump = cancel;
-  for (const event of ['wheel', 'pointerdown', 'keydown']) document.addEventListener(event, cancel, true);
+  });
+  cancelJump = guard.cancel;
   const settle = () => {
+    if (!guard.active()) return;
     // 长稿占位块展开后继续校准几帧；新导航、切项目 / 视图或用户开始操作立即结束。
     if (state.sel !== selectedId || state.projectId !== project || state.view !== view || !el?.isConnected)
-      return cancel();
+      return guard.cancel();
     el.scrollIntoView({ block: 'center' });
     if (--remaining) frame = requestAnimationFrame(settle);
-    else cancel();
+    else guard.cancel();
   };
   frame = requestAnimationFrame(settle);
   rememberCursor();
@@ -73,8 +73,19 @@ export function nextUnmarked() {
   else toast('所有句子都已标注', null, 'ok');
 }
 export function revealSavedCursor() {
-  requestAnimationFrame(() => {
-    const el = document.querySelector(`.row[data-id="${state.sel}"],.as[data-id="${state.sel}"]`);
+  cancelJump?.();
+  const { sel, projectId, view } = state;
+  let frame;
+  const guard = scrollGuard(() => {
+    cancelAnimationFrame(frame);
+    if (cancelJump === guard.cancel) cancelJump = null;
+  });
+  cancelJump = guard.cancel;
+  frame = requestAnimationFrame(() => {
+    if (!guard.active()) return;
+    guard.cancel();
+    if (state.sel !== sel || state.projectId !== projectId || state.view !== view) return;
+    const el = document.querySelector(`.row[data-id="${sel}"],.as[data-id="${sel}"]`);
     el?.scrollIntoView({ block: 'center' });
   });
 }

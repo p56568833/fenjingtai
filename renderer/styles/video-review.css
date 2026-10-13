@@ -1004,10 +1004,9 @@ body.dark .vr-cov.miss {
   font-size: 11px;
   letter-spacing: 0;
 }
-/* 只覆盖一部分：缺了什么，写在句子下面 */
+/* 清单里写的「画面缺了什么」：在候选卡片的推荐理由下面，审核时就能看到 */
 .vr-page p.vr-cov-note {
-  grid-column: 2 / -1;
-  margin: 2px 0 0;
+  margin: 0 0 6px;
   font-size: 12.5px;
   line-height: 1.6;
   color: #b26a06;

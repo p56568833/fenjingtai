@@ -15,6 +15,7 @@ import { durCellHTML } from './time-view.js';
 import { renderStats } from './render-stats.js';
 import { rowBadges } from './badges.js';
 import { registerEditFlush } from './base/edit-session.js';
+import { staleBlock } from './base/keyed-patch.js';
 import { renderSelectionOnly } from './base/selection.js';
 import { markPopAnchor, closePop } from './base/popover.js';
 import { openTypePopover } from './popover.js';
@@ -87,6 +88,7 @@ export function startEdit(el, { inserting = false } = {}) {
 
 function commitSentEdit(el) {
   el.contentEditable = 'false';
+  staleBlock(el); // 改过字（或去掉过没画面的标记）：下次更新按数据重画这句
   if (el._projectId && el._projectId !== state.projectId) return;
   const r = rowById(+el.dataset.id);
   const txt = el.textContent.trim();
@@ -156,9 +158,13 @@ function onNoteInput(el) {
   if ((noteEdit && noteEdit.projectId !== state.projectId) || el._composing) return;
   const r = rowById(+el.dataset.id);
   if (!r) return;
+  staleBlock(el);
   typeNote(r, readEditable(el), noteEdit).forEach(x => {
     const other = document.querySelector(`.note[data-id="${x.id}"]`);
-    if (other && other !== el) other.textContent = x.note;
+    if (other && other !== el) {
+      other.textContent = x.note;
+      staleBlock(other);
+    }
   });
   workspaceSoon();
 }

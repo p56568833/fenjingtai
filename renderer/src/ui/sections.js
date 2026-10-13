@@ -11,6 +11,7 @@ import {
 import { esc, toast, confirmModal, composing } from './base/dom.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor } from './base/popover.js';
 import { startEdit } from './edit.js';
+import { staleBlock } from './base/keyed-patch.js';
 
 /* ── 行内改名：进入即全选，Enter / 失焦保存，Esc 还原。打字过程不写数据，提交时才快照 ── */
 let ren = null; // {id, el, baseline}
@@ -35,6 +36,7 @@ function commitRename() {
   ren = null;
   if (!el) return;
   el.contentEditable = 'false';
+  staleBlock(el); // 表格 / 原文里的章节名原地改过：下次更新按数据重画（撤销改名时才不会留着新名字）
   const r = rowById(id);
   if (!r) return;
   const txt = el.textContent.trim();

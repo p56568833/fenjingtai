@@ -1,6 +1,7 @@
 /* 面板改变正文宽度时，保持正在看的句子在视口中的位置。
    只测可见块里的句子，避免展开长稿中所有 content-visibility 占位块。 */
 import { state } from '../app/state.js';
+import { scrollGuard } from './base/scroll-guard.js';
 
 let cancelPending = null;
 
@@ -39,17 +40,17 @@ export function preserveReadingPosition(changeLayout) {
     scrollTop = wrap.scrollTop;
   // 浏览器的自动滚动锚点和我们的句子锚点不能同时调整同一个视口。
   wrap.style.overflowAnchor = 'none';
-  const cancel = () => {
+  const guard = scrollGuard(() => {
     if (done) return;
     done = true;
     cancelAnimationFrame(frame);
     wrap.style.overflowAnchor = oldOverflowAnchor;
-    for (const event of ['wheel', 'pointerdown', 'keydown']) document.removeEventListener(event, cancel, true);
-    if (cancelPending === cancel) cancelPending = null;
-  };
+    if (cancelPending === guard.cancel) cancelPending = null;
+  });
+  const cancel = guard.cancel;
   cancelPending = cancel;
-  for (const event of ['wheel', 'pointerdown', 'keydown']) document.addEventListener(event, cancel, true);
   const fix = () => {
+    if (!guard.active()) return;
     if (
       done ||
       state.projectId !== project ||

@@ -58,6 +58,7 @@ const DOC = {
           out: 110,
           license: '公有领域',
           why: '流水线上的牛肉',
+          limitations: '没有人物面部',
         },
         {
           key: 'A2',
@@ -318,6 +319,15 @@ export async function runVideoReviewTests(t) {
       card('A1').textContent.includes('公有领域'),
   );
   t(
+    '清单写的「缺了什么」显示在候选卡片上，不挂在句子下面',
+    card('A1')?.querySelector('.vr-cov-note')?.textContent === '缺：没有人物面部' &&
+      !$('#vrList .vr-lines .vr-cov-note'),
+  );
+  const shotEl = $('#vrList .vr-shot');
+  update('rows');
+  await pause(30);
+  t('内容没变的刷新（别人改别处、后台保存）不重建审核页', $('#vrList .vr-shot') === shotEl);
+  t(
     '播放器默认不加载（不下载）',
     $$('#vrList video.vr-player').every(v => !v.getAttribute('src')),
   );
@@ -435,6 +445,10 @@ export async function runVideoReviewTests(t) {
   t('画面填满、没有待审了：自动跳到下一个画面', $('#vrList .vr-shot')?.dataset.vrShot === String(lines()[3].id));
   click(`#vrNav [data-vr-goto="${ids[0]}"]`);
   await pause(30);
+  t(
+    '通过了写着「缺了什么」的视频：句子不再标「只覆盖一部分」',
+    $$('#vrList .vr-line[data-vo-no] .vr-cov').every(x => !x.textContent.includes('只覆盖一部分')),
+  );
   t(
     '画面已经填满：同一方案里没审的视频收成「未采用」，不算待审',
     !!$(`#vrList .vr-done.d-idle[data-vr-id="${cand('A2').id}"]`) && !btn('A2', 'ok'),
