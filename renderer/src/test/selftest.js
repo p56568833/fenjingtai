@@ -259,9 +259,25 @@ export async function runSelfTest() {
       );
       const wrap = $('#tableWrap'),
         y0 = wrap.scrollTop;
+      // 前面的分节会播放布局动画；先等它完成，再按稳定位置滚动。
+      await Promise.allSettled(
+        $('#rows')
+          .getAnimations({ subtree: true })
+          .map(animation => animation.finished),
+      );
       wrap.scrollTop += block.getBoundingClientRect().top - wrap.getBoundingClientRect().top + 200;
-      await sleep(50);
-      t('大标题滚走后细条接班', pin.classList.contains('on'));
+      for (let i = 0; i < 40 && !pin.classList.contains('on'); i++) await sleep(25);
+      t(
+        '大标题滚走后细条接班',
+        pin.classList.contains('on'),
+        JSON.stringify({
+          connected: pin.isConnected,
+          scrollTop: wrap.scrollTop,
+          headBottom: pin.nextElementSibling.getBoundingClientRect().bottom,
+          wrapTop: wrap.getBoundingClientRect().top,
+          pinHeight: pin.offsetHeight,
+        }),
+      );
       wrap.scrollTop = y0;
       await sleep(50);
     }

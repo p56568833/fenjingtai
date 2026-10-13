@@ -190,7 +190,8 @@ export async function runIterationTests(t) {
     key(document.body, 'ArrowLeft');
     await pause(80);
     t('返回录音覆盖的镜头时恢复口播', playthroughState().voiceClock && playthroughState().row === rs[1].id);
-    await pause(650);
+    // 媒体解码与播放时钟在 CI 上启动较慢，等待实际进入下个镜头，保留有限超时。
+    for (let i = 0; i < 80 && playthroughState().time < 8.2; i++) await pause(25);
     t(
       '播到录音结尾后继续静音预览后面的镜头',
       playthroughState().playing &&
