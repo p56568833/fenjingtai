@@ -15,6 +15,7 @@ import { renderStats } from './render-stats.js';
 import { preserveReadingPosition } from './reading-position.js';
 import { registerCommand } from './base/commands.js';
 import { scrollGuard } from './base/scroll-guard.js';
+import { selectedMemberOrOwner } from './base/selection.js';
 
 const $ = s => document.querySelector(s);
 let lastProject = null;
@@ -202,7 +203,12 @@ export function initWorkspace() {
     if (jump) jumpTo(+jump.dataset.jump);
     // 点句子里的素材卡 / 徽标 / 「共用画面」标题：打开右侧面板
     const detail = e.target.closest('[data-detail]');
-    if (detail && !detail.closest('#inspector')) openInspectorFor(+detail.dataset.detail);
+    if (detail && !detail.closest('#inspector')) {
+      const shared = detail.closest('.shared-scene, .shared-passage');
+      const ownerId = +detail.dataset.detail;
+      const id = shared && !detail.closest('.row, .as') ? selectedMemberOrOwner(ownerId) : ownerId;
+      openInspectorFor(id);
+    }
   });
   initColumnResizer();
 }

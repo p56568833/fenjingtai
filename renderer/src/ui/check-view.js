@@ -4,7 +4,7 @@
 import { state, rowById, visibleLineIds, currentSelection, toggleLineSelection, types } from '../app/state.js';
 import { markSentences, setNote, splitGroupAtAction } from '../app/actions.js';
 import { groupSplitAtPlan } from '../core/shot-groups.js';
-import { renderSelectionOnly } from './base/selection.js';
+import { renderSelectionOnly, selectedMemberOrOwner } from './base/selection.js';
 import { toast, composing, esc, readEditable } from './base/dom.js';
 import { openMenu, closePop, markPopAnchor, popEl } from './base/popover.js';
 import { typeMenuItems } from './base/type-view.js';
@@ -132,6 +132,11 @@ export function initCheck() {
     dragClick = false;
     const el = e.target.closest('.as');
     if (!el) {
+      const shared = e.target.closest('.shared-passage');
+      if (shared && state.sel != null && selectedMemberOrOwner(+shared.dataset.noteOwner) === state.sel) {
+        closePop();
+        return;
+      }
       // 点空白：取消选中（虚线一起消失），卡由全局点击关闭器收
       if (state.sel != null || state.multi) {
         state.sel = null;

@@ -38,6 +38,7 @@ import { initProjectPack } from './features/project-pack.js';
 import { initRework } from './features/rework.js';
 import { initUpdate, updateKey } from './features/update.js';
 import { initCollab } from './features/collab.js';
+import { initCrashLogs } from './features/crash-logs.js';
 import { initMotion } from './ui/base/motion.js';
 
 /* ── 保存状态指示 ── */
@@ -81,6 +82,7 @@ const MENU = {
   },
   review: 'review:open',
   'check-update': 'update:check',
+  'crash-logs': 'crash:open',
   undo: () => historyCommand('undo', 'menu'),
   redo: () => historyCommand('redo', 'menu'),
 };
@@ -225,6 +227,7 @@ async function boot() {
   initHelp();
   initUpdate();
   initCollab();
+  initCrashLogs();
   registerModals();
   initMotion(); // 弹窗从按钮长出来：要在所有弹窗都建好之后
 

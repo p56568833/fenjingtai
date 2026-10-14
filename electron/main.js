@@ -3,14 +3,7 @@ const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
-const { createStore } = require('./data-store');
-const { buildMenu } = require('./menu');
-const { createMainWindow } = require('./window');
-const { registerFileIpc } = require('./ipc-files');
-const { registerVideoIpc } = require('./ipc-video');
-const { registerPackIpc } = require('./ipc-pack');
-const { registerUpdateIpc } = require('./ipc-update');
-const { registerCollabIpc } = require('./ipc-collab');
+const { createCrashLog, monitorCrashes } = require('./crash-log');
 
 /* 自测 / 预览只在开发环境（未打包）可用：发布版不接受 --selftest，不会开远程调试端口 */
 const IS_SELFTEST = !app.isPackaged && process.argv.includes('--selftest');
@@ -22,6 +15,23 @@ if (IS_SELFTEST) {
   // （必须在 requestSingleInstanceLock 之前设置，锁就是按 userData 路径算的）
   app.setPath('userData', fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台自测-')));
 }
+
+// 只有取得单实例锁的进程才能读写运行标记，重复打开不会误记崩溃。
+const ownsInstance = app.requestSingleInstanceLock();
+if (!ownsInstance) app.quit();
+const crashLog = createCrashLog({ dir: path.join(app.getPath('userData'), '崩溃记录'), version: app.getVersion() });
+if (ownsInstance) {
+  crashLog.start();
+  monitorCrashes({ app, log: crashLog });
+}
+const { createStore } = require('./data-store');
+const { buildMenu } = require('./menu');
+const { createMainWindow } = require('./window');
+const { registerFileIpc } = require('./ipc-files');
+const { registerVideoIpc } = require('./ipc-video');
+const { registerPackIpc } = require('./ipc-pack');
+const { registerUpdateIpc } = require('./ipc-update');
+const { registerCollabIpc } = require('./ipc-collab');
 
 const DATA_DIR = () => path.join(app.getPath('userData'), '数据');
 const INDEX_FILE = path.join(__dirname, '..', 'renderer', 'index.html');
@@ -39,7 +49,6 @@ const store = createStore(DATA_DIR);
 let mainWindow = null;
 const win = () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getAllWindows()[0]);
 
-if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => {
   const w = win();
   if (w) {
@@ -86,6 +95,18 @@ onSync('data:save-sync', (e, patch) => {
 handle('data:backups', () => store.listBackups());
 handle('data:restore-backup', (_e, f) => store.readBackup(f));
 handle('data:open-folder', () => shell.openPath(DATA_DIR()));
+handle('crash:list', () => crashLog.list());
+handle('crash:clear', () => crashLog.clear());
+handle('crash:open-folder', () => shell.openPath(path.join(app.getPath('userData'), '崩溃记录')));
+onSync('crash:report', (e, report) => {
+  // 字段与大小在主进程再限定；不记录项目内容或整个页面。
+  if (report && ['renderer-error', 'renderer-rejection'].includes(report.kind))
+    crashLog.record(report.kind, {
+      message: typeof report.message === 'string' ? report.message : '',
+      stack: typeof report.stack === 'string' ? report.stack : '',
+    });
+  e.returnValue = true;
+});
 
 const deps = { handle, win };
 registerFileIpc(deps);

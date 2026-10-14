@@ -26,6 +26,9 @@ export const saveDataSync = patch => n().saveDataSync(patch);
 export const listBackups = () => n().listBackups();
 export const restoreBackup = f => n().restoreBackup(f);
 export const openDataFolder = () => n().openDataFolder?.();
+export const crashLogs = call('crashLogs');
+export const clearCrashLogs = call('clearCrashLogs');
+export const openCrashFolder = call('openCrashFolder');
 
 /* 文件 */
 export const exportFile = (name, content) => n().exportFile(name, content);

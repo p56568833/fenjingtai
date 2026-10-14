@@ -18,6 +18,10 @@ export default [
     languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
   },
   {
+    files: ['electron/preload.js'],
+    languageOptions: { globals: { window: 'readonly' } },
+  },
+  {
     // 测试脚本里 page.evaluate 的回调在浏览器里跑，所以两套全局都认
     files: ['scripts/**/*.mjs', 'eslint.config.mjs'],
     languageOptions: { sourceType: 'module', globals: { ...globals.node, ...globals.browser } },

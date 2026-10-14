@@ -1,3 +1,22 @@
+# 分镜台 2.0.4
+
+【新增】
+• 崩溃与异常自动留存，可在帮助菜单查看或清空
+• 突然退出后，下次启动自动补记异常退出记录
+
+![在帮助菜单查看本机崩溃记录，也可打开文件夹或清空记录](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.0.4/docs/images/v2-crash-logs.png)
+
+【优化】
+• 异常记录最多保留二十条，自动清理并限制占用空间
+• 重复和连续异常限制记录频率，避免频繁写入
+
+【修复】
+• 点击同一共用画面的其他区域时，保持当前选中句子
+
+![选中共用画面的第二句后，点击画面描述仍保留当前句子](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.0.4/docs/images/v2-shared-selection.png)
+
+---
+
 # 分镜台 2.0.2
 
 【优化】

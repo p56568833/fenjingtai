@@ -1,6 +1,21 @@
 /* 渲染层能用的原生能力白名单（contextIsolation 隔离，无 Node 直接暴露） */
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+// 在页面脚本之前监听，连启动失败也能留下线索；同步发送避免退出前丢失。
+function reportError(kind, value, fallback = '') {
+  try {
+    ipcRenderer.sendSync('crash:report', {
+      kind,
+      message: String(value?.message ?? value ?? fallback).slice(0, 8192),
+      stack: String(value?.stack || fallback).slice(0, 8192),
+    });
+  } catch {}
+}
+window.addEventListener('error', e => {
+  if (e.message) reportError('renderer-error', e.error || e.message, `${e.filename}:${e.lineno}:${e.colno}`);
+});
+window.addEventListener('unhandledrejection', e => reportError('renderer-rejection', e.reason));
+
 contextBridge.exposeInMainWorld('native', {
   isNative: true,
   pickAssets: () => ipcRenderer.invoke('assets:pick'),
@@ -25,6 +40,10 @@ contextBridge.exposeInMainWorld('native', {
   listBackups: () => ipcRenderer.invoke('data:backups'),
   restoreBackup: f => ipcRenderer.invoke('data:restore-backup', f),
   openDataFolder: () => ipcRenderer.invoke('data:open-folder'),
+  crashLogs: () => ipcRenderer.invoke('crash:list'),
+  clearCrashLogs: () => ipcRenderer.invoke('crash:clear'),
+  openCrashFolder: () => ipcRenderer.invoke('crash:open-folder'),
+  reportRendererError: report => ipcRenderer.sendSync('crash:report', report),
   exportPdf: (name, doc) => ipcRenderer.invoke('pdf:export', name, doc),
   exportFile: (name, content) => ipcRenderer.invoke('dialog:export', name, content),
   importFile: kind => ipcRenderer.invoke('dialog:import', kind), // kind='srt' 时只列字幕文件；返回 {name, ext, content} | {error} | null
@@ -75,4 +94,31 @@ contextBridge.exposeInMainWorld('native', {
   cancelUpdate: () => ipcRenderer.invoke('update:cancel'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   onUpdateProgress: cb => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
+});
+
+// 页面与预加载处于不同的脚本环境，页面异常需要在页面环境中监听。
+contextBridge.executeInMainWorld({
+  func: () => {
+    let reported = 0;
+    let windowStart = Date.now();
+    function report(kind, value, fallback = '') {
+      try {
+        if (Date.now() - windowStart >= 60000) {
+          reported = 0;
+          windowStart = Date.now();
+        }
+        if (reported >= 10) return;
+        reported++;
+        window.native.reportRendererError({
+          kind,
+          message: String(value?.message ?? value ?? fallback).slice(0, 8192),
+          stack: String(value?.stack || fallback).slice(0, 8192),
+        });
+      } catch {}
+    }
+    window.addEventListener('error', e => {
+      if (e.message) report('renderer-error', e.error || e.message, `${e.filename}:${e.lineno}:${e.colno}`);
+    });
+    window.addEventListener('unhandledrejection', e => report('renderer-rejection', e.reason));
+  },
 });

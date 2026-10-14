@@ -118,6 +118,28 @@ body.dark .modal {
 .modal.wide {
   width: 600px;
 }
+.crash-log-list {
+  max-height: 40vh;
+  overflow: auto;
+  margin-bottom: 20px;
+}
+.crash-log-entry {
+  border-bottom: 1px solid var(--hairline-2);
+  padding: 12px 0;
+  font-size: 13px;
+}
+.crash-log-entry summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.crash-log-entry pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+  margin-top: 12px;
+}
 .paste-area {
   width: 100%;
   height: 280px;

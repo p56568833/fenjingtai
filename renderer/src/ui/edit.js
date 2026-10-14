@@ -16,7 +16,7 @@ import { renderStats } from './render-stats.js';
 import { rowBadges } from './badges.js';
 import { registerEditFlush } from './base/edit-session.js';
 import { staleBlock } from './base/keyed-patch.js';
-import { renderSelectionOnly } from './base/selection.js';
+import { renderSelectionOnly, selectedMemberOrOwner } from './base/selection.js';
 import { markPopAnchor, closePop } from './base/popover.js';
 import { openTypePopover } from './popover.js';
 import { switchPlan } from '../app/candidate-actions.js';
@@ -245,7 +245,7 @@ export function initEdit() {
 
     const shared = e.target.closest('.shared-scene');
     if (shared && !e.target.closest('.row')) {
-      state.sel = +shared.dataset.owner;
+      state.sel = selectedMemberOrOwner(+shared.dataset.owner);
       state.multi = null;
       renderSelectionOnly();
       const chip = e.target.closest('.tchip');

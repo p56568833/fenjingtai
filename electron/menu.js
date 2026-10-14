@@ -71,6 +71,7 @@ function buildMenu({ win, dataDir }) {
         { label: '交稿检查…', click: send('review') },
         { type: 'separator' },
         { label: '检查更新…', click: send('check-update') },
+        { label: '崩溃记录…', click: send('crash-logs') },
       ],
     },
   ];
