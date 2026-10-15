@@ -3,14 +3,16 @@
    视频从入点开始静音播放、图片静止显示；不需要配画面的类型（如 A roll）显示「真人出镜」卡；
    一个画面都没挂的显示画面描述。没有口播音频时按估算时间静音走一遍。
    「对着口播看画面」= 只播一个镜头的范围。
-   窗口下方的「镜头轨」= 当前这个镜头的口播时长，每个主画面一个色块：拖边改开始 / 结束、拖中间整体平移、
-   点中后可以直接填秒数，或者播到想要的位置按 I / O 打点。改动即保存、可撤销。 */
+   窗口下方的「镜头轨」= 当前这个镜头的口播时长，每个主画面一个色块：拖边裁剪内容、拖中间移动或插入换序，
+   I / O 裁到播放头；Shift 拖相接边调切换点。松手保存、可撤销，播放头不跟随素材。 */
 import { state, on, timeline, rowById, types } from '../app/state.js';
-import { shots } from '../core/shots.js';
+import { shots, shotMembers } from '../core/shots.js';
 import { spanOf } from '../core/timeline.js';
 import { fmtTime, fmtLen } from '../core/text.js';
-import { layoutShot, itemAt, circled, clampSpan, MIN_LEN } from '../core/shot-layout.js';
-import { setShotTimes, clearShotTimes } from '../app/asset-actions.js';
+import { layoutShot, itemAt, circled, MIN_LEN } from '../core/shot-layout.js';
+import { movePicture, trimPicture, rollPictures } from '../core/shot-edit.js';
+import { altItems, moveAlt, mainSlotAt, swapIntoMain, insertIntoMain, dropToAlt } from '../core/shot-tracks.js';
+import { setShotTimes, arrangeShot, clearShotTimes } from '../app/asset-actions.js';
 import { esc, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/base/dom.js';
 import { typeIcon } from '../ui/base/type-view.js';
 import { registerCommand } from '../ui/base/commands.js';
@@ -183,7 +185,10 @@ function showUnit(i, t) {
   syncVideo(t, true);
 }
 
-/* ── 镜头轨：当前镜头的画面排布，可拖可填 ── */
+/* ── 镜头轨：当前镜头的画面排布，可拖可填 ──
+   上面一条正片轨（主画面，播放就放它），下面一条备选轨（不计时长、不播放）。
+   色块可以在两条轨之间拖：正片拖到备选轨 = 先撤下来，原来的位置留空；
+   备选拖上正片轨落在某段画面上 = 互换，落在空隙里 = 插进去（后面的画面往后让） */
 const sec = x => (Math.round(x * 10) / 10).toFixed(1);
 const unitRow = () => units[trackUnit]?.members[0] || null;
 const clipLen = it => {
@@ -191,6 +196,8 @@ const clipLen = it => {
   if (it.usage.clip) return it.usage.clip.out - it.usage.clip.in;
   return Number.isFinite(it.asset.durationSec) ? it.asset.durationSec : null;
 };
+const ALT_ROW = 30; // 备选轨一层的高度（时间上重叠的备选往下叠一层）
+let trackAlts = []; // 当前镜头备选轨上的画面（altItems 的结果）
 
 function renderTrack(i) {
   trackUnit = i;
@@ -201,25 +208,25 @@ function renderTrack(i) {
   const r = u.members[0];
   const ti = types();
   const items = u.layout?.items || [];
+  const tl = timeline();
+  trackAlts = u.layout ? altItems(state.assets || {}, u.members, tl) : [];
   const needs = !r.type || ti.needsVisual(r.type);
-  if (!items.length && !needs) return (box.hidden = true);
+  if (!items.length && !trackAlts.length && !needs) return (box.hidden = true);
   box.hidden = false;
   const dur = u.end - u.start;
-  if (!items.some(it => it.assetId === pick)) pick = items[0]?.assetId ?? null;
+  if (!items.some(it => it.assetId === pick) && !trackAlts.some(it => it.assetId === pick))
+    pick = items[0]?.assetId ?? null;
   const pct = x => `${Math.max(0, Math.min(100, (x / dur) * 100))}%`;
   // 刻度：大约每 1 / 2 / 5 / 10 秒一格
   const step = [1, 2, 5, 10, 15, 30].find(s => dur / s <= 14) || 60;
   let ticks = '';
   for (let x = 0; x <= dur + 1e-6; x += step) ticks += `<span class="ptt-tick" style="left:${pct(x)}">${x}s</span>`;
-  // 句子分界（第 2 句起），方便对照
-  const tl = timeline();
-  const seps = u.members
-    .slice(1)
-    .map(m => {
-      const at = (tl.times.get(m.id)?.start ?? u.start) - u.start;
-      return `<span class="ptt-sep" style="left:${pct(at)}"><b>${m.no}</b></span>`;
-    })
+  // 句子分界（第 2 句起），方便对照；备选轨上只画线
+  const cuts = u.members.slice(1).map(m => (tl.times.get(m.id)?.start ?? u.start) - u.start);
+  const seps = cuts
+    .map((at, k) => `<span class="ptt-sep" style="left:${pct(at)}"><b>${u.members[k + 1].no}</b></span>`)
     .join('');
+  const bareSeps = cuts.map(at => `<span class="ptt-sep bare" style="left:${pct(at)}"></span>`).join('');
   // 句间停顿里延续的上一段画面：画成同色的淡尾巴，和预览里看到的对上
   const holds = items
     .map((it, k) => {
@@ -237,20 +244,33 @@ function renderTrack(i) {
       const cls = ['ptt-block', it.assetId === pick ? 'on' : '', it.over ? 'over' : '', it.start >= dur ? 'gone' : '']
         .filter(Boolean)
         .join(' ');
-      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后面停在最后一帧` : ''}`;
-      return `<div class="${cls}" data-ptt="${esc(it.assetId)}" style="left:${pct(it.start)};width:${pct(Math.max(0, end - it.start))}" title="${esc(title)}"><span class="ptt-grip l"></span><span class="ptt-label">${circled(it.n)} ${esc(it.asset.name || '')}</span>${short ? '<span class="ptt-short" style="left:' + ((len / Math.max(0.01, end - it.start)) * 100).toFixed(1) + '%"></span>' : ''}<span class="ptt-grip r"></span></div>`;
+      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后面停在最后一帧` : ''}\n拖到下面的备选轨：先撤下来`;
+      return `<div class="${cls}" data-ptt="${esc(it.assetId)}" style="left:${pct(it.start)};width:${pct(Math.max(0, end - it.start))}" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头；Shift 拖相接边调整切换点"></span><span class="ptt-label">${circled(it.n)} ${esc(it.asset.name || '')}</span>${short ? '<span class="ptt-short" style="left:' + ((len / Math.max(0.01, end - it.start)) * 100).toFixed(1) + '%"></span>' : ''}<span class="ptt-grip r" title="拖动裁剪结尾；Shift 拖相接边调整切换点"></span></div>`;
+    })
+    .join('');
+  const altRows = Math.max(1, ...trackAlts.map(a => a.row + 1));
+  const altBlocks = trackAlts
+    .map(it => {
+      const title = `备选 · ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒（不播放、不计时长）\n拖上正片轨：落在画面上 = 互换，落在空隙里 = 插进去`;
+      return `<div class="ptt-block alt${it.assetId === pick ? ' on' : ''}" data-ptt="${esc(it.assetId)}" data-alt="1" style="left:${pct(it.start)};width:${pct(Math.max(0, it.end - it.start))};top:${4 + it.row * ALT_ROW}px;height:${ALT_ROW - 6}px" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头"></span><span class="ptt-label">${esc(it.asset.name || '')}</span><span class="ptt-grip r" title="拖动裁剪结尾"></span></div>`;
     })
     .join('');
   const timed = !!u.layout?.timed;
   box.innerHTML = `<div class="ptt-bar"><strong>画面时间</strong><span class="ptt-mode">${
-    !items.length ? '' : (timed ? '手动' : '按句子自动') + ' · 拖色块调整，点中后按 I / O 把播放位置设为开始 / 结束'
+    !items.length && !trackAlts.length
+      ? ''
+      : (timed ? '手动' : '按句子自动') +
+        ' · 拖中间移动 / 换序，拖两端裁剪 · 上下拖动在正片和备选之间换 · I / O 裁到播放位置'
   }</span><span class="ptt-warn" id="pttWarn"></span><span class="spacer"></span>${timed ? '<button class="ptt-reset" id="pttReset" title="去掉手动时间，按每个画面的出现位置（第几句到第几句）排">恢复按句子</button>' : ''}</div>
-    <div class="ptt-ruler" id="pttRuler" title="点击或拖动：跳到这个时间">${ticks}<span class="ptt-rhead" id="pttRHead"></span></div>
-    <div class="ptt-lane" id="pttLane">${seps}${holds}${blocks}<span class="ptt-head" id="pttHead"></span>${
-      items.length
-        ? ''
-        : '<span class="ptt-empty">这段还没有主画面：在「画面与素材」里把素材设成主画面，就能在这里调它出现的秒数</span>'
-    }</div>`;
+    <div class="ptt-lanes" id="pttLanes">
+      <span></span><div class="ptt-ruler" id="pttRuler" title="点击或拖动：跳到这个时间">${ticks}<span class="ptt-rhead" id="pttRHead"></span></div>
+      <span class="ptt-lname">正片</span><div class="ptt-lane" id="pttLane">${seps}${holds}${blocks}<span class="ptt-insert" id="pttInsert" hidden></span><span class="ptt-head" id="pttHead"></span>${
+        items.length ? '' : '<span class="ptt-empty">正片轨还没有画面：审核通过视频，或把备选拖上来</span>'
+      }</div>
+      <span class="ptt-lname alt">备选</span><div class="ptt-lane alt" id="pttAlt" style="height:${altRows * ALT_ROW + 4}px">${bareSeps}${altBlocks}<span class="ptt-insert" id="pttAltInsert" hidden></span>${
+        trackAlts.length ? '' : '<span class="ptt-empty">排不下的通过视频放在这里；把正片拖下来也行</span>'
+      }</div>
+    </div>`;
   renderEdit();
   movePlayhead(currentTime());
   // 有镜头轨时上面那条总进度条就多余了（刻度尺本身可以点、可以拖）
@@ -286,57 +306,57 @@ function movePlayhead(t) {
   if (rh) rh.style.left = head.style.left;
 }
 
-/* 把这个镜头里所有画面的时间写回（拖动一个时其他画面也固定下来） */
-function commitTimes(changed, label) {
-  const u = units[trackUnit];
+/* 时间与片段一次提交，一次撤销；拖动不会改变播放头。 */
+function commitEdit(draft, label) {
   const row = unitRow();
-  if (!u || !row) return;
-  const dur = u.end - u.start;
-  const entries = u.layout.items.map(it => {
-    const c = changed.assetId === it.assetId ? changed : null;
-    return {
-      assetId: it.assetId,
-      start: c ? c.start : it.start,
-      end: c ? c.end : Math.max(it.end, it.start + MIN_LEN),
-    };
-  });
-  // 自动排的画面末端可能超出口播一点（按句子排时句尾），写进去前收进口播范围
-  for (const e of entries) if (e.assetId !== changed.assetId) e.end = Math.min(e.end, Math.max(dur, e.start + MIN_LEN));
-  setShotTimes(row, entries, label);
+  if (row && draft?.changed) setShotTimes(row, draft.entries, label);
+}
+/* 两条轨一起改：mains / alts 两组 entries */
+function commitTracks(draft, label) {
+  const row = unitRow();
+  if (row && draft) arrangeShot(row, { mains: draft.mains || [], alts: draft.alts || [] }, label);
 }
 
-/* 选中画面的开始 / 结束改成 v 秒（输入框、I / O 打点） */
 function setEdge(which, v) {
   const u = units[trackUnit];
   const items = u?.layout?.items || [];
+  const alt = trackAlts.find(x => x.assetId === pick);
   const k = items.findIndex(x => x.assetId === pick);
-  if (k < 0 || !Number.isFinite(v)) return;
-  const it = items[k];
-  const dur = u.end - u.start;
-  const next = which === 'start' ? { start: v, end: Math.max(it.end, v + MIN_LEN) } : { start: it.start, end: v };
-  const c = clampSpan(items, k, next.start, next.end, dur, which);
-  const asked = which === 'start' ? next.start : next.end;
-  const got = which === 'start' ? c.start : c.end;
-  if (Math.abs(asked - got) > 0.05) {
-    const by =
-      which === 'start'
-        ? k > 0 && got <= Math.min(items[k - 1].end, dur) + 0.05
-          ? `已到 ${circled(items[k - 1].n)} 的结尾为止`
-          : '最早从 0 秒开始'
-        : k < items.length - 1 && got >= items[k + 1].start - 0.05
-          ? `已到 ${circled(items[k + 1].n)} 的开头为止，要更长先把 ${circled(items[k + 1].n)} 往后挪`
-          : `这段口播只有 ${sec(dur)} 秒`;
-    editMsg = `想设 ${sec(asked)} 秒：${by}`;
-  }
-  commitTimes({ assetId: it.assetId, ...c }, which === 'start' ? '设置画面开始时间' : '设置画面结束时间');
-  renderEdit(); // 没有实际改动（被挡住）时也把提示显示出来
+  if ((k < 0 && !alt) || !Number.isFinite(v)) return;
+  const draft = alt
+    ? trimPicture([alt], 0, which, v, u.end - u.start)
+    : trimPicture(items, k, which, v, u.end - u.start);
+  if (!draft) return;
+  const got = which === 'start' ? draft.start : draft.end;
+  if (Math.abs(v - got) > 0.05) editMsg = '已到相邻画面、口播或素材的边界';
+  const label = which === 'start' ? '裁剪画面开头' : '裁剪画面结尾';
+  if (alt) draft.changed && commitTracks({ alts: draft.entries }, label);
+  else commitEdit(draft, label);
+  renderEdit();
 }
 
-/* 拖动：边 = 改开始 / 结束，中间 = 平移。吸附到句子分界、播放头、前后画面的边（6 像素内） */
+/* 只展示正在裁的首 / 尾帧，不定位口播，也不写入项目。 */
+function showTrimFrame(it, entry, edge) {
+  const clip = entry.clip || it.usage.clip;
+  const cin = clip?.in || 0;
+  const end = Math.min(clip?.out ?? it.asset.durationSec ?? Infinity, cin + entry.end - entry.start);
+  const target = edge === 'start' ? cin : Math.max(cin, end - 0.04);
+  const preview = { ...it, usage: { ...it.usage, ...(clip ? { clip } : {}) } };
+  videoEl?.pause();
+  videoEl = null;
+  shownKey = '';
+  $('#ptStage').classList.remove('pt-short');
+  media.show(`trim|${it.assetId}`, preview, target, () => {});
+}
+
+/* 拖中间移动 / 插入换序，拖边裁剪；Shift 拖相接边调整两段切换点；上下拖在正片和备选之间换。
+   没有磁吸，鼠标落点只受时间线、相邻画面和实际素材长度约束。 */
 function onLaneDown(e) {
+  const lanes = $('#pttLanes');
   const lane = $('#pttLane');
+  const altLane = $('#pttAlt');
   const u = units[trackUnit];
-  if (!lane || !u || e.button !== 0) return;
+  if (!lanes || !lane || !u || e.button !== 0 || drag) return;
   const rect = lane.getBoundingClientRect();
   const dur = u.end - u.start;
   const toSec = x => ((x - rect.left) / rect.width) * dur;
@@ -347,71 +367,201 @@ function onLaneDown(e) {
   }
   e.preventDefault();
   const items = u.layout.items;
-  const k = items.findIndex(x => x.assetId === block.dataset.ptt);
-  const it = items[k];
-  const bx = e.clientX - block.getBoundingClientRect().left;
-  const bw = block.getBoundingClientRect().width;
-  const mode = bx <= 7 ? 'start' : bx >= bw - 7 ? 'end' : 'move';
+  const isAlt = !!block.dataset.alt;
+  const k = isAlt ? -1 : items.findIndex(x => x.assetId === block.dataset.ptt);
+  const it = isAlt ? trackAlts.find(x => x.assetId === block.dataset.ptt) : items[k];
+  if (!it) return;
+  if (playing) stop();
+  // 显式命中把手；窄素材的中间仍然可以用于排序。
+  const grip = e.target.closest('.ptt-grip');
+  const mode = grip ? (grip.classList.contains('l') ? 'start' : 'end') : 'move';
+  const cutIndex = mode === 'start' ? k - 1 : k;
+  const roll =
+    !isAlt &&
+    !!e.shiftKey &&
+    mode !== 'move' &&
+    cutIndex >= 0 &&
+    items[cutIndex + 1] &&
+    Math.abs(items[cutIndex].end - items[cutIndex + 1].start) <= 0.05;
   pick = it.assetId;
-  const tl = timeline();
-  const snaps = [
-    0,
-    dur,
-    currentTime() - u.start,
-    ...u.members.slice(1).map(m => (tl.times.get(m.id)?.start ?? u.start) - u.start),
-    ...items.filter(x => x !== it).flatMap(x => [x.start, Math.min(x.end, dur)]),
-  ];
-  const tol = (6 / rect.width) * dur;
-  const snap = x => {
-    const hit = snaps.reduce((b, p) => (Math.abs(p - x) < Math.abs(b - x) ? p : b), Infinity);
-    return Math.abs(hit - x) <= tol ? hit : x;
+  for (const el of lanes.querySelectorAll('.ptt-block')) el.classList.toggle('on', el === block);
+  const insert = $('#pttInsert');
+  const altInsert = $('#pttAltInsert');
+  const feedback = $('#pttWarn');
+  const oldFeedback = feedback.textContent;
+  drag = {
+    sig: shotSig(),
+    k,
+    it,
+    mode,
+    x0: e.clientX,
+    y0: e.clientY,
+    s0: it.start,
+    e0: Math.min(it.end, dur),
+    moved: false,
+    cur: null,
+    kind: '',
   };
-  drag = { k, it, mode, x0: e.clientX, s0: it.start, e0: Math.min(it.end, dur), moved: false, cur: null };
+  const swapTarget = el => {
+    for (const b of lane.querySelectorAll('.ptt-block')) b.classList.toggle('swap', b === el);
+  };
   dragCleanup = () => {
-    lane.onpointermove = lane.onpointerup = lane.onpointercancel = lane.onlostpointercapture = null;
+    lanes.onpointermove = lanes.onpointerup = lanes.onpointercancel = lanes.onlostpointercapture = null;
     block.classList.remove('dragging');
+    block.style.transform = '';
+    swapTarget(null);
+    if (insert) insert.hidden = true;
+    if (altInsert) altInsert.hidden = true;
+    feedback.textContent = oldFeedback;
     try {
-      if (lane.hasPointerCapture(e.pointerId)) lane.releasePointerCapture(e.pointerId);
+      if (lanes.hasPointerCapture(e.pointerId)) lanes.releasePointerCapture(e.pointerId);
     } catch {}
   };
-  block.classList.add('dragging');
+  // 原生文件名悬浮框会遮住正在拖的素材。
+  for (const el of lanes.querySelectorAll('[title]')) el.removeAttribute('title');
   try {
-    lane.setPointerCapture(e.pointerId);
+    lanes.setPointerCapture(e.pointerId);
   } catch {}
-  lane.onpointermove = ev => {
-    const d = toSec(ev.clientX) - toSec(drag.x0);
-    if (Math.abs(ev.clientX - drag.x0) > 3) drag.moved = true;
-    if (!drag.moved) return;
-    let s = drag.s0,
-      en = drag.e0;
-    if (mode === 'move') {
-      s = snap(drag.s0 + d);
-      en = s + (drag.e0 - drag.s0);
-      const se = snap(en);
-      if (se !== en) {
-        s += se - en;
-        en = se;
-      }
-    } else if (mode === 'start') s = snap(drag.s0 + d);
-    else en = snap(drag.e0 + d);
-    drag.cur = clampSpan(items, k, s, en, dur, mode);
-    block.style.left = `${(drag.cur.start / dur) * 100}%`;
-    block.style.width = `${((Math.min(drag.cur.end, dur) - drag.cur.start) / dur) * 100}%`;
+  // 正片轨的色块按草稿摆（没给的回到原位）
+  const placeMains = entries => {
+    for (const el of lane.querySelectorAll('.ptt-block')) {
+      if (el === block) continue;
+      const entry = entries?.find(x => x.assetId === el.dataset.ptt);
+      const orig = items.find(x => x.assetId === el.dataset.ptt);
+      const src = entry || orig;
+      if (!src) continue;
+      el.style.left = `${(src.start / dur) * 100}%`;
+      el.style.width = `${(Math.max(0, Math.min(src.end, dur) - src.start) / dur) * 100}%`;
+    }
   };
-  lane.onpointerup = () => {
+  lanes.onpointermove = ev => {
+    if (!drag || ev.pointerId !== e.pointerId) return;
+    const delta = toSec(ev.clientX) - toSec(drag.x0);
+    if ((Math.abs(ev.clientX - drag.x0) > 3 || Math.abs(ev.clientY - drag.y0) > 6) && !drag.moved) {
+      drag.moved = true;
+      if (playing) stop();
+      block.classList.add('dragging');
+    }
+    if (!drag.moved) return;
+    const len = drag.e0 - drag.s0;
+    const start = drag.s0 + delta;
+    swapTarget(null);
+    insert.hidden = true;
+    altInsert.hidden = true;
+    if (mode === 'move') {
+      const mainBox = lane.getBoundingClientRect();
+      const altBox = altLane.getBoundingClientRect();
+      const toAlt = !isAlt && ev.clientY > (mainBox.bottom + altBox.top) / 2;
+      const toMain = isAlt && ev.clientY < (mainBox.bottom + altBox.top) / 2;
+      // 色块跟着鼠标走（上下换轨时也跟着），其余色块展示松手后的排布
+      block.style.left = `${(Math.max(0, Math.min(dur - len, start)) / dur) * 100}%`;
+      block.style.transform = toAlt || toMain ? `translateY(${ev.clientY - drag.y0}px)` : '';
+      if (toAlt) {
+        drag.kind = 'toAlt';
+        drag.cur = dropToAlt(items, k, start, dur);
+        placeMains(drag.cur?.mains);
+        altInsert.hidden = false;
+        altInsert.style.left = `${(drag.cur.alts[0].start / dur) * 100}%`;
+        feedback.textContent = '松手放到备选轨：先撤下来，原来的位置留空';
+      } else if (toMain) {
+        const slot = mainSlotAt(items, Math.max(0, toSec(ev.clientX)), dur);
+        if (slot.kind === 'on') {
+          drag.kind = 'swap';
+          drag.cur = swapIntoMain(items, slot.index, it, dur);
+          placeMains(null);
+          swapTarget(lane.querySelector(`.ptt-block[data-ptt="${CSS.escape(items[slot.index].assetId)}"]`));
+          feedback.textContent = `松手和 ${circled(items[slot.index].n)} 互换`;
+        } else {
+          drag.kind = 'insert';
+          const at = Math.max(slot.start, Math.min(start, Math.max(slot.start, slot.end - MIN_LEN)));
+          drag.cur = insertIntoMain(items, it, at, dur);
+          placeMains(drag.cur.mains);
+          insert.hidden = false;
+          insert.style.left = `${(drag.cur.mains[drag.cur.index].start / dur) * 100}%`;
+          feedback.textContent = `松手放上正片轨（${sec(drag.cur.mains[drag.cur.index].start)} 秒起）`;
+        }
+      } else if (isAlt) {
+        drag.kind = 'alt';
+        const entry = moveAlt(it, start, dur);
+        drag.cur = { alts: [entry], changed: Math.abs(entry.start - it.start) > 0.05 };
+        placeMains(null);
+        feedback.textContent = `备选 ${sec(entry.start)}–${sec(entry.end)} 秒`;
+      } else {
+        drag.kind = 'main';
+        drag.cur = movePicture(items, k, start, dur);
+        if (!drag.cur) return;
+        placeMains(drag.cur.entries);
+        insert.hidden = !drag.cur.reordered;
+        insert.style.left = `${(drag.cur.start / dur) * 100}%`;
+        feedback.textContent = drag.cur.reordered
+          ? `松手放到第 ${drag.cur.index + 1} 个画面`
+          : `${sec(drag.cur.start)}–${sec(drag.cur.end)} 秒`;
+      }
+      return;
+    }
+    const value = (mode === 'start' ? drag.s0 : drag.e0) + delta;
+    drag.kind = isAlt ? 'alt' : 'main';
+    drag.cur = isAlt
+      ? trimPicture([it], 0, mode, value, dur)
+      : roll
+        ? rollPictures(items, cutIndex, value, dur)
+        : trimPicture(items, k, mode, value, dur);
+    const draft = drag.cur;
+    if (!draft) return;
+    if (isAlt) {
+      const entry = draft.entries[0];
+      block.style.left = `${(entry.start / dur) * 100}%`;
+      block.style.width = `${(Math.max(0, entry.end - entry.start) / dur) * 100}%`;
+      draft.alts = draft.entries;
+    } else {
+      placeMains(draft.entries);
+      const own = draft.entries.find(x => x.assetId === it.assetId);
+      block.style.left = `${(own.start / dur) * 100}%`;
+      block.style.width = `${(Math.max(0, Math.min(own.end, dur) - own.start) / dur) * 100}%`;
+    }
+    feedback.textContent = roll ? `切换点 ${sec(draft.cut)} 秒` : `${sec(draft.start)}–${sec(draft.end)} 秒`;
+    const entry = draft.entries.find(x => x.assetId === it.assetId);
+    showTrimFrame(it, entry, mode);
+  };
+  lanes.onpointerup = ev => {
+    if (ev && ev.pointerId !== e.pointerId) return;
     const d = drag;
     clearDrag();
     if (!d) return;
     if (!d.moved || !d.cur) {
-      // 只是点一下：选中它，停着的时候顺便跳到它开头看一眼
       renderTrack(trackUnit);
-      if (!playing) seek(u.start + it.start + 0.01);
+      if (refreshAfterDrag) refreshSoon();
       return;
     }
-    commitTimes({ assetId: it.assetId, ...d.cur }, mode === 'move' ? '移动画面时间' : '调整画面出现时间');
-    if (!playing) seek(u.start + (mode === 'end' ? Math.max(d.cur.start, d.cur.end - 0.1) : d.cur.start) + 0.01);
+    // 拖的这几秒里这个画面被别处改过（协作对方动了它）：草稿是按旧排布算的，不提交，免得盖掉对方的改动
+    if (shotSig() !== d.sig) {
+      editMsg = '拖动期间这个画面被改过，这次没有保存，请再拖一次';
+      refreshSoon();
+      return;
+    }
+    if (d.kind === 'toAlt') commitTracks(d.cur, '画面移到备选轨');
+    else if (d.kind === 'swap') commitTracks(d.cur, '备选换上正片轨');
+    else if (d.kind === 'insert') commitTracks({ mains: d.cur.mains }, '备选放上正片轨');
+    else if (d.kind === 'alt') {
+      if (d.cur.changed) commitTracks(d.cur, mode === 'move' ? '移动备选' : '裁剪备选');
+    } else
+      commitEdit(
+        d.cur,
+        roll
+          ? '调整画面切换点'
+          : mode === 'move'
+            ? d.cur.reordered
+              ? '调换画面顺序'
+              : '移动画面时间'
+            : mode === 'start'
+              ? '裁剪画面开头'
+              : '裁剪画面结尾',
+      );
+    // 被边界挡住也要恢复草稿画面，播放头保持原来的秒数。
+    renderTrack(trackUnit);
+    refreshSoon();
   };
-  lane.onpointercancel = lane.onlostpointercapture = () => {
+  lanes.onpointercancel = lanes.onlostpointercapture = () => {
     clearDrag();
     if (open) {
       renderTrack(trackUnit);
@@ -439,12 +589,25 @@ function scrub(e, el, toTime) {
 
 /* 数据变了（拖完、撤销、面板里改了角色 / 位置…）：重排当前镜头，画面和镜头轨一起刷新 */
 let refreshQueued = false;
+/* 拖动中途来的刷新（协作对方改了别处、后台保存……）不打断拖动：记下来，松手后再刷新。
+   以前会直接取消拖动，色块弹回原位，看着像被句子吸住、怎么也拖不动 */
+let refreshAfterDrag = false;
 function refreshSoon() {
-  if (!open || refreshQueued || drag) return;
+  if (!open) return;
+  if (drag) {
+    refreshAfterDrag = true;
+    return;
+  }
+  refreshAfterDrag = false;
+  if (refreshQueued) return;
   refreshQueued = true;
   setTimeout(() => {
     refreshQueued = false;
-    if (!open) return;
+    if (!open || detached()) return;
+    if (drag) {
+      refreshAfterDrag = true;
+      return;
+    }
     const keep = units[trackUnit]?.members[0]?.id;
     media.clear();
     videoEl = null;
@@ -491,11 +654,12 @@ function syncVideo(t, force = false) {
 const currentTime = () => (voiceClock && useVoice() ? voicePlayer.currentTime() : clockT);
 
 function tick(t) {
-  if (!open) return;
+  if (!open || detached()) return;
   clockT = t;
   if (range && t >= range.end - 0.02) {
     // 「对着口播看画面」播完这个镜头：接着播下一个镜头（镜头轨和进度条跟着换过去）；最后一个镜头才停
-    const next = units.findIndex(x => x.start >= range.end - 0.05);
+    // 嵌在审核页里时只看这一个画面：播到末尾就停
+    const next = docked ? -1 : units.findIndex(x => x.start >= range.end - 0.05);
     if (playing && next >= 0) range = { start: units[next].start, end: units[next].end };
     else {
       if (playing) stop();
@@ -515,6 +679,7 @@ function tick(t) {
 
 function frame(now) {
   if (!playing) return;
+  if (detached()) return stop();
   const dt = (now - lastFrame) / 1000;
   lastFrame = now;
   if (!voiceClock || !useVoice()) {
@@ -545,12 +710,13 @@ function frame(now) {
 
 function play() {
   if (!open) return;
+  docked?.onPlay?.();
   playing = true;
   startedAt = performance.now();
   let t = currentTime();
   // 停在这个镜头末尾时按播放：直接从下一个镜头开始（没有下一个就从这个镜头开头重播）
   if (range && t >= range.end - 0.05) {
-    const next = units.findIndex(x => x.start >= range.end - 0.05);
+    const next = docked ? -1 : units.findIndex(x => x.start >= range.end - 0.05);
     const u = next >= 0 ? units[next] : units.find(x => x.start <= range.start + 0.01 && x.end >= range.end - 0.01);
     if (u) {
       range = { start: u.start, end: u.end };
@@ -597,6 +763,11 @@ function renderControls() {
 
 /* from：从哪句开始；only：只播这一个镜头 */
 function openPlaythrough(fromId, { only = false } = {}) {
+  // 正嵌在审核页里：先收回来当弹窗用，关掉弹窗后审核页再接回去
+  if (docked) {
+    lostDock = docked.onLost || null;
+    undockPlaythrough();
+  }
   if (open) stop();
   media.clear();
   buildUnits();
@@ -621,6 +792,7 @@ function openPlaythrough(fromId, { only = false } = {}) {
 
 export function closePlaythrough() {
   if (!open) return;
+  if (docked) return undockPlaythrough();
   clearDrag();
   stop();
   open = false;
@@ -629,6 +801,97 @@ export function closePlaythrough() {
   videoEl = null;
   media.clear();
   $('#ptMask').classList.remove('show');
+  const back = lostDock;
+  lostDock = null;
+  back?.();
+}
+
+/* ── 嵌进审核页：同一个播放器和画面时间轴，挪到审核页给的两个位置里，只看一个画面 ──
+   slots.player 放画面 + 字幕 + 播放按钮，slots.track 放两条轨。onPlay：开始播放前调（审核页停掉候选片段）；
+   onLost：弹窗版「对着口播看画面」临时借走后、关掉时调（审核页重新接回去）。
+   同一个画面重新接回（审核页重画）时保留播放位置 */
+let docked = null;
+let lostDock = null;
+let boxEl = null; // 播放器整块和镜头轨：嵌进审核页时会被挪走（审核页重画时还会短暂离开页面），一直按引用找
+let trackEl = null;
+const detached = () => !!docked && !boxEl?.isConnected;
+export function dockPlaythrough(slots, rowId, { onPlay, onLost } = {}) {
+  const box = boxEl;
+  const track = trackEl;
+  if (!box || !slots?.player || !slots?.track) return false;
+  if (open && !docked) closePlaythrough();
+  const sameRow = !!docked && docked.rowId === rowId && open;
+  const keepT = sameRow ? currentTime() : null;
+  docked = { player: slots.player, track: slots.track, rowId, onPlay, onLost };
+  box.classList.add('docked');
+  if (box.parentNode !== slots.player) slots.player.appendChild(box);
+  if (track.parentNode !== slots.track) slots.track.appendChild(track);
+  if (sameRow && units.length) {
+    // 画面节点换了位置：重建一次画面，时间不动
+    shownKey = '';
+    metaHtml = '';
+    trackUnit = -1;
+    media.clear();
+    videoEl = null;
+    tick(keepT);
+    return true;
+  }
+  stop();
+  media.clear();
+  buildUnits();
+  const i = unitOfRow(rowId);
+  if (i < 0) {
+    undockPlaythrough();
+    return false;
+  }
+  const u = units[i];
+  range = { start: u.start, end: u.end };
+  open = true;
+  current = -1;
+  shownKey = '';
+  metaHtml = '';
+  trackUnit = -1;
+  pick = null;
+  untick?.();
+  untick = voicePlayer.onTick(t => playing && voiceClock && tick(t));
+  seek(u.start);
+  return true;
+}
+/* 当前镜头的素材使用记录（从项目里现取，协作同步换掉句子对象也认得出来）：拖动前后比一比有没有被别处改过 */
+function shotSig() {
+  const lead = rowById(units[trackUnit]?.members[0]?.id);
+  if (!lead) return '';
+  return JSON.stringify(shotMembers(state.rows, lead).map(m => m.assetUsages || []));
+}
+/* 正在拖镜头轨上的色块：审核页这时先不重画（重画会把轨道从页面上拿下来，拖动就断了） */
+export const trackDragging = () => !!drag;
+
+export function undockPlaythrough() {
+  if (!docked) return;
+  clearDrag();
+  stop();
+  open = false;
+  untick?.();
+  untick = null;
+  videoEl = null;
+  media.clear();
+  const box = boxEl;
+  const track = trackEl;
+  box.classList.remove('docked');
+  box.insertBefore(track, box.querySelector('.pt-controls'));
+  $('#ptMask').appendChild(box);
+  docked = null;
+}
+/* 审核页要放候选片段时：嵌着的这个先停 */
+export function pauseDocked() {
+  if (docked && playing) stop();
+}
+export const isDocked = () => !!docked;
+/* 嵌着时的空格：播放 / 暂停这个画面 */
+export function toggleDocked() {
+  if (!docked) return false;
+  playing ? stop() : play();
+  return true;
 }
 
 export function playthroughKey(e) {
@@ -678,6 +941,8 @@ export function initPlaythrough() {
       <div class="pt-controls"><button class="btn" id="ptPrev" title="上一个镜头（←）" aria-label="上一个镜头">${ICON_PREV}</button><button class="btn primary" id="ptPlay">${ICON_PLAY}播放</button><button class="btn" id="ptNext" title="下一个镜头（→）" aria-label="下一个镜头">${ICON_NEXT}</button><span class="pt-time mono" id="ptTime"></span><span class="spacer"></span><span class="pt-keys"><kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个镜头</span></div>
     </div></div>`,
   );
+  boxEl = $('.pt-box');
+  trackEl = $('#ptTrack');
   $('#ptClose').onclick = closePlaythrough;
   media = createPreviewMedia($('#ptStage'));
   $('#ptPlay').onclick = () => (playing ? stop() : play());
@@ -694,7 +959,7 @@ export function initPlaythrough() {
       if (u) scrub(e, ruler, f => u.start + f * (u.end - u.start));
       return;
     }
-    if (e.target.closest('#pttLane')) onLaneDown(e);
+    if (e.target.closest('#pttLane, #pttAlt')) onLaneDown(e);
   });
   const bar = $('.pt-progress');
   bar.title = '点击或拖动：跳到这个时间';
@@ -729,4 +994,6 @@ export const playthroughState = () => ({
   shown: shownKey,
   time: currentTime(),
   voiceClock,
+  docked: !!docked,
+  alts: trackAlts.map(a => ({ assetId: a.assetId, start: a.start, end: a.end, row: a.row })),
 });

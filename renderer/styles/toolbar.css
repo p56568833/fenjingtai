@@ -1,43 +1,94 @@
-/* ═════════ 工具条：节奏色条、筛选、标注工具、进度与右侧开关 ═════════ */
+/* ═════════ 全片时间总览、筛选、标注工具与进度 ═════════ */
 .stats {
   flex: none;
   position: relative;
   z-index: 20;
-  /* 节奏色条：平时一根细线、颜色压低；鼠标移上去才展开成可点的色块（用缩放，不挤动下面的布局） */
-  padding: 6px 20px 2px;
+  padding: 2px 20px;
+}
+.seg-overview {
+  /* 取自应用图标的蓝色区域。 */
+  --seg-mounted: #0174fd;
+  --seg-empty: color-mix(in srgb, var(--text-3) 20%, var(--bg));
+}
+.seg-timeline {
+  position: relative;
+  padding: 24px 0;
+}
+.seg-selection {
+  position: absolute;
+  top: 0;
+  left: clamp(38px, var(--seg-position, 0%), calc(100% - 38px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 76px;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+#segTime {
+  color: var(--text);
+}
+.seg-time-selection {
+  top: auto;
+  bottom: 0;
+}
+#segLine {
+  color: var(--seg-mounted);
+}
+.seg-pointer {
+  position: absolute;
+  top: 19px;
+  left: var(--seg-position, 0%);
+  transform: translateX(-50%);
+  width: 8px;
+  height: 5px;
+  background: var(--seg-mounted);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  pointer-events: none;
+}
+.seg-pointer-bottom {
+  top: auto;
+  bottom: 19px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 .segbar {
-  display: flex;
-  background: var(--seg-track);
+  background: var(--seg-empty);
   overflow: hidden;
-  /* 节奏色条上的播放头 */
   position: relative;
-  height: 10px;
-  margin: 0;
-  gap: 1px;
-  border-radius: 5px;
-  transform: scaleY(0.4);
-  filter: saturate(0.5) opacity(0.75);
-  transition:
-    transform 0.16s ease,
-    filter 0.16s ease;
+  height: 8px;
+  border-radius: 3px;
 }
 .segbar .seg {
-  flex-grow: 0;
-  min-width: 1px;
-  flex-basis: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  cursor: pointer;
-  height: 10px;
-  /* 节奏色条：标了一句，对应那一段颜色和宽度平滑变过去 */
-  transition:
-    background-color 0.45s ease,
-    flex-grow 0.5s cubic-bezier(0.3, 1.2, 0.5, 1);
+  position: absolute;
+  top: 0;
+  height: 8px;
 }
-.segbar .seg.none {
-  background: var(--seg-none);
+.seg.mounted {
+  background: var(--seg-mounted);
+}
+.seg.missing {
+  background: #e53935;
+}
+.seg-seek {
+  position: absolute;
+  top: 13px;
+  left: 0;
+  margin: 0;
+  width: 100%;
+  height: 30px;
+  opacity: 0;
+  cursor: pointer;
+}
+@media (max-width: 650px) {
+  .stats {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
 }
 .filters {
   display: flex;
@@ -135,9 +186,6 @@ body.dark .chip-filter:hover {
 .progress-txt .todo {
   color: var(--todo);
 }
-.segbar .seg:hover {
-  filter: brightness(0.8);
-}
 .work-tools {
   flex: none;
   display: flex;
@@ -203,12 +251,6 @@ body.drop-voice .stats::after {
   top: 6px;
   font-size: 12px;
   color: var(--accent);
-}
-.stats:hover .segbar,
-.segbar:focus-within,
-body.drop-voice .segbar {
-  transform: none;
-  filter: none;
 }
 .work-tools > .filters {
   /* 筛选条只占一行：窗口窄时可以横向滑动，不再把右边的进度、类型、面板按钮挤到第二行 */

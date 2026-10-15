@@ -169,8 +169,9 @@ export async function runAuditTests(t) {
     runCommand('playthrough:shot', row.id);
     if (playthroughState().playing) playthroughKey(new KeyboardEvent('keydown', { key: ' ' }));
     const down = () => {
-      const lane = document.querySelector('#pttLane'),
-        block = lane.querySelector('.ptt-block');
+      // 拖动回调挂在两条轨的外框上（色块可以在正片和备选之间拖）
+      const lane = document.querySelector('#pttLanes'),
+        block = lane.querySelector('#pttLane .ptt-block');
       const rect = block.getBoundingClientRect();
       block.dispatchEvent(
         new PointerEvent('pointerdown', {

@@ -1,63 +1,14 @@
-/* 顶部统计：节奏色条（一句一段，宽度 = 时长）+ 筛选条 + 进度。
-   句子结构没变（只是改了类型 / 文字）时原地改颜色和宽度，不重建几百上千个按钮 */
-import { state, types, lineSeconds } from '../app/state.js';
+/* 顶部统计：全片时间与素材挂载总览 + 筛选条 + 进度。 */
+import { state, types } from '../app/state.js';
 import { shots, linkedUsages } from '../core/shots.js';
 import { esc } from './base/dom.js';
 import { filterList } from './base/type-view.js';
-import { roll, reduced } from './base/motion.js';
+import { roll } from './base/motion.js';
+import { renderOverview } from './timeline-overview.js';
 
-const segColor = r => types().color(r.type) || 'var(--seg-none)';
-const segTitle = r => `第 ${r.no} 句 · ${types().label(r.type)} · ${r.text.slice(0, 35)}`;
-const segGrow = r => String(Math.max(0.2, lineSeconds(r)));
-
-/* 数字滚动要知道上一次是多少：换项目时清零（换项目不滚，直接显示） */
 let lastPid = null;
 let prevCounts = new Map();
 let prevProg = [];
-
-function renderSegbar(lines) {
-  const bar = document.querySelector('#segbar');
-  const key = lines.map(r => r.id).join(',');
-  if (bar._key !== key) {
-    bar._key = key;
-    // 打开 / 切换项目时，色条从左往右「画」出来；改稿子（增删句）时不重播
-    if (bar._pid !== state.projectId) {
-      bar._pid = state.projectId;
-      if (!reduced() && lines.length)
-        bar.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], {
-          duration: 900,
-          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-        });
-    }
-    bar.innerHTML =
-      lines
-        .map(
-          r =>
-            `<button class="seg" data-jump="${r.id}" style="flex-grow:${segGrow(r)};background:${segColor(r)}" title="${esc(segTitle(r))}" aria-label="跳到第 ${r.no} 句"></button>`,
-        )
-        .join('') + '<span class="seg-playhead" id="segPlayhead" hidden></span>';
-    return;
-  }
-  const segs = bar.children;
-  lines.forEach((r, i) => {
-    const el = segs[i],
-      bg = segColor(r),
-      grow = segGrow(r),
-      title = segTitle(r);
-    if (el._bg !== bg) {
-      el.style.background = bg;
-      // 标了一句：色条上对应那一段亮一下
-      if (el._bg && !reduced())
-        el.animate([{ filter: 'brightness(1.5) saturate(1.3)' }, { filter: 'none' }], {
-          duration: 700,
-          easing: 'ease-out',
-        });
-      el._bg = bg;
-    }
-    if (el.style.flexGrow !== grow) el.style.flexGrow = grow;
-    if (el.title !== title) el.title = title;
-  });
-}
 
 export function renderStats() {
   const lines = state.rows.filter(r => r.kind === 'line');
@@ -66,7 +17,7 @@ export function renderStats() {
   const shotGroups = shots(state.rows);
   const shotCounts = { none: 0 };
   for (const [r] of shotGroups) shotCounts[r.type || 'none'] = (shotCounts[r.type || 'none'] || 0) + 1;
-  renderSegbar(lines);
+  renderOverview(lines);
   document.querySelector('#filters').innerHTML = filterList()
     // 「未标注」为 0 时不占位置（正在用这个筛选时除外）
     .filter(f => f.id !== 'none' || counts.none || state.filter === 'none')

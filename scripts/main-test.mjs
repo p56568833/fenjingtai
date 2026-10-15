@@ -457,7 +457,7 @@ test('1.10 备份失败不算备份过：下次保存立刻再试；整库恢复
   const newest = JSON.parse(fs.readFileSync(path.join(dir, '自动备份', store.listBackups()[0].f), 'utf8'));
   assert.equal(newest.projects.p1.title, '三', '整库替换前先备份了替换前的库');
 });
-test('1.10 片段保存：同名同时保存各占一个文件名；流媒体播放列表不交给 ffmpeg；参数带协议白名单', () => {
+test('片段保存：同名各占一个文件名，流媒体分段也只能读取网络协议', () => {
   const dir = tmp();
   const a = vt.reservePath(dir, '同名', '.mp4');
   const b = vt.reservePath(dir, '同名', '.mp4');
@@ -488,7 +488,7 @@ await atest('截取走系统代理：PROXY 项交给 ffmpeg（环境变量 http_
   assert.ok((await vt.saveSegment({ ...req, name: '直连' }, { ffmpeg: '/bin/ffmpeg', run })).ok);
   assert.equal(envs[1], undefined, '直连时不改 ffmpeg 的环境');
 });
-await atest('1.10 两个同名片段并发保存都成功、互不覆盖；m3u8 直接拒绝', async () => {
+await atest('两个同名片段并发保存互不覆盖；流媒体截取后保存为 MP4', async () => {
   const dir = tmp();
   const run = async (bin, args) => {
     await new Promise(r => setTimeout(r, 20));
@@ -505,9 +505,25 @@ await atest('1.10 两个同名片段并发保存都成功、互不覆盖；m3u8 
   assert.equal(fs.statSync(r1.path).size, 4096);
   assert.equal(fs.statSync(r2.path).size, 4096);
   assert.ok(!fs.readdirSync(dir).some(f => f.includes('.part')), '不留临时文件');
-  const hls = await vt.saveSegment({ ...req, url: 'https://x/a.m3u8' }, { ffmpeg: '/bin/ffmpeg', run });
-  assert.equal(hls.ok, false);
-  assert.match(hls.error, /播放列表/);
+  for (const url of ['https://x/a.m3u8', 'https://x/a.mpd']) {
+    let seen;
+    const hls = await vt.saveSegment(
+      { ...req, url },
+      {
+        ffmpeg: '/bin/ffmpeg',
+        run: async (bin, args) => {
+          seen = args;
+          return run(bin, args);
+        },
+      },
+    );
+    assert.equal(hls.ok, true);
+    assert.equal(path.extname(hls.path), '.mp4');
+    assert.equal(seen[seen.indexOf('-i') + 1], url);
+    assert.equal(seen[seen.indexOf('-ss') + 1], '1');
+    assert.equal(seen[seen.indexOf('-t') + 1], '9');
+    assert.ok(!seen[seen.indexOf('-protocol_whitelist') + 1].split(',').includes('file'));
+  }
 });
 await atest('1.10 下载原片：长时间没数据算超时、可以取消，失败不留文件', async () => {
   const { EventEmitter } = await import('node:events');
@@ -680,6 +696,24 @@ test('更新说明格式：只用【新增】【支持】【优化】【修复�
     '可在分类内附功能图片，不计为更新条目',
   );
   bad('【新增】\n• 一条\n![图片](javascript:alert(1))', /以「• 」开头/, '图片不能使用脚本地址');
+  const oldImage = 'docs/images/v2-shared-selection.png';
+  const releaseNotes = imagePath =>
+    `# 分镜台 2.0.5\n【优化】\n• 新变化\n![本版功能](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.0.5/${imagePath})\n\n---\n\n# 分镜台 2.0.4\n【修复】\n• 旧变化\n![旧版功能](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.0.4/${oldImage})`;
+  assert.ok(
+    checkNotes(releaseNotes(oldImage), '2.0.5').some(e => /复用了旧版截图/.test(e)),
+    '换标签也不能沿用旧功能截图',
+  );
+  assert.deepEqual(
+    checkNotes(releaseNotes('docs/images/v2.0.5-sentence-selection.png'), '2.0.5'),
+    [],
+    '新功能使用本版独立截图',
+  );
+  assert.ok(
+    checkNotes(releaseNotes('docs/images/v2.0.5-sentence-selection.png').replace('/v2.0.5/', '/v2.0.4/'), '2.0.5').some(
+      e => /须使用本版标签/.test(e),
+    ),
+    '截图链接固定到本版，不能指向旧标签',
+  );
   assert.match(checkNotes(ok, '9.9.9')[0], /没有「# 分镜台 9\.9\.9」/);
   // 当前版本的真实说明必须合格（以前发过的旧版本不查）
   const real = fs.readFileSync(new URL('../UPDATE-NOTES.md', import.meta.url), 'utf8');

@@ -275,8 +275,10 @@
   cursor: default;
 }
 .vr-saved {
+  flex: none;
   font-size: 12px;
   color: var(--c-real);
+  white-space: nowrap;
 }
 .inspector .vr-open {
   display: flex;
@@ -757,6 +759,7 @@ body.dark .vr-sync {
 }
 .vr-bheader {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -776,6 +779,9 @@ body.dark .vr-sync {
   text-align: left;
   cursor: pointer;
   transition: background-color 0.18s;
+}
+.vr-batch-head b {
+  overflow-wrap: anywhere;
 }
 .vr-batch-head:hover,
 .vr-batch-head.pop-open {
@@ -848,6 +854,9 @@ body.dark .vr-sync {
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+.vr-rework-note {
+  white-space: pre-wrap;
 }
 .vr-bbar {
   display: flex;
@@ -1032,91 +1041,55 @@ body.dark .vr-page p.vr-cov-note {
   color: var(--text-2);
 }
 
-/* ── 画面：左边口播、右边方案 ──
-   口播一句一行钉在左边（往下翻视频时一直看得见），右边是方案 Tab、填满进度和按顺序排的视频 */
+/* ── 画面：左边「对着口播看画面」，右边这个画面的视频（通过 / 不要），下面两条轨 ──
+   播放器和画面时间轴就是连播预览那一套，嵌进来只看这一个画面（features/playthrough.js 的 dockPlaythrough） */
 .vr-split {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: 22px;
+  grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+  gap: 18px;
   align-items: start;
+  padding-top: 12px;
   border-top: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
 }
-.vr-lines {
+.vr-watch {
   position: sticky;
   top: 64px;
-  max-height: calc(100vh - 220px);
-  overflow-y: auto;
-  padding-top: 4px;
+  min-width: 0;
 }
-.vr-lines .vr-line:first-child {
-  border-top: 0;
+.vr-watch .pt-box.docked {
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  padding: 10px;
+  gap: 8px;
+  border-radius: 14px;
+  box-shadow: none;
 }
-.vr-lines .vr-line-text {
-  grid-template-columns: 34px minmax(0, 1fr);
+.pt-box.docked .pt-head,
+.pt-box.docked .pt-progress,
+.pt-box.docked .pt-keys {
+  display: none;
 }
-.vr-lines .vr-cov {
-  grid-column: 2;
-  justify-self: start;
-  margin-top: 2px;
+.pt-box.docked .pt-stage {
+  max-height: 46vh;
 }
-.vr-page .vr-lines .vr-line-text p {
+.pt-box.docked .pt-sub {
+  min-height: 2.4em;
   font-size: 15px;
+}
+.vr-timeline {
+  margin-top: 14px;
+  padding: 2px;
+  border-radius: 14px;
+  background: #11151f;
+  color: #e9edf5;
+}
+.vr-timeline:empty,
+.vr-timeline:has(> .pt-track[hidden]) {
+  display: none;
 }
 .vr-plans {
   min-width: 0;
-  padding-top: 12px;
-}
-.vr-ptabs {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  margin-bottom: 12px;
-  border-radius: 12px;
-  background: var(--track-bg);
-  border: 1px solid var(--hairline);
-  box-shadow: inset 0 1px 2px rgba(16, 24, 40, 0.04);
-  overflow-x: auto;
-}
-body.dark .vr-ptabs {
-  background: rgba(255, 255, 255, 0.05);
-}
-.vr-ptab {
-  flex: 1 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text-2);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 650;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    color 0.15s;
-}
-.vr-ptab:hover {
-  color: var(--text);
-}
-.vr-ptab.on {
-  color: var(--text);
-  background: var(--card);
-  box-shadow:
-    0 0 0 0.5px rgba(16, 24, 40, 0.08),
-    0 1px 2px rgba(16, 24, 40, 0.08),
-    0 3px 8px -2px rgba(16, 24, 40, 0.1);
-}
-body.dark .vr-ptab.on {
-  background: rgba(255, 255, 255, 0.11);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 1px 3px rgba(0, 0, 0, 0.4);
 }
 /* 方案状态：已填满 / 待审 N / 不够长 / 还差几秒 / 未采用（颜色和句子的画面状态一致） */
 .vr-pst {
@@ -1155,80 +1128,22 @@ body.dark .vr-pst.part {
 body.dark .vr-pst.miss {
   color: #ff7a7e;
 }
-.vr-puse {
-  font-size: 11px;
-  font-weight: 650;
-  color: var(--accent);
-}
-/* 填满进度：一段一个视频，按可用长度占宽度；绿 = 通过，蓝 = 待审，灰 = 未采用 */
-.vr-pfill {
-  margin-bottom: 12px;
-}
 .vr-pfill-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
   font-size: 12.5px;
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
-.vr-pfill-bar {
-  display: flex;
-  gap: 2px;
-  height: 8px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--text) 7%, transparent);
-}
-.vr-pseg {
-  min-width: 3px;
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.vr-pseg.ok {
-  background: #12945f;
-}
-.vr-pseg.idle {
-  background: color-mix(in srgb, var(--text) 18%, transparent);
-}
-body.dark .vr-pseg.ok {
-  background: #3ecf8e;
-}
-.vr-page p.vr-pfill-short {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  line-height: 1.6;
-  color: #b26a06;
-}
-.vr-pfill-short b {
-  margin-right: 8px;
-  font-weight: 650;
-}
-body.dark .vr-page p.vr-pfill-short {
-  color: #f0a43a;
-}
-/* 方案里的视频按播放顺序排，前面标 ①②③ */
 .vr-plist {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
-.vr-pitem {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 6px;
-  align-items: start;
-}
-.vr-pno {
-  padding-top: 13px;
-  font-size: 15px;
-  line-height: 1;
-  color: var(--text-3);
-  text-align: center;
-}
-.vr-pitem .vr-done-list,
-.vr-pitem .vr-cand,
-.vr-pitem .vr-done {
+.vr-plist .vr-cand,
+.vr-plist .vr-done {
   margin: 0;
 }
 /* 点「也配这句」跳过去：目标候选闪一下 */
@@ -1308,13 +1223,25 @@ body.dark .vr-page p.vr-pfill-short {
   color: color-mix(in srgb, var(--accent) 70%, var(--text-2));
 }
 /* 换批次的菜单 */
+.popover:has(.vr-bpick-list) {
+  width: min(440px, calc(100vw - 32px));
+}
 .vr-bpick-list {
   min-width: 290px;
   max-height: 52vh;
   overflow-y: auto;
 }
+.vr-bpick .main {
+  flex: 1;
+}
 .vr-bpick .main > span:first-child {
   font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.vr-bpick .desc {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .vr-bpick-date {
   margin-left: 8px;
@@ -1538,10 +1465,8 @@ body.dark .vr-tab-pill {
   }
   .vr-split {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
   }
-  .vr-lines {
+  .vr-watch {
     position: static;
-    max-height: none;
   }
 }

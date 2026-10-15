@@ -64,6 +64,9 @@ function sessionView(s) {
     peerSel: s.peerSel,
     code: s.rep.role === 'host' ? c.code : '',
     hostName: c.host?.name || '',
+    hostAddress: c.host?.address
+      ? `${c.host.address}${c.host.port && c.host.port !== 47391 ? ':' + c.host.port : ''}`
+      : '',
   };
 }
 export const collabSession = (pid = state.projectId) => sessionView(sessions.get(pid));

@@ -73,7 +73,7 @@ function segmentArgs(url, start, end, out, seekAfterInput = false) {
     '-progress',
     'pipe:1', // 机器可读的进度（out_time_us=…）写到 stdout，界面据此显示百分比
     '-y',
-    // 只允许走网络协议：候选清单来自网上，不让 m3u8 之类的播放列表再去引用本机文件
+    // 只允许走网络协议：支持在线播放列表，但其中的分段也不能引用本机文件
     // httpproxy：走系统代理时 https 要先经代理建隧道（见 proxyFromRule）
     '-protocol_whitelist',
     'http,https,tls,tcp,crypto,httpproxy',
@@ -180,7 +180,7 @@ function proxyFromRule(rule) {
   }
   return null;
 }
-/* 流媒体播放列表（HLS / DASH）可以再引用任意地址，不直接交给 ffmpeg */
+/* 在线流媒体播放列表（HLS / DASH）：截取时仍受上面的网络协议白名单约束 */
 const isPlaylist = u => {
   try {
     return /\.(m3u8?|mpd)$/i.test(new URL(u).pathname);
@@ -193,7 +193,6 @@ async function saveSegment(
   { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress, proxy = null } = {},
 ) {
   if (!isHttpUrl(url)) return { ok: false, error: '只支持在线视频链接' };
-  if (isPlaylist(url)) return { ok: false, error: '这是流媒体播放列表（m3u8 / mpd），请换成直接的视频文件地址' };
   if (!(Number(end) > Number(start))) return { ok: false, error: '出点必须晚于入点' };
   if (!dir || !path.isAbsolute(dir) || !fs.existsSync(dir)) return { ok: false, error: '保存位置不存在，请重新选择' };
   if (!ffmpeg)

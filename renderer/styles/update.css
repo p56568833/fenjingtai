@@ -20,16 +20,6 @@ body.dark .btn.update-btn:hover {
   width: 16px;
   height: 16px;
 }
-/* 属于「右侧面板」，保持在 .update-btn svg 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
-.order-btn svg {
-  width: 11px;
-  height: 11px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .update-btn[hidden] {
   display: none;
 }

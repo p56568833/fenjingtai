@@ -6,16 +6,20 @@ import { undo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
 import { checkDelivery } from '../core/shots.js';
 import { usageList } from '../core/asset-model.js';
-import { addRefsToShot } from '../app/asset-actions.js';
+import { addRefsToShot, setUsageLines, toggleAlt, swapPictures } from '../app/asset-actions.js';
 import { setType, ungroupAction } from '../app/actions.js';
 import { buildAssetListMd } from '../core/export-doc.js';
+import { renderInspector } from '../ui/inspector.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const pause = ms => new Promise(r => setTimeout(r, ms));
-const click = s => {
+const click = (s, options) => {
   const el = typeof s === 'string' ? $(s) : s;
-  if (el) el.click();
+  if (el) {
+    if (options) el.dispatchEvent(new MouseEvent('click', { bubbles: true, ...options }));
+    else el.click();
+  }
   return !!el;
 };
 const lines = () => state.rows.filter(r => r.kind === 'line');
@@ -40,7 +44,11 @@ export async function runRoleTests(t) {
   state.multiMode = false;
   setType(ids, 'real');
   const A = lines()[0];
-  addRefsToShot(A, ['/tmp/角色-主.png', '/tmp/角色-叠.png', '/tmp/角色-备.mp4']);
+  const fixtureDir = window.native.fixtureInfo()?.dir || '/tmp';
+  addRefsToShot(
+    A,
+    ['角色-主.png', '角色-叠.png', '角色-备.mp4'].map(name => `${fixtureDir}/${name}`),
+  );
   update('rows');
   await pause(30);
   t(
@@ -61,55 +69,75 @@ export async function runRoleTests(t) {
   if ($('#inspector').hidden) click('#btnDetail');
   click(`[data-detail="${A.id}"]`);
   t(
-    '面板每条素材都有句子条（每句一格）和备选按钮，顶上有每句画面总览',
+    '句子条整合选句和备选，不再显示重复说明与前后按钮',
     $$('#inspector .asset-lines').length === 3 &&
       $$('#inspector .line-cell').length === 9 &&
-      $$('#inspector [data-alt-usage]').length === 3 &&
+      !$('#inspector [data-alt-usage], #inspector [data-swap-a], #inspector .line-sum') &&
       $$('#inspector .lo-cell').length === 3 &&
-      !$('#inspector .role-chip'),
+      $$('#inspector .is-alt .line-cell.on').length === 0,
   );
-  const cellOf = (usage, k) => `#inspector [data-line-usage="${usage}"][data-line="${k}"]`;
-  click('#inspector [data-alt-usage="1"]');
+  const assetIds = us().map(u => u.assetId);
+  const indexOf = id => us().findIndex(u => u.assetId === id);
+  const usageOf = (id, n = 0) => us(n).find(u => u.assetId === id);
+  const cellOf = (id, k) => `#inspector [data-line-usage="${indexOf(id)}"][data-line="${k}"]`;
+  const onlyAt = (id, from, to = from) => [0, 1, 2].every(n => !!usageOf(id, n).off === (n < from || n > to));
+  const [id0, id1, id2] = assetIds;
+  click(cellOf(id1, 1));
   t(
-    '备选点一下放回上屏，组内每句同步',
-    [0, 1, 2].every(n => us(n)[1].role === 'main'),
+    '备选点击哪句就只配哪句，整组角色同步上屏',
+    [0, 1, 2].every(n => usageOf(id1, n).role === 'main') && onlyAt(id1, 1),
   );
-  click(cellOf(1, 0));
-  click(cellOf(1, 2));
-  t('句子条：点两头往里缩，只配第二句', us(0)[1].off === true && !us(1)[1].off && us(2)[1].off === true);
-  click(cellOf(1, 1));
-  t('只剩一句时再点不会变成一句都不配', !us(1)[1].off);
+  click(cellOf(id1, 1));
+  t(
+    '再点唯一选中句转为备选，保留原范围并取消点亮',
+    usageOf(id1).role === 'alt' &&
+      onlyAt(id1, 1) &&
+      !$(cellOf(id1, 1)).classList.contains('on') &&
+      $(cellOf(id1, 1)).getAttribute('aria-pressed') === 'false',
+  );
+  undo();
+  t('转备选可一步撤销回原来那一句', usageOf(id1).role === 'main' && onlyAt(id1, 1));
+  click(cellOf(id1, 2));
+  t('单击范围外的句子直接切换，不连带选中中间句', onlyAt(id1, 2));
+  click(cellOf(id1, 0), { shiftKey: true });
+  t('Shift 点击反向选范围', onlyAt(id1, 0, 2));
+  click(cellOf(id1, 1), { shiftKey: true });
+  t('连续 Shift 点击保留最初锚点并收缩范围', onlyAt(id1, 1, 2));
+  click(cellOf(id1, 2));
+  t('点击范围端点也直接收缩为该句', onlyAt(id1, 2) && usageOf(id1).role === 'main');
+  click(cellOf(id1, 1));
   await pause(20);
   t('表格写明画面配第几句', cell().includes(`第 ${lines()[1].no} 句`) && cell().includes('角色-叠.png'), cell());
-  click(cellOf(1, 0));
-  t('点范围外的格子往那边延伸', !us(0)[1].off && !us(1)[1].off && us(2)[1].off === true);
+  click(cellOf(id1, 0), { shiftKey: true });
+  t('选范围仍保留原先主画面', onlyAt(id1, 0, 1) && usageOf(id0).role === 'main');
 
-  click('#inspector [data-alt-usage="2"]');
-  t('1.8 一段可以有多个画面：放回上屏的不把原来的挤成备选', us()[2].role === 'main' && us()[0].role === 'main');
-  click(cellOf(2, 0));
-  click(cellOf(0, 2));
-  click(cellOf(0, 1));
-  t(
-    '位置不重叠时可以前后两个画面',
-    us()[0].role === 'main' && us()[2].role === 'main' && us(0)[2].off === true && us(0)[0].off !== true,
-  );
-  click('#inspector [data-alt-usage="1"]');
-  t('点备选：不上屏，句子范围记着', us()[1].role === 'alt' && !us(1)[1].off && !us(0)[1].off);
+  click(cellOf(id2, 1));
+  t('一段可以有多个画面：放回上屏的不把原来的挤成备选', usageOf(id2).role === 'main' && usageOf(id0).role === 'main');
+  click(cellOf(id2, 2), { shiftKey: true });
+  click(cellOf(id0, 0));
+  t('单击原来的范围端点不会误转备选', usageOf(id0).role === 'main' && onlyAt(id0, 0));
+  t('位置不重叠时可以前后两个画面', onlyAt(id0, 0) && onlyAt(id2, 1, 2));
+  // 旧项目可能仍有跨句备选；后面的交稿、拆组回归沿用这份范围。
+  setUsageLines(lines()[0], indexOf(id1), 0, 1);
+  toggleAlt(lines()[0], indexOf(id1));
+  update('rows');
+  t('跨句备选的范围保持原样', usageOf(id1).role === 'alt' && onlyAt(id1, 0, 1));
   {
-    const id0 = us()[0].assetId,
-      id2 = us()[2].assetId;
     const onAt = (n, id) => us(n).some(u => u.assetId === id && !u.off);
-    click(`#inspector [data-swap-a="${id0}"][data-swap-b="${id2}"]`);
+    swapPictures(lines()[0], id0, id2);
     t(
-      '两个画面可以对调：第一句换成原来的第二个画面，后面两句换成第一个',
+      '两个画面对调的数据操作仍可用',
       onAt(0, id2) && !onAt(0, id0) && onAt(1, id0) && onAt(2, id0) && !onAt(1, id2) && us()[0].assetId === id2,
     );
-    click(`#inspector [data-swap-a="${id0}"][data-swap-b="${id2}"]`);
+    swapPictures(lines()[0], id0, id2);
+    update('rows');
     t('再对调一次换回原样', onAt(0, id0) && !onAt(0, id2) && onAt(1, id2) && us()[0].assetId === id0);
   }
   const issuesOf = () => checkDelivery(state.rows).find(x => x.id === lines()[0].id)?.issues || [];
   t('每句都有画面时交稿检查不报', !issuesOf().some(x => x.includes('主画面')), issuesOf().join('、'));
-  click('#inspector [data-alt-usage="2"]');
+  toggleAlt(lines()[0], indexOf(id2));
+  update('rows');
+  renderInspector(true);
   t('有句子没有画面时交稿检查提醒', issuesOf().includes('部分句子没有主画面'), issuesOf().join('、'));
   t(
     '面板顶上标出没画面的句子',
@@ -195,7 +223,10 @@ export async function runRoleTests(t) {
     const drift = target().getBoundingClientRect().top - top;
     t(name, state.sel === 91 && Math.abs(drift) < 2, `选中 ${state.sel}，句子偏移 ${drift.toFixed(1)}px`);
   };
-  await stayAfter('长稿：点备选后仍停在原句原位置', () => click('#inspector [data-alt-usage="0"]'));
+  click('#inspector [data-line-usage="0"][data-line="0"]');
+  await stayAfter('长稿：再点单句转备选仍停在原句原位置', () =>
+    click('#inspector [data-line-usage="0"][data-line="0"]'),
+  );
   await stayAfter('长稿：点句子条后仍停在原句原位置', () => click('#inspector [data-line-usage="1"][data-line="0"]'));
   // 恢复未分配状态，再覆盖一键整理的定位行为。
   state.rows.slice(90, 93).forEach(r => r.assetUsages.forEach(u => delete u.role));

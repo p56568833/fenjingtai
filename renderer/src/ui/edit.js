@@ -19,8 +19,6 @@ import { staleBlock } from './base/keyed-patch.js';
 import { renderSelectionOnly, selectedMemberOrOwner } from './base/selection.js';
 import { markPopAnchor, closePop } from './base/popover.js';
 import { openTypePopover } from './popover.js';
-import { switchPlan } from '../app/candidate-actions.js';
-import { planName } from '../core/candidates.js';
 
 /* 打字时侧栏 / 徽标的刷新合并成停手后一次，长稿里每个按键不再全量刷新 */
 let wsTimer = null;
@@ -216,20 +214,6 @@ export function initEdit() {
     if (clamped) n.title = '点击展开全文';
     else n.removeAttribute('title');
   });
-
-  // 方案切换（表格里的素材格、右侧面板里都有）：换成那个方案，不选中句子、不打开面板
-  document.addEventListener(
-    'click',
-    e => {
-      const opt = e.target.closest?.('[data-use-plan]');
-      if (!opt) return;
-      e.stopPropagation();
-      const row = rowById(+opt.dataset.planRow);
-      const plan = +opt.dataset.usePlan;
-      if (row && switchPlan(row, plan)) toast(`已改用${planName(plan)} · ⌘Z 可撤销`, null, 'ok');
-    },
-    true,
-  );
 
   rows.addEventListener('click', e => {
     if (e.target.closest('[data-detail]')) return;

@@ -19,8 +19,9 @@ const menuItems = () =>
         el =>
           !el.closest('.disabled') &&
           !el.disabled &&
+          !!el.getClientRects().length &&
           (el.tagName !== 'DIV' || Object.keys(el.dataset).length > 0) &&
-          !(el.tagName === 'BUTTON' && el.closest('.pop-item')),
+          !(el.tagName === 'BUTTON' && el.parentElement.closest('.pop-item')),
       )
     : [];
 function wireMenuA11y() {
@@ -50,7 +51,7 @@ function menuKey(e) {
     if (!n) return;
     const next = e.key === 'ArrowDown' ? (i + 1 + n) % n : (i - 1 + n) % n;
     items[i < 0 ? 0 : next].focus({ preventScroll: true });
-  } else if ((e.key === 'Enter' || e.key === ' ') && i >= 0 && items[i].tagName === 'DIV') {
+  } else if ((e.key === 'Enter' || e.key === ' ') && i >= 0 && ['DIV', 'BUTTON'].includes(items[i].tagName)) {
     e.preventDefault();
     e.stopImmediatePropagation();
     items[i].click();
@@ -118,15 +119,23 @@ export function openMenu(anchor, html, opts = {}) {
   wireMenuA11y();
   wireHoverGlide(popEl);
 }
-/* 菜单里的灰色高亮块跟着鼠标（或键盘焦点）在项之间滑，像 macOS 的菜单 */
+/* 菜单里的灰色高亮块跟着鼠标（或键盘焦点）在项之间滑，像 macOS 的菜单；
+   鼠标移出后再进来，高亮块在新位置淡入，不从上次的位置飞过来 */
 function wireHoverGlide(el) {
   const hoverable = t => t?.closest?.('.pop-item:not(.disabled)');
-  const to = item => item && el.contains(item) && glide(el, item, 'pop-glide');
+  const to = item => item && el.contains(item) && glide(el, item, 'pop-glide', { snap: true });
   el.addEventListener('mouseover', e => to(hoverable(e.target)));
   el.addEventListener('focusin', e => to(hoverable(e.target)));
   el.addEventListener('mouseleave', () => {
     if (!el.contains(document.activeElement)) glide(el, null, 'pop-glide');
   });
+}
+/* 菜单内容局部刷新后（协作菜单跟着对方位置更新），让高亮块回到鼠标或焦点所在的项上 */
+export function reglidePop() {
+  if (!popEl?.classList.contains('has-glide')) return;
+  const items = [...popEl.querySelectorAll('.pop-item:not(.disabled)')];
+  const item = items.find(i => i.matches(':hover')) || items.find(i => i === document.activeElement);
+  glide(popEl, item || null, 'pop-glide', { snap: true });
 }
 /* 滚动时把选区卡挪回锚点句子旁边（卡片属于选中句，不跟着滚就悬空了） */
 export function syncPopToAnchor() {

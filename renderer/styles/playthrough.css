@@ -298,7 +298,8 @@
 }
 .ptt-block.dragging {
   cursor: grabbing;
-  opacity: 0.92;
+  opacity: 0.78;
+  z-index: 4;
 }
 .ptt-block.over {
   border-color: #ff6b6b;
@@ -318,13 +319,27 @@
 }
 .ptt-grip {
   flex: none;
-  width: 7px;
+  width: 11px;
+  max-width: 25%;
   align-self: stretch;
   cursor: ew-resize;
   background: rgba(255, 255, 255, 0.18);
 }
 .ptt-grip:hover {
   background: rgba(255, 255, 255, 0.45);
+}
+.ptt-insert {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: #f0a33a;
+  pointer-events: none;
+  z-index: 5;
+}
+.ptt-insert[hidden] {
+  display: none;
 }
 .ptt-short {
   position: absolute;
@@ -399,6 +414,47 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
-.ptt-lane {
-  /* 给下面的「第 N 句」标签留位置 */
+/* 两条轨：左边一列写轨名，刻度尺和两条轨对齐在右边一列 */
+.ptt-lanes {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+}
+.ptt-lname {
+  padding-top: 16px;
+  font-size: 11px;
+  color: #8a94a6;
+  text-align: right;
+  white-space: nowrap;
+}
+.ptt-lname.alt {
+  padding-top: 10px;
+}
+/* 备选轨：不播放、不计时长，所以不画斜纹（斜纹 = 正片上的空白） */
+.ptt-lane.alt {
+  margin-bottom: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  box-sizing: border-box;
+}
+.ptt-block.alt {
+  bottom: auto;
+  background: rgba(240, 163, 58, 0.13);
+  border: 1px dashed rgba(240, 163, 58, 0.75);
+  color: #f6dcae;
+}
+.ptt-block.alt:nth-of-type(even) {
+  background: rgba(240, 163, 58, 0.13);
+  border-color: rgba(240, 163, 58, 0.75);
+}
+.ptt-block.alt.on {
+  box-shadow:
+    0 0 0 2px #f0a33a,
+    0 4px 14px rgba(0, 0, 0, 0.4);
+}
+/* 备选拖上来、松手会和它互换的那段画面 */
+.ptt-block.swap {
+  box-shadow: 0 0 0 2px #f0a33a;
+  opacity: 0.6;
 }

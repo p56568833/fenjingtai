@@ -1,9 +1,9 @@
 /* 素材的样子：表格素材卡片、右面板素材条目、句子条、够不够提示（纯拼 HTML，不碰 DOM）。
    数据在 core/asset-model.js（素材库 + 使用记录 + 片段）。 */
 import { state, timeline } from '../app/state.js';
-import { shotLineCoverage, shotSeconds } from '../app/line-coverage.js';
-import { shotPlans, currentPlan, planOf, planName } from '../core/candidates.js';
-import { layoutShot, circled, validAt } from '../core/shot-layout.js';
+import { shotLineCoverage } from '../app/line-coverage.js';
+import { mainFilled } from '../core/shot-tracks.js';
+import { layoutShot, circled } from '../core/shot-layout.js';
 import { shotCoverage } from '../core/coverage.js';
 import { spanOf } from '../core/timeline.js';
 import { fmtTime } from '../core/text.js';
@@ -11,6 +11,7 @@ import { shots, shotMembers, spanText, usageSpan, ROLES, ROLE_ORDER } from '../c
 import { usageList, usagePath, assetName as baseName, kindOf, KIND_LABEL, clipText } from '../core/asset-model.js';
 import { esc } from './base/dom.js';
 import { collabSession } from '../app/collab.js';
+import { missingPaths } from '../app/asset-status.js';
 
 export { baseName as assetName, shotLineCoverage };
 
@@ -73,7 +74,7 @@ const thumbText = kind => (kind === 'video' ? '▶ 视频' : kind === 'image' ? 
 
 /* 缩略图容器：data-preview-path 供懒加载与重试定位 */
 const thumbHTML = (path, kind) =>
-  `<span class="asset-thumb" data-preview-path="${esc(path)}" data-kind="${kind}">${thumbText(kind)}</span>`;
+  `<span class="asset-thumb" data-preview-path="${esc(path)}" data-kind="${kind}" data-file-missing="${missingPaths().has(path)}">${thumbText(kind)}</span>`;
 
 /* 按角色排：主画面 → 叠加 → 未分配 → 备选；保留原下标（面板按钮靠它定位） */
 export function orderedUsages(r) {
@@ -86,22 +87,6 @@ export function orderedUsages(r) {
     .sort((x, y) => rank(x.u) - rank(y.u) || x.index - y.index);
 }
 const roleClass = role => (role in ROLES ? `role-${role}` : 'role-none');
-
-/* 方案切换：这个画面有两个以上方案都有通过的视频时显示，点一下表格、连播预览、导出都换成那个方案 */
-export function planSwitchHTML(members) {
-  const ids = new Set(members.map(m => m.id));
-  const ok = (state.candidates || []).filter(c => ids.has(c.rowId) && c.decision === 'ok' && c.assetId);
-  const plans = [...new Set(ok.map(planOf))].sort((a, b) => a - b);
-  if (plans.length < 2) return '';
-  const using = currentPlan(members, state.assets || {}, state.candidates || []);
-  const lead = members[0].id;
-  return `<div class="plan-switch" role="group" aria-label="方案">${plans
-    .map(
-      n =>
-        `<button class="plan-opt${n === using ? ' on' : ''}" data-use-plan="${n}" data-plan-row="${lead}" aria-pressed="${n === using}" title="${n === using ? '正在用这个方案' : `改用${planName(n)}：表格、连播预览、导出都换成它`}">${planName(n)}</button>`,
-    )
-    .join('')}</div>`;
-}
 
 export function assetCards(r) {
   const registry = state.assets || {};
@@ -126,45 +111,36 @@ export function assetCards(r) {
       ]
         .filter(Boolean)
         .join(' · ');
-      return `<button class="row-asset ${roleClass(u.role)}" data-detail="${r.id}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc(where || '上屏')}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov)}</span></button>`;
+      return `<button class="row-asset ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-detail="${r.id}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc(where || '上屏')}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov)}</span></button>`;
     })
     .join('');
   const altBtn = alts.length
     ? `<button class="asset-alts" data-detail="${r.id}" title="${esc(alts.map(x => (registry[x.u.assetId] || x.u).name || '').join('\n'))}">备选 ${alts.length} 个 · 查看</button>`
     : '';
-  return planSwitchHTML(members) + cards + altBtn;
+  return cards + altBtn;
 }
 
-/* 面板里每条素材的句子条：组里每句一格（宽度按这句口播的秒数），点亮 = 这个画面配这几句；右边「备选」= 先存着不上屏 */
+/* 句子条：点选单句、拖选范围，再点唯一选中的句子转为备选。 */
 const secOf = (tl, m) => {
   const t = tl.times.get(m.id);
   return t ? t.end - t.start : 0;
 };
-function lineControls(u, index, members, layout, it) {
+function lineControls(u, index, members) {
   const tl = timeline();
   const alt = u.role === 'alt';
   const sp = usageSpan(members, u.assetId);
-  const manual = !alt && !!layout?.timed && validAt(u.at, layout.owner);
   const short = members.length > 10; // 句子多、格子窄：只写句号后两位，完整的悬停看
   const cells = members
     .map((m, k) => {
-      const on = !sp.empty && k >= sp.from && k <= sp.to;
+      const on = !alt && !sp.empty && k >= sp.from && k <= sp.to;
       const sec = secOf(tl, m);
       const label = short ? String(m.no).slice(-2) : String(m.no);
-      return `<button class="line-cell${on ? ' on' : ''}" style="flex:${Math.max(0.6, sec).toFixed(2)}" data-line-usage="${index}" data-line="${k}" title="第 ${m.no} 句 · ${(Math.round(sec * 10) / 10).toFixed(1)} 秒" aria-pressed="${on}">${label}</button>`;
+      const action = on && sp.from === sp.to ? '再点设为备选' : '点击选单句';
+      return `<button class="line-cell${on ? ' on' : ''}" style="flex:${Math.max(0.6, sec).toFixed(2)}" data-line-usage="${index}" data-line="${k}" title="第 ${m.no} 句 · ${(Math.round(sec * 10) / 10).toFixed(1)} 秒 · ${action}；拖动或 Shift＋点击选多句" aria-label="第 ${m.no} 句，${action}" aria-pressed="${on}">${label}</button>`;
     })
     .join('');
-  const range = sp.empty
-    ? '没配句子'
-    : sp.from === sp.to
-      ? `第 ${members[sp.from].no} 句`
-      : `第 ${members[sp.from].no}–${members[sp.to].no} 句`;
-  const sum = alt
-    ? '备选 · 不上屏'
-    : `配${range}${manual ? '<i title="在「对着口播看画面」里拖过时间。点句子条会整组改回按句子平分">· 时间微调过</i>' : ''}`;
   return `<div class="asset-lines${alt ? ' is-alt' : ''}">
-    <div class="line-strip" role="group" aria-label="这个画面配哪几句">${cells}</div>
-    <div class="asset-row-ctrl"><span class="line-sum">${sum}</span><span class="ctrl-right"><button class="alt-chip${alt ? ' on' : ''}" data-alt-usage="${index}" aria-pressed="${alt}" title="${alt ? '放回上屏，还配原来那几句' : '先存着不上屏'}">备选</button>${orderControls(it, layout)}</span></div>
+    <div class="line-strip" data-line-asset="${esc(u.assetId)}" role="group" aria-label="这个画面配哪几句：点击选单句，拖动选多句，再点唯一选中的句子设为备选">${cells}</div>
   </div>`;
 }
 
@@ -199,17 +175,6 @@ function lineOverview(members) {
   return `<div class="line-overview"><div class="lo-head">每句的画面${sum ? `<b>${sum}</b>` : ''}</div>${cells}</div>`;
 }
 
-/* 面板里上屏画面的先后：和前一个 / 后一个对调（①② 换位置） */
-function orderControls(it, layout) {
-  const items = layout?.items || [];
-  if (!it || items.length < 2) return '';
-  const prev = items[it.n - 2],
-    next = items[it.n];
-  const btn = (other, dir, label, tip) =>
-    `<button class="order-btn" data-swap-a="${esc(it.assetId)}" data-swap-b="${esc(other?.assetId || '')}" ${other ? '' : 'disabled'} title="${tip}" aria-label="${tip}"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="${dir}"/></svg>${label}</button>`;
-  return `<div class="asset-order" role="group" aria-label="画面先后">${btn(prev, 'M6 9.5V2.5M3 5.5l3-3 3 3', '往前', '和前一个画面对调位置')}${btn(next, 'M6 2.5v7M3 6.5l3 3 3-3', '往后', '和后一个画面对调位置')}</div>`;
-}
-
 /* 右侧面板素材卡右边的小按钮：图标 + 文字 */
 const ICON_FIND =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>';
@@ -222,13 +187,14 @@ export function inspectorAssets(r, { missing } = {}) {
   const members = shotMembers(state.rows, r);
   const ids = new Set(members.map(m => m.id));
   const cands = (state.candidates || []).filter(c => ids.has(c.rowId));
-  // 已经有方案填满了：别的没审的视频算「未采用」，不再提示待审
-  const todo = shotPlans(cands, shotSeconds(members)).some(p => p.filled) ? 0 : cands.filter(c => !c.decision).length;
+  // 正片轨已经用通过的视频排满了：别的没审的视频算「未采用」，不再提示待审
+  const todo = mainFilled(registry, members, timeline(), id => !!registry[id]?.source?.candidate)
+    ? 0
+    : cands.filter(c => !c.decision).length;
   const vr = cands.length
     ? `<button class="vr-open${todo ? ' has-todo' : ''}" data-vr-open="${r.id}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10.5 5-3v9l-5-3"/></svg><span class="vr-open-main">视频候选 ${cands.length} 个</span>${todo ? `<b>${todo} 个待审</b>` : ''}<span class="vr-open-go">去审核<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4.5 3 3 3-3 3"/></svg></span></button>`
     : '';
   if (!usages.length) return vr + '<p class="asset-none">尚未关联素材</p>';
-  const planSwitch = planSwitchHTML(members);
   const peer = collabSession(); // 局域网协作中：失联的文件可以从对方电脑取
   // 每个上屏画面的编号和出现秒数（相对这段口播开头）
   const layout = layoutShot(registry, members, timeline());
@@ -237,7 +203,6 @@ export function inspectorAssets(r, { missing } = {}) {
   const sec = x => (Math.round(x * 10) / 10).toFixed(1);
   return (
     vr +
-    planSwitch +
     lineOverview(members) +
     (usages.some(u => !(u.role in ROLES))
       ? `<button class="asset-mini auto-roles" id="autoRoles">还有素材未分配 · 第一个上屏，其余放备选</button>`
@@ -250,6 +215,7 @@ export function inspectorAssets(r, { missing } = {}) {
         const gone = missing ? missing.has(path) : false;
         const fetchable = gone && peer?.status === 'online' && path.startsWith('/');
         const bits = [KIND_LABEL[kind] || '素材'];
+        if (u.role === 'alt') bits.unshift('备选 · 不上屏');
         const cov = gone ? null : covers.get(u.assetId);
         if (u.clip && !cov) bits.push(`片段 ${clipText(u.clip)}`);
         const it = placed.get(u.assetId);
@@ -266,14 +232,14 @@ export function inspectorAssets(r, { missing } = {}) {
           stateLine += ' · 片段待调整';
           stateCls = ' warn';
         }
-        return `<div class="inspector-asset${stateCls} ${roleClass(u.role)}" data-usage-index="${index}">
+        return `<div class="inspector-asset${stateCls} ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-usage-index="${index}">
       <button class="asset-open" data-preview-usage="${index}" title="${esc(path)}">
         ${thumbHTML(path, kind)}
         <span class="asset-caption"><strong>${esc(a.name || baseName(path))}</strong><small>${esc(stateLine)}</small>${coverHTML(cov)}</span>
       </button>
       ${gone ? `<div class="asset-actions">${fetchable ? `<button class="asset-mini" data-fetch-asset="${esc(u.assetId)}" title="这个文件在 ${esc(peer.peer || '对方')} 的电脑上：通过局域网拷一份到你自己的素材文件夹">${ICON_FETCH}<span>从对方电脑取</span></button>` : ''}<button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button></div>` : ''}
 
-      ${lineControls(u, index, members, layout, it)}
+      ${lineControls(u, index, members)}
       <button class="rework-btn${u.rework ? ' on' : ''}" data-rework-usage="${index}" title="${u.rework ? '点开修改意见，或者不用换了' : '写下哪里不满意，生成返工单交给 AI 找新的'}">${
         u.rework
           ? `<b>待换</b><span>${esc(u.rework.note || '（没写意见）')}</span><i>修改</i>`

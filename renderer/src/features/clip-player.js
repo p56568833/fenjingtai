@@ -1,9 +1,9 @@
 /* 视频审核里的片段播放器：只显示建议片段这几秒的进度条、叠口播字幕、可同时放口播音频。
-   口播时间轴：方案里的视频按顺序接起来播，精选段的开头对齐到它在方案里排到的位置
-   （画面开头 + 前面几个没被否掉的视频的可用长度）；方案里最后一个视频配到画面末尾。 */
-import { state, rowById, lines, timeOf, renumber } from '../app/state.js';
+   口播对齐：精选段的开头对齐到它在正片轨上的位置；还没放上去的按清单里的先后估（见 slotOf）。 */
+import { state, rowById, lines, timeOf, renumber, timeline } from '../app/state.js';
 import { shotMembers } from '../core/shots.js';
 import { planOf, usableSeconds, cleanBest } from '../core/candidates.js';
+import { layoutShot } from '../core/shot-layout.js';
 import { esc } from '../ui/base/dom.js';
 import { voicePlayer } from './voice.js';
 import { releaseMedia } from '../ui/base/media.js';
@@ -30,14 +30,20 @@ export function targetLines(c) {
   return { members, target: members, whole: true };
 }
 
-/* 这个视频在方案里排到的那段口播（绝对秒数）：画面开头 + 前面几个没被否掉的视频的可用长度；
-   方案里最后一个视频配到画面末尾。不知道时间返回 null */
+/* 这个视频在口播里对应的那段（绝对秒数）。已经放在正片轨上的：就是它在轨上的位置；
+   还没放上去的：按清单里的先后估——画面开头 + 同一方案里排在前面、没被否掉的视频的可用长度，
+   最后一个配到画面末尾。不知道时间返回 null */
 export function slotOf(c) {
   renumber();
   const { members } = targetLines(c);
   const first = members[0] && timeOf(members[0].id);
   if (!first) return null;
   const last = timeOf(members[members.length - 1].id) || first;
+  if (c.assetId) {
+    const layout = layoutShot(state.assets || {}, members, timeline());
+    const it = layout?.items.find(x => x.assetId === c.assetId);
+    if (it) return { start: layout.start + it.start, end: layout.start + Math.min(it.end, layout.dur) };
+  }
   const ids = new Set(members.map(m => m.id));
   const seq = state.candidates
     .filter(

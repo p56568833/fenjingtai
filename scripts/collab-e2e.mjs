@@ -245,6 +245,58 @@ try {
     await until(A.p, sel => document.querySelector(`.row.peer-here[data-id="${sel}"]`), 'A 标出', 3000, sel);
   });
 
+  await step('共享菜单：章节句号实时更新、不显示原文，点击跳转并清除筛选', async () => {
+    await A.p.click('#btnCollab');
+    await A.p.waitForSelector('#collabMenu');
+    assert.equal(await A.p.$eval('#collabMenuConnection', el => el.hidden), true);
+    assert.equal(await A.p.$eval('#collabMenuName', el => el.hidden), true);
+    const position = await run(A.p, async () => {
+      const { peerLocation } = await import('./src/features/collab-menu.js');
+      const { state } = await import('./src/app/state.js');
+      const loc = peerLocation();
+      return { ...loc, text: state.rows.find(r => r.id === loc.id).text };
+    });
+    assert.equal(await A.p.$eval('.cl-menu-location', el => el.textContent), position.label);
+    assert.equal(await A.p.$eval('#collabMenu', (el, text) => el.textContent.includes(text), position.text), false);
+    const next = await run(B.p, async () => {
+      const { state, update } = await import('./src/app/state.js');
+      state.sel = state.rows.filter(r => r.kind === 'line').at(-1).id;
+      update('selection');
+      return state.sel;
+    });
+    await until(
+      A.p,
+      async id => {
+        const { peerLocation } = await import('./src/features/collab-menu.js');
+        const p = peerLocation();
+        return p?.id === id && document.querySelector('.cl-menu-location')?.textContent === p.label;
+      },
+      '菜单里的新位置',
+      3000,
+      next,
+    );
+    await run(A.p, async () => {
+      const { state } = await import('./src/app/state.js');
+      state.filter = 'none';
+    });
+    await A.p.click('#collabMenu [data-cl="jump"]');
+    assert.deepEqual(
+      await run(A.p, async () => {
+        const { state } = await import('./src/app/state.js');
+        return { sel: state.sel, filter: state.filter, menu: !!document.querySelector('#collabMenu') };
+      }),
+      { sel: next, filter: 'all', menu: false },
+    );
+    await A.p.click('#btnCollab');
+    await A.p.click('#collabMenu [data-cl="connections"]');
+    assert.equal(await A.p.$eval('#collabMenuConnection', el => el.hidden), false);
+    await A.p.focus('#collabMenu [data-cl="connections"]');
+    await A.p.keyboard.press('Space');
+    assert.equal(await A.p.$eval('#collabMenuConnection', el => el.hidden), true);
+    await A.p.click('#btnCollab');
+    assert.equal(await A.p.$('#collabMenu'), null);
+  });
+
   await step('A 撤销自己的改动：只撤 A 的，B 后来的改动保留', async () => {
     const mine = await setNote(A.p, 7, 'A 这一步');
     await until(
@@ -316,16 +368,59 @@ try {
     await addAsset(B.p, 'e2eB', bFile, 13);
     await until(B.p, async () => !!(await import('./src/app/state.js')).state.assets.e2eA, 'B 收到 A 的素材');
     await until(A.p, async () => !!(await import('./src/app/state.js')).state.assets.e2eB, 'A 收到 B 的素材');
+    // 两个实例在同一台电脑：暂时挪开测试素材，让 B 真正探测到文件缺失，随后恢复供传输。
+    fs.renameSync(aFile, aFile + '.test-away');
+    try {
+      await run(B.p, async () => (await import('./src/app/asset-actions.js')).invalidateProbe());
+      await B.p.click('#btnCollab');
+      await until(B.p, () => document.querySelector('#collabMenu [data-cl="fetchall"]'), '菜单缺失文件');
+      assert.equal(await B.p.$eval('#collabMenuFiles', el => el.hidden), true);
+      assert.equal(
+        await B.p.$eval('#collabMenu [data-cl="fetchall"]', el => !el.disabled && !!el.getClientRects().length),
+        true,
+      );
+      await B.p.click('#collabMenu [data-cl="files"]');
+      assert.equal(await B.p.$eval('#collabMenuFiles', el => el.hidden), false);
+      assert.ok(await B.p.$eval('.cl-menu-file-list', el => el.textContent.includes('封面.png')));
+      await B.p.click('#collabMenu [data-cl="files"]');
+      assert.equal(await B.p.$eval('#collabMenuFiles', el => el.hidden), true);
+    } finally {
+      fs.renameSync(aFile + '.test-away', aFile);
+    }
     const fetch = (p, item, to) =>
       run(p, async (item, to) => (await import('./src/app/collab.js')).fetchFiles([item], to), item, to);
-    const rb = await fetch(B.p, { kind: 'asset', id: 'e2eA', path: aFile, name: '封面.png' }, path.join(dir, 'B收到'));
-    assert.equal(rb.got?.length, 1, JSON.stringify(rb));
+    await run(
+      B.p,
+      async dir => {
+        const { state } = await import('./src/app/state.js');
+        (await import('./src/app/candidate-media.js')).setMediaDirectory(state.projectId, dir);
+      },
+      path.join(dir, 'B收到'),
+    );
+    await B.p.click('#collabMenu [data-cl="fetchall"]');
+    const bLocal = await until(
+      B.p,
+      async original => {
+        const { state } = await import('./src/app/state.js');
+        const local = state.assets.e2eA?.path;
+        return local && local !== original && local;
+      },
+      'B 从折叠菜单直接取回文件',
+      8000,
+      aFile,
+    );
+    await until(
+      B.p,
+      () => document.querySelector('.cl-menu-files-toggle')?.textContent.includes('文件已齐全'),
+      '菜单显示文件齐全',
+    );
+    await B.p.click('#btnCollab');
     const ra = await fetch(A.p, { kind: 'asset', id: 'e2eB', path: bFile, name: '录屏.mp4' }, path.join(dir, 'A收到'));
     assert.equal(ra.got?.length, 1, JSON.stringify(ra));
-    assert.ok(fs.readFileSync(rb.got[0].local).equals(fs.readFileSync(aFile)));
+    assert.ok(fs.readFileSync(bLocal).equals(fs.readFileSync(aFile)));
     assert.ok(fs.readFileSync(ra.got[0].local).equals(fs.readFileSync(bFile)));
     await sleep(800);
-    assert.equal(await pathOf(B.p, 'e2eA'), rb.got[0].local, 'B 用自己的副本');
+    assert.equal(await pathOf(B.p, 'e2eA'), bLocal, 'B 用自己的副本');
     assert.equal(await pathOf(A.p, 'e2eA'), aFile, 'A 的路径没被改');
     assert.equal(await pathOf(A.p, 'e2eB'), ra.got[0].local, 'A 用自己的副本');
     assert.equal(await pathOf(B.p, 'e2eB'), bFile, 'B 的路径没被改');
@@ -536,7 +631,7 @@ try {
   await A.b.disconnect();
   await B.b.disconnect();
 } catch (error) {
-  console.error('✗', error.message);
+  console.error('✗', error.stack || error.message);
   process.exitCode = 1;
 } finally {
   killAll();

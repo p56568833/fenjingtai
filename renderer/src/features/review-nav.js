@@ -9,9 +9,7 @@ import {
   isPending,
   batchLabel,
   fmtDay,
-  fmtDate,
-  prettyBatch,
-  batchNo,
+  batchDetail,
   rangeText,
   sectionOf,
 } from './review-model.js';
@@ -63,7 +61,7 @@ export function navHTML(all, shots) {
   const reviewed = n - pending;
   const reviewedPct = n ? (reviewed / n) * 100 : 0;
   const status = pending ? `<span class="vr-nav-n">${pending} 待审</span>` : '<span class="vr-bdone">✓ 已审完</span>';
-  const name = b.id === 'legacy' ? '' : prettyBatch(b.name);
+  const name = batchDetail(b);
   const others = all.filter(x => x !== b);
   const otherPending = others.reduce((s, x) => s + x.cands.filter(isPending).length, 0);
   const tip = `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}\n点击切换批次（共 ${all.length} 批）`;
@@ -71,9 +69,9 @@ export function navHTML(all, shots) {
       <div class="vr-bh${pending ? '' : ' complete'}">
         <div class="vr-bheader">
           <button class="vr-batch-head" id="vrBatchPick" data-vr-batch="${esc(b.id)}" title="${esc(tip)}" aria-label="${esc(batchLabel(b))}，切换批次，共 ${all.length} 批" aria-haspopup="menu">
-            <b>${batchNo(b)}</b><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+            <b>${esc(batchLabel(b))}</b><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
           </button>
-          <span class="vr-bdate">${fmtDate(b.at)}</span>
+          <span class="vr-bdate">${fmtDay(b.at)}</span>
           <button class="vr-batch-more" id="vrBatchMore" title="这一批的操作：保存位置、删除批次" aria-label="批次操作" aria-haspopup="menu">⋯</button>
         </div>
         ${name ? `<div class="vr-bname" title="${esc(name)}">${esc(name)}</div>` : ''}

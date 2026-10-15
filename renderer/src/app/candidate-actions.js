@@ -1,26 +1,35 @@
 /* 视频审核的数据操作：页面不直接修改候选、素材或返工标记。 */
-import { state, rowById, renumber } from './state.js';
+import { state, rowById, renumber, timeline } from './state.js';
 import { shotSeconds } from './line-coverage.js';
 import { changeProject } from './project-change.js';
 import { forgetPurged } from './undo.js';
 import { writeBack, flushWriteBack, syncedFiles } from './candidate-sync.js';
-import { candidateBatches } from '../core/candidate-queries.js';
 import { shotMembers } from '../core/shots.js';
 import { assetName } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
-import {
-  planImport,
-  attachCandidate,
-  detachCandidate,
-  footageTakenBy,
-  currentPlan,
-  usePlan,
-  planOf,
-  planName,
-  shotPlans,
-  DECISION,
-} from '../core/candidates.js';
+import { planImport, attachCandidate, detachCandidate, footageTakenBy, DECISION } from '../core/candidates.js';
 import { reworkShots, resolveOnApprove, setRework, setAssetRework, dismissRework } from '../core/rework.js';
+
+export function registerReworkRequest(doc, shots) {
+  return changeProject('生成返工单', () => {
+    state.reworkRequests = {
+      ...state.reworkRequests,
+      [doc.id]: {
+        at: Date.parse(doc.createdAt),
+        targets: shots.map((s, i) => ({
+          rowIds: s.members.map(m => m.id),
+          note: [
+            s.request?.note,
+            ...doc.shots[i].replace.map(x => `${x.name}：${x.note}`),
+            ...doc.shots[i].rejected.map(x => `${x.title}（${x.decision}）：${x.note}`),
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        })),
+      },
+    };
+  });
+}
 
 /* 不持久化的任务版本：原地更新、撤回再通过也会使旧任务失效。撤销生成的新对象同样不能冒充原任务。 */
 const versions = new WeakMap();
@@ -48,13 +57,20 @@ function batchNameOf(doc, srcFile, plan) {
 
 export function importCandidateData(doc, srcFile) {
   renumber();
-  const plan = planImport(doc, srcFile, state.rows, state.candidates, { shotSeconds });
+  const rework = reworkShots(state.rows, state.candidates);
+  const plan = planImport(doc, srcFile, state.rows, state.candidates, {
+    shotSeconds,
+    reworkRequests: state.reworkRequests,
+    reworkRowIds: rework.flatMap(s => s.members.map(m => m.id)),
+  });
   if (plan.error || (!plan.added.length && !plan.updated.length)) return plan;
   const batch = {
     batchId: 'vb-' + crypto.randomUUID(),
     batchAt: Date.now(),
     batchName: batchNameOf(doc, srcFile, plan),
-    batchNo: Math.max(0, ...candidateBatches(state.candidates).map(b => b.number)) + 1,
+    ...(doc.reworkId || plan.added.some(c => rework.some(s => s.members.some(m => m.id === c.rowId)))
+      ? { batchKind: 'rework' }
+      : {}),
   };
   const result = changeProject('导入视频候选', change => {
     let reset = 0;
@@ -103,53 +119,29 @@ export function decideCandidate(id, decision) {
     return {
       error: `这段画面已经用在第 ${rowById(taken.rowId)?.no ?? taken.lines} 句（${taken.title || taken.key}），同一段画面不能配两处。要用在这里，先把那边撤回`,
     };
-  let offer = null;
   const result = changeProject(next ? `视频候选：${DECISION[next]}` : '撤回审核', change => {
     let msg = '';
     if (c.decision === 'ok' && next !== 'ok') {
       detachCandidate(c, state.rows, state.assets);
       msg = '已从画面上撤下这个视频 · ⌘Z 可撤销';
-      // 撤下的是正在用的方案里最后一个视频：别的方案还有通过的，就改用它（方案号小的优先）
-      const row = rowById(c.rowId);
-      const members = row ? shotMembers(state.rows, row) : [];
-      const rest = state.candidates.filter(
-        x => x !== c && x.decision === 'ok' && x.assetId && members.some(m => m.id === x.rowId),
-      );
-      if (row && rest.length && currentPlan(members, state.assets, state.candidates) == null) {
-        const to = Math.min(...rest.map(planOf));
-        usePlan(state.rows, row, state.assets, state.candidates, to);
-        msg = `已从画面上撤下这个视频，改用${planName(to)} · ⌘Z 可撤销`;
-      }
     }
     if (next === 'ok') {
-      const r = attachCandidate(c, state.rows, state.assets, state.candidates);
+      renumber();
+      const r = attachCandidate(c, state.rows, state.assets, state.candidates, { tl: timeline() });
       if (r.error) return r;
       c.assetId = r.assetId;
       if (r.current) {
         const old = resolveOnApprove(state.rows, rowById(c.rowId), r.assetId);
         const names = [...new Set([...r.demoted, ...old])].map(x => state.assets[x]?.name || '素材');
-        msg = `已挂成主画面（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
-      } else {
-        msg = `已通过，存进${planName(planOf(c))}；这个画面现在用的是${planName(r.using)}，可以在表格里切换`;
-        // 这个方案刚好填满、正在用的方案还没填满：提示里直接给「改用」
-        const row = rowById(c.rowId);
-        const members = shotMembers(state.rows, row);
-        const ids = new Set(members.map(m => m.id));
-        const plans = shotPlans(
-          state.candidates.filter(x => ids.has(x.rowId)).map(x => (x === c ? { ...x, decision: 'ok' } : x)),
-          shotSeconds(members),
-        );
-        const mine = plans.find(p => p.plan === planOf(c));
-        const now = plans.find(p => p.plan === r.using);
-        if (mine?.filled && !now?.filled) offer = { plan: planOf(c), row };
-      }
+        msg = `已放上正片轨（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
+      } else msg = '已通过；正片轨已经排满，先放在备选轨，拖上去就能换上';
     }
     invalidateCandidate(c);
     c.decision = next;
     if (next) c.decidedAt = Date.now();
     else delete c.decidedAt;
     change.emit('rows');
-    return { candidate: c, next, msg, offer };
+    return { candidate: c, next, msg };
   });
   if (!result?.error) writeBack();
   return result;
@@ -173,7 +165,6 @@ export function deleteCandidateBatch(ids) {
   // 清单仍保留原审核结果，删除审核批次不等于否决视频。
   writeBack();
   return changeProject('删除视频审核批次', change => {
-    for (const b of candidateBatches(state.candidates)) for (const c of b.cands) c.batchNo = b.number;
     for (const c of removed) invalidateCandidate(c);
     state.candidates = state.candidates.filter(c => !ids.has(c.id));
     change.emit('candidates-changed', { removedIds: removed.map(c => c.id) });
@@ -226,18 +217,4 @@ export function dismissShotRework(row) {
     dismissRework(state.rows, row);
     change.emit('rows');
   });
-}
-
-/* 改用某个方案：表格、连播预览、导出都跟着换；写回清单里的「正在用」也跟着变 */
-export function switchPlan(row, plan) {
-  if (!row || rowById(row.id) !== row) return false;
-  const members = shotMembers(state.rows, row);
-  if (currentPlan(members, state.assets, state.candidates) === plan) return false;
-  const done = changeProject(`改用${planName(plan)}`, change => {
-    const ok = usePlan(state.rows, row, state.assets, state.candidates, plan);
-    if (ok) change.emit('rows');
-    return ok;
-  });
-  if (done) writeBack();
-  return done;
 }

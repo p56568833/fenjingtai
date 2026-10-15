@@ -9,6 +9,7 @@ import { hydrateAssetCards } from './asset-thumbs.js';
 import { probeDurations } from './asset-files.js';
 import { esc, hiText } from './base/dom.js';
 import { charRangesForTimes } from '../core/text.js';
+import { patchHTML } from './base/html-patch.js';
 
 function statusText(r) {
   const clipTodo = usageList(r).some(u => u.clip && u.clip.needsAdjust);
@@ -76,7 +77,7 @@ function paintGaps(el, r) {
   const members = shotMembers(state.rows, r);
   let cov = shotLineCoverage(members);
   // 一个画面都还没放的镜头（还在找素材）不标：满屏红色反而看不出真正漏掉的那几句
-  if (cov?.every(x => x.state === 'empty')) cov = null;
+  if (cov?.every(x => x.state === 'empty' && !x.missingGaps.length)) cov = null;
   for (const x of cov || members.map(row => ({ row, state: 'ok', gaps: [] }))) {
     const row = el.matches('.row') ? el : el.querySelector(`.row[data-id="${x.row.id}"]`);
     const text = x.row.text || '';
@@ -96,7 +97,10 @@ function paintGaps(el, r) {
   }
   box.classList.toggle('bad', bad);
   box.title = bad ? `${sum}：点开在右边给这几句加画面` : '这几句都有画面';
-  if (box.innerHTML !== html) box.innerHTML = html;
+  if (box._coverHtml !== html) {
+    patchHTML(box, html);
+    box._coverHtml = html;
+  }
 }
 
 const cardHtml = new WeakMap(); // .row-assets → 上次画进去的 HTML
@@ -118,7 +122,7 @@ function badgeOne(el) {
     // 卡片内容（含够不够：取决于整组的使用记录、口播时间、文件时长）变了才重画，缩略图不闪
     const html = assetCards(r);
     if (cardHtml.get(assets) !== html) {
-      assets.innerHTML = html;
+      patchHTML(assets, html);
       cardHtml.set(assets, html);
       animateCards(r.id, assets);
     }
@@ -129,10 +133,14 @@ function badgeOne(el) {
 /* ids 给了就只刷这几句所在的行 / 共用画面；不给就全部 */
 export function rowBadges(ids) {
   if (ids) {
+    const seen = new Set();
     for (const id of ids) {
       const row = document.querySelector(`.row[data-id="${id}"]`);
       const el = row?.closest('.shared-scene') || row;
-      if (el) badgeOne(el);
+      if (el && !seen.has(el)) {
+        seen.add(el);
+        badgeOne(el);
+      }
     }
   } else document.querySelectorAll('.row:not(.shared-scene-row),.shared-scene').forEach(badgeOne);
   hydrateAssetCards();

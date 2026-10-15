@@ -17,8 +17,24 @@ const canAnimate = el => !!el && typeof el.animate === 'function' && !reduced();
 /* ── 滑块 ──
    container 里放一个绝对定位的滑块（cls 决定样式），每次调用滑到 target 底下。
    容器内容整个重画（innerHTML）后滑块会被冲掉：重新放一个，先摆在上一次的位置再滑过去，看不出断档。
-   target 为空：滑块淡出，但记住最后的位置，下次从那里滑出来。 */
-export function glide(container, target, cls, { pop = false, from = null } = {}) {
+   target 为空：滑块淡出，但记住最后的位置，下次从那里滑出来；snap 为真时改成直接在新位置淡入。 */
+/* target 相对 container 的位置：中间隔着定位元素（比如 position: relative 的行）也一层层加回来 */
+function offsetIn(target, container) {
+  let x = 0,
+    y = 0,
+    el = target;
+  for (;;) {
+    x += el.offsetLeft;
+    y += el.offsetTop;
+    const p = el.offsetParent;
+    if (!p || p === container || !container.contains(p)) break;
+    x += p.clientLeft - p.scrollLeft;
+    y += p.clientTop - p.scrollTop;
+    el = p;
+  }
+  return { x, y };
+}
+export function glide(container, target, cls, { pop = false, from = null, snap = false } = {}) {
   if (!container) return null;
   let pill = container.querySelector(`:scope > .${cls}`);
   const fresh = !pill;
@@ -34,7 +50,7 @@ export function glide(container, target, cls, { pop = false, from = null } = {})
     pill._hidden = true;
     return pill;
   }
-  const geo = { x: target.offsetLeft, y: target.offsetTop, w: target.offsetWidth, h: target.offsetHeight };
+  const geo = { ...offsetIn(target, container), w: target.offsetWidth, h: target.offsetHeight };
   const prev = container._glide || from;
   container._glide = geo;
   const place = g => {
@@ -45,7 +61,7 @@ export function glide(container, target, cls, { pop = false, from = null } = {})
   if (fresh || pill._hidden || reduced()) {
     // 新放的（或刚才藏起来的）滑块：先不带过渡摆到起点——上一次的位置，没有就直接终点
     pill.style.transition = 'none';
-    place(reduced() || !prev ? geo : prev);
+    place(reduced() || !prev || snap ? geo : prev);
     void pill.offsetWidth;
     pill.style.transition = '';
   }

@@ -10,6 +10,7 @@
 import { shotMembers, applyRole } from './shots.js';
 import { usageList } from './asset-model.js';
 import { planOf, planName } from './candidates.js';
+import { sentenceScope } from './candidate-scope.js';
 
 const REJECT = new Set(['no', 're']);
 export const isRejected = c => REJECT.has(c?.decision);
@@ -134,10 +135,12 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
   return {
     type: 'fenjingtai-rework',
     version: 1,
+    id: 'rw-' + crypto.randomUUID(),
     project: title,
     createdAt: new Date().toISOString(),
+    sentences: sentenceScope(shots.flatMap(s => s.members.map(m => m.no))).text,
     reply:
-      '按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v3 写一份新的候选清单（shots[].lines 用这里的 lines，每个方案都要填满口播）。rejected 里标了方案的「换一个」，就在那个方案里接替它的位置；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。',
+      '按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v3 写一份新的候选清单。顶层 reworkId 原样填写本返工单的 id；shots[].lines 逐项照抄这里的 lines，分散的画面分别写，禁止用首尾句号扩成整段，禁止添加返工单以外的画面；可以先回复其中一部分。每个方案都要填满口播。rejected 里标了方案的「换一个」，就在那个方案里接替它的位置；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。',
     shots: shots.map(s => ({
       lines: rangeOf(s.members),
       text: s.members.map(m => m.text).join(''),

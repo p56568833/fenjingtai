@@ -3,6 +3,8 @@
 import { fmtTime, parseTime } from './text.js';
 import { shotMembers, setShotField, applyRole, applySpan, resolveMainConflicts } from './shots.js';
 import { ensureAsset, usageList, syncMirror, assetName, referencedAssetIds } from './asset-model.js';
+import { reworkScopeErrors } from './candidate-scope.js';
+import { placeApproved } from './shot-tracks.js';
 
 export const CANDIDATE_TYPE = 'fenjingtai-candidates';
 export const DECISION = { ok: '通过', no: '不要', re: '换一个' };
@@ -16,7 +18,7 @@ export const MARGIN_MAX = 5; // 下载范围比「最好用的几秒」每边最
    v3：画面 → 方案（几选一）→ 视频（按顺序接起来播）；v2：画面 → 候选，当作只有方案一 ── */
 const LINES_RE = /^\d+(-\d+)?$/;
 const URL_RE = /^https?:\/\/\S+$/i;
-const TOP_KEYS = ['type', 'version', 'project', 'batch', 'createdAt', 'shots', 'extra', 'reviewedAt'];
+const TOP_KEYS = ['type', 'version', 'project', 'batch', 'createdAt', 'shots', 'extra', 'reviewedAt', 'reworkId'];
 const SHOT_KEYS = { 3: ['lines', 'label', 'need', 'plans', 'extra'], 2: ['lines', 'label', 'need', 'cands', 'extra'] };
 const PLAN_KEYS = ['cands', 'short', 'extra'];
 const CAND_BASE = ['key', 'title', 'url', 'page', 'in', 'out', 'best', 'license', 'why', 'limitations', 'extra'];
@@ -150,6 +152,8 @@ export function validateCandidateDoc(doc) {
     );
   if (!filled(doc.project)) add('顶层', 'project 必须写项目名');
   if (!filled(doc.batch)) add('顶层', 'batch 必须写这一批的名字');
+  if (doc.reworkId != null && !(filled(doc.reworkId) && doc.reworkId.startsWith('rw-')))
+    add('顶层', 'reworkId 必须原样复制返工单的 id');
   if (doc.createdAt != null && !(filled(doc.createdAt) && !Number.isNaN(Date.parse(doc.createdAt))))
     add('顶层', 'createdAt 必须是 ISO 时间，如 "2026-10-09T11:02:05+08:00"');
   unknown(doc, TOP_KEYS, '顶层');
@@ -157,6 +161,7 @@ export function validateCandidateDoc(doc) {
     add('顶层', 'shots 必须是数组，至少一个画面');
     return errs;
   }
+  const shotLines = new Set();
   doc.shots.forEach((s, i) => {
     const sw = `shots[${i}]${isObj(s) && filled(s.lines) ? `（lines "${s.lines}"）` : ''}`;
     if (!isObj(s)) return add(sw, '必须是对象');
@@ -165,7 +170,11 @@ export function validateCandidateDoc(doc) {
       add(sw, 'lines 必须是文字句号，如 "251" 或 "251-252"（半角减号，不加空格）');
     else {
       span = spanOf(s.lines);
+      if (!Number.isSafeInteger(span.from) || !Number.isSafeInteger(span.to) || span.from < 1 || span.to < 1)
+        add(sw, 'lines 必须使用有效的正整数句号');
       if (span.to < span.from) add(sw, 'lines 的结束句号不能小于开始句号');
+      if (shotLines.has(s.lines)) add(sw, '同一画面只能写一次，多个方案放在同一个画面的 plans 里');
+      shotLines.add(s.lines);
     }
     if (!filled(s.label)) add(sw, 'label 必须写这个画面的简短名字');
     if (s.need != null && typeof s.need !== 'string') add(sw, 'need 必须是文字');
@@ -317,10 +326,18 @@ export const remotePath = c => `${c.url.split('#')[0]}#t=${c.in},${c.out}`;
 /* 候选清单 → 候选记录（按当前句号找到画面；找不到的列进 skipped）。
    每条记录带 plan（第几个方案，从 1 开始）、seq（在方案里的先后）、short（方案填不满的理由）。
    shotSeconds：画面 → 口播秒数（界面按时间轴传进来）；给了才检查「每个方案填满口播」 */
-export function planImport(doc, srcFile, rows, existing = [], { shotSeconds } = {}) {
+export function planImport(
+  doc,
+  srcFile,
+  rows,
+  existing = [],
+  { shotSeconds, reworkRequests = {}, reworkRowIds = [] } = {},
+) {
   if (!doc || doc.type !== CANDIDATE_TYPE) return { error: '这不是视频候选清单' };
   const errors = validateCandidateDoc(doc);
   if (errors.length) return { error: `候选清单格式不对（${errors.length} 处）`, errors };
+  const scopeErrors = reworkScopeErrors(doc, rows, reworkRequests);
+  if (scopeErrors.length) return { error: '返工素材与返工单不一致', errors: scopeErrors };
   const v = doc.version === LEGACY_VERSION ? LEGACY_VERSION : CANDIDATE_VERSION;
   const byNo = new Map(rows.filter(r => r.kind === 'line').map(r => [r.no, r]));
   // v3：画面范围必须和分镜表一模一样（v2 只认第一句，照旧）
@@ -373,6 +390,12 @@ export function planImport(doc, srcFile, rows, existing = [], { shotSeconds } = 
           need: String(s.need || ''), // 这个画面要什么画面（审核页标题下显示）
           limits: String(raw.limitations || ''), // 画面内容只对上一部分时缺了什么
           srcFile: srcFile || '',
+          ...(doc.reworkId
+            ? {
+                reworkId: doc.reworkId,
+                reworkNote: reworkRequests[doc.reworkId].targets.find(t => t.rowIds.includes(row.id))?.note || '',
+              }
+            : {}),
         };
         const old = existing.find(c => c.srcFile === base.srcFile && c.lines === base.lines && c.key === base.key);
         if (old) {
@@ -397,6 +420,22 @@ export function planImport(doc, srcFile, rows, existing = [], { shotSeconds } = 
         }
       });
     });
+  }
+  // 已交出去的返工任务不能通过删掉标记绕过范围检查；原清单的未改候选仍可重导。
+  if (!doc.reworkId) {
+    const pending = new Set(reworkRowIds);
+    const issued = new Set(Object.values(reworkRequests).flatMap(r => r.targets.flatMap(t => t.rowIds)));
+    if (
+      [...added, ...updated.filter(x => x.changed).map(x => x.next)].some(
+        c => pending.has(c.rowId) && issued.has(c.rowId),
+      )
+    )
+      return {
+        error: '返工素材缺少返工单标记',
+        errors: [
+          '这份清单包含已生成返工单的画面，请在顶层 reworkId 原样填写对应返工单的 id；软件会据此核对实际句子，不能用整段范围代替分散画面',
+        ],
+      };
   }
   // 和项目里已有的候选比：这份清单自己的旧版本不算（重新导入同一份文件时按 lines + key 对上的就是它自己）
   const mine = new Set([...added, ...updated.map(x => x.next)].map(c => `${c.srcFile}|${c.lines}|${c.key}`));
@@ -496,17 +535,8 @@ function fillErrors(shots, records, needOf) {
   }
   return errs;
 }
-/* 画面现在用的是哪个方案：当主画面的那些审核通过的视频属于哪个方案（没有返回 null） */
-export function currentPlan(members, registry, cands) {
-  const byId = new Map(cands.map(c => [c.id, c]));
-  for (const u of usageList(members[0] || {})) {
-    if (u.role !== 'main') continue;
-    const c = byId.get(registry[u.assetId]?.source?.candidate);
-    if (c && c.decision === 'ok' && c.assetId === u.assetId) return planOf(c);
-  }
-  return null;
-}
-/* 主画面按方案里的先后排：审核来的视频之间按 seq 排，占它们原来的位置；别的主画面不动 */
+/* 主画面按方案里的先后排：审核来的视频之间按 seq 排，占它们原来的位置；别的主画面不动。
+   只影响按句子自动排的镜头（拖过的按各自的时间放） */
 export function orderPlanMains(members, registry, cands) {
   const byId = new Map(cands.map(c => [c.id, c]));
   const candOf = u => {
@@ -522,39 +552,22 @@ export function orderPlanMains(members, registry, cands) {
     slots.forEach((slot, k) => (list[slot] = sorted[k]));
   }
 }
-/* 改用某个方案：这个画面里审核通过的视频，属于这个方案的当主画面、其他方案的当备选（都还挂着，随时能换回来）。
-   返回有没有改动 */
-export function usePlan(rows, row, registry, cands, plan) {
-  const members = shotMembers(rows, row);
-  const ids = new Set(members.map(m => m.id));
-  const mine = cands.filter(c => ids.has(c.rowId) && c.decision === 'ok' && c.assetId);
-  if (!mine.some(c => planOf(c) === plan)) return false;
-  let changed = false;
-  for (const c of mine) {
-    const role = planOf(c) === plan ? 'main' : 'alt';
-    if (members.some(m => usageList(m).some(u => u.assetId === c.assetId && u.role !== role))) {
-      applyRole(members, c.assetId, role);
-      changed = true;
-    }
-  }
-  orderPlanMains(members, registry, cands);
-  if (changed) syncMirror(members, registry);
-  return changed;
-}
 
 /* 通过：挂到画面上，配整个画面。
-   这个画面还没在用哪个方案、或者用的就是它所在的方案：当主画面，按方案里的先后排（几个视频按各自长度接起来播）；
-   原来的占位主画面（照片等，非视频审核来的）让位成备选。
-   画面已经在用别的方案：先当备选存着，表格里切换方案就能换上（返回 current: false）。
-   cands：项目里所有候选（用来认出画面现在用的是哪个方案） */
-export function attachCandidate(c, rows, registry, cands = []) {
+   正片轨还有空（tl 给了才判断，见 shot-tracks.js 的 placeApproved）：当主画面——按句子自动排时接在后面，
+   拖过时间的放进第一个空当；原来的占位主画面（照片等，非视频审核来的）让位成备选。
+   正片轨已经填满：放到备选轨（返回 role: 'alt'），拖上正片轨就能换上。
+   cands：项目里所有候选（自动排时按清单里的先后排主画面） */
+export function attachCandidate(c, rows, registry, cands = [], { tl = null } = {}) {
   const row = rows.find(r => r.id === c.rowId);
   if (!row) return { error: '找不到这个画面（句子可能被删了）' };
   const members = shotMembers(rows, row);
-  const using = currentPlan(members, registry, cands);
-  const current = using == null || using === planOf(c);
   const asset = ensureAsset(registry, remotePath(c), { kind: 'video', name: c.title });
   asset.source = { candidate: c.id, url: c.url, page: c.page, license: c.license };
+  // 先判断放哪：只看别的候选视频占了多少（占位照片会让位，不算）
+  const place = tl
+    ? placeApproved(registry, members, tl, usableSeconds(c), id => id !== asset.id && !!registry[id]?.source?.candidate)
+    : { role: 'main' };
   for (const m of members) {
     let u = usageList(m).find(x => x.assetId === asset.id);
     if (!u) {
@@ -566,15 +579,19 @@ export function attachCandidate(c, rows, registry, cands = []) {
     u.clip = best ? { ...best } : { in: c.in, out: c.out };
     delete u.off;
   }
-  applyRole(members, asset.id, current ? 'main' : 'alt');
+  const main = place.role === 'main';
+  applyRole(members, asset.id, place.role);
   applySpan(members, asset.id, 0, members.length - 1);
-  const demoted = current ? resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate) : [];
-  if (current) orderPlanMains(members, registry, [...cands.filter(x => x.id !== c.id), { ...c, assetId: asset.id }]);
+  if (place.at)
+    for (const m of members)
+      for (const u of usageList(m)) if (u.assetId === asset.id) u.at = { ...place.at, of: members[0].id };
+  const demoted = main ? resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate) : [];
+  if (main) orderPlanMains(members, registry, [...cands.filter(x => x.id !== c.id), { ...c, assetId: asset.id }]);
   const line = noteLine(c);
   if (!(row.note || '').includes(line))
     setShotField(rows, row, 'note', (row.note ? row.note.replace(/\s+$/, '') + '\n' : '') + line);
   syncMirror(members, registry);
-  return { assetId: asset.id, role: current ? 'main' : 'alt', current, using, demoted };
+  return { assetId: asset.id, role: place.role, current: main, demoted };
 }
 /* 撤回通过：把这个视频从画面上拿掉，画面描述里那一行也删掉 */
 export function detachCandidate(c, rows, registry) {
@@ -724,6 +741,9 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
       ...(Number.isFinite(raw.batchAt) ? { batchAt: raw.batchAt } : {}),
       ...(typeof raw.batchName === 'string' ? { batchName: raw.batchName } : {}),
       ...(Number.isSafeInteger(raw.batchNo) && raw.batchNo > 0 ? { batchNo: raw.batchNo } : {}),
+      ...(raw.batchKind === 'rework' ? { batchKind: 'rework' } : {}),
+      ...(typeof raw.reworkId === 'string' && raw.reworkId.startsWith('rw-') ? { reworkId: raw.reworkId } : {}),
+      ...(typeof raw.reworkNote === 'string' ? { reworkNote: raw.reworkNote } : {}),
     });
   }
   return out;

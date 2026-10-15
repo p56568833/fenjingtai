@@ -88,6 +88,19 @@ body.dark {
 #btnCollab[data-status='online'] svg {
   display: none;
 }
+#btnCollab svg.cl-chevron {
+  display: block;
+  width: 12px;
+  height: 12px;
+  color: inherit;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#btnCollab:not(.on) .cl-chevron {
+  display: none;
+}
 .cl-av::after {
   content: '';
   position: absolute;
@@ -386,4 +399,216 @@ body.dark .btn.danger-text {
 }
 .cl-files .pack-bar {
   margin-top: 8px;
+}
+
+/* 顶栏协作菜单：只有对方位置常显，文件名与连接详情按需展开。 */
+.cl-menu {
+  width: min(328px, calc(100vw - 32px));
+  font-size: 13px;
+}
+.cl-menu-head,
+.cl-menu-person,
+.cl-menu-info,
+.cl-menu-transfer,
+.cl-menu-files-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cl-menu-head {
+  justify-content: space-between;
+  padding: 8px 10px 10px;
+  font-weight: 600;
+}
+.cl-menu-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+}
+.cl-menu-status[data-status='online'] {
+  color: var(--online);
+}
+.cl-menu-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.cl-menu-peer {
+  padding: 8px 10px 12px;
+}
+.cl-menu-label {
+  margin-bottom: 8px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.cl-menu-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--peer) 12%, var(--card));
+  color: var(--peer);
+  font-weight: 600;
+}
+.cl-menu-peer-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.cl-menu-location {
+  margin: 8px 0 0 36px;
+  font-size: 12px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.cl-menu-location.located {
+  color: var(--peer);
+}
+.cl-menu .cl-menu-action,
+body.dark .cl-menu .cl-menu-action {
+  padding: 5px 8px;
+  border: 0;
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  color: var(--accent);
+  font-size: 12px;
+  flex: none;
+}
+.cl-menu .cl-menu-action:disabled,
+body.dark .cl-menu .cl-menu-action:disabled {
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--text-3) 8%, var(--card));
+  opacity: 0.65;
+}
+.cl-menu .pop-item {
+  font-family: inherit;
+  text-align: left;
+  border: 0;
+  background: none;
+  margin: 0;
+  font-weight: 400;
+}
+.cl-menu-row {
+  width: 100%;
+}
+.cl-menu .pop-item:hover {
+  background: color-mix(in srgb, var(--text-3) 9%, transparent);
+}
+.cl-menu .pop-item:disabled {
+  cursor: default;
+}
+.cl-menu .pop-item.danger {
+  color: #d4472a;
+}
+body.dark .cl-menu .pop-item.danger {
+  color: #ff7a5c;
+}
+.cl-menu-end {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  min-width: 0;
+  max-width: 55%;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.cl-menu-end > span,
+.cl-menu-end > code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-menu-end svg.mi {
+  width: 12px;
+  height: 12px;
+}
+.cl-menu [aria-expanded='true'] > .cl-menu-end > svg.mi:last-child {
+  transform: rotate(90deg);
+}
+.cl-menu-details {
+  padding: 3px 10px 10px 37px;
+}
+.cl-menu-details small {
+  display: block;
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 4px 0 7px;
+}
+.cl-menu-info {
+  padding: 4px 0;
+  font-size: 12px;
+}
+.cl-menu-info > span {
+  color: var(--text-3);
+  font-size: 11px;
+  flex: none;
+}
+.cl-menu-info code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cl-menu .text-button {
+  font-size: 11px;
+  white-space: nowrap;
+}
+.cl-menu-files-row {
+  position: relative;
+}
+/* 「全部取过来」放在展开箭头左侧，箭头与其他行保持同一列 */
+.cl-menu-files-row > .cl-menu-action {
+  position: absolute;
+  top: 50%;
+  right: 30px;
+  z-index: 1;
+  transform: translateY(-50%);
+}
+.cl-menu-file-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  display: grid;
+  gap: 6px;
+}
+.cl-menu-file-list li {
+  color: var(--text-2);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-menu-details input {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.cl-menu-transfer {
+  padding: 10px;
+  font-size: 12px;
+}
+.cl-menu-transfer > div {
+  min-width: 0;
+  flex: 1;
+}
+.cl-menu-transfer small {
+  display: block;
+  color: var(--text-3);
+  font-size: 11px;
+  margin: 5px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

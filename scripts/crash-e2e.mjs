@@ -1,8 +1,9 @@
-/* 隐藏的隔离 Electron 实例：验证真实脚本异常、崩溃事件和记录窗口。 */
+/* 隔离 Electron 实例：验证窗口隐藏 / 恢复 / 退出，以及真实异常与崩溃记录。 */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
 
@@ -65,6 +66,103 @@ try {
   browser = await puppeteer.connect({ browserURL: 'http://127.0.0.1:9240', defaultViewport: null });
   let page = (await browser.pages()).find(page => page.url().includes('renderer/index.html'));
   await page.waitForSelector('#crashLogMask');
+  if (process.platform === 'darwin') {
+    const windowInfo = () =>
+      evaluate(`(() => {
+        const w = process.mainModule.require('electron').BrowserWindow.getAllWindows()[0];
+        return w ? { id: w.id, visible: w.isVisible(), minimized: w.isMinimized() } : null;
+      })()`);
+    const windowId = (await windowInfo()).id;
+    const host = await page.evaluate(() =>
+      window.native.collabHostStart({ hostId: 'window-lifecycle-test', name: '窗口驻留自测', shares: [] }),
+    );
+    assert.equal(host.ok, true);
+    const checkHost = () =>
+      new Promise((resolve, reject) => {
+        const client = net.connect({ host: '127.0.0.1', port: host.port });
+        client.setTimeout(2000, () => client.destroy(new Error('协作连接检查超时')));
+        client.once('error', reject);
+        client.once('connect', () => {
+          client.destroy();
+          resolve();
+        });
+      });
+    const fixture = await page.evaluate(async () => {
+      const storage = await import('./src/app/storage.js');
+      const { parseAny } = await import('./src/core/parse.js');
+      const { state } = await import('./src/app/state.js');
+      const { runCommand } = await import('./src/ui/base/commands.js');
+      storage.createProject('后台驻留回归', parseAny('保留第一句。保留第二句。'));
+      const line = state.rows.filter(row => row.kind === 'line')[1];
+      runCommand('nav:jump', line.id);
+      window.__windowFixture = { beforeUnload: 0, backgroundDone: false, blockQuit: false };
+      window.addEventListener('beforeunload', event => {
+        window.__windowFixture.beforeUnload++;
+        if (window.__windowFixture.blockQuit) {
+          event.preventDefault();
+          event.returnValue = '';
+        }
+      });
+      return { projectId: state.projectId, lineId: line.id };
+    });
+    await evaluate("process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].close(); true");
+    assert.deepEqual(await windowInfo(), { id: windowId, visible: false, minimized: false });
+    assert.equal(await page.evaluate(() => window.__windowFixture.beforeUnload), 0, '点叉不卸载当前页面');
+    // 窗口隐藏后，界面进程仍能接收后台结果、保存数据。
+    await page.evaluate(() => {
+      setTimeout(async () => {
+        const { state } = await import('./src/app/state.js');
+        const { setSentenceText } = await import('./src/app/actions.js');
+        setSentenceText(state.sel, '隐藏窗口后完成的改动。');
+        window.__windowFixture.backgroundDone = true;
+      }, 100);
+    });
+    await page.waitForFunction(() => window.__windowFixture.backgroundDone);
+    await page.waitForFunction(
+      ({ projectId, lineId }) =>
+        window.native.loadData().projects[projectId].rows.find(row => row.id === lineId).text ===
+        '隐藏窗口后完成的改动。',
+      {},
+      fixture,
+    );
+    const saved = JSON.parse(fs.readFileSync(path.join(dataDir, '数据', '分镜台数据.json'), 'utf8'));
+    assert.equal(
+      saved.projects[fixture.projectId].rows.find(row => row.id === fixture.lineId).text,
+      '隐藏窗口后完成的改动。',
+    );
+    await checkHost();
+    await evaluate("process.mainModule.require('electron').app.emit('activate'); true");
+    assert.equal((await windowInfo()).visible, true, 'Dock 激活恢复窗口');
+    assert.equal((await windowInfo()).id, windowId, '恢复使用同一个窗口');
+    assert.deepEqual(
+      await page.evaluate(async () => {
+        const { state } = await import('./src/app/state.js');
+        return { projectId: state.projectId, lineId: state.sel };
+      }),
+      fixture,
+      '恢复后保持项目和选中句子',
+    );
+    await evaluate("process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].close(); true");
+    await evaluate("process.mainModule.require('electron').app.emit('second-instance'); true");
+    assert.equal((await windowInfo()).visible, true, '重复打开应用也恢复窗口');
+    // 页面拒绝退出时仍保留窗口，下一次点叉继续正常隐藏。
+    await page.evaluate(() => (window.__windowFixture.blockQuit = true));
+    await evaluate("setTimeout(()=>process.mainModule.require('electron').app.quit(),100); true");
+    await page.waitForFunction(() => window.__windowFixture.beforeUnload > 0);
+    await sleep(150);
+    assert.equal((await windowInfo()).visible, true, '取消退出后显示窗口');
+    await checkHost();
+    await page.evaluate(() => (window.__windowFixture.blockQuit = false));
+    await evaluate("process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].close(); true");
+    assert.equal((await windowInfo()).visible, false, '取消退出后点叉仍只隐藏');
+    assert.equal(await page.evaluate(() => window.__windowFixture.beforeUnload), 1);
+    assert.ok(fs.existsSync(path.join(dataDir, '崩溃记录/运行状态.json')), '后台驻留或取消退出不清运行标记');
+    await evaluate("process.mainModule.require('electron').app.emit('activate'); true");
+    await page.evaluate(() => window.native.collabHostStop());
+    console.log(
+      '窗口驻留检查通过：点叉隐藏、后台改动保存、Dock 恢复、重复打开恢复、保留项目与句子、取消退出后正常隐藏',
+    );
+  }
   await page.evaluate(() => window.native.clearCrashLogs());
   await page.evaluate(async () => {
     const { triggerErrors } = await import('./src/test/crash-fixture.js');
@@ -107,6 +205,15 @@ try {
   );
   const logFile = path.join(dataDir, '崩溃记录/崩溃记录.json');
   assert.ok(fs.statSync(logFile).size <= 256 * 1024);
+  const exitFixture = await page.evaluate(async () => {
+    const { state } = await import('./src/app/state.js');
+    const { setSentenceText } = await import('./src/app/actions.js');
+    const line = state.rows.find(row => row.kind === 'line');
+    setSentenceText(line.id, '彻底退出前保存的改动。');
+    return { projectId: state.projectId, lineId: line.id };
+  });
+  if (process.platform === 'darwin')
+    await evaluate("process.mainModule.require('electron').BrowserWindow.getAllWindows()[0].close(); true");
   await browser.disconnect();
   browser = null;
   await evaluate("setTimeout(()=>process.mainModule.require('electron').app.quit(),100); true");
@@ -114,6 +221,12 @@ try {
   const marker = path.join(dataDir, '崩溃记录/运行状态.json');
   for (let i = 0; i < 50 && fs.existsSync(marker); i++) await sleep(100);
   assert.equal(fs.existsSync(path.join(dataDir, '崩溃记录/运行状态.json')), false, '真正关闭后清掉运行标记');
+  const savedOnExit = JSON.parse(fs.readFileSync(path.join(dataDir, '数据', '分镜台数据.json'), 'utf8'));
+  assert.equal(
+    savedOnExit.projects[exitFixture.projectId].rows.find(row => row.id === exitFixture.lineId).text,
+    '彻底退出前保存的改动。',
+    '窗口隐藏时主动退出也会保存待落盘改动',
+  );
   console.log('崩溃记录端到端通过：脚本异常、任务异常、菜单查看、展开、清空、Esc、真实界面崩溃、正常退出');
 } finally {
   if (browser) await browser.disconnect();

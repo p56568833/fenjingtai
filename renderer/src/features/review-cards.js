@@ -8,10 +8,11 @@ import { glide, pop, SPRING } from '../ui/base/motion.js';
 import { playerHTML, targetLines, playClip, slotOf } from './clip-player.js';
 import { stripHTML, mediaOf } from './review-frames.js';
 import { page } from './review-model.js';
+import { pauseDocked } from './playthrough.js';
 
 const $ = s => document.querySelector(s);
 
-/* 当前候选在方案里排到的那几句：句子左边亮一条主色（待返工页没有方案顺序，亮整个画面） */
+/* 当前候选排到的那几句：句子左边亮一条主色（待返工页没有方案顺序，亮整个画面） */
 export function paintLineFocus(c) {
   const slot = c && page.mode !== 'rework' ? slotOf(c) : null;
   const hit = r => {
@@ -100,5 +101,6 @@ export function play(id) {
   const card = document.querySelector(`[data-vr-id="${id}"]`);
   if (!c || !card) return;
   const btn = card.querySelector('[data-vr-play]');
+  pauseDocked(); // 下面嵌着的「对着口播看画面」先停，免得两路口播一起响
   playClip(card, mediaOf(c), { onState: text => (btn.textContent = text) });
 }

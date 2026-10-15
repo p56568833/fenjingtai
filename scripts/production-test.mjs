@@ -1,4 +1,5 @@
 import { buildPrintDoc, planDocument, fmtLong } from '../renderer/src/core/print-doc.js';
+import { buildPictureCoverage } from '../renderer/src/core/coverage.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,9 +27,11 @@ import {
   normalizeGroups,
 } from '../renderer/src/core/shots.js';
 import { candidateBatches } from '../renderer/src/core/candidate-queries.js';
+import { sentenceScope, normalizeReworkRequests } from '../renderer/src/core/candidate-scope.js';
 import { normalizeProjectRows, reconcileDraft } from '../renderer/src/core/project-import.js';
 import { normalizeProjectData, projectData, applyProjectData } from '../renderer/src/core/project-data.js';
 import { captureMutation, restoreMutation } from '../renderer/src/core/project-transaction.js';
+import { searchLineIds } from '../renderer/src/core/search.js';
 let count = 0;
 function test(name, fn) {
   fn();
@@ -36,6 +39,29 @@ function test(name, fn) {
   console.log('✓', name);
 }
 const lines = s => parseAny(s).filter(r => r.kind === 'line');
+test('搜索正文定位到具体句，共用描述不重复计算，纯备注搜索仍可用', () => {
+  const rows = [
+    { id: 1, text: '前一句', note: '批发商', groupId: 'body' },
+    { id: 2, text: '批发商在这里', note: '批发商', groupId: 'body' },
+    { id: 3, text: '后一句', note: '批发商', groupId: 'body' },
+    { id: 4, text: '另一段', note: '批发商', groupId: 'note' },
+    { id: 5, text: '同一段', note: '批发商', groupId: 'note' },
+    { id: 6, text: '独立句', note: '批发商' },
+    { id: 7, text: '第二个批发商', note: '另一个描述' },
+  ];
+  assert.deepEqual(searchLineIds(rows, '批发商'), [2, 4, 6, 7]);
+  assert.deepEqual(searchLineIds(rows, '描述'), [7]);
+  assert.deepEqual(searchLineIds(rows, '没有结果'), []);
+  assert.deepEqual(searchLineIds(rows, '  '), []);
+  assert.deepEqual(searchLineIds([{ id: 8, text: 'GLP-1', note: '' }], ' glp-1 '), [8]);
+  assert.deepEqual(
+    searchLineIds(
+      rows.filter(row => row.id !== 1),
+      '批发商',
+    ),
+    [2, 4, 6, 7],
+  );
+});
 test('中文右引号留在句尾', () =>
   assert.deepEqual(splitSentences('他说：“行。”她回答：“好！”'), ['他说：“行。”', '她回答：“好！”']));
 test('省略号、连续问号不产生碎片', () =>
@@ -1225,16 +1251,21 @@ test('视频审核通过一律当主画面：占位照片让位，已通过的�
   assert.equal(role('p'), 'alt', '占位照片让位成备选');
   assert.deepEqual(b.demoted, [], '第二次通过不再降级任何素材');
 });
-test('方案：同一方案的视频配整个画面、按先后排；别的方案先存成备选，切换方案主画面跟着换', async () => {
-  const { usePlan, currentPlan } = await import('../renderer/src/core/candidates.js');
+test('两条轨：通过的先排正片轨、排满放备选轨；互换、插入、拖下来和备选位置', async () => {
+  const { buildTimeline } = await import('../renderer/src/core/timeline.js');
+  const T = await import('../renderer/src/core/shot-tracks.js');
+  const { layoutShot } = await import('../renderer/src/core/shot-layout.js');
+  const { applyRole } = await import('../renderer/src/core/shots.js');
   const rows = [1, 2, 3].map(n => ({
     id: n,
     kind: 'line',
     no: 199 + n,
     text: '句' + n,
     groupId: 'g',
+    time: { start: (n - 1) * 2, end: n * 2, st: 'ok' },
     assetUsages: [],
   }));
+  const tl = buildTimeline(rows);
   const reg = {};
   const cands = [];
   const mk = (id, plan, seq, url, best) => ({
@@ -1247,38 +1278,91 @@ test('方案：同一方案的视频配整个画面、按先后排；别的方�
     in: best.in - 1,
     out: best.out + 1,
     best,
-    for: '202', // v2 留下的 for 不再起作用
     license: '',
     page: '',
   });
   const approve = c => {
-    const r = attachCandidate(c, rows, reg, cands);
+    const r = attachCandidate(c, rows, reg, cands, { tl });
     c.assetId = r.assetId;
     c.decision = 'ok';
     cands.push(c);
     return r;
   };
   const b = mk('b', 1, 1, 'https://x/b.mp4', { in: 10, out: 13 });
-  const a = mk('a', 1, 0, 'https://x/a.mp4', { in: 0, out: 2 });
-  const c = mk('c', 2, 0, 'https://x/c.mp4', { in: 0, out: 6 });
-  assert.equal(approve(b).current, true, '画面还没在用方案：第一个通过的就是正在用的方案');
-  approve(a);
+  const a = mk('a', 1, 0, 'https://x/a.mp4', { in: 1, out: 4 });
+  const c = mk('c', 2, 0, 'https://x/c.mp4', { in: 1, out: 7 });
+  assert.equal(approve(b).role, 'main', '正片轨空着：通过的放上正片轨');
+  assert.equal(approve(a).role, 'main', '还没排满：接着放上正片轨');
   const mains = () => rows[0].assetUsages.filter(u => u.role === 'main').map(u => reg[u.assetId].source.candidate);
-  assert.deepEqual(mains(), ['a', 'b'], '主画面按方案里的先后排，不按通过的先后');
+  assert.deepEqual(mains(), ['a', 'b'], '自动排时按清单里的先后排，不按通过的先后');
   assert.ok(
     rows.every(m => m.assetUsages.every(u => !u.off)),
-    '方案里的视频都配整个画面',
+    '通过的视频都配整个画面',
   );
+  assert.equal(T.mainFilled(reg, rows, tl), true, '3 + 3 秒排满 6 秒口播');
   const r = approve(c);
+  assert.equal(r.role, 'alt', '正片轨排满：放到备选轨');
   assert.equal(r.current, false);
-  assert.equal(r.role, 'alt', '画面在用方案一：方案二通过的视频先存成备选');
-  assert.equal(r.using, 1);
-  assert.equal(currentPlan(rows, reg, cands), 1);
-  assert.equal(usePlan(rows, rows[0], reg, cands, 2), true);
-  assert.deepEqual(mains(), ['c'], '改用方案二');
-  assert.equal(currentPlan(rows, reg, cands), 2);
-  assert.equal(rows[0].assetUsages.find(u => reg[u.assetId].source.candidate === 'a').role, 'alt');
-  assert.equal(usePlan(rows, rows[0], reg, cands, 3), false, '没有通过视频的方案不能切');
+  const alts = T.altItems(reg, rows, tl);
+  assert.deepEqual(
+    alts.map(x => [x.assetId, x.start, x.end, x.row]),
+    [[c.assetId, 0, 6, 0]],
+    '没拖过的备选放在它配的那几句下面，按可用长度',
+  );
+  const items = layoutShot(reg, rows, tl).items;
+  const swap = T.swapIntoMain(items, 0, alts[0], 6);
+  assert.deepEqual(
+    swap.mains.map(e => [e.assetId, e.start, e.end]),
+    [
+      [c.assetId, 0, 3],
+      [b.assetId, 3, 6],
+    ],
+  );
+  assert.deepEqual(
+    swap.alts.map(e => [e.assetId, e.start, e.end]),
+    [[a.assetId, 0, 3]],
+    '互换：备选占那段的位置和长度，换下来的放到备选原来的位置',
+  );
+  const down = T.dropToAlt(items, 0, 2, 6);
+  assert.deepEqual(
+    down.mains.map(e => [e.assetId, e.start, e.end]),
+    [[b.assetId, 3, 6]],
+    '拖下来：别的画面原地不动',
+  );
+  assert.deepEqual(T.mainGaps({ dur: 6, items: down.mains }), [{ start: 0, end: 3 }], '原来的位置留空');
+  const ins = T.insertIntoMain(down.mains, { ...alts[0], end: 2 }, 2, 6);
+  assert.deepEqual(
+    ins.mains.map(e => [e.assetId, e.start, e.end]),
+    [
+      [c.assetId, 2, 8],
+      [b.assetId, 8, 11],
+    ],
+    '插进空隙：后面撞上的画面整体往后让',
+  );
+  assert.deepEqual(
+    T.moveAlt({ assetId: 'x', start: 1, end: 3 }, 5.5, 6),
+    { assetId: 'x', start: 4, end: 6 },
+    '备选不出镜头',
+  );
+  // 主画面撤成备选：时间留着当备选轨位置；备选再当主画面：不沿用旧时间
+  for (const m of rows) for (const u of m.assetUsages) if (u.assetId === b.assetId) u.at = { start: 3, end: 6, of: 1 };
+  applyRole(rows, b.assetId, 'alt');
+  assert.deepEqual(rows[0].assetUsages.find(u => u.assetId === b.assetId).at, { start: 3, end: 6, of: 1 });
+  assert.deepEqual(
+    T.altItems(reg, rows, tl).map(x => [x.assetId, x.row]),
+    [
+      [c.assetId, 0],
+      [b.assetId, 1],
+    ],
+    '时间上重叠的备选往下叠一层',
+  );
+  applyRole(rows, b.assetId, 'main');
+  assert.equal(rows[0].assetUsages.find(u => u.assetId === b.assetId).at, undefined);
+  // 拖过时间的镜头：通过的视频放进第一个空当
+  for (const m of rows) for (const u of m.assetUsages) if (u.assetId === a.assetId) u.at = { start: 0, end: 2, of: 1 };
+  for (const m of rows) for (const u of m.assetUsages) if (u.assetId === b.assetId) u.at = { start: 4, end: 6, of: 1 };
+  const place = T.placeApproved(reg, rows, tl, 5, id => id !== c.assetId);
+  assert.deepEqual(place, { role: 'main', at: { start: 2, end: 4 } }, '手动排过：放进空当，最长到空当末尾');
 });
 /* ── 1.10：项目 JSON 往返 / 候选更新失效 / 交稿检查两种目标 ── */
 const { buildProjectJson } = await import('../renderer/src/core/export-doc.js');
@@ -2403,13 +2487,282 @@ test('带批注 MD 和项目 JSON 回读保留手动时间、素材返工和画�
   test('失败解码释放名额，后续任务仍可执行', () => assert.equal(active, 0));
 }
 
-test('协作两人同时导入撞上同一批号：先导入的保留，后导入的顺延', () => {
-  const c = (id, batchId, batchAt, batchNo) => ({ id, batchId, batchAt, batchNo, batchName: batchId });
+test('审核名单：旧批号和 AI 批名不影响实际句子名称，重号不会改号或丢名单', () => {
+  const c = (id, batchId, batchAt, batchNo) => ({ id, batchId, batchAt, batchNo, rowId: 1, batchName: '第1-625句' });
   const cands = [c('a', 'b1', 100, 1), c('b', 'b2', 200, 2), c('x', 'mine', 300, 3), c('y', 'theirs', 310, 3)];
-  const no = list => Object.fromEntries(candidateBatches(list).map(b => [b.id, b.number]));
-  assert.deepEqual(no(cands), { b1: 1, b2: 2, mine: 3, theirs: 4 });
-  assert.deepEqual(no([...cands].reverse()), no(cands)); // 两台电脑候选顺序不同，结果也一样
-  assert.deepEqual(no([...cands, c('z', 'later', 400, 4)]), { b1: 1, b2: 2, mine: 3, theirs: 5, later: 4 });
+  const rows = [{ id: 1, kind: 'line', no: 28 }];
+  const before = JSON.stringify(cands);
+  const labels = list => candidateBatches(list, rows).map(b => [b.id, b.label]);
+  assert.deepEqual(labels(cands), [
+    ['theirs', '第28句'],
+    ['mine', '第28句'],
+    ['b2', '第28句'],
+    ['b1', '第28句'],
+  ]);
+  assert.deepEqual(labels([...cands].reverse()), labels(cands));
+  assert.equal(JSON.stringify(cands), before, '旧数据只改变显示，不修改候选和批注');
+  cands[0].batchAt = 310;
+  assert.deepEqual(labels([...cands].reverse()), labels(cands), '同一导入时间也有确定顺序');
+});
+
+test('句子名称：连续才合并，分散逐项列出，较多时显示数量；重复视频不重复计句数', () => {
+  assert.equal(sentenceScope([625, 1, 1]).text, '第1、625句');
+  assert.equal(sentenceScope([28, 35, 36, 37]).text, '第28、35–37句');
+  const rows = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, kind: 'line', no: i * 10 + 1 }));
+  const cands = rows.map(r => ({ rowId: r.id, batchId: 'a', batchKind: 'rework' }));
+  cands.push({ ...cands[0] });
+  const b = candidateBatches(cands, rows)[0];
+  assert.equal(b.label, '返工素材 · 共12句');
+  assert.ok(b.detail.startsWith('第1、11、21句'.replace('句', '')));
+  assert.equal(b.scope.count, 12);
+  const shared = [
+    { id: 1, no: 35, kind: 'line', groupId: 'g' },
+    { id: 2, no: 36, kind: 'line', groupId: 'g' },
+  ];
+  assert.equal(
+    candidateBatches([{ rowId: 2, batchId: 'b', batchName: '按批注重找' }], shared)[0].label,
+    '第35–36句 · 重找',
+  );
+  shared[0].no = 40;
+  shared[1].no = 41;
+  assert.equal(candidateBatches([{ rowId: 2 }], shared)[0].label, '第40–41句', '改稿后跟随当前句号，不读旧 lines');
+  assert.equal(candidateBatches([{ rowId: 999 }], shared)[0].label, '句子已移除');
+});
+
+test('返工单：首尾分散画面逐项列出，带可校验的对应标记和原意见', () => {
+  const rows = [
+    { id: 1, no: 1, kind: 'line', text: '开头' },
+    { id: 625, no: 625, kind: 'line', text: '结尾' },
+  ];
+  rows.forEach(r => setRework(rows, r, { note: '要近景', at: 1 }));
+  const doc = buildReworkDoc({ title: '测试', shots: reworkShots(rows, []) });
+  assert.ok(doc.id.startsWith('rw-'));
+  assert.equal(doc.sentences, '第1、625句');
+  assert.deepEqual(
+    doc.shots.map(s => s.lines),
+    ['1', '625'],
+  );
+  assert.ok(doc.reply.includes('禁止用首尾句号扩成整段'));
+});
+
+test('返工素材导入：拒收未知标记、范围外画面、整段扩写；支持分散画面和部分交付', () => {
+  const rows = [
+    { id: 11, no: 1, kind: 'line' },
+    { id: 22, no: 2, kind: 'line' },
+    { id: 33, no: 625, kind: 'line' },
+  ];
+  const reworkRequests = {
+    'rw-test': {
+      at: 1,
+      targets: [
+        { rowIds: [11], note: '开头要近景' },
+        { rowIds: [33], note: '结尾太暗' },
+      ],
+    },
+  };
+  const shot = n => ({ lines: String(n), label: '返工', plans: [{ cands: [v3cand({ key: `n-${n}` })] }] });
+  const doc = { ...v3([shot(1), shot(625)]), reworkId: 'rw-test' };
+  const load = d => planImport(d, '/reply.json', rows, [], { reworkRequests, reworkRowIds: [11, 33] });
+  const plan = load(doc);
+  assert.equal(plan.error, undefined);
+  assert.equal(plan.added[0].reworkNote, '开头要近景');
+  assert.equal(plan.added[1].reworkId, 'rw-test');
+  assert.equal(load({ ...doc, shots: [shot(625)] }).added.length, 1);
+  assert.match(load({ ...doc, reworkId: 'rw-unknown' }).error, /返工单/);
+  assert.match(load({ ...doc, shots: [shot(2)] }).errors[0], /不在这张返工单/);
+  assert.ok(load({ ...doc, shots: [shot('1-625')] }).error);
+  assert.match(load({ ...doc, reworkId: undefined }).error, /缺少返工单标记/);
+  assert.ok(validateCandidateDoc({ ...doc, shots: [shot(1), shot(1)] }).some(e => e.includes('只能写一次')));
+  assert.equal(load(v3([shot(2)])).error, undefined, '不属于待返工任务的普通素材照常导入');
+  const existing = plan.added.map(c => ({ ...c, srcFile: '/reply.json', decision: 'ok' }));
+  assert.equal(
+    planImport(doc, '/reply.json', rows, existing, { reworkRequests }).updated.length,
+    2,
+    '审核完成后重新导入同一回复仍保留关联',
+  );
+});
+
+test('返工范围跟随句子身份：改稿后的句号可变，目标画面拆并或删除则拒收', () => {
+  const rows = [
+    { id: 11, no: 3, kind: 'line' },
+    { id: 22, no: 1, kind: 'line' },
+  ];
+  const reworkRequests = { 'rw-test': { targets: [{ rowIds: [11], note: '近景' }] } };
+  const doc = n => ({
+    ...v3([{ lines: String(n), label: '返工', plans: [{ cands: [v3cand({ key: 'n' })] }] }]),
+    reworkId: 'rw-test',
+  });
+  assert.ok(planImport(doc(1), '', rows, [], { reworkRequests }).error);
+  assert.equal(planImport(doc(3), '', rows, [], { reworkRequests }).added[0].rowId, 11);
+  rows.forEach(r => (r.groupId = 'changed'));
+  assert.ok(planImport(doc(3), '', rows, [], { reworkRequests }).error);
+  assert.ok(planImport(doc(3), '', [], [], { reworkRequests }).error);
+  assert.ok(
+    planImport(
+      { ...doc(3), version: 2, shots: [{ lines: '3', label: '旧', cands: [v3cand({ key: 'n' })] }] },
+      '',
+      rows,
+      [],
+      { reworkRequests },
+    ).error,
+  );
+});
+
+test('返工对应关系随项目保存、导出和句子身份重映射保留', () => {
+  const reworkRequests = { 'rw-test': { at: 1, targets: [{ rowIds: [10, 20], note: '要近景' }] } };
+  for (const scope of ['state', 'history', 'storage', 'exchange'])
+    assert.deepEqual(projectData({ reworkRequests }, scope).reworkRequests, reworkRequests);
+  const doc = JSON.parse(buildProjectJson({ rows: [], reworkRequests }));
+  assert.deepEqual(normalizeProjectData(doc).reworkRequests, reworkRequests);
+  assert.deepEqual(
+    normalizeReworkRequests(
+      reworkRequests,
+      new Map([
+        [10, 1],
+        [20, 2],
+      ]),
+    )['rw-test'].targets[0].rowIds,
+    [1, 2],
+  );
+  assert.deepEqual(normalizeReworkRequests({ bad: {}, 'rw-invalid': { targets: [{ rowIds: ['x'] }] } }), {});
+});
+
+test('统一画面状态：失联不改变排布；缺口、停顿与覆盖各有独立结果', () => {
+  const rows = [
+    {
+      id: 1,
+      kind: 'line',
+      type: 'real',
+      groupId: 'g',
+      text: '第一句',
+      assetUsages: [
+        { assetId: 'lost', role: 'main', at: { start: 0, end: 4, of: 1 } },
+        { assetId: 'ok', role: 'main', at: { start: 4, end: 8, of: 1 } },
+      ],
+    },
+    { id: 2, kind: 'line', type: 'real', text: '第二句', assetUsages: [{ assetId: 'ok', role: 'main' }] },
+  ];
+  const tl = buildTimeline(
+    [
+      { ...rows[0], time: { start: 0, end: 8, st: 'ok' } },
+      { ...rows[1], time: { start: 9.14, end: 13.14, st: 'ok' } },
+    ],
+    { voiceDuration: 20 },
+  );
+  const registry = {
+    lost: { id: 'lost', kind: 'video', path: '/lost.mp4', durationSec: 4 },
+    ok: { id: 'ok', kind: 'image', path: '/ok.png' },
+  };
+  const result = buildPictureCoverage(rows, registry, tl, { missing: new Set(['/lost.mp4']) });
+  assert.deepEqual(result.byLine.get(1).missingGaps, [[0, 4]]);
+  assert.equal(result.byLine.get(1).got, 4);
+  assert.deepEqual(
+    result.byLine.get(1).segments.map(s => [s.start, s.end, s.status]),
+    [
+      [0, 4, 'missing'],
+      [4, 8, 'covered'],
+    ],
+  );
+  assert.deepEqual(
+    result.pauses.map(s => [s.start, s.end, s.status, s.kind]),
+    [[8, 9.14, 'covered', 'pause']],
+  );
+  assert.equal(result.byLine.get(2).state, 'ok');
+  rows[0].assetUsages[1].off = true;
+  const gap = buildPictureCoverage(rows, registry, tl, { missing: new Set(['/lost.mp4']) });
+  assert.deepEqual(
+    gap.byLine.get(1).segments.map(s => s.status),
+    ['missing', 'gap'],
+  );
+  assert.equal(gap.pauses[0].status, 'gap');
+  rows[0].assetUsages[1].off = false;
+  const restored = buildPictureCoverage(rows, registry, tl);
+  assert.equal(restored.byLine.get(1).state, 'ok');
+  assert.deepEqual(restored.byLine.get(1).missingGaps, []);
+  const lostBoth = buildPictureCoverage(rows, registry, tl, { missing: new Set(['/lost.mp4', '/ok.png']) });
+  assert.equal(lostBoth.pauses[0].status, 'missing');
+});
+
+const { movePicture, trimPicture, rollPictures } = await import('../renderer/src/core/shot-edit.js');
+const editVideo = (assetId, start, end, cin = 10, cout = cin + end - start, durationSec = 60) => ({
+  assetId,
+  start,
+  end,
+  kind: 'video',
+  asset: { durationSec },
+  usage: { clip: { in: cin, out: cout } },
+});
+test('不同长度素材插入换序，时长和区间总长保持，原数据不变', () => {
+  const items = [editVideo('a', 0, 7), editVideo('b', 7, 19.7)];
+  const before = JSON.stringify(items);
+  const draft = movePicture(items, 0, 11, 19.7);
+  assert.deepEqual(draft.entries, [
+    { assetId: 'b', start: 0, end: 12.7 },
+    { assetId: 'a', start: 12.7, end: 19.7 },
+  ]);
+  assert.equal(JSON.stringify(items), before);
+  assert.equal(movePicture(items, 0, 1, 19.7).changed, false);
+});
+test('跨过多段换序保留各段长度与原间隔，不影响区间外素材', () => {
+  const items = [editVideo('a', 1, 3), editVideo('b', 4, 7), editVideo('c', 9, 13), editVideo('d', 14, 16)];
+  assert.deepEqual(movePicture(items, 0, 11, 20).entries, [
+    { assetId: 'b', start: 1, end: 4 },
+    { assetId: 'c', start: 5, end: 9 },
+    { assetId: 'a', start: 11, end: 13 },
+    { assetId: 'd', start: 14, end: 16 },
+  ]);
+  assert.deepEqual(
+    movePicture(items, 2, -1, 20)
+      .entries.slice(0, 3)
+      .map(e => e.assetId),
+    ['c', 'a', 'b'],
+  );
+});
+test('移动到空隙时不裁剪视频，也不吸附任意播放位置', () => {
+  const items = [editVideo('a', 0, 2), editVideo('b', 5, 7)];
+  const draft = movePicture(items, 0, 2.3, 10);
+  assert.equal(draft.start, 2.3);
+  assert.equal(draft.end, 4.3);
+  assert.ok(draft.entries.every(e => !e.clip));
+});
+test('左裁保留后半段，右裁保留前半段，拉回可恢复被裁掉的内容', () => {
+  const items = [editVideo('a', 0, 10)];
+  const left = trimPicture(items, 0, 'start', 3, 10);
+  assert.deepEqual(left.clip, { in: 13, out: 20 });
+  const trimmed = { ...items[0], start: left.start, end: left.end, usage: { clip: left.clip } };
+  assert.deepEqual(trimPicture([trimmed], 0, 'start', 0, 10).clip, { in: 10, out: 20 });
+  assert.deepEqual(trimPicture(items, 0, 'end', 6, 10).clip, { in: 10, out: 16 });
+});
+test('时间条比已选视频片段短时，左裁不意外露出后面的内容', () => {
+  const item = editVideo('a', 0, 5, 10, 20);
+  assert.deepEqual(trimPicture([item], 0, 'start', 2, 5).clip, { in: 12, out: 15 });
+});
+test('裁剪不能越过原片首尾、相邻画面或最短长度', () => {
+  const item = editVideo('a', 2, 7, 1, 6, 8);
+  assert.equal(trimPicture([item], 0, 'start', 0, 20).start, 1);
+  assert.equal(trimPicture([item], 0, 'start', 20, 20).start, 6.8);
+  assert.equal(trimPicture([item], 0, 'end', 20, 20).end, 9);
+  assert.equal(trimPicture([item, editVideo('b', 8, 10)], 0, 'end', 20, 20).end, 8);
+});
+test('末帧停留区裁剪保持真实出点，不生成超出源视频的入点', () => {
+  const item = editVideo('a', 0, 10, 0, 4, 4);
+  assert.deepEqual(trimPicture([item], 0, 'end', 7, 10).clip, { in: 0, out: 4 });
+  assert.equal(trimPicture([item], 0, 'start', 9, 10).clip.in, 3.8);
+});
+test('未知时长的视频止于已知片段边界，图片裁剪不产生视频入出点', () => {
+  const item = editVideo('a', 0, 5, 10, 15, null);
+  assert.equal(trimPicture([item], 0, 'end', 9, 10).end, 5);
+  const image = { ...item, kind: 'image', usage: {} };
+  assert.ok(!trimPicture([image], 0, 'start', 2, 10).clip);
+});
+test('相接边同时裁左右两段，切换点两侧没有缝隙且视频内容连续对应', () => {
+  const items = [editVideo('a', 0, 7), editVideo('b', 7, 19.7, 20, 32.7)];
+  const draft = rollPictures(items, 0, 9, 19.7);
+  assert.equal(draft.entries[0].end, draft.entries[1].start);
+  assert.deepEqual(draft.entries[0].clip, { in: 10, out: 19 });
+  assert.deepEqual(draft.entries[1].clip, { in: 22, out: 32.7 });
+  const bound = rollPictures([items[0], editVideo('b', 7, 19.7, 0, 12.7)], 0, 3, 19.7);
+  assert.equal(bound.cut, 7);
 });
 
 console.log(`${count} 项数据回归通过`);

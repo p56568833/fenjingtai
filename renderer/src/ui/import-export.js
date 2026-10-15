@@ -10,6 +10,7 @@ import { normalizeProjectRows, reconcileDraft } from '../core/project-import.js'
 import { buildAnnotatedMd, buildAssetListMd, buildCsv, buildProjectJson } from '../core/export-doc.js';
 import { parseAny, migrateSections, mdTypes } from '../core/parse.js';
 import { normalizeProjectData } from '../core/project-data.js';
+import { normalizeReworkRequests } from '../core/candidate-scope.js';
 import { CANDIDATE_TYPE, sanitizeProjectCandidates } from '../core/candidates.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
@@ -105,6 +106,7 @@ function importProjectObject(proj, name, { from = '' } = {}) {
     rows,
     assets,
     candidates,
+    reworkRequests: normalizeReworkRequests(data.reworkRequests, info.idMap),
   });
   clearUndo();
   armAnimation();
@@ -220,6 +222,7 @@ async function exportProjectJson() {
       types: types().list,
       voice: state.voice,
       candidates: state.candidates,
+      reworkRequests: state.reworkRequests,
       mediaDir: state.mediaDir,
     }),
   );

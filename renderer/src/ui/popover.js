@@ -24,13 +24,14 @@ export function openDurPopover(anchor) {
   const ti = types();
   const tot = { none: 0 };
   ti.list.forEach(t => (tot[t.id] = 0));
-  let total = 0;
+  let sentenceTotal = 0;
   for (const r of lines) {
     const d = lineSeconds(r);
-    total += d;
+    sentenceTotal += d;
     tot[r.type && Object.hasOwn(tot, r.type) ? r.type : 'none'] += d;
   }
   const tl = timeline();
+  const total = state.voice?.duration > 0 ? state.voice.duration : tl.total;
   const rowHtml = (id, label, color) =>
     `<div class="pop-item" style="cursor:default"><span class="pdot" style="background:${color}"></span><span>${esc(label)}</span><span style="margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--text-2)">${fmtDur(tot[id])}</span></div>`;
   const approx = lines.filter(r => !(r.time && r.time.st === 'ok')).length;
@@ -52,8 +53,10 @@ export function openDurPopover(anchor) {
     anchor,
     `
     <div class="p-title">${head}</div>
-    <div class="pop-item" style="cursor:default;font-weight:700"><span>全片约</span><span style="margin-left:auto;font-family:var(--mono);font-size:13px">${fmtDur(total)}</span></div>
+    <div class="pop-item" style="cursor:default;font-weight:700"><span>${tl.source === 'rate' ? '全片约' : '全片时长'}</span><span id="durTotal" style="margin-left:auto;font-family:var(--mono);font-size:13px">${fmtDur(total)}</span></div>
+    ${Math.abs(total - sentenceTotal) > 0.1 ? `<div class="pop-item" style="cursor:default"><span>句子合计</span><span id="durSentenceTotal" style="margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--text-2)">${fmtDur(sentenceTotal)}</span></div>` : ''}
     <div class="pop-sep"></div>
+    ${tl.source === 'srt' ? '<div class="p-title">以下分类按句子时长统计，不含句间停顿</div>' : ''}
     ${ti.list.map(t => rowHtml(t.id, t.full, t.color)).join('')}
     ${rowHtml('none', '未标注', 'var(--seg-none)')}
     ${tl.source === 'rate' ? `<label class="rate-control">语速 <input id="speechRate" type="number" min="1" max="10" step="0.1" value="${state.speechRate}"> 字 / 秒 <button class="btn" id="saveRate">应用</button></label>` : ''}

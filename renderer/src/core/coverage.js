@@ -47,14 +47,14 @@ export function shotCoverage(layout) {
    视频只算它可用片段那么长（排给它的时间比片段长，多出来的就是空白）；图片排到多长就盖多长。
    一点没盖住的句子算没画面；盖住了一部分、只差不到 0.5 秒的不算 */
 export const GAP_MIN = 0.5;
-export function lineCoverage(registry, members, tl) {
+export function lineCoverage(registry, members, tl, { missing = new Set() } = {}) {
   const layout = layoutShot(registry, members, tl);
   if (!layout) return null;
   const spans = layout.items
     .map(it => {
       const c = coverageOf(it, layout.dur);
       const len = it.kind === 'video' && finite(c.usable) ? Math.min(it.end - it.start, c.usable) : it.end - it.start;
-      return [layout.start + it.start, layout.start + it.start + Math.max(0, len)];
+      return [layout.start + it.start, layout.start + it.start + Math.max(0, len), missing.has(it.asset?.path)];
     })
     .sort((a, b) => a[0] - b[0]);
   return members.map(row => {
@@ -66,7 +66,8 @@ export function lineCoverage(registry, members, tl) {
       reach = -Infinity;
     const gaps = []; // 这句里没盖住的几段（相对句子开头的秒数）
     let cur = t0;
-    for (const [a, b] of spans) {
+    for (const [a, b, lost] of spans) {
+      if (lost) continue;
       const lo = Math.max(a, reach, t0),
         hi = Math.min(b, t1);
       if (hi > lo) {
@@ -79,9 +80,96 @@ export function lineCoverage(registry, members, tl) {
     if (t1 - cur > 0.05) gaps.push([cur - t0, t1 - t0]);
     got = Math.min(need, got);
     // 一点都没盖住的句子再短也算没画面；盖住了一部分的，差不到 0.5 秒才算够
-    const state = got < 0.05 && need > 0.05 ? 'empty' : need - got < GAP_MIN ? 'ok' : 'part';
-    return { row, need, got, state, gaps: state === 'ok' ? [] : state === 'empty' ? [[0, need]] : gaps };
+    let state = got < 0.05 && need > 0.05 ? 'empty' : need - got < GAP_MIN ? 'ok' : 'part';
+    const missingGaps = [];
+    // 失联只影响它原来覆盖的部分。可用画面有重叠时优先认作已覆盖，不改变素材排布。
+    for (const [from, to] of gaps) {
+      const cuts = [
+        ...new Set([
+          t0 + from,
+          t0 + to,
+          ...spans.flatMap(([a, b, lost]) =>
+            lost ? [Math.max(t0 + from, Math.min(t0 + to, a)), Math.max(t0 + from, Math.min(t0 + to, b))] : [],
+          ),
+        ]),
+      ].sort((a, b) => a - b);
+      for (let i = 0; i < cuts.length - 1; i++) {
+        const a = cuts[i],
+          b = cuts[i + 1],
+          mid = (a + b) / 2;
+        if (b > a && spans.some(([start, end, lost]) => lost && start <= mid && mid < end)) {
+          const last = missingGaps.at(-1);
+          if (last && Math.abs(last[1] - (a - t0)) < 1e-6) last[1] = b - t0;
+          else missingGaps.push([a - t0, b - t0]);
+        }
+      }
+    }
+    if (missingGaps.length && state === 'ok') state = 'part';
+    const effectiveGaps = state === 'ok' ? [] : state === 'empty' ? [[0, need]] : gaps;
+    const cuts = [...new Set([0, need, ...effectiveGaps.flat(), ...missingGaps.flat()])].sort((a, b) => a - b);
+    const segments = [];
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const a = cuts[i],
+        b = cuts[i + 1],
+        mid = (a + b) / 2;
+      if (b <= a) continue;
+      const status = missingGaps.some(([from, to]) => from <= mid && mid < to)
+        ? 'missing'
+        : effectiveGaps.some(([from, to]) => from <= mid && mid < to)
+          ? 'gap'
+          : 'covered';
+      const last = segments.at(-1);
+      if (last?.status === status) last.end = t0 + b;
+      else segments.push({ start: t0 + a, end: t0 + b, status });
+    }
+    return { row, need, got, state, gaps: effectiveGaps, missingGaps, segments, hasPicture: layout.items.length > 0 };
   });
+}
+
+/* 统一的项目覆盖结果。UI 只负责显示；停顿衔接、真实缺口和失联判定只在这里做。 */
+export function buildPictureCoverage(rows, registry, tl, { missing = new Set(), types } = {}) {
+  const ti = typeIndex(types),
+    byLine = new Map(),
+    byShot = new Map();
+  for (const members of shots(rows)) {
+    const cov = lineCoverage(registry, members, tl, { missing }) || [];
+    const needsVisual = !members[0].type || ti.needsVisual(members[0].type);
+    const shot = { members, lines: cov, needsVisual };
+    byShot.set(members[0].id, shot);
+    for (const line of cov) {
+      line.needsVisual = needsVisual;
+      byLine.set(line.row.id, line);
+    }
+  }
+  const segments = [],
+    pauses = [];
+  const append = segment => {
+    if (!(segment.end > segment.start)) return;
+    const last = segments.at(-1);
+    if (last?.status === segment.status && Math.abs(last.end - segment.start) < 0.001) last.end = segment.end;
+    else segments.push({ ...segment });
+  };
+  let previous = null;
+  for (const row of rows.filter(r => r.kind === 'line')) {
+    const line = byLine.get(row.id),
+      time = tl.times.get(row.id);
+    if (!line || !time) {
+      previous = null;
+      continue;
+    }
+    if (previous && time.start > previous.time.end) {
+      const left = previous.line.segments.at(-1)?.status,
+        right = line.segments[0]?.status;
+      const joined = (left === 'covered' || left === 'missing') && (right === 'covered' || right === 'missing');
+      const status = joined ? (left === 'missing' || right === 'missing' ? 'missing' : 'covered') : 'gap';
+      const pause = { start: previous.time.end, end: time.start, status, kind: 'pause' };
+      pauses.push(pause);
+      append(pause);
+    }
+    for (const segment of line.segments) append(segment);
+    previous = { time, line };
+  }
+  return { byLine, byShot, segments, pauses };
 }
 
 /* 整个项目里需要画面、已经放了画面、却还有句子没画面（或只盖住一部分）的镜头：

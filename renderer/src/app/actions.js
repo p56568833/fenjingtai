@@ -358,6 +358,7 @@ export function applyImport(rows, title, { mode = 'replace' } = {}) {
       state.candidates = state.candidates.filter(c => alive.has(c.rowId));
     } else {
       state.candidates = [];
+      state.reworkRequests = {};
       state.timing = null;
     }
     const dropped = before - state.candidates.length;

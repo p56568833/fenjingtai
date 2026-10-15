@@ -1,6 +1,7 @@
 /* 项目字段的唯一清单：加载、保存、交换文件、撤销和协作据此选择字段。
    项目身份、光标、协作连接信息属于外层；文件目录和语速不跟随普通编辑撤销。 */
 import { normalizeTypes } from './types.js';
+import { normalizeReworkRequests } from './candidate-scope.js';
 
 export const PROJECT_FIELDS = Object.freeze({
   title: { initial: () => '', history: true, shared: 'meta' },
@@ -10,6 +11,12 @@ export const PROJECT_FIELDS = Object.freeze({
   timing: { initial: () => null, history: true, shared: 'meta', omit: value => !value },
   voice: { initial: () => null, history: true, shared: 'meta', omit: value => !value },
   candidates: { initial: () => [], history: true, shared: 'candidates', omit: value => !value?.length },
+  reworkRequests: {
+    initial: () => ({}),
+    history: true,
+    shared: 'meta',
+    omit: value => !Object.keys(value || {}).length,
+  },
   mediaDir: { initial: () => '', history: false, shared: false, omit: value => !value },
   speechRate: { initial: () => 4.5, history: false, shared: 'meta' },
 });
@@ -55,6 +62,7 @@ export function normalizeProjectData(project) {
   data.timing = data.timing && Array.isArray(data.timing.cues) ? data.timing : null;
   data.voice = data.voice && typeof data.voice.path === 'string' ? data.voice : null;
   data.candidates = Array.isArray(data.candidates) ? data.candidates : [];
+  data.reworkRequests = normalizeReworkRequests(data.reworkRequests);
   data.mediaDir = typeof data.mediaDir === 'string' ? data.mediaDir : '';
   const rate = Number(data.speechRate);
   data.speechRate = rate >= 1 && rate <= 10 ? rate : 4.5;

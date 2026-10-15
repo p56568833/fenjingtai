@@ -11,6 +11,7 @@ import { parseAny } from '../core/parse.js';
 import { defaultTypes } from '../core/types.js';
 import { runCommand } from '../ui/base/commands.js';
 import { playthroughState } from '../features/playthrough.js';
+import { voicePlayer } from '../features/voice.js';
 import { inspectorAssets } from '../ui/asset-html.js';
 
 const $ = s => document.querySelector(s),
@@ -122,6 +123,19 @@ export async function runIterationTests(t) {
     await pause(400); // 等元数据：真实时长 8 秒会替换掉传进去的 20
     t('读到音频真实时长后时间轴跟着改', Math.abs(timeline().total - 8) < 0.2, `total=${timeline().total}`);
     t('面板里没有「听这段口播」', !$('.listen-btn'));
+    update('rows');
+    t('导入口播后未播放时刷新不会出现黑色播放线', $('#segPlayhead').hidden);
+    await voicePlayer.playRange(1);
+    t('开始播放口播时显示当前位置线', voicePlayer.isPlaying() && !$('#segPlayhead').hidden);
+    voicePlayer.pause();
+    t('暂停口播立即隐藏播放位置线', $('#segPlayhead').hidden);
+    voicePlayer.seek(2);
+    await pause(60);
+    update('rows');
+    t('暂停时跳时间和刷新均不显示播放位置线', $('#segPlayhead').hidden);
+    await voicePlayer.playRange(2);
+    t('继续播放口播时恢复位置线', voicePlayer.isPlaying() && !$('#segPlayhead').hidden);
+    voicePlayer.pause();
   } else t('口播时长（缺 ffmpeg，跳过）', true);
 
   /* ── 连播预览 ── */
@@ -132,6 +146,7 @@ export async function runIterationTests(t) {
   key(document.body, 'Escape');
   await pause(20);
   t('Esc 关闭连播预览', !$('#ptMask').classList.contains('show'));
+  t('关闭连播预览后时间条不残留播放位置线', $('#segPlayhead').hidden);
   state.sel = lines()[0].id;
   key(document.body, ' ');
   await pause(60);

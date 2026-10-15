@@ -82,9 +82,12 @@ export function applyRole(members, assetId, role) {
   for (const m of members) {
     const u = usageAt(m, assetId);
     if (!u) continue;
+    const was = u.role;
     if (isRole(role)) u.role = role;
     else delete u.role;
-    if (role !== 'main') delete u.at; // 不当主画面了，手动时间也不要了
+    // 主画面撤成备选：时间留着，就是它在备选轨上的位置；别的角色不排时间。
+    // 备选重新当主画面时不沿用旧位置（可能和现在的主画面重叠），由排布放进空着的时间
+    if ((role !== 'main' && role !== 'alt') || (role === 'main' && was !== 'main')) delete u.at;
   }
   return [];
 }

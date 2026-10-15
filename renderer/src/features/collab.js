@@ -6,7 +6,10 @@ import { setMediaDirectory } from '../app/candidate-media.js';
 import * as native from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/base/dom.js';
 import { registerModal } from '../ui/base/modal.js';
-import { registerCommand } from '../ui/base/commands.js';
+import { registerCommand, runCommand } from '../ui/base/commands.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor, popEl, reglidePop } from '../ui/base/popover.js';
+import { collabMenuHTML, peerLocation } from './collab-menu.js';
+import { patchHTML } from '../ui/base/html-patch.js';
 
 const $ = s => document.querySelector(s);
 let open = false;
@@ -15,6 +18,8 @@ let busy = false;
 let manualOpen = false;
 let missing = []; // 当前项目在这台电脑上缺的文件（对方电脑上可能有）
 let lastStatus = '';
+let expanded = { connections: false, files: false, name: false };
+const menuOpen = () => popOpenFor($('#btnCollab'));
 
 const PEOPLE =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.9-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.6"/><path d="M15.8 14.2c2.4.1 4.1 1.7 4.7 4.8"/></svg>';
@@ -32,6 +37,7 @@ function renderButton() {
   const btn = $('#btnCollab');
   if (!btn) return;
   const cur = collab.collabSession();
+  btn.setAttribute('aria-haspopup', cur ? 'menu' : 'dialog');
   const label = btn.querySelector('.cl-label');
   btn.classList.toggle('on', !!cur);
   btn.dataset.status = cur?.status || '';
@@ -57,6 +63,7 @@ function renderButton() {
 /* ── 弹窗 ── */
 /* 重画弹窗时保住正在输入的框：内容、光标、焦点原样接回去 */
 function render() {
+  renderMenu();
   if (!open) return;
   const ae = document.activeElement;
   const keep =
@@ -75,6 +82,41 @@ function render() {
     /* 有的输入框不支持选区 */
   }
 }
+/* 协作中用顶栏下拉菜单；未共享时保留开始共享 / 加入项目的弹窗。 */
+function openCollab() {
+  if (!collab.collabSession()) return openDialog();
+  if (menuOpen()) return closePop();
+  closeDialog();
+  expanded = { connections: false, files: false, name: false };
+  openMenu($('#btnCollab'), collabMenuHTML(missing, expanded));
+  popEl.setAttribute('aria-label', '共享与协作');
+  markPopAnchor($('#btnCollab'));
+  refreshMissing();
+}
+
+function renderMenu() {
+  if (!menuOpen()) return;
+  if (!collab.collabSession()) return closePop();
+  const ae = document.activeElement;
+  const keep = popEl.contains(ae)
+    ? { id: ae.id, action: ae.dataset.cl, value: ae.value, start: ae.selectionStart, end: ae.selectionEnd }
+    : null;
+  const scroll = popEl.scrollTop;
+  patchHTML(popEl, collabMenuHTML(missing, expanded));
+  popEl.scrollTop = scroll;
+  const el = keep && (keep.id ? popEl.querySelector(`#${keep.id}`) : popEl.querySelector(`[data-cl="${keep.action}"]`));
+  if (el && !el.disabled) {
+    if (el.tagName === 'INPUT') el.value = keep.value;
+    el.focus({ preventScroll: true });
+    if (el.tagName === 'INPUT') el.setSelectionRange(keep.start, keep.end);
+  }
+  const r = $('#btnCollab').getBoundingClientRect();
+  const x = r.left + r.width / 2 > innerWidth / 2 ? r.right - popEl.offsetWidth : r.left;
+  popEl.style.left = Math.max(8, Math.min(x, innerWidth - popEl.offsetWidth - 8)) + 'px';
+  popEl.style.top = Math.max(8, Math.min(r.bottom + 6, innerHeight - popEl.offsetHeight - 12)) + 'px';
+  reglidePop();
+}
+
 /* 「对方电脑上的文件」一栏：缺几个、正在取第几个 */
 function filesSection(cur) {
   const job = collab.fileProgress();
@@ -185,6 +227,7 @@ function paint() {
 }
 
 function openDialog() {
+  closePop();
   open = true;
   joining = null;
   manualOpen = false;
@@ -228,7 +271,7 @@ async function refreshMissing() {
   const list = collab.collabSession() ? await collab.missingFiles(pid) : [];
   if (pid !== state.projectId) return [];
   missing = list;
-  if (open) render();
+  if (open || menuOpen()) render();
   return list;
 }
 /* 连上时：缺的文件先在素材文件夹里认一遍，认出来的直接用上，剩下的才提醒去取 */
@@ -315,16 +358,44 @@ function fetchVoice() {
 }
 
 async function onAction(act, el) {
-  if (act === 'close') return closeDialog();
+  if (act === 'close') {
+    closePop();
+    return closeDialog();
+  }
+  if (act === 'connections' || act === 'files' || act === 'name') {
+    expanded[act] = !expanded[act];
+    renderMenu();
+    if (act === 'name' && expanded.name) $('#collabName')?.focus();
+    return;
+  }
+  if (act === 'jump') {
+    const location = peerLocation();
+    if (!location) return toast('对方当前位置暂不可用', null, 'info');
+    if (state.view === 'review') runCommand('view:set', 'table');
+    return runCommand('nav:jump', location.id);
+  }
+  if (act === 'copycode' || act === 'copyaddress') {
+    const text = act === 'copycode' ? collab.collabSession()?.code : el.dataset.value;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(act === 'copycode' ? '已复制配对码' : '已复制连接地址', null, 'ok');
+    } catch {
+      toast('复制失败，请再试一次', null, 'error');
+    }
+    return;
+  }
   if (act === 'share') {
     collab.startSharing();
-    return render();
+    closeDialog();
+    return openCollab();
   }
   if (act === 'newcode') {
     collab.newPairingCode();
     return render();
   }
-  if (act === 'stop')
+  if (act === 'stop') {
+    closePop();
     return confirmModal(
       '停止共享？',
       '对方会断开，他那边的项目变成普通项目、内容保留。你这边的项目不受影响。',
@@ -335,12 +406,15 @@ async function onAction(act, el) {
         toast('已停止共享', null, 'ok');
       },
     );
-  if (act === 'leave')
+  }
+  if (act === 'leave') {
+    closePop();
     return confirmModal('退出协作？', '这个项目会变成你的普通项目，内容都保留，之后不再同步。', '退出协作', () => {
       collab.leaveShare();
       closeDialog();
       toast('已退出协作，项目内容都在', null, 'ok');
     });
+  }
   if (act === 'pick') {
     joining = { hostId: el.dataset.host, shareId: el.dataset.share };
     render();
@@ -390,20 +464,44 @@ function paintPresence() {
 }
 
 export function initCollab() {
-  const anchor = $('#btnUpdate');
+  const anchor = $('#viewToggle');
   anchor?.insertAdjacentHTML(
     'beforebegin',
-    `<button class="btn collab-btn" id="btnCollab" title="和同一局域网里的同事一起改这个项目">${PEOPLE}<span class="cl-av" aria-hidden="true"></span><span class="cl-label">协作</span></button>`,
+    `<button class="btn collab-btn" id="btnCollab" title="和同一局域网里的同事一起改这个项目">${PEOPLE}<span class="cl-av" aria-hidden="true"></span><span class="cl-label">协作</span><svg class="cl-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>`,
   );
   document.body.insertAdjacentHTML(
     'beforeend',
     `<div class="modal-mask" id="collabMask"><div class="modal collab-modal" id="collabBody"></div></div>`,
   );
-  $('#btnCollab').onclick = openDialog;
+  $('#btnCollab').setAttribute('aria-haspopup', 'menu');
+  $('#btnCollab').onclick = e => {
+    e.stopPropagation();
+    openCollab();
+  };
+  document.addEventListener('click', e => {
+    const b = e.target.closest('#collabMenu [data-cl]');
+    if (b && !b.disabled) onAction(b.dataset.cl, b);
+  });
+  document.addEventListener('change', e => {
+    if (e.target.id === 'collabName' && e.target.closest('#collabMenu')) collab.setMyName(e.target.value);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !e.target.closest('#collabMenu input')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.target.id === 'collabName') {
+      e.target.blur();
+      expanded.name = false;
+      renderMenu();
+    } else if (e.target.id === 'collabCode') onAction('repair');
+  });
   $('#collabMask').addEventListener('click', e => {
     if (e.target.id === 'collabMask') return closeDialog();
     const b = e.target.closest('[data-cl]');
-    if (b && !b.disabled) onAction(b.dataset.cl, b);
+    if (b && !b.disabled) {
+      e.stopPropagation();
+      onAction(b.dataset.cl, b);
+    }
   });
   $('#collabMask').addEventListener('change', e => {
     if (e.target.id === 'collabName') collab.setMyName(e.target.value);
@@ -418,7 +516,7 @@ export function initCollab() {
       closeDialog();
     },
   });
-  registerCommand('collab:open', openDialog);
+  registerCommand('collab:open', openCollab);
   registerCommand('collab:fetch-asset', fetchAsset);
   registerCommand('collab:fetch-voice', fetchVoice);
   on('collab-changed', () => {
@@ -433,7 +531,7 @@ export function initCollab() {
     emit('collab-status'); // 面板里的「从对方电脑取」按钮跟着出现 / 消失
     if (cur?.status !== 'online') return;
     autoFind().then(list => {
-      if (!list.length || open || collab.collabSession()?.status !== 'online') return;
+      if (!list.length || open || menuOpen() || collab.collabSession()?.status !== 'online') return;
       toast(
         `有 ${list.length} 个素材文件你这边没有，${cur.peer || '对方'} 的电脑上可能有`,
         { label: '取过来', cb: () => fetchItems(list) },
@@ -441,11 +539,18 @@ export function initCollab() {
       );
     });
   });
-  on('collab-files', () => open && render());
-  on('assets-changed', () => open && refreshMissing());
-  on('collab-presence', paintPresence);
-  on('workspace', paintPresence);
+  on('collab-files', () => (open || menuOpen()) && render());
+  on('assets-changed', () => (open || menuOpen()) && refreshMissing());
+  on('collab-presence', () => {
+    paintPresence();
+    renderMenu();
+  });
+  on('workspace', () => {
+    paintPresence();
+    renderMenu();
+  });
   on('project-loaded', () => {
+    if (menuOpen()) closePop();
     missing = [];
     renderButton();
     if (open) refreshMissing();

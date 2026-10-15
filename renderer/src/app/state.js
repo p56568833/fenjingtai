@@ -7,6 +7,7 @@ import { projectData, normalizeProjectData } from '../core/project-data.js';
 import { buildTimeline } from '../core/timeline.js';
 import { syncSpansFromTimes } from '../core/shot-layout.js';
 import { speechUnits } from '../core/text.js';
+import { searchLineIds } from '../core/search.js';
 
 export { on, emit } from './events.js';
 
@@ -79,11 +80,28 @@ export function visibleLineIds() {
   for (const r of state.rows) if (r.kind === 'line' && match(r)) ids.push(r.id);
   return ids;
 }
-/* 搜索命中：句子正文或备注包含查询词 */
+/* 搜索结果与正文高亮共用一份结果，避免把共用备注重复算成组内每一句。 */
+let queryKey = '',
+  queryRows = null,
+  queryIds = [],
+  querySet = new Set();
+export function queryLineIds() {
+  const key = `${rev}|${state.rows.length}|${state.filter}|${state.query}`;
+  if (queryRows !== state.rows || queryKey !== key) {
+    queryRows = state.rows;
+    queryKey = key;
+    queryIds = searchLineIds(
+      state.rows.filter(r => r.kind === 'line' && match(r)),
+      state.query,
+    );
+    querySet = new Set(queryIds);
+  }
+  return queryIds;
+}
 export function qMatch(r) {
   if (!state.query) return true;
-  const q = state.query.toLowerCase();
-  return (r.text || '').toLowerCase().includes(q) || (r.note || '').toLowerCase().includes(q);
+  queryLineIds();
+  return querySet.has(r.id);
 }
 
 /* ── 类型表（按引用缓存：类型编辑一律整体替换数组） ── */

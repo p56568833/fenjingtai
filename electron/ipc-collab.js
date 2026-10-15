@@ -105,7 +105,8 @@ function registerCollabIpc({ handle, win, app }) {
   handle('collab:find-cancel', (_e, token) => {
     if (finds.has(text(token))) finds.set(text(token), true);
   });
-  app.on('before-quit', () => collab.dispose());
+  // 保存失败可能取消退出；等窗口确实关闭后才断开协作。
+  app.on('will-quit', () => collab.dispose());
 }
 
 module.exports = { registerCollabIpc };

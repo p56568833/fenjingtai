@@ -1,7 +1,7 @@
 /* 1.5 视频审核自测：导入候选清单（不新建项目）、按句号对上画面、通过 → 主画面 + 片段 + 画面描述来源行、
    同一画面再通过的也当主画面、撤回、不要 / 清除、写回候选清单、只保存那几秒、完整原片要确认、撤销、切项目保留。
    原生能力全部用 window.fjtHooks 替身，不碰网络和磁盘。 */
-import { state, update } from '../app/state.js';
+import { state, update, emit } from '../app/state.js';
 import * as storage from '../app/storage.js';
 import { undo, redo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
@@ -9,7 +9,8 @@ import { usageList } from '../core/asset-model.js';
 import { addRefsToShot } from '../app/asset-actions.js';
 import { setType } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
-import { flushWriteBack, tagOldSavedClips, setDecision } from '../features/video-review.js';
+import { flushWriteBack, tagOldSavedClips, setDecision, openRework } from '../features/video-review.js';
+import { importCandidateData, setReworkNote } from '../app/candidate-actions.js';
 import { parseLines, parseClock, planImport, lineTag } from '../core/candidates.js';
 import { confirmModal } from '../ui/base/dom.js';
 import { anyModalOpen, topModal, menuAllowed } from '../ui/base/modal.js';
@@ -249,14 +250,12 @@ export async function runVideoReviewTests(t) {
       $('#viewToggle [data-v="review"]').classList.contains('active'),
   );
   t(
-    '左边按画面列出这一批（带待审数），右边只显示第一个画面的候选和口播原文',
+    '左边按画面列出这一批（带待审数），右边只显示第一个画面的候选，播放器停在这个画面第一句',
     $$('#vrNav .vr-nav-shot').length === 2 &&
       $('#vrNav .vr-nav-shot.on')?.textContent.includes('2 待审') &&
       $$('#vrList .vr-shot').length === 1 &&
-      $$('#vrList .vr-line[data-vo-no] .vr-line-text p')
-        .map(p => p.textContent)
-        .join('')
-        .includes('甲。乙。丙。') &&
+      !!$('#vrList #vrDockPlayer .pt-box.docked') &&
+      $('#ptSub')?.textContent === '甲。' &&
       !card('B1'),
   );
   t(
@@ -266,9 +265,9 @@ export async function runVideoReviewTests(t) {
       $$('#vrNav [data-vr-batch]').length === 1,
   );
   t(
-    '左栏顶上固定当前批次卡片（第几批、待审数、进度条、「⋯」），下面列出这一批的全部画面',
+    '左栏顶上固定当前批次卡片（实际句子、待审数、进度条、「⋯」），下面列出这一批的全部画面',
     !!curBatchHead() &&
-      curBatchHead().textContent.includes('第 1 批') &&
+      curBatchHead().textContent.includes('第1–4句') &&
       $('#vrNav .vr-picker .vr-bprogress').textContent.includes('3 待审') &&
       !!$('#vrNav .vr-picker .vr-bbar') &&
       $$('#vrNav .vr-shots .vr-nav-shot').length === 2 &&
@@ -285,23 +284,20 @@ export async function runVideoReviewTests(t) {
   click('#vrBatchPick');
   t('再点批次卡片收起菜单', !$('.popover'));
   t(
-    '右边分两栏：左边口播一句一行带句号和画面状态，右边按播放顺序排视频；只有一个方案时不显示方案 Tab；前后句淡色露出',
-    $$('#vrList .vr-lines .vr-line[data-vo-no]').length === 3 &&
+    '左边「对着口播看画面」，右边这个画面的全部视频（没有方案 Tab），下面正片和备选两条轨；前后句淡色露出',
+    !$('#vrList .vr-lines') &&
       !!$(`#vrList .vr-plist [data-vr-id="${cand('A1').id}"]`) &&
-      $$('#vrList .vr-pitem .vr-pno')
-        .map(x => x.textContent)
-        .join('') === '①②' &&
+      !!$(`#vrList .vr-plist [data-vr-id="${cand('A2').id}"]`) &&
       !$('#vrList .vr-ptabs') &&
-      $$('#vrList .vr-line[data-vo-no] .vr-cov').every(x => x.textContent.includes('待审')) &&
+      !!$('#vrList #vrDockTrack #pttLane') &&
+      !!$('#vrList #vrDockTrack #pttAlt') &&
       !!$('#vrList .vr-ctx.after') &&
       !$('#vrList .vr-ctx.before'),
   );
   t(
-    '每句标出口播要几秒；方案上面一条填满进度，一段一个视频',
-    $$('#vrList .vr-line[data-vo-no] .vr-cov em').every(x => /^需 [\d.]+ 秒$/.test(x.textContent)) &&
-      $$('#vrList .vr-pfill-bar .vr-pseg').length >= 1 &&
-      $('#vrList .vr-pfill-head')?.textContent.includes('口播') &&
-      !$('#vrList .vr-also'),
+    '列表上面写正片轨排了几秒 / 口播几秒',
+    /已排 [\d.]+ \/ 口播 [\d.]+ 秒/.test($('#vrList .vr-pfill-head')?.textContent || '') && !$('#vrList .vr-also'),
+    $('#vrList .vr-pfill-head')?.textContent,
   );
   click('#vrBatchMore');
   t(
@@ -445,12 +441,9 @@ export async function runVideoReviewTests(t) {
   t('画面填满、没有待审了：自动跳到下一个画面', $('#vrList .vr-shot')?.dataset.vrShot === String(lines()[3].id));
   click(`#vrNav [data-vr-goto="${ids[0]}"]`);
   await pause(30);
+  t('通过了写着「缺了什么」的视频：不再标「只覆盖一部分」', !$('#vrList').textContent.includes('只覆盖一部分'));
   t(
-    '通过了写着「缺了什么」的视频：句子不再标「只覆盖一部分」',
-    $$('#vrList .vr-line[data-vo-no] .vr-cov').every(x => !x.textContent.includes('只覆盖一部分')),
-  );
-  t(
-    '画面已经填满：同一方案里没审的视频收成「未采用」，不算待审',
+    '正片轨已经排满：没审的视频收成「未采用」，不算待审',
     !!$(`#vrList .vr-done.d-idle[data-vr-id="${cand('A2').id}"]`) && !btn('A2', 'ok'),
   );
   click($(`#vrList .vr-done.d-idle[data-vr-id="${cand('A2').id}"]`));
@@ -460,8 +453,11 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   const a2 = cand('A2').assetId;
   t(
-    '同一画面再通过一个视频：也当主画面，已通过的主画面不被顶掉',
-    us(0).find(x => x.assetId === a2)?.role === 'main' && us(0).find(x => x.assetId === a1.id)?.role === 'main',
+    '正片轨排满后再通过一个视频：放在备选轨，已通过的主画面不被顶掉',
+    us(0).find(x => x.assetId === a2)?.role === 'alt' &&
+      us(0).find(x => x.assetId === a1.id)?.role === 'main' &&
+      !!$(`#pttAlt .ptt-block[data-ptt="${a2}"]`),
+    JSON.stringify(us(0).map(u => [u.assetId, u.role, u.at])) + ' alt:' + $$('#pttAlt .ptt-block').length,
   );
   undo();
   await pause(30);
@@ -734,7 +730,7 @@ export async function runVideoReviewTests(t) {
   t(
     '批次删除先确认名称和候选数量，说明已挂素材及本地文件保留',
     $('#modalMask').classList.contains('show') &&
-      $('#mBody').textContent.includes('第 7 批 · 重复批次') &&
+      $('#mBody').textContent.includes('第1、4句') &&
       $('#mBody').textContent.includes('3 个候选') &&
       $('#mBody').textContent.includes('已下载文件') &&
       $('#mOk').classList.contains('danger'),
@@ -745,7 +741,7 @@ export async function runVideoReviewTests(t) {
   click('#mOk');
   await pause(30);
   t(
-    '删除第 7 批只移除该批全部审核状态的候选，第 8 批候选原样保留',
+    '删除旧名单只移除该名单候选，新名单原样保留',
     state.candidates.length === 3 &&
       state.candidates
         .map(c => c.id)
@@ -757,10 +753,10 @@ export async function runVideoReviewTests(t) {
     JSON.stringify(state.rows) === beforeRows && JSON.stringify(state.assets) === beforeAssets,
   );
   t(
-    '删旧批次后自动切到剩余批次，第 8 批不改号，待审数量更新',
+    '删旧名单后自动切到剩余名单，句子名称和待审数量更新',
     curBatchHead()?.dataset.vrBatch === newBatch &&
-      curBatchHead().textContent.includes('第 8 批') &&
-      $('#vrNav .vr-bname').textContent.includes('新批次') &&
+      curBatchHead().textContent.includes('第1、4句') &&
+      !$('#vrNav .vr-bname') &&
       $('#vtBadge').textContent === '3',
   );
   await flushWriteBack();
@@ -784,8 +780,8 @@ export async function runVideoReviewTests(t) {
   update('rows');
   await pause(30);
   t(
-    '重新载入项目后删除已保存，剩余批次编号仍为第 8 批',
-    state.candidates.length === 3 && curBatchHead()?.textContent.includes('第 8 批'),
+    '重新载入项目后删除已保存，剩余名单仍按实际句子命名',
+    state.candidates.length === 3 && curBatchHead()?.textContent.includes('第1、4句'),
   );
   deleteBatch();
   click('#mOk');
@@ -805,7 +801,7 @@ export async function runVideoReviewTests(t) {
   });
   update('rows');
   deleteBatch();
-  t('旧版本无批次编号的候选也能删除，确认显示之前导入的', $('#mBody').textContent.includes('之前导入的'));
+  t('旧版本无批次编号的候选也能删除，确认显示实际句子', $('#mBody').textContent.includes('第1、4句'));
   click('#mOk');
   t('旧版本批次删除后候选为空', state.candidates.length === 0);
   undo();
@@ -817,9 +813,10 @@ export async function runVideoReviewTests(t) {
   t('确认期间切了项目，不会删除新项目候选', JSON.stringify(state.candidates) === otherCandidates);
   storage.deleteProject(deletePid);
 
-  /* v3 方案：Tab 换着看；画面在用方案一时，方案二通过的先存成备选；表格里切换方案，主画面跟着换 */
-  storage.createProject('方案测试', parseAny('甲乙丙丁戊己庚辛壬癸。子丑寅卯辰巳午未申酉。'));
-  const planPid = state.projectId;
+  /* 两条轨：通过的先上正片轨，排满了放备选轨；备选能拖上正片轨（互换 / 插进空隙），正片能拖下来（原位置留空），
+     备选在备选轨上能自由挪；清单里的方案不再分 Tab，表格里也没有方案切换 */
+  storage.createProject('两条轨测试', parseAny('甲乙丙丁戊己庚辛壬癸。子丑寅卯辰巳午未申酉。'));
+  const trackPid = state.projectId;
   const two = lines().map(r => r.id);
   state.multi = two;
   state.sel = two[0];
@@ -829,6 +826,7 @@ export async function runVideoReviewTests(t) {
   click('#mOk');
   state.multiMode = false;
   setType(two, 'real');
+  lines().forEach((r, i) => (r.time = { start: i * 3, end: i * 3 + 3, st: 'ok' }));
   update('rows');
   const v3c = (key, len) => ({
     key,
@@ -840,63 +838,238 @@ export async function runVideoReviewTests(t) {
     license: '版权未核实',
     why: '测试',
   });
-  const planDoc = {
+  const trackDoc = {
     type: 'fenjingtai-candidates',
     version: 3,
-    project: '方案测试',
-    batch: '方案批',
+    project: '两条轨测试',
+    batch: '两条轨',
     shots: [
       { lines: '1-2', label: '两句', plans: [{ cands: [v3c('P1a', 3), v3c('P1b', 3)] }, { cands: [v3c('P2', 6)] }] },
     ],
   };
-  importLoadedFile({ name: '方案.json', ext: 'json', content: JSON.stringify(planDoc), path: '/tmp/方案.json' });
+  importLoadedFile({ name: '两条轨.json', ext: 'json', content: JSON.stringify(trackDoc), path: '/tmp/两条轨.json' });
   await pause(60);
-  const tabs = () => $$('#vrList .vr-ptab');
   t(
-    '有两个方案：右边是方案 Tab，默认看方案一，Tab 上写待审数',
-    tabs().length === 2 &&
-      tabs()[0].classList.contains('on') &&
-      tabs()[0].textContent.includes('待审 2') &&
-      !!card('P1a') &&
-      !card('P2'),
+    '清单里有两个方案：审核页不分 Tab，三个视频列在一起',
+    !$('#vrList .vr-ptabs') && !!card('P1a') && !!$(`#vrList .vr-plist [data-vr-id="${cand('P2').id}"]`),
   );
-  click(tabs()[1]);
-  await pause(30);
-  t('点方案二的 Tab：只换着看，不改表格', !!card('P2') && !card('P1a') && tabs()[1].classList.contains('on'));
-  click(tabs()[0]);
-  await pause(30);
   setDecision(cand('P1a').id, 'ok');
+  setDecision(cand('P1b').id, 'ok');
   await pause(30);
-  t(
-    '方案一通过一个：成了正在用的方案',
-    $('#vrList .vr-ptab.on .vr-puse')?.textContent === '正在用' &&
-      us(0).find(u => u.assetId === cand('P1a').assetId)?.role === 'main',
-  );
-  click(tabs()[1]);
+  const aid = key => cand(key).assetId;
+  const roleOf = key => us(0).find(u => u.assetId === aid(key))?.role;
+  t('正片轨还有空：通过的视频都放上正片轨', roleOf('P1a') === 'main' && roleOf('P1b') === 'main');
+  t('排满后列表上写已排 6 / 口播 6 秒', $('#vrList .vr-pfill-head')?.textContent.includes('已排 6 / 口播 6 秒'));
+  click($(`#vrList .vr-done.d-idle[data-vr-id="${cand('P2').id}"]`));
   await pause(30);
   setDecision(cand('P2').id, 'ok');
-  await pause(30);
+  await pause(60);
   t(
-    '方案二通过：画面还在用方案一，先存成备选；方案二填满了，提示里能直接改用',
-    us(0).find(u => u.assetId === cand('P2').assetId)?.role === 'alt' && $('#toastAct')?.textContent === '改用方案二',
+    '正片轨排满再通过：放在备选轨，提示里说清楚',
+    roleOf('P2') === 'alt' &&
+      !!$(`#pttAlt .ptt-block[data-ptt="${aid('P2')}"]`) &&
+      $('#toastTxt')?.textContent.includes('备选轨'),
+  );
+  // 合成指针事件拖色块：按下在色块上，移动 / 松手在两条轨的外框上（和真实鼠标一样被外框接住）
+  const lanes = () => $('#pttLanes');
+  const blockOf = key => $(`#pttLanes .ptt-block[data-ptt="${aid(key)}"]`);
+  const fire = (el, type, x, y) =>
+    el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, clientX: x, clientY: y }));
+  const at = (el, fx = 0.5) => {
+    const r = el.getBoundingClientRect();
+    return [r.left + r.width * fx, r.top + r.height / 2];
+  };
+  const drag = async (key, [x, y]) => {
+    const el = blockOf(key);
+    const [x0, y0] = at(el);
+    fire(el.querySelector('.ptt-label') || el, 'pointerdown', x0, y0);
+    fire(lanes(), 'pointermove', x0 + (x - x0) / 2, y0 + (y - y0) / 2);
+    fire(lanes(), 'pointermove', x, y);
+    fire(lanes(), 'pointerup', x, y);
+    await pause(60);
+  };
+  const timeOfX = sec => {
+    const r = $('#pttLane').getBoundingClientRect();
+    return r.left + (sec / 6) * r.width;
+  };
+  const laneY = id => at($(id))[1];
+  const atOf = key => us(0).find(u => u.assetId === aid(key))?.at;
+  await drag('P2', at(blockOf('P1a')));
+  t(
+    '备选拖到正片的画面上：两个互换，换下来的放到备选轨',
+    roleOf('P2') === 'main' && roleOf('P1a') === 'alt' && atOf('P2')?.start === 0 && roleOf('P1b') === 'main',
+    JSON.stringify(us(0).map(u => [u.role, u.at])),
+  );
+  undo();
+  await pause(60);
+  t('互换可以一步撤销', roleOf('P2') === 'alt' && roleOf('P1a') === 'main');
+  await drag('P1b', [timeOfX(4.5), laneY('#pttAlt')]);
+  t(
+    '正片拖到备选轨：撤下来，原来的位置留空，前面的画面不动',
+    roleOf('P1b') === 'alt' &&
+      roleOf('P1a') === 'main' &&
+      atOf('P1a')?.start === 0 &&
+      atOf('P1a')?.end === 3 &&
+      $('#vrList .vr-pfill-head')?.textContent.includes('已排 3 / 口播 6 秒'),
+    JSON.stringify(us(0).map(u => [u.role, u.at])),
+  );
+  const p1bAt = atOf('P1b');
+  await drag('P1b', [timeOfX(1), laneY('#pttAlt')]);
+  t(
+    '备选在备选轨上自由挪位置，还是备选',
+    roleOf('P1b') === 'alt' && atOf('P1b')?.start < p1bAt.start,
+    JSON.stringify([p1bAt, atOf('P1b')]),
+  );
+  // 拖到一半来了别处的刷新（协作对方改了别的句子、后台保存）：拖动不断，松手照样保存
+  const slowDrag = async (key, sec, during) => {
+    const el = blockOf(key);
+    const [x0, y0] = at(el);
+    const px = $('#pttLane').getBoundingClientRect().width / 6;
+    fire(el.querySelector('.ptt-label') || el, 'pointerdown', x0, y0);
+    fire(lanes(), 'pointermove', x0 + 10, y0);
+    await during();
+    fire(lanes(), 'pointermove', x0 + sec * px, y0);
+    fire(lanes(), 'pointerup', x0 + sec * px, y0);
+    await pause(250);
+  };
+  const before = atOf('P1b').start;
+  await slowDrag('P1b', 1.5, async () => {
+    emit('project-changed');
+    update('rows');
+    await pause(40);
+  });
+  t(
+    '拖动中途有刷新：备选不弹回原位，松手停在拖到的地方',
+    roleOf('P1b') === 'alt' && Math.abs(atOf('P1b').start - (before + 1.5)) < 0.15,
+    JSON.stringify([before, atOf('P1b')]),
+  );
+  const kept = atOf('P1b').start;
+  await slowDrag('P1b', 1, async () => {
+    for (const r of lines()) for (const u of r.assetUsages) if (u.assetId === aid('P1a')) u.note = '对方改了';
+    emit('project-changed');
+    await pause(40);
+  });
+  t('拖动期间同一个画面被别处改过：这次拖动不保存，不盖掉对方的改动', atOf('P1b').start === kept);
+  await drag('P2', [timeOfX(4), laneY('#pttLane')]);
+  t(
+    '备选拖进正片轨的空隙：插进去，从空隙开头放',
+    roleOf('P2') === 'main' && atOf('P2')?.start >= 3 && atOf('P2')?.start < 6,
+    JSON.stringify(us(0).map(u => [u.role, u.at])),
   );
   setView('table');
   await pause(30);
-  const opts = () => $$('#rows .plan-switch .plan-opt');
-  t('表格里出现方案切换，当前是方案一', opts().length === 2 && opts()[0].classList.contains('on'));
-  click(opts()[1]);
+  t('表格里没有方案切换', !$('#rows .plan-switch'));
+  storage.switchProject(original);
+  storage.deleteProject(trackPid);
+
+  /* 分散句子的返工单：真实生成入口、导入约束、原批注展示、切项目持久化。 */
+  storage.createProject('分散返工测试', parseAny('甲。乙。丙。丁。戊。'), {}, { mediaDir: '/tmp/返工测试' });
+  const reworkPid = state.projectId;
+  setReworkNote(lines()[0], '开头换成近景');
+  setReworkNote(lines()[4], '结尾画面太暗');
+  let replyDoc = null;
+  let writeOk = false;
+  window.fjtHooks.writeReworkDoc = async (_file, content) => {
+    replyDoc = JSON.parse(content);
+    return { ok: writeOk, error: '测试写入失败' };
+  };
+  openRework();
+  await pause(30);
+  click('#vrReworkDoc');
+  await pause(50);
+  t('返工单写入失败时不登记任务，也不显示已生成', !Object.keys(state.reworkRequests).length && !$('#vrNav .vr-bother'));
+  writeOk = true;
+  click('#vrReworkDoc');
+  await pause(50);
+  t(
+    '首尾两句的返工单逐项列出，登记目标身份与批注',
+    replyDoc?.sentences === '第1、5句' &&
+      replyDoc.shots.map(s => s.lines).join() === '1,5' &&
+      state.reworkRequests[replyDoc.id]?.targets.length === 2 &&
+      state.reworkRequests[replyDoc.id].targets[0].note === '开头换成近景',
+  );
+  const replyShot = n => ({
+    lines: String(n),
+    label: '重找',
+    plans: [
+      {
+        cands: [
+          {
+            key: `reply-${n}`,
+            title: '新视频',
+            url: `https://example.com/reply-${n}.mp4`,
+            in: 0,
+            out: 12,
+            best: { in: 1, out: 11 },
+            license: '版权未核实',
+            why: '按批注重找',
+          },
+        ],
+      },
+    ],
+  });
+  const reply = {
+    type: 'fenjingtai-candidates',
+    version: 3,
+    project: state.title,
+    batch: 'AI乱写第1-999句',
+    reworkId: replyDoc.id,
+    shots: [replyShot(1), replyShot(5)],
+  };
+  const invalid = importCandidateData({ ...reply, shots: [replyShot(2)] }, '/tmp/错误回复.json');
+  t('应用导入入口拒收返工单之外的画面，候选保持原样', !!invalid.error && !state.candidates.length);
+  const missing = importCandidateData({ ...reply, reworkId: undefined }, '/tmp/无标记回复.json');
+  t('应用导入入口不能靠删掉返工标记绕过范围检查', !!missing.error && !state.candidates.length);
+  importLoadedFile({ name: '正确返工回复.json', path: '/tmp/正确返工回复.json', content: JSON.stringify(reply) });
+  await pause(40);
+  t(
+    '返回素材按实际分散句子命名，忽略 AI 的整段批名，并显示原批注',
+    curBatchHead()?.textContent.includes('第1、5句 · 重找') &&
+      $('#vrList .vr-rework-note')?.textContent.includes('开头换成近景') &&
+      !curBatchHead()?.textContent.includes('999') &&
+      state.candidates.length === 2,
+  );
+  storage.switchProject(original);
+  storage.switchProject(reworkPid);
+  update('rows');
   await pause(30);
   t(
-    '表格里改用方案二：方案二当主画面，方案一的视频挪到备选',
-    us(0).find(u => u.assetId === cand('P2').assetId)?.role === 'main' &&
-      us(0).find(u => u.assetId === cand('P1a').assetId)?.role === 'alt' &&
-      opts()[1]?.classList.contains('on'),
+    '切回项目后返工关联与原批注仍在',
+    state.reworkRequests[replyDoc.id]?.targets[1].note === '结尾画面太暗' &&
+      state.candidates.every(c => c.reworkId === replyDoc.id),
   );
-  undo();
-  await pause(30);
-  t('改用方案可以撤销', us(0).find(u => u.assetId === cand('P1a').assetId)?.role === 'main');
+  delete window.fjtHooks.writeReworkDoc;
   storage.switchProject(original);
-  storage.deleteProject(planPid);
+  storage.deleteProject(reworkPid);
+
+  storage.createProject(
+    '分散名单布局测试',
+    parseAny(Array.from({ length: 30 }, (_, i) => `第${i + 1}句话。`).join('')),
+  );
+  const layoutPid = state.projectId;
+  importLoadedFile({
+    name: '分散名单.json',
+    path: '/tmp/分散名单.json',
+    content: JSON.stringify({
+      ...reply,
+      reworkId: undefined,
+      shots: Array.from({ length: 12 }, (_, i) => replyShot(i * 2 + 1)),
+    }),
+  });
+  await pause(30);
+  click('#vrBatchPick');
+  const menu = $('.popover');
+  const item = menu?.querySelector('.vr-bpick');
+  t(
+    '很多分散句子的名单显示数量与完整句号，菜单宽度受限且文字不溢出',
+    item?.textContent.includes('视频素材 · 共12句') &&
+      item?.querySelector('.desc')?.textContent.includes('第1、3、5、7、9、11、13、15、17、19、21、23句') &&
+      menu.getBoundingClientRect().width <= 442 &&
+      item.scrollWidth <= item.clientWidth + 1,
+  );
+  click('#vrBatchPick');
+  storage.switchProject(original);
+  storage.deleteProject(layoutPid);
 
   /* 清场 */
   storage.switchProject(original);

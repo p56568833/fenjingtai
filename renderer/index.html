@@ -31,6 +31,15 @@
 
       <div class="spacer"></div>
 
+      <button class="btn update-btn" id="btnUpdate" hidden title="有新版本" aria-label="查看更新详情">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4" /></svg>
+        <span id="updButtonLabel">更新</span>
+      </button>
+      <div class="save-state" id="saveState">
+        <div class="dot"></div>
+        <span id="saveTxt">已保存</span>
+      </div>
+
       <!-- 视图切换：视频审核 ↔ 表格。底下的白色滑块跟着选中项左右滑（弹簧动效）。
            原文视图暂时不放入口（按钮隐藏，代码保留，需要时去掉 hidden 即可恢复） -->
       <div class="view-toggle" id="viewToggle" role="tablist" aria-label="视图">
@@ -48,15 +57,6 @@
             <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></svg
           >表格
         </button>
-      </div>
-
-      <button class="btn update-btn" id="btnUpdate" hidden title="有新版本" aria-label="查看更新详情">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4" /></svg>
-        <span id="updButtonLabel">更新</span>
-      </button>
-      <div class="save-state" id="saveState">
-        <div class="dot"></div>
-        <span id="saveTxt">已保存</span>
       </div>
 
       <button class="btn" id="btnImport">
@@ -83,9 +83,32 @@
     </header>
 
     <div id="tablePage" class="workspace-page">
-      <!-- ═════════ 节奏色条（一句一段，平时细细一条，鼠标移上去才展开） ═════════ -->
+      <!-- ═════════ 全片时间与素材挂载总览 ═════════ -->
       <div class="stats">
-        <div class="segbar" id="segbar"></div>
+        <div id="segOverview" class="seg-overview">
+          <div id="segTimeline" class="seg-timeline">
+            <div id="segSelection" class="seg-selection" hidden aria-live="polite">
+              <span id="segLine"></span>
+            </div>
+            <span id="segPointer" class="seg-pointer" hidden></span>
+            <div class="segbar" id="segbar">
+              <div id="segSegments"></div>
+              <span class="seg-playhead" id="segPlayhead" hidden></span>
+            </div>
+            <input
+              id="segSeek"
+              class="seg-seek"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value="0"
+              aria-label="在全片中选择句子"
+            />
+            <span id="segPointerBottom" class="seg-pointer seg-pointer-bottom" hidden></span>
+            <div id="segTimeLabel" class="seg-selection seg-time-selection" hidden><span id="segTime"></span></div>
+          </div>
+        </div>
       </div>
 
       <!-- ═════════ 工具条：目录 / 筛选 / 标注工具（有未标注才出现）/ 进度 / 类型 / 时长 / 面板 ═════════ -->

@@ -40,7 +40,8 @@ function createMainWindow({ indexFile, isAppPage, isSelftest }) {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
-      ...(isSelftest ? { backgroundThrottling: false } : {}), // 隐藏窗口里 JS 计时不被节流，自测的 sleep 才准
+      // macOS 关窗后仍保留界面进程，保存、协作与后台任务的计时照常运行。
+      ...(isSelftest || process.platform === 'darwin' ? { backgroundThrottling: false } : {}),
     },
   });
   if (!isSelftest) w.once('ready-to-show', () => w.show());

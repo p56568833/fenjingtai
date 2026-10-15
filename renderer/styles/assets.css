@@ -198,45 +198,6 @@ body.dark ::-webkit-scrollbar-thumb {
   color: var(--accent);
   border-color: var(--accent);
 }
-/* 方案切换：同一画面有几个方案都通过了视频时，在素材上面换着用 */
-.plan-switch {
-  align-self: flex-start;
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  margin-bottom: 6px;
-  border-radius: 9px;
-  background: var(--track-bg);
-  border: 1px solid var(--hairline);
-}
-.plan-opt {
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-3);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition:
-    background-color 0.15s,
-    color 0.15s;
-}
-.plan-opt:hover {
-  color: var(--text);
-}
-.plan-opt.on {
-  background: var(--card);
-  color: var(--text);
-  box-shadow:
-    0 0 0 0.5px rgba(16, 24, 40, 0.08),
-    0 1px 2px rgba(16, 24, 40, 0.1);
-  cursor: default;
-}
-body.dark .plan-opt.on {
-  background: rgba(255, 255, 255, 0.11);
-}
 .asset-thumb canvas {
   width: 100%;
   height: 100%;
@@ -303,15 +264,6 @@ body.dark .cover-short .cover-verdict {
   color: #ff8e94;
   background: color-mix(in srgb, #ff8e94 12%, transparent);
 }
-.asset-order {
-  display: flex;
-  gap: 4px;
-  margin: 8px 0 2px;
-}
-.asset-lines .asset-row-ctrl {
-  margin-top: 6px;
-}
-
 .asset-caption strong {
   display: block;
   font-size: 12px;

@@ -4,8 +4,8 @@ import { probePaths, isMissing, rememberDuration } from '../app/asset-actions.js
 import { usageList, kindOf, LINK_RE, referencedAssetIds } from '../core/asset-model.js';
 import { probeDuration } from './base/media.js';
 
-let missingSet = new Set(); // 文件失联探测结果（与「无缩略图」「格式不支持」分开统计）
-export const missingPaths = () => missingSet;
+import { missingPaths, setMissingPaths } from '../app/asset-status.js';
+export { missingPaths } from '../app/asset-status.js';
 
 /* ── 文件时长：表格里用到的本地视频，没记过时长的读一下元数据（不解码画面），记进素材库，
    「文件 / 可用」就有数了。同时最多读 3 个；读不出来的本次不再试 ── */
@@ -18,7 +18,7 @@ export function probeDurations(onFound) {
     const a = registry[id];
     if (!a || !a.path || Number.isFinite(a.durationSec)) continue;
     if ((a.kind || kindOf(a.path)) !== 'video' || LINK_RE.test(a.path)) continue;
-    if (missingSet.has(a.path) || durTried.has(a.path)) continue;
+    if (missingPaths().has(a.path) || durTried.has(a.path)) continue;
     durTried.add(a.path);
     durQueue.push(a);
   }
@@ -50,6 +50,7 @@ const readDuration = path => probeDuration(path, 15000);
 
 /* 探测素材文件是否还在；结果有变化才回调（重画徽标 / 面板） */
 export async function refreshMissing(onChange) {
+  const owner = state.projectId;
   const paths = [
     ...new Set(
       Object.values(state.assets || {})
@@ -58,12 +59,24 @@ export async function refreshMissing(onChange) {
     ),
   ];
   const probe = await probePaths(paths);
-  const next = new Set(paths.filter(p => isMissing(probe[p])));
-  const changed = next.size !== missingSet.size || [...next].some(p => !missingSet.has(p));
-  missingSet = next;
-  if (changed) onChange?.();
+  if (owner !== state.projectId) return;
+  const currentPaths = [
+    ...new Set(
+      Object.values(state.assets || {})
+        .map(a => a.path)
+        .filter(Boolean),
+    ),
+  ];
+  if (currentPaths.length !== paths.length || currentPaths.some(p => !paths.includes(p))) return;
+  if (
+    setMissingPaths(
+      paths.filter(p => isMissing(probe[p])),
+      owner,
+    )
+  )
+    onChange?.();
 }
 export const resetMissing = () => {
-  missingSet = new Set();
+  setMissingPaths([]);
   durTried.clear(); // 换项目 / 重新探测：读不出时长的文件再给一次机会
 };

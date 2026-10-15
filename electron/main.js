@@ -47,14 +47,40 @@ function isAppPage(url) {
 const store = createStore(DATA_DIR);
 
 let mainWindow = null;
+let quitting = false;
 const win = () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getAllWindows()[0]);
 
-app.on('second-instance', () => {
+function makeMainWindow() {
+  const w = createMainWindow({ indexFile: INDEX_FILE, isAppPage, isSelftest: IS_SELFTEST });
+  w.on('close', e => {
+    if (process.platform !== 'darwin' || quitting) return;
+    // 红色关闭按钮只收起界面：保留当前项目、编辑位置、协作连接和后台任务。
+    e.preventDefault();
+    w.hide();
+  });
+  w.webContents.on('will-prevent-unload', () => {
+    // 保存失败会取消退出；恢复普通关窗行为，并显示窗口里的错误提示。
+    quitting = false;
+    if (w.isMinimized()) w.restore();
+    w.show();
+    w.focus();
+  });
+  return w;
+}
+
+function showMainWindow() {
+  if (!app.isReady() || quitting) return;
   const w = win();
   if (w) {
     if (w.isMinimized()) w.restore();
+    w.show();
     w.focus();
-  }
+  } else mainWindow = makeMainWindow();
+}
+
+app.on('second-instance', showMainWindow);
+app.on('before-quit', () => {
+  quitting = true;
 });
 
 /* ── IPC：只接受应用自己界面页发来的请求 ── */
@@ -118,13 +144,12 @@ const { cleanStaleUpdates } = registerUpdateIpc({ handle, isSelftest: IS_SELFTES
 app.whenReady().then(() => {
   buildMenu({ win, dataDir: DATA_DIR });
   cleanStaleUpdates();
-  mainWindow = createMainWindow({ indexFile: INDEX_FILE, isAppPage, isSelftest: IS_SELFTEST });
-  app.on('activate', () => {
-    if (!BrowserWindow.getAllWindows().length)
-      mainWindow = createMainWindow({ indexFile: INDEX_FILE, isAppPage, isSelftest: IS_SELFTEST });
-  });
+  mainWindow = makeMainWindow();
+  app.on('activate', showMainWindow);
 });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
 
 /* 自测专用：测试素材目录与能力标记（正式运行返回 null） */
 onSync('selftest:fixtures', e => {

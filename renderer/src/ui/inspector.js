@@ -3,16 +3,9 @@
    角色和位置的改动只刷面板和素材卡，不重建整张表（长稿视口不跳）。 */
 import { state, on, emit, update, rowById, types, timeline } from '../app/state.js';
 import { setShotNote } from '../app/actions.js';
-import {
-  removeUsage,
-  addRefsToShot,
-  autoAssignRoles,
-  swapPictures,
-  setUsageLines,
-  toggleAlt,
-} from '../app/asset-actions.js';
+import { removeUsage, addRefsToShot, autoAssignRoles } from '../app/asset-actions.js';
 import { usageList } from '../core/asset-model.js';
-import { ROLES, shotMembers, usageSpan } from '../core/shots.js';
+import { ROLES, shotMembers } from '../core/shots.js';
 import { spanOf } from '../core/timeline.js';
 import { fmtTc, fmtLen } from '../core/text.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
@@ -25,6 +18,8 @@ import { missingPaths } from './asset-files.js';
 import { registerCommand, runCommand } from './base/commands.js';
 import { openMenu, closePop, markPopAnchor, popOpenFor } from './base/popover.js';
 import { preserveReadingPosition } from './reading-position.js';
+import { initLineSelection } from './line-selection.js';
+import { patchHTML } from './base/html-patch.js';
 
 const $ = s => document.querySelector(s);
 let detailOpen = false;
@@ -116,10 +111,14 @@ export function renderInspector(force = false) {
   // 后台刷新（别人改了别的句子、存了文件…）时面板内容没变就不重写：缩略图、滚动位置、展开的片段都留着
   if (!force && panel._html === html && panel.dataset.row === String(r.id) && panel.dataset.project === state.projectId)
     return;
-  session = null;
+  const shot = members.map(m => m.id).join(',');
+  const sameShot = panel.dataset.project === state.projectId && panel.dataset.shot === shot;
+  if (!sameShot) session = null;
   panel.dataset.row = String(r.id);
   panel.dataset.project = state.projectId;
-  panel.innerHTML = html;
+  panel.dataset.shot = shot;
+  panel._lineRevision = (panel._lineRevision || 0) + 1;
+  patchHTML(panel, html, { fresh: !sameShot });
   panel._html = html;
   hydrateAssetCards();
   markNoteClamp();
@@ -186,6 +185,7 @@ export function initInspector() {
   on('durations', () => renderInspector()); // 读到了文件时长：卡片上的「文件 / 可用」补上数（正在输入时不打断）
 
   const panel = $('#inspector');
+  initLineSelection(panel, panelRow, () => renderInspector(true));
   document.addEventListener('click', e => {
     const remove = e.target.closest('[data-remove-asset]');
     if (!remove) return;
@@ -224,48 +224,6 @@ export function initInspector() {
     if (removeButton) {
       e.stopPropagation();
       return openRemoveMenu(removeButton, r);
-    }
-    const cell = e.target.closest('[data-line-usage]');
-    if (cell) {
-      const index = +cell.dataset.lineUsage,
-        k = +cell.dataset.line;
-      const u = usageList(r)[index];
-      if (!u) return;
-      const members = shotMembers(state.rows, r);
-      const sp = usageSpan(members, u.assetId);
-      const hadManual = members.some(m => usageList(m).some(x => x.at));
-      let from = sp.from,
-        to = sp.to;
-      if (u.role === 'alt' || sp.empty) {
-        // 备选的：点哪格都先放回上屏，还配原来那几句（原来没配句子就配这一句）
-        if (sp.empty) from = to = k;
-      } else if (k >= from && k <= to) {
-        if (from === to) {
-          if (!hadManual) return toast('至少要配一句；不想用它就点「备选」', null, 'warn');
-        } else if (k === from) from++;
-        else if (k === to) to--;
-        else from = to = k;
-      } else if (k < from) from = k;
-      else to = k;
-      setUsageLines(r, index, from, to);
-      renderInspector(true);
-      if (hadManual) toast('已改回按句子排（手动拖过的秒数清掉了） · ⌘Z 可撤销', null, 'ok');
-      return;
-    }
-    const altBtn = e.target.closest('[data-alt-usage]');
-    if (altBtn) {
-      const role = toggleAlt(r, +altBtn.dataset.altUsage);
-      renderInspector(true);
-      if (role) toast(role === 'alt' ? '已放进备选，不上屏 · ⌘Z 可撤销' : '已放回上屏 · ⌘Z 可撤销', null, 'ok');
-      return;
-    }
-    const swapBtn = e.target.closest('[data-swap-a]');
-    if (swapBtn) {
-      if (swapPictures(r, swapBtn.dataset.swapA, swapBtn.dataset.swapB)) {
-        renderInspector(true);
-        toast('已调换两个画面的位置 · ⌘Z 可撤销', null, 'ok');
-      }
-      return;
     }
     if (e.target.closest('#autoRoles')) {
       const n = autoAssignRoles(r);

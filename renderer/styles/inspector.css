@@ -251,38 +251,7 @@
   border-color: color-mix(in srgb, #d9820b 45%, transparent);
   background: color-mix(in srgb, #d9820b 8%, transparent);
 }
-/* 右侧面板：角色按钮右边放「往前 / 往后」，两个上屏画面可以对调 ①② */
-.inspector-asset .asset-row-ctrl {
-  flex: 0 0 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.order-btn {
-  font: inherit;
-  font-size: 11px;
-  line-height: 1;
-  padding: 5px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--hairline-2);
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-.order-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.order-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-/* 右侧面板：句子条（每句一格，宽度按口播秒数；点亮 = 这个画面配这几句）+ 备选 */
+/* 句子条：点击选单句，拖动选范围。 */
 .inspector-asset .asset-lines {
   flex: 0 0 100%;
   margin-top: 8px;
@@ -290,6 +259,14 @@
 .line-strip {
   display: flex;
   gap: 2px;
+  user-select: none;
+  touch-action: pan-y;
+}
+.line-strip.is-selecting {
+  cursor: col-resize;
+}
+.line-strip.is-selecting .line-cell {
+  cursor: col-resize;
 }
 .line-cell {
   font: inherit;
@@ -312,43 +289,6 @@
 }
 .line-cell.on {
   background: var(--c-real);
-  border-color: transparent;
-  color: #fff;
-}
-.asset-lines.is-alt .line-cell.on {
-  background: transparent;
-  border: 1px dashed var(--text-3);
-  color: var(--text-3);
-}
-.line-sum {
-  font-size: 12px;
-  color: var(--text-2);
-}
-.ctrl-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.ctrl-right .asset-order {
-  margin: 0;
-}
-.alt-chip {
-  font: inherit;
-  font-size: 11px;
-  line-height: 1;
-  padding: 5px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--hairline-2);
-  background: transparent;
-  color: var(--text-2);
-  cursor: pointer;
-}
-.alt-chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.alt-chip.on {
-  background: var(--text-3);
   border-color: transparent;
   color: #fff;
 }
@@ -403,11 +343,6 @@ body.dark .lo-head b {
 }
 body.dark .lo-cell.part {
   color: #f0a43a;
-}
-.line-sum i {
-  font-style: normal;
-  color: var(--text-3);
-  margin-left: 4px;
 }
 @media (max-width: 1200px) {
   .inspector {

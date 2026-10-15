@@ -204,28 +204,49 @@ export function autoAssignRoles(row) {
 /* ── 主画面的出现时间（1.8，「对着口播看画面」里调）──
    entries：[{assetId, start, end}]，start / end 是相对镜头开头的秒数。一次把这个镜头里所有画面的时间都写上，
    这样拖动一个之后，其他画面的位置也固定下来，不会再随句子范围变。没分配角色的画面（旧项目）顺手设成主画面。 */
-export function setShotTimes(row, entries, label = '调整画面出现时间') {
+export const setShotTimes = (row, entries, label = '调整画面出现时间') => arrangeShot(row, { mains: entries }, label);
+
+/* 两条轨一起改（审核页 / 对着口播看画面里拖动）：mains 里的画面当主画面、按给的时间放；
+   alts 里的当备选、时间记成它在备选轨上的位置。一次提交，一次撤销。
+   拖完之后按时间重新认它属于哪几句（句子条、表格「第几句」、交稿检查都看这个）；备选也一样，不绑死在原来那句 */
+export function arrangeShot(row, { mains = [], alts = [] } = {}, label = '调整画面出现时间') {
   const members = shotMembers(state.rows, row);
-  if (!members.length || !entries?.length) return false;
+  if (!members.length || (!mains.length && !alts.length)) return false;
   const of = members[0].id;
-  const want = new Map(entries.map(e => [e.assetId, { start: round1(e.start), end: round1(e.end), of }]));
-  const same = [...want].every(([id, at]) => {
+  const want = new Map([
+    ...mains.map(e => [
+      e.assetId,
+      { role: 'main', at: { start: round1(e.start), end: round1(e.end), of }, clip: e.clip },
+    ]),
+    ...alts.map(e => [
+      e.assetId,
+      { role: 'alt', at: { start: round1(e.start), end: round1(e.end), of }, clip: e.clip },
+    ]),
+  ]);
+  const same = [...want].every(([id, w]) => {
     const u = usageList(members[0]).find(x => x.assetId === id);
-    return u?.at && u.at.start === at.start && u.at.end === at.end && u.at.of === of && u.role === 'main';
+    return (
+      u?.at &&
+      u.at.start === w.at.start &&
+      u.at.end === w.at.end &&
+      u.at.of === of &&
+      u.role === w.role &&
+      (!w.clip || JSON.stringify(u.clip) === JSON.stringify(w.clip))
+    );
   });
   if (same) return false;
   return changeProject(label, change => {
     for (const m of members)
       for (const u of usageList(m)) {
-        const at = want.get(u.assetId);
-        if (!at) continue;
-        u.at = { ...at };
-        u.role = 'main';
+        const w = want.get(u.assetId);
+        if (!w) continue;
+        u.at = { ...w.at };
+        u.role = w.role;
+        if (w.clip) u.clip = { ...w.clip };
       }
-    // 按拖出来的时间认它属于哪几句（句子条、表格「第几句」、交稿检查都看这个）；只挪了一点点的还是原来那句
     const tl = timeline();
-    for (const [id, at] of want) {
-      const lines = linesOfTime(members, tl, at.start, at.end);
+    for (const [id, w] of want) {
+      const lines = linesOfTime(members, tl, w.at.start, w.at.end);
       if (lines) applySpan(members, id, lines.from, lines.to);
     }
     sortMainsBySentence(members);

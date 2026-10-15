@@ -78,6 +78,7 @@ function releaseAudio() {
   loopRange = null;
   started = false;
   playingId = null;
+  movePlayhead(0);
   document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
 }
 
@@ -103,6 +104,7 @@ export const voicePlayer = {
   },
   pause() {
     audio?.pause();
+    movePlayhead(audio?.currentTime || 0);
   },
   seek(t) {
     const a = ensureAudio();
@@ -138,7 +140,7 @@ function updatePlaying(t) {
   if (cur) cur.textContent = `${fmtTime(t)} / ${fmtTime(tl.total || audio?.duration || 0)}`;
   const seek = $('#vbSeek');
   if (seek && document.activeElement !== seek) seek.value = String(Math.round((t / Math.max(1, tl.total)) * 1000));
-  movePlayhead(id, t);
+  movePlayhead(t);
   if (!started) return;
   if (id === playingId) return;
   playingId = id;
@@ -157,15 +159,23 @@ function updatePlaying(t) {
     if (box.top < 120 || box.bottom > innerHeight - 120) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
 }
-function movePlayhead(id, t) {
+function movePlayhead(t) {
   const head = $('#segPlayhead');
   if (!head) return;
-  const seg = document.querySelector(`#segbar .seg[data-jump="${id}"]`);
-  const tm = timeOf(id);
-  if (!seg || !tm) return (head.hidden = true);
-  const frac = Math.min(1, Math.max(0, (t - tm.start) / Math.max(0.01, tm.end - tm.start)));
+  const total = state.voice?.duration > 0 ? state.voice.duration : timeline().total;
+  if (
+    !state.voice ||
+    !started ||
+    !audio ||
+    audio.paused ||
+    audio.ended ||
+    missing ||
+    !state.rows.some(r => r.kind === 'line') ||
+    !(total > 0)
+  )
+    return (head.hidden = true);
   head.hidden = false;
-  head.style.left = seg.offsetLeft + seg.offsetWidth * frac + 'px';
+  head.style.left = `${Math.min(1, Math.max(0, t / total)) * 100}%`;
 }
 
 /* ── 命令 ── */
@@ -227,6 +237,7 @@ async function relocate() {
 
 /* ── 口播条 ── */
 function renderBar() {
+  movePlayhead(audio?.currentTime || 0);
   const bar = $('#voiceBar');
   if (!bar) return;
   // 纯听口播的播放条不要了（听口播都在「对着口播看画面」里）；只在口播文件失联时出来，提醒重新定位

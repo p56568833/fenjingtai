@@ -1,8 +1,9 @@
 import { shotMembers } from './shots.js';
 import { usageList, assetName } from './asset-model.js';
 import { lineTag, hasLineTag } from './candidates.js';
+import { candidateScope } from './candidate-scope.js';
 
-export function candidateBatches(candidates) {
+export function candidateBatches(candidates, rows = []) {
   const map = new Map();
   for (const c of candidates) {
     const id = c.batchId || 'legacy';
@@ -10,22 +11,19 @@ export function candidateBatches(candidates) {
       map.set(id, { id, name: c.batchId ? c.batchName || '视频候选' : '之前导入的', at: c.batchAt || 0, cands: [] });
     map.get(id).cands.push(c);
   }
-  const all = [...map.values()].sort((a, b) => b.at - a.at);
-  const nos = all.map(
-    (b, i) => b.cands.find(c => Number.isSafeInteger(c.batchNo) && c.batchNo > 0)?.batchNo || all.length - i,
-  );
-  // 协作时两人同时导入，各自算出的批号会撞上：先导入的保留，后导入的往后顺延。
-  // 只看合并后的数据，两台电脑算出来一样
-  const taken = new Set(),
-    dups = [];
-  const oldest = all.map((_, i) => i).sort((i, j) => all[i].at - all[j].at || (all[i].id < all[j].id ? -1 : 1));
-  for (const i of oldest) {
-    if (taken.has(nos[i])) dups.push(i);
-    else taken.add(nos[i]);
-  }
-  let next = Math.max(0, ...taken);
-  for (const i of dups) nos[i] = ++next;
-  return all.map((b, i) => ({ ...b, number: nos[i] }));
+  return [...map.values()]
+    .sort((a, b) => b.at - a.at || a.id.localeCompare(b.id))
+    .map(b => {
+      const scope = candidateScope(b.cands, rows);
+      // 旧名单中明确写过返工 / 重找的，也沿用新显示方式；原名仅供溯源。
+      const rework = b.cands.some(c => c.reworkId || c.batchKind === 'rework') || /返工|重找|批注/.test(b.name);
+      const label = !scope.count
+        ? '句子已移除'
+        : scope.compact
+          ? `${scope.text}${rework ? ' · 重找' : ''}`
+          : `${rework ? '返工素材' : '视频素材'} · 共${scope.count}句`;
+      return { ...b, label, scope, detail: scope.compact ? '' : scope.text };
+    });
 }
 
 export function retagPlan(rows, assets, candidates) {

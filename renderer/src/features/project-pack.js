@@ -51,6 +51,7 @@ function currentProject() {
       types: types().list,
       voice: state.voice,
       candidates: state.candidates,
+      reworkRequests: state.reworkRequests,
       mediaDir: state.mediaDir,
     }),
   );

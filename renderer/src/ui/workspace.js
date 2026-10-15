@@ -12,6 +12,7 @@ import { initReview } from './review.js';
 import { rowBadges } from './badges.js';
 import { refreshMissing, resetMissing } from './asset-files.js';
 import { renderStats } from './render-stats.js';
+import { initOverview, renderOverview, renderOverviewSelection } from './timeline-overview.js';
 import { preserveReadingPosition } from './reading-position.js';
 import { registerCommand } from './base/commands.js';
 import { scrollGuard } from './base/scroll-guard.js';
@@ -24,12 +25,12 @@ let cancelJump = null;
 export { openInspectorFor };
 export { openReview } from './review.js';
 
-export function jumpTo(id) {
+export function jumpTo(id, { preserveFilter = false } = {}) {
   if (!rowById(id)) return;
   cancelJump?.();
   closePop();
-  const filtered = state.filter !== 'all';
-  state.filter = 'all';
+  const filtered = !preserveFilter && state.filter !== 'all';
+  if (!preserveFilter) state.filter = 'all';
   state.multi = null;
   const r = rowById(id);
   state.sel =
@@ -101,6 +102,7 @@ function renderRepairHint() {
 
 function onMissingChanged() {
   rowBadges();
+  renderOverview();
   if (isInspectorOpen() && !$('#inspector').contains(document.activeElement)) renderInspector(true);
 }
 
@@ -162,12 +164,13 @@ export function initWorkspace() {
   initReview();
   registerCommand('nav:jump', jumpTo);
   registerCommand('nav:next-unmarked', nextUnmarked);
+  initOverview();
   on('workspace', refresh);
   on('project-changed', refresh);
-  on('assets-changed', ({ ids, kind }) =>
-    refresh({ preservePosition: true, rowIds: ids, stats: kind === 'association' }),
-  );
+  on('assets-changed', ({ ids }) => refresh({ preservePosition: true, rowIds: ids, stats: true }));
+  on('durations', () => renderOverview());
   on('cursor', () => {
+    renderOverviewSelection();
     rememberCursor();
     renderToolbar();
     renderOutline();
