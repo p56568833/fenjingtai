@@ -209,9 +209,9 @@
 }
 .ptt-lane {
   position: relative;
-  height: 46px;
+  height: 38px;
   margin-top: 0;
-  border-radius: 6px;
+  border-radius: 0;
   background: repeating-linear-gradient(
     -45deg,
     rgba(255, 255, 255, 0.03) 0 6px,
@@ -234,15 +234,18 @@
 .ptt-ruler:hover {
   background: rgba(255, 255, 255, 0.04);
 }
+/* 播放头的帽子：倒三角，尖朝下指着下面那条线（和剪映一样） */
 .ptt-rhead {
   position: absolute;
   bottom: -1px;
   width: 0;
   height: 0;
-  margin-left: -5px;
-  border: 5px solid transparent;
-  border-bottom-color: #fff;
+  margin-left: -6px;
+  border-style: solid;
+  border-width: 8px 6px 0;
+  border-color: #fff transparent transparent;
   pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 }
 .ptt-tick {
   position: absolute;
@@ -270,14 +273,16 @@
 .ptt-sep b::after {
   content: ' 句';
 }
+/* 色块：直角、细一点，没选中时不描边，相邻两段之间留一道暗缝（剪映那样） */
 .ptt-block {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
+  top: 3px;
+  bottom: 3px;
   min-width: 4px;
-  border-radius: 5px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--accent) 55%, #1b2232);
-  border: 1px solid color-mix(in srgb, var(--accent) 80%, #ffffff);
+  border: 0;
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.45);
   color: #fff;
   font-size: 11.5px;
   display: flex;
@@ -286,23 +291,49 @@
   cursor: grab;
   box-sizing: border-box;
 }
-.ptt-block:nth-of-type(even) {
+/* 绿色跟着素材走（不按第几个交替），换了顺序颜色不变 */
+.ptt-block.t1 {
   background: color-mix(in srgb, #12945f 55%, #1b2232);
-  border-color: color-mix(in srgb, #12945f 80%, #ffffff);
 }
+/* 选中：白色外框，两头是白色把手，拖把手改长度 */
 .ptt-block.on {
-  box-shadow:
-    0 0 0 2px #fff,
-    0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: inset 0 0 0 2px #fff;
   z-index: 2;
 }
 .ptt-block.dragging {
   cursor: grabbing;
-  opacity: 0.78;
+  opacity: 0.92;
   z-index: 4;
+  /* 浮起来：压在别的色块上面，落点看下面的虚线框 */
+  box-shadow:
+    inset 0 0 0 2px #fff,
+    0 10px 24px rgba(0, 0, 0, 0.55);
+}
+/* 拖动时别的色块让位：滑过去 */
+.ptt-lane.sorting .ptt-block:not(.dragging) {
+  transition:
+    left 0.16s ease,
+    width 0.16s ease;
+}
+/* 松手后的落点 */
+.ptt-ghost {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 0;
+  border: 1.5px dashed rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ptt-lane.sorting .ptt-block:not(.dragging) {
+    transition: none;
+  }
 }
 .ptt-block.over {
-  border-color: #ff6b6b;
+  box-shadow: inset 0 0 0 1px #ff6b6b;
   background-image: linear-gradient(90deg, transparent 85%, rgba(255, 80, 80, 0.55));
 }
 .ptt-block.gone {
@@ -317,16 +348,33 @@
   text-overflow: ellipsis;
   pointer-events: none;
 }
+/* 两头的把手：选中了才出现、才能拖（先点一下选中，再拖白色把手改长度） */
 .ptt-grip {
+  position: relative;
   flex: none;
-  width: 11px;
+  width: 10px;
   max-width: 25%;
   align-self: stretch;
-  cursor: ew-resize;
-  background: rgba(255, 255, 255, 0.18);
+  pointer-events: none;
 }
-.ptt-grip:hover {
-  background: rgba(255, 255, 255, 0.45);
+.ptt-block.on .ptt-grip {
+  pointer-events: auto;
+  cursor: ew-resize;
+  background: #fff;
+}
+/* 把手中间的竖点 */
+.ptt-block.on .ptt-grip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(0, 0, 0, 0.55) 0.9px, transparent 1.1px) 0 0 / 2px 3.3px repeat-y;
+}
+.ptt-block.on .ptt-grip:hover {
+  background: #e6ebf3;
 }
 .ptt-insert {
   position: absolute;
@@ -352,14 +400,14 @@
 }
 .ptt-hold {
   position: absolute;
-  top: 10px;
-  bottom: 10px;
+  top: 9px;
+  bottom: 9px;
   background: color-mix(in srgb, var(--accent) 30%, #1b2232);
   border-top: 1px dashed color-mix(in srgb, var(--accent) 70%, #ffffff);
   border-bottom: 1px dashed color-mix(in srgb, var(--accent) 70%, #ffffff);
   box-sizing: border-box;
 }
-.ptt-hold.even {
+.ptt-hold.t1 {
   background: color-mix(in srgb, #12945f 30%, #1b2232);
   border-color: color-mix(in srgb, #12945f 70%, #ffffff);
 }
@@ -370,7 +418,7 @@
   width: 2px;
   margin-left: -1px;
   background: #fff;
-  border-radius: 1px;
+  border-radius: 0;
   pointer-events: none;
   z-index: 3;
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
@@ -422,7 +470,7 @@
   align-items: start;
 }
 .ptt-lname {
-  padding-top: 16px;
+  padding-top: 12px;
   font-size: 11px;
   color: #8a94a6;
   text-align: right;
@@ -442,19 +490,15 @@
   bottom: auto;
   background: rgba(240, 163, 58, 0.13);
   border: 1px dashed rgba(240, 163, 58, 0.75);
+  box-shadow: none;
   color: #f6dcae;
 }
-.ptt-block.alt:nth-of-type(even) {
-  background: rgba(240, 163, 58, 0.13);
-  border-color: rgba(240, 163, 58, 0.75);
-}
 .ptt-block.alt.on {
-  box-shadow:
-    0 0 0 2px #f0a33a,
-    0 4px 14px rgba(0, 0, 0, 0.4);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px #fff;
 }
 /* 备选拖上来、松手会和它互换的那段画面 */
 .ptt-block.swap {
-  box-shadow: 0 0 0 2px #f0a33a;
+  box-shadow: inset 0 0 0 2px #f0a33a;
   opacity: 0.6;
 }

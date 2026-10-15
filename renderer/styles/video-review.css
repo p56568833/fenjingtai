@@ -149,9 +149,23 @@
 }
 .vr-strip {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(9, 1fr);
   gap: 5px;
   margin: 6px 0 8px;
+}
+/* 审核页右边：九张截图排成 3×3，从片段开头到结尾；点一张就在左边从那里播 */
+.vr-plans .vr-strip {
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.vr-cell[data-vr-at] {
+  cursor: pointer;
+  transition: box-shadow 0.12s ease;
+}
+.vr-cell[data-vr-at]:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 0 2px var(--accent);
 }
 .vr-cell {
   position: relative;
@@ -1047,7 +1061,7 @@ body.dark .vr-page p.vr-cov-note {
   display: grid;
   grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
   gap: 18px;
-  align-items: start;
+  align-items: stretch;
   padding-top: 12px;
   border-top: 1px solid color-mix(in srgb, var(--hairline) 80%, transparent);
 }
@@ -1055,6 +1069,83 @@ body.dark .vr-page p.vr-cov-note {
   position: sticky;
   top: 64px;
   min-width: 0;
+}
+/* 点候选播放时，候选临时盖在排好的画面上面、一样大，收起来时下面的时间条不跳 */
+.vr-dock-wrap {
+  position: relative;
+}
+.vr-dock-wrap.previewing > #vrDockPlayer {
+  visibility: hidden;
+}
+.vr-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  border-radius: 14px;
+  background: #11151f;
+  box-shadow: inset 0 0 0 2px #f0a33a;
+}
+.vr-preview[hidden] {
+  display: none;
+}
+.vr-pv-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 8px;
+  color: #e9edf5;
+  font-size: 13px;
+}
+.vr-pv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-pv-close {
+  flex: none;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.vr-pv-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.vr-pv-badge {
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #f0a33a;
+  color: #241503;
+  font-size: 12px;
+  font-weight: 600;
+}
+.vr-preview .vr-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+.vr-preview .vr-screen {
+  flex: 1;
+  min-height: 0;
+}
+.vr-preview .vr-player {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  object-fit: contain;
 }
 .vr-watch .pt-box.docked {
   width: 100%;
@@ -1077,6 +1168,12 @@ body.dark .vr-page p.vr-cov-note {
   min-height: 2.4em;
   font-size: 15px;
 }
+/* 画面下面那行（类型 · 第几句 · 正在放的片段）播到空白处会少一行：先留够两行的高度，
+   不然播放器一高一矮，下面的画面时间轴跟着上下跳，拖着的色块会从鼠标底下跑开 */
+.pt-box.docked .pt-meta {
+  min-height: 38px;
+  align-content: flex-start;
+}
 .vr-timeline {
   margin-top: 14px;
   padding: 2px;
@@ -1089,7 +1186,26 @@ body.dark .vr-page p.vr-cov-note {
   display: none;
 }
 .vr-plans {
+  position: relative;
   min-width: 0;
+}
+/* 右边一栏只和左边播放器一样高，放不下的在栏里滚：截图、候选再多，下面的画面时间条也一直在眼前 */
+.vr-plans > .vr-pbody {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 3px 6px 3px 3px; /* 选中卡片的描边不被裁掉 */
+}
+/* 卡片比这一栏高时，「播放这段 / 通过 / 不要 / 换一个」和意见框钉在栏底，不用往下翻就能审 */
+.vr-plans .vr-cand > .vr-row:not(.vr-after) {
+  position: sticky;
+  bottom: -3px;
+  z-index: 2;
+  margin: 0 -14px;
+  padding: 8px 14px 10px;
+  border-radius: 0 0 14px 14px;
+  background: inherit;
 }
 /* 方案状态：已填满 / 待审 N / 不够长 / 还差几秒 / 未采用（颜色和句子的画面状态一致） */
 .vr-pst {
@@ -1467,6 +1583,13 @@ body.dark .vr-tab-pill {
     grid-template-columns: minmax(0, 1fr);
   }
   .vr-watch {
+    position: static;
+  }
+  .vr-plans > .vr-pbody {
+    position: static;
+    overflow: visible;
+  }
+  .vr-plans .vr-cand > .vr-row:not(.vr-after) {
     position: static;
   }
 }

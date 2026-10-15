@@ -15,7 +15,7 @@ const frames = new Map();
 const queue = [];
 const active = new Map();
 let running = 0;
-const CELLS = 6;
+const CELLS = 9; // 从片段开头到结尾均匀抽 9 帧，审核页排成 3×3
 export const stripHTML = () => `<div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(CELLS)}</div>`;
 const stripOf = id => document.querySelector(`[data-vr-id="${id}"] .vr-strip`);
 /* 渲染后把截图放进卡片：截过的直接放，没截的排队去截 */
@@ -101,7 +101,7 @@ async function grab(job, signal) {
       throw Object.assign(new Error('入出点超出视频长度'), { outOfRange: v.duration });
     for (let i = 0; i < CELLS && valid(); i++) {
       const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / CELLS;
-      cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in), signal) });
+      cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in), signal, t - c.in) });
       if (!valid()) break;
       stripOf(orig.id)?.replaceChildren(
         ...cells.map(x => x.cell),
@@ -122,11 +122,14 @@ async function grab(job, signal) {
     releaseMedia(v);
   }
 }
-async function frameAt(v, t, label, signal) {
+async function frameAt(v, t, label, signal, rel) {
   await seekVideoFrame(v, t, { signal });
   const cv = drawVideoFrame(v);
   const cell = document.createElement('div');
   cell.className = 'vr-cell';
+  // 点这张就从这里开始播（片段里的第几秒）
+  cell.dataset.vrAt = rel.toFixed(2);
+  cell.title = `从 ${label} 开始播放`;
   const tag = document.createElement('i');
   tag.textContent = label;
   cell.append(cv, tag);

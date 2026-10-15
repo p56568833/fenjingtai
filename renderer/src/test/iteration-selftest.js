@@ -254,6 +254,13 @@ export async function runIterationTests(t) {
       );
       ruler.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
     };
+    // 默认谁都不选：先点一下第一个画面选中它，I / O 才裁它
+    const first = $('#pttLane .ptt-block');
+    const fr = first.getBoundingClientRect();
+    const at = { bubbles: true, button: 0, pointerId: 1, clientX: fr.left + fr.width / 2, clientY: fr.top + 5 };
+    first.querySelector('.ptt-label').dispatchEvent(new PointerEvent('pointerdown', at));
+    $('#pttLanes').dispatchEvent(new PointerEvent('pointerup', at));
+    await pause(20);
     const want = Math.round(lay().dur * 0.1 * 10) / 10;
     scrubTo(0.1);
     key(document.body, 'i');

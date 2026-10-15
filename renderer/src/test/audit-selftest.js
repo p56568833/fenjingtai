@@ -10,7 +10,7 @@ import { importCandidateData } from '../app/candidate-actions.js';
 import { addRefsToShot, setUsageRole, setShotTimes } from '../app/asset-actions.js';
 import { playerHTML, playClip, stopClip, setVoiceOn } from '../features/clip-player.js';
 import { voicePlayer } from '../features/voice.js';
-import { closePlaythrough, playthroughState, playthroughKey } from '../features/playthrough.js';
+import { closePlaythrough, playthroughState, playthroughKey, trackDragging } from '../features/playthrough.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 const firstLine = () => state.rows.find(row => row.kind === 'line');
@@ -184,14 +184,14 @@ export async function runAuditTests(t) {
       return lane;
     };
     let lane = down();
-    lane.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 123 }));
-    t('拖动取消会释放拖动回调', !lane.onpointermove && !lane.onpointerup);
+    lane.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 123 }));
+    t('拖动取消会释放拖动回调', !trackDragging());
     await pause(20);
     lane = down();
-    const lateUp = lane.onpointerup;
+    lane.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 123, clientX: 5 }));
     closePlaythrough();
-    lateUp();
-    t('关闭预览后迟到的松开事件不会提交拖动', !lane.onpointermove && !row.assetUsages[0].at);
+    lane.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 123, clientX: 5 }));
+    t('关闭预览后迟到的松开事件不会提交拖动', !trackDragging() && !row.assetUsages[0].at);
     runCommand('playthrough:shot', row.id);
     setShotTimes(row, [{ assetId: row.assetUsages[0].assetId, start: 0, end: 1 }]);
     await pause(30);

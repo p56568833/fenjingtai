@@ -9,6 +9,7 @@ import { playerHTML, targetLines, playClip, slotOf } from './clip-player.js';
 import { stripHTML, mediaOf } from './review-frames.js';
 import { page } from './review-model.js';
 import { pauseDocked } from './playthrough.js';
+import { previewHost, showPreview } from './review-preview.js';
 
 const $ = s => document.querySelector(s);
 
@@ -71,7 +72,7 @@ export function cardHTML(c) {
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
     ${c.limits ? `<p class="vr-cov-note">缺：${esc(c.limits)}</p>` : ''}
     ${stripHTML()}
-    ${playerHTML(c)}
+    ${page.mode === 'rework' ? playerHTML(c) : '' /* 审核页的候选在左边播放器里播；待返工页没有左边播放器，在卡片里播 */}
     <div class="vr-row">
       <button class="vr-btn play" data-vr-play="${c.id}">▶ 播放这段</button>
       <button class="vr-btn ok${d === 'ok' ? ' on' : ''}" data-vr-d="ok" data-vr-for="${c.id}">通过 <kbd>1</kbd></button>
@@ -96,11 +97,14 @@ export function doneHTML(c) {
   return `<div class="vr-done d-${d}${thumbs ? ' has-thumbs' : ''}" data-vr-id="${c.id}" title="点开查看画面（审核结果不变）">${thumbs}<span class="vr-tag d-${d}">${DECISION[d]}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
 }
 
-export function play(id) {
+/* 播放这个候选：审核页在左边播放器里播（候选预览），待返工页在卡片里播。at：从片段里的第几秒开始（点截图） */
+export function play(id, at = null) {
+  if (previewHost()) return showPreview(id, { at });
   const c = state.candidates.find(x => x.id === id);
   const card = document.querySelector(`[data-vr-id="${id}"]`);
   if (!c || !card) return;
   const btn = card.querySelector('[data-vr-play]');
   pauseDocked(); // 下面嵌着的「对着口播看画面」先停，免得两路口播一起响
-  playClip(card, mediaOf(c), { onState: text => (btn.textContent = text) });
+  const media = mediaOf(c);
+  playClip(card, media, { from: at == null ? null : media.in + at, onState: text => (btn.textContent = text) });
 }

@@ -12,42 +12,51 @@ export const shotEntries = items =>
     end: round1(Math.max(it.end, it.start + MIN_LEN)),
   }));
 
-/* 越过邻段中心后插入；只重排跨过的区间，空隙保留在原来的间隔位置。 */
+/* 前沿越过邻段的一半后换到它的另一边：被越过的画面原地不动，拖的这段紧挨着放到它另一边（鼠标拖得更远、那边有空时放在鼠标处）。
+   那边的空不够放下时，被越过的画面才往拖走后空出来的位置挪，挪到刚好放得下为止。各段长度都不变。 */
 export function movePicture(items, index, start, dur) {
   const entries = shotEntries(items);
   const original = entries[index];
   if (!original || original.start >= dur) return null;
   const len = round1(Math.min(original.end, dur) - original.start);
-  const center = start + len / 2;
+  // 拖的这段前沿越过邻段的一半就换过去（往右看右边沿，往左看左边沿）
+  const mid = k => (items[k].start + Math.min(items[k].end, dur)) / 2;
   let dest = index;
-  while (dest > 0 && center < (items[dest - 1].start + Math.min(items[dest - 1].end, dur)) / 2) dest--;
-  while (
-    dest + 1 < items.length &&
-    items[dest + 1].start < dur &&
-    center > (items[dest + 1].start + Math.min(items[dest + 1].end, dur)) / 2
-  )
-    dest++;
+  while (dest + 1 < items.length && items[dest + 1].start < dur && start + len > mid(dest + 1)) dest++;
+  if (dest === index) while (dest > 0 && start < mid(dest - 1)) dest--;
+  // 拖走后它原来那段的左右边界（被越过的画面最多挪到这里）
+  const lo = index ? Math.min(entries[index - 1].end, dur) : 0;
+  const hi = index + 1 < entries.length ? Math.min(entries[index + 1].start, dur) : dur;
   if (dest === index) {
-    const lo = index ? Math.min(entries[index - 1].end, dur) : 0;
-    const hi = index + 1 < entries.length ? Math.min(entries[index + 1].start, dur) : dur;
     original.start = round1(clamp(round1(start), ceil1(lo), floor1(hi - len)));
     original.end = round1(original.start + len);
+  } else if (dest > index) {
+    // 往右越过 index+1 … dest：放在 dest 的右边，到下一段（或口播末尾）之前
+    const crossed = entries.slice(index + 1, dest + 1);
+    const limit = dest + 1 < entries.length ? Math.min(entries[dest + 1].start, dur) : dur;
+    const shift = round1(clamp(entries[dest].end + len - limit, 0, crossed[0].start - lo));
+    for (const e of crossed) {
+      e.start = round1(e.start - shift);
+      e.end = round1(e.end - shift);
+    }
+    original.start = round1(clamp(round1(start), entries[dest].end, Math.max(entries[dest].end, limit - len)));
+    original.end = round1(original.start + len);
+    entries.splice(index, 1);
+    entries.splice(dest, 0, original);
   } else {
-    const lo = Math.min(index, dest),
-      hi = Math.max(index, dest);
-    const part = entries.slice(lo, hi + 1);
-    const gaps = part.slice(1).map((e, n) => round1(Math.max(0, e.start - part[n].end)));
-    const lengths = new Map(part.map(e => [e.assetId, round1(Math.min(e.end, dur) - e.start)]));
-    const [moving] = part.splice(index - lo, 1);
-    part.splice(dest - lo, 0, moving);
-    let t = entries[lo].start;
-    part.forEach((e, n) => {
-      const length = lengths.get(e.assetId);
-      e.start = round1(t);
-      e.end = round1(t + length);
-      t = e.end + (gaps[n] || 0);
-    });
-    entries.splice(lo, part.length, ...part);
+    // 往左越过 dest … index-1：放在 dest 的左边，上一段（或开头）之后
+    const crossed = entries.slice(dest, index);
+    const limit = dest ? Math.min(entries[dest - 1].end, dur) : 0;
+    const shift = round1(clamp(limit + len - entries[dest].start, 0, hi - Math.min(crossed.at(-1).end, dur)));
+    for (const e of crossed) {
+      e.start = round1(e.start + shift);
+      e.end = round1(e.end + shift);
+    }
+    const end = clamp(round1(start + len), Math.min(entries[dest].start, limit + len), entries[dest].start);
+    original.start = round1(end - len);
+    original.end = round1(end);
+    entries.splice(index, 1);
+    entries.splice(dest, 0, original);
   }
   const before = shotEntries(items);
   const changed = entries.some(

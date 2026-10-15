@@ -157,8 +157,8 @@ function syncVoice(c, w, v) {
   if (!v.paused && !voicePlayer.isPlaying()) voicePlayer.playRange(want, w.start + w.dur);
 }
 
-/* 播放这段：一点就加载并从入点开始播；按钮和画面中间会提示「载入中…」 */
-export function playClip(card, c, { onState } = {}) {
+/* 播放这段：一点就加载并从入点开始播（from：从片段里的这个时间开始，审核页点截图时用）；按钮和画面中间会提示「载入中…」 */
+export function playClip(card, c, { onState, onEnd, from = null } = {}) {
   stopAllVideos();
   const v = card.querySelector('.vr-player');
   const stage = card.querySelector('.vr-stage');
@@ -187,6 +187,8 @@ export function playClip(card, c, { onState } = {}) {
     if (v.currentTime >= c.out) {
       v.pause();
       v.currentTime = c.in;
+      onEnd?.();
+      if (active !== session) return;
     } else if (v.currentTime < c.in - 0.5 && !v.seeking) v.currentTime = c.in; // 跳转没生效、从头播起来了：拉回入点
     paintNow(card, c, w, v);
     syncVoice(c, w, v);
@@ -209,6 +211,7 @@ export function playClip(card, c, { onState } = {}) {
     if (active?.v === v && active.usingVoice) voicePlayer.pause();
     paintNow(card, c, w, v);
   };
+  v.onended = () => active === session && onEnd?.(); // 原片比出点先结束
   v.onerror = () => {
     if (active !== session) return;
     wait.hidden = true;
@@ -235,12 +238,12 @@ export function playClip(card, c, { onState } = {}) {
     }
     wait.classList.remove('err');
     wait.textContent = '载入中…';
-    v.currentTime = c.in;
+    v.currentTime = from == null ? c.in : Math.max(c.in, Math.min(c.out - 0.1, from));
     v.play().catch(() => {});
   };
   session.cleanup = () => {
     v.removeEventListener('loadedmetadata', go);
-    v.ontimeupdate = v.onwaiting = v.onplaying = v.onpause = v.onerror = null;
+    v.ontimeupdate = v.onwaiting = v.onplaying = v.onpause = v.onerror = v.onended = null;
     if (box) box.onchange = null;
   };
   wait.hidden = false;

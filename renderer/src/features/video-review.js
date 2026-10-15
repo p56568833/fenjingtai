@@ -54,6 +54,7 @@ import {
   pauseDocked,
   trackDragging,
 } from './playthrough.js';
+import { previewHost, previewingId, showTimeline, followCand } from './review-preview.js';
 import { togglePause, seekTrack, stopAllVideos, stopClip, setVoiceOn } from './clip-player.js';
 import * as nat from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/base/dom.js';
@@ -476,7 +477,9 @@ function paintVideoReview() {
       ${reworkNote ? `<p class="vr-need vr-rework-note"><b>原返工意见</b>${esc(reworkNote)}</p>` : ''}</div>
       ${i0 > 0 ? ctx(allLines[i0 - 1], 'before') : ''}
       <div class="vr-split">
-        <div class="vr-watch" id="vrDockPlayer" aria-label="对着口播看画面"></div>
+        <div class="vr-watch">
+          <div class="vr-dock-wrap"><div id="vrDockPlayer" aria-label="对着口播看画面"></div><div class="vr-preview" id="vrPreview" aria-label="候选预览" hidden></div></div>
+        </div>
         <div class="vr-plans"><div class="vr-pbody">${headHTML}<div class="vr-plist">${layoutShot(g).order.map(itemHTML).join('')}</div></div></div>
       </div>
       <div class="vr-timeline" id="vrDockTrack"></div>
@@ -484,6 +487,7 @@ function paintVideoReview() {
     </section>`;
   // 这个画面显示的内容一点没变（协作者改的是别的句子、后台存了文件…）：不重建，正在播的视频、截图和滚动位置都留着
   if (shotHTML === painted.shot && painted.shotEl?.parentNode === host) {
+    followCand();
     paintStrips(
       host,
       open.filter(c => c.id === page.curCand),
@@ -497,8 +501,11 @@ function paintVideoReview() {
   host.innerHTML = shotHTML;
   painted.shot = shotHTML;
   painted.shotEl = host.firstElementChild;
-  if (top) host.scrollTop = top;
+  // 先把播放器和画面时间轴接回来再恢复滚动：接回来之前页面短了一大截，滚动位置会被压到顶上，
+  // 拖完一下审核页就跳回最上面
   dockHere(g);
+  showTimeline(); // 整块重画换掉了播放器：盖着的候选收起，回到排好的画面
+  if (top) host.scrollTop = top;
   const shown = open.filter(c => c.id === page.curCand);
   paintMotion(host, g, shown);
   host.querySelector('.vr-shot-head')?.classList.toggle('stuck', host.scrollTop > 2);
@@ -513,7 +520,7 @@ function dockHere(g) {
     track = $('#vrDockTrack');
   if (!player || !track || !g?.lead) return undockPlaythrough();
   dockPlaythrough({ player, track }, g.lead.id, {
-    onPlay: stopClip, // 开始播这个画面：候选片段先停
+    onPlay: showTimeline, // 开始播排好的画面：候选停下，左边回到画面时间
     onLost: () => {
       // 弹窗版借走后还回来：审核页还开着就接回去
       painted.shot = null;
@@ -644,6 +651,11 @@ export function videoReviewKey(e) {
   if (/^[ioIO]$/.test(e.key) && isDocked()) return playthroughKey(e);
   if (e.key === ' ') {
     e.preventDefault();
+    // 审核页：空格永远播 / 停排好的画面（看整体效果）；候选正盖在上面就先收起来。看候选点「播放这段」或截图
+    if (previewHost()) {
+      showTimeline();
+      return toggleDocked() || true;
+    }
     if (!page.curCand) return toggleDocked() || true;
     const card = $(`#vrList [data-vr-id="${page.curCand}"]`);
     const c = state.candidates.find(x => x.id === page.curCand);
@@ -692,6 +704,14 @@ export function initVideoReview() {
     const key = curShots().find(g => String(g.key) === b.dataset.vrGoto)?.key;
     if (key != null) selectShot(key);
   });
+  // 碰下面的画面时间条（点、拖、裁）：左边回到画面时间，看的就是时间条上的画面
+  $('#vrList').addEventListener(
+    'pointerdown',
+    e => {
+      if (previewingId() && e.target.closest?.('#vrDockTrack')) showTimeline();
+    },
+    true,
+  );
   // 往下翻候选时，钉在顶上的画面标题下沿加一道淡影，看得出下面还有内容在滚
   $('#vrList').addEventListener(
     'scroll',
@@ -705,18 +725,26 @@ export function initVideoReview() {
       page.curCand = card.dataset.vrId;
       document.querySelectorAll('#vrList .vr-cand').forEach(el => el.classList.toggle('focus', el === card));
       paintLineFocus(state.candidates.find(x => x.id === page.curCand));
+      followCand();
     }
+    // 盖在左边的候选：收起，回到排好的画面
+    if (t.closest('[data-vr-pv-close]')) return showTimeline();
+    // 截图：从这一帧开始，在左边播放器里播
+    const cell = t.closest('.vr-cand .vr-cell[data-vr-at]');
+    if (cell && card) return play(card.dataset.vrId, +cell.dataset.vrAt);
+    // 片段播放器（审核页在左边的候选预览里，待返工页在卡片里）
+    const player = t.closest('#vrPreview') || card;
     const track = t.closest('[data-vr-track]');
     if (track) {
       const c = state.candidates.find(x => x.id === track.dataset.vrTrack);
-      if (c) seekTrack(card, mediaOf(c), track, e.clientX);
+      if (c && player) seekTrack(player, mediaOf(c), track, e.clientX);
       return;
     }
     const pp = t.closest('[data-vr-pp]');
     if (pp) {
       const c = state.candidates.find(x => x.id === pp.dataset.vrPp);
       pauseDocked();
-      if (c && !togglePause(card, mediaOf(c))) play(c.id);
+      if (c && !(player && togglePause(player, mediaOf(c)))) play(c.id);
       return;
     }
     if (t.closest('[data-vr-rw-off]')) return dismissCurrentRework();

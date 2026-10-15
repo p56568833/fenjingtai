@@ -10,6 +10,7 @@ import { addRefsToShot } from '../app/asset-actions.js';
 import { setType } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
 import { flushWriteBack, tagOldSavedClips, setDecision, openRework } from '../features/video-review.js';
+import { playthroughState } from '../features/playthrough.js';
 import { importCandidateData, setReworkNote } from '../app/candidate-actions.js';
 import { parseLines, parseClock, planImport, lineTag } from '../core/candidates.js';
 import { confirmModal } from '../ui/base/dom.js';
@@ -309,8 +310,9 @@ export async function runVideoReviewTests(t) {
   click('#vrBatchMore');
   t('再点「⋯」收起菜单', !$('.popover'));
   t(
-    '每个候选有 6 格截图位、建议片段和版权',
+    '每个候选有 9 格截图位（审核页排成 3×3）、建议片段和版权',
     card('A1')?.querySelectorAll('.vr-cell').length >= 1 &&
+      getComputedStyle(card('A1').querySelector('.vr-strip')).gridTemplateColumns.split(' ').length === 3 &&
       card('A1').textContent.includes('01:41–01:50') &&
       card('A1').textContent.includes('公有领域'),
   );
@@ -327,7 +329,37 @@ export async function runVideoReviewTests(t) {
     '播放器默认不加载（不下载）',
     $$('#vrList video.vr-player').every(v => !v.getAttribute('src')),
   );
-
+  // 右边卡片不再带播放器：点「播放这段」时候选临时盖在左边播放器上播；空格永远管排好的画面
+  t(
+    '审核页卡片里没有播放器，左边平时放排好的画面',
+    !card('A1')?.querySelector('.vr-player') && !$('#vrModes') && $('#vrPreview')?.hidden,
+  );
+  click(card('A1').querySelector('[data-vr-play]'));
+  await pause(30);
+  t(
+    '点「播放这段」：候选临时盖在左边播放器上，标着「候选」和是哪个视频',
+    !$('#vrPreview').hidden &&
+      !!$('#vrPreview video.vr-player') &&
+      $('.vr-dock-wrap').classList.contains('previewing') &&
+      $('#vrPreview .vr-pv-badge')?.textContent === '候选' &&
+      $('#vrPreview .vr-pv-title')?.textContent.includes(cand('A1').title),
+  );
+  click('#vrPreview [data-vr-pv-close]');
+  await pause(20);
+  t('点「回到画面时间」：候选收起，回到排好的画面', $('#vrPreview').hidden && !$('#vrPreview video'));
+  click(card('A1').querySelector('[data-vr-play]'));
+  await pause(20);
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  await pause(30);
+  t('候选盖着时按空格：收起候选，播排好的画面（空格不播候选）', $('#vrPreview').hidden && playthroughState().playing);
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  await pause(20);
+  t('再按空格：排好的画面停下，候选也没被打开', !playthroughState().playing && $('#vrPreview').hidden);
+  t(
+    '右边一栏和左边播放器一样高，内容多了在栏里滚，下面的画面时间条不被挤走',
+    Math.abs($('.vr-plans').getBoundingClientRect().height - $('.vr-watch').getBoundingClientRect().height) < 2 &&
+      getComputedStyle($('.vr-plans > .vr-pbody')).overflowY === 'auto',
+  );
   importLoadedFile(file);
   await pause(30);
   t('同一份清单再导入只更新，不重复', state.candidates.length === 3);
@@ -943,13 +975,94 @@ export async function runVideoReviewTests(t) {
     roleOf('P1b') === 'alt' && Math.abs(atOf('P1b').start - (before + 1.5)) < 0.15,
     JSON.stringify([before, atOf('P1b')]),
   );
-  const kept = atOf('P1b').start;
-  await slowDrag('P1b', 1, async () => {
+  // 拖动期间改了备注、后台把片段存到本地（入出点换成本地的）：不动排布，松手照样保存，不弹回
+  const noted = atOf('P1b').start;
+  await slowDrag('P1b', -1, async () => {
     for (const r of lines()) for (const u of r.assetUsages) if (u.assetId === aid('P1a')) u.note = '对方改了';
+    for (const r of lines())
+      for (const u of r.assetUsages) if (u.assetId === aid('P1b')) u.clip = { ...(u.clip || { in: 0 }), local: true };
     emit('project-changed');
     await pause(40);
   });
-  t('拖动期间同一个画面被别处改过：这次拖动不保存，不盖掉对方的改动', atOf('P1b').start === kept);
+  t(
+    '拖动期间改了备注、后台保存了片段：松手照样保存，不弹回',
+    Math.abs(atOf('P1b').start - (noted - 1)) < 0.15,
+    JSON.stringify([noted, atOf('P1b')]),
+  );
+  // 拖动期间协作对方挪了正在拖的这个画面：草稿按旧排布算的，不提交，以对方的为准
+  let kept = 0;
+  await slowDrag('P1b', 1, async () => {
+    for (const r of lines())
+      for (const u of r.assetUsages)
+        if (u.assetId === aid('P1b')) u.at = { ...u.at, start: u.at.start + 0.5, end: u.at.end + 0.5 };
+    kept = atOf('P1b').start;
+    emit('project-changed');
+    await pause(40);
+  });
+  t('拖动期间同一个画面被别处挪过：这次拖动不保存，不盖掉对方的改动', atOf('P1b').start === kept);
+  // 拖得快：按下以后一次移动都没报就松手（浏览器把移动合并掉了），按松手的位置存
+  const flick = async (key, sec) => {
+    const el = blockOf(key);
+    const [x0, y0] = at(el);
+    const px = $('#pttLane').getBoundingClientRect().width / 6;
+    fire(el.querySelector('.ptt-label') || el, 'pointerdown', x0, y0);
+    fire(lanes(), 'pointerup', x0 + sec * px, y0);
+    await pause(60);
+  };
+  const flickFrom = atOf('P1b').start;
+  await flick('P1b', 1);
+  t(
+    '快速拖动（中间没有移动事件）：备选停在松手的地方，不弹回',
+    roleOf('P1b') === 'alt' && Math.abs(atOf('P1b').start - (flickFrom + 1)) < 0.15,
+    JSON.stringify([flickFrom, atOf('P1b')]),
+  );
+  const mainFrom = atOf('P1a').start;
+  await flick('P1a', 1);
+  t(
+    '快速拖动正片：同样停在松手的地方',
+    roleOf('P1a') === 'main' && Math.abs(atOf('P1a').start - (mainFrom + 1)) < 0.15,
+    JSON.stringify([mainFrom, atOf('P1a')]),
+  );
+  // 审核页滚到下面看时间轴时整块重画（拖完「已排几秒」变了就会重画）：滚动位置不变，不跳回最上面
+  const host = $('#vrList');
+  host.style.maxHeight = '320px';
+  // 滚到时间轴附近（不贴底：贴底时重画前后页面高度差一点，滚动位置会被浏览器夹住）
+  host.scrollTop = Math.max(0, host.scrollHeight - host.clientHeight - 80);
+  await pause(30);
+  const scrolled = host.scrollTop;
+  const tall = host.scrollHeight;
+  cand('P2').title = '视频 P2（改名触发重画）';
+  update('rows');
+  await pause(60);
+  t(
+    '审核页滚到下面时整块重画：滚动位置不变，时间轴还在原处',
+    scrolled > 0 && Math.abs(host.scrollTop - scrolled) < 2 && !!$('#vrList #vrDockTrack #pttLane'),
+    JSON.stringify([scrolled, host.scrollTop, tall, host.scrollHeight]),
+  );
+  host.style.maxHeight = '';
+  // 和协作同步一样：先报「对方改动已写入」，再刷新界面（审核页会跟着重画）
+  const remote = () => {
+    emit('collab-applied');
+    emit('collab-remote');
+  };
+  // 协作对方只改了备注：排布没变，不提示
+  for (const r of lines()) for (const u of r.assetUsages) if (u.assetId === aid('P1a')) u.note = '对方又改了';
+  remote();
+  await pause(60);
+  t('协作对方只改了备注：不提示画面被换', !$('#pttWarn')?.textContent.includes('协作对方'));
+  // 协作对方挪了现在开着的这个画面：「画面时间」那一行说一声
+  for (const r of lines())
+    for (const u of r.assetUsages) if (u.assetId === aid('P1a')) u.at = { ...u.at, end: u.at.end - 0.5 };
+  remote();
+  await pause(60);
+  t(
+    '协作对方挪了开着的画面：画面时间一行提示已换成对方的版本',
+    $('#pttWarn')?.textContent.includes('协作对方'),
+    $('#pttWarn')?.textContent,
+  );
+  remote();
+  await pause(60);
+  t('对方没再改这个画面：不重复提示', !$('#pttWarn')?.textContent.includes('协作对方'));
   await drag('P2', [timeOfX(4), laneY('#pttLane')]);
   t(
     '备选拖进正片轨的空隙：插进去，从空隙开头放',

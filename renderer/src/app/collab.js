@@ -178,6 +178,8 @@ function afterRemote(s, sum, { full = false } = {}) {
     return;
   }
   storage.persist();
+  // 对方的改动已经写进数据、界面还没开始刷新：要和刷新前比一比的（镜头轨认「对方改了这个画面」）先看
+  emit('collab-applied');
   const has = id => state.rows.some(r => r.id === id && r.kind === 'line');
   if (state.sel != null && !has(state.sel)) {
     if (sum?.removed?.includes(state.sel)) notify(`你停着的这句被${s.peer || '对方'}删掉了`, null, 'info');

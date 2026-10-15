@@ -76,6 +76,14 @@ export async function testShotEditPointer(page, report) {
     await page.mouse.click(p.left + (p.width * seconds) / 6, p.y);
   };
   const drag = async (id, edge, delta, shift = false) => {
+    // 两头的把手选中了才出现（和剪映一样）：裁剪前先点一下选中
+    if (edge && !(await page.$eval(`[data-ptt="${id}"]`, el => el.classList.contains('on')))) {
+      const at = await page.$eval(`[data-ptt="${id}"]`, el => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      await page.mouse.click(at.x, at.y);
+    }
     const selector = `[data-ptt="${id}"]${edge ? ` .ptt-grip.${edge}` : ''}`;
     const p = await page.$eval(selector, el => {
       el.scrollIntoView({ block: 'nearest' });
@@ -96,6 +104,10 @@ export async function testShotEditPointer(page, report) {
   const usage = (data, id) => data.rows[0].assetUsages.find(u => u.assetId === id);
   try {
     await settled();
+    check(
+      '刚打开时谁都不选：没有白框和把手，看得清相邻画面接没接上',
+      await page.$$eval('#pttLanes .ptt-block.on', els => els.length === 0),
+    );
     await rulerAt(0.8);
     const beforeTime = (await read()).time;
     const b = await page.$eval('[data-ptt="edit-b"]', el => {
@@ -104,11 +116,28 @@ export async function testShotEditPointer(page, report) {
     });
     await page.mouse.click(b.x, b.y);
     check('点选素材保持播放头原位', Math.abs((await read()).time - beforeTime) < 0.01);
+    const look = await page.evaluate(() => {
+      const css = el => getComputedStyle(el);
+      const b = document.querySelector('[data-ptt="edit-b"]'),
+        a = document.querySelector('[data-ptt="edit-a"]'),
+        head = document.querySelector('#pttRHead');
+      return {
+        radius: css(b).borderRadius,
+        bGrip: css(b.querySelector('.ptt-grip')).pointerEvents,
+        aGrip: css(a.querySelector('.ptt-grip')).pointerEvents,
+        down: css(head).borderTopColor === 'rgb(255, 255, 255)' && parseFloat(css(head).borderTopWidth) > 0,
+      };
+    });
+    check(
+      '色块直角；选中的才有白框和两头把手，没选中的不能拖边；播放头是倒三角',
+      look.radius === '0px' && look.bGrip === 'auto' && look.aGrip === 'none' && look.down,
+      JSON.stringify(look),
+    );
 
     let release = await drag('edit-a', null, 4.5);
-    const marker = await page.$eval('#pttInsert', el => !el.hidden);
+    const marker = await page.$eval('#pttGhost', el => !el.hidden);
     const during = await read();
-    check('换序拖动展示插入位置，松手前不修改项目', marker && usage(during, 'edit-a').at.start === 0);
+    check('换序拖动用虚线框标出落点，松手前不修改项目', marker && usage(during, 'edit-a').at.start === 0);
     await release();
     let data = await read();
     check(
@@ -211,6 +240,98 @@ export async function testShotEditPointer(page, report) {
     check(
       '取消裁剪恢复原片段且不产生撤销记录',
       usage(data, 'edit-a').at.start === 0 && usage(data, 'edit-a').clip.in === 0.2 && !data.canUndo,
+    );
+
+    // 拖进相邻画面但没过它的一半：色块浮着跟鼠标走，虚线落点框停在挡住处；松手不动并说明原因
+    const leftOf = id => page.$eval(`[data-ptt="${id}"]`, el => parseFloat(el.style.left));
+    const ghostAt = () => page.$eval('#pttGhost', el => (el.hidden ? null : parseFloat(el.style.left)));
+    const toneOf = id => page.$eval(`[data-ptt="${id}"]`, el => el.classList.contains('t1'));
+    const warn = () => page.$eval('#pttWarn', el => el.textContent);
+    const tones = { a: await toneOf('edit-a'), b: await toneOf('edit-b') };
+    release = await drag('edit-a', null, 0.6);
+    const floating = await leftOf('edit-a');
+    const pinned = await ghostAt();
+    const hint = await warn();
+    await release();
+    data = await read();
+    check(
+      '拖到被相邻画面挡住：色块浮着跟鼠标，落点框停在挡住处并提示，松手不动',
+      Math.abs(floating - 10) < 0.5 &&
+        pinned != null &&
+        Math.abs(pinned) < 0.2 &&
+        hint.includes('挡住') &&
+        usage(data, 'edit-a').at.start === 0 &&
+        !data.canUndo,
+      JSON.stringify([floating, pinned, hint, usage(data, 'edit-a').at]),
+    );
+    check('挡住没动时，松手后说明没有移动的原因', (await warn()).includes('没有移动'), await warn());
+    // 前沿过了相邻画面的一半：落点框跳到它另一边紧挨着，松手就落在框里；颜色跟着素材，不互换
+    release = await drag('edit-a', null, 2.2);
+    const preview = await ghostAt();
+    await release();
+    data = await read();
+    const landed = data.layout.items.find(it => it.assetId === 'edit-a');
+    const crossed = data.layout.items.find(it => it.assetId === 'edit-b');
+    check(
+      '越过相邻画面一半换位置：落点框就是松手后的位置，紧挨着它的另一边',
+      data.layout.items.map(it => it.assetId).join() === 'edit-b,edit-a,edit-c' &&
+        Math.abs(landed.start - crossed.end) < 0.01 &&
+        preview != null &&
+        Math.abs(preview - (landed.start / data.layout.dur) * 100) < 0.2 &&
+        Math.abs((await leftOf('edit-a')) - preview) < 0.2,
+      JSON.stringify([preview, landed.start, data.layout.items.map(it => [it.assetId, it.start])]),
+    );
+    check(
+      '换位置后两段颜色不互换，跟着各自的素材',
+      tones.a !== tones.b && (await toneOf('edit-a')) === tones.a && (await toneOf('edit-b')) === tones.b,
+      JSON.stringify([tones, await toneOf('edit-a'), await toneOf('edit-b')]),
+    );
+    await undo();
+
+    // 拖到一半浏览器收回了指针捕获（录屏里色块当场弹回、没有提示的那种）：拖动继续，松手照样保存
+    release = await drag('edit-c', 'r', -0.3);
+    await page.evaluate(() => {
+      const lanes = document.querySelector('#pttLanes');
+      for (const id of [1, 2]) if (lanes.hasPointerCapture(id)) lanes.releasePointerCapture(id);
+    });
+    const grip = await page.$eval('[data-ptt="edit-c"] .ptt-grip.r', el => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    const laneW = await page.$eval('#pttLane', el => el.getBoundingClientRect().width);
+    await page.mouse.move(grip.x - (0.3 / 6) * laneW, grip.y, { steps: 3 });
+    await release();
+    data = await read();
+    check(
+      '拖动中途指针捕获被收回：不弹回，松手停在拖到的地方',
+      Math.abs(usage(data, 'edit-c').at.end - 5.4) < 0.11,
+      JSON.stringify(usage(data, 'edit-c').at),
+    );
+    await undo();
+
+    // 点轨上空白处取消选中；没选中时按 I / O 提示先选画面
+    await page.mouse.click(grip.x - 40, grip.y);
+    await page.mouse.click(
+      ...(await page.$eval('#pttAlt', el => {
+        const r = el.getBoundingClientRect();
+        return [r.left + r.width / 2, r.top + r.height / 2];
+      })),
+    );
+    const cleared = await page.$$eval('#pttLanes .ptt-block.on', els => els.length === 0);
+    // 点刻度尺那条横线也取消选中
+    await page.mouse.click(grip.x - 40, grip.y);
+    const reselected = await page.$$eval('#pttLanes .ptt-block.on', els => els.length === 1);
+    await rulerAt(2);
+    const rulerCleared = await page.$$eval('#pttLanes .ptt-block.on', els => els.length === 0);
+    check('点刻度尺那条横线也取消选中', reselected && rulerCleared, JSON.stringify([reselected, rulerCleared]));
+    const under = (await read()).layout.items.find(it => it.start <= 2 && it.end > 2)?.assetId;
+    await page.keyboard.press('i');
+    await settled();
+    data = await read();
+    check(
+      '点轨上空白处取消选中，白框和把手收起；没选中时按 I 裁播放头底下那段',
+      cleared && !!under && Math.abs(data.layout.items.find(it => it.assetId === under).start - 2) < 0.06,
+      JSON.stringify([cleared, under, data.layout.items.map(it => [it.assetId, it.start, it.end])]),
     );
   } finally {
     await page.mouse.up().catch(() => {});

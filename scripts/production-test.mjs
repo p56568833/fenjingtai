@@ -2703,12 +2703,12 @@ test('不同长度素材插入换序，时长和区间总长保持，原数据�
   assert.equal(JSON.stringify(items), before);
   assert.equal(movePicture(items, 0, 1, 19.7).changed, false);
 });
-test('跨过多段换序保留各段长度与原间隔，不影响区间外素材', () => {
+test('跨过多段换序：放到最后越过那段的另一边，那边不够放时被越过的才往空出的位置让，不影响区间外素材', () => {
   const items = [editVideo('a', 1, 3), editVideo('b', 4, 7), editVideo('c', 9, 13), editVideo('d', 14, 16)];
   assert.deepEqual(movePicture(items, 0, 11, 20).entries, [
-    { assetId: 'b', start: 1, end: 4 },
-    { assetId: 'c', start: 5, end: 9 },
-    { assetId: 'a', start: 11, end: 13 },
+    { assetId: 'b', start: 3, end: 6 },
+    { assetId: 'c', start: 8, end: 12 },
+    { assetId: 'a', start: 12, end: 14 },
     { assetId: 'd', start: 14, end: 16 },
   ]);
   assert.deepEqual(
@@ -2717,6 +2717,24 @@ test('跨过多段换序保留各段长度与原间隔，不影响区间外素�
       .map(e => e.assetId),
     ['c', 'a', 'b'],
   );
+});
+test('前沿越过相邻画面一半就紧挨着放到它另一边，相邻画面原地不动、颜色顺序无关', () => {
+  const two = [editVideo('a', 0, 3), editVideo('b', 6, 9)];
+  // 前沿 7.6 > b 的一半 7.5：换到 b 右边，紧挨着 b，b 不动
+  assert.deepEqual(movePicture(two, 0, 4.6, 12).entries, [
+    { assetId: 'b', start: 6, end: 9 },
+    { assetId: 'a', start: 9, end: 12 },
+  ]);
+  // 没过一半：被 b 挡住，停在紧挨 b 的左边
+  assert.deepEqual(movePicture(two, 0, 4.4, 12).entries, [
+    { assetId: 'a', start: 3, end: 6 },
+    { assetId: 'b', start: 6, end: 9 },
+  ]);
+  // 往左越过：紧挨着放到 a 左边；左边空不够时 a 往右让出刚好的位置
+  assert.deepEqual(movePicture([editVideo('a', 1, 3), editVideo('b', 3, 9)], 1, -1, 9).entries, [
+    { assetId: 'b', start: 0, end: 6 },
+    { assetId: 'a', start: 6, end: 8 },
+  ]);
 });
 test('移动到空隙时不裁剪视频，也不吸附任意播放位置', () => {
   const items = [editVideo('a', 0, 2), editVideo('b', 5, 7)];
