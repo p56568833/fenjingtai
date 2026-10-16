@@ -87,7 +87,7 @@ body.dark .modal-mask {
   width: 430px;
   background: var(--card);
   border: 1px solid var(--hairline-2);
-  border-radius: 18px;
+  border-radius: 16px;
   padding: 26px;
   box-shadow: 0 30px 90px rgba(15, 23, 42, 0.25);
   max-height: 90vh;

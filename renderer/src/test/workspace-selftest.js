@@ -127,7 +127,6 @@ export async function runWorkspaceTests(t) {
     third = first + 2;
   t('章节目录显示所有有内容章节', $$('.outline-item').length === 2);
   setType([first], 'a');
-  t('空画面右上角不再显示加号', !$('.asset-empty'));
   state.sel = first;
   nextUnmarked();
   t('下一个未标注可定位', state.sel === second);
@@ -216,8 +215,7 @@ export async function runWorkspaceTests(t) {
     '共用区只保留一套类型、状态与描述',
     $$('.shared-scene .typebox').length === 1 &&
       $$('.shared-scene .production-badge').length === 1 &&
-      $$('.shared-scene .note').length === 1 &&
-      !$('.shared-follow'),
+      $$('.shared-scene .note').length === 1,
   );
   t(
     '共用区保留类型竖线且与蓝框分开',
@@ -286,14 +284,9 @@ export async function runWorkspaceTests(t) {
   addRefsToShot(assetRow(), ['/tmp/参考.png', 'https://example.com/video']);
   renderInspector(true);
   t(
-    '素材面板已精简指定入口',
-    !$('#locateDetail') && !$('#closeDetail') && !$('#attachFromLib') && !$('#relinkFolder') && !$('#detailAssets'),
-  );
-  t(
     '移除素材紧邻添加素材，卡片不再放移除按钮',
     $('#attachAsset').nextElementSibling === $('#removeAsset') && !$('#inspector .asset-actions [data-remove-usage]'),
   );
-  t('面板里不再有制作状态', !$('#detailStatus'));
   t(
     '素材引用同步到整组',
     shotMembers(
@@ -537,9 +530,8 @@ export async function runWorkspaceTests(t) {
   // A long draft must keep main content and controls inside a narrow desktop window.
   const hasTodo = state.rows.some(r => r.kind === 'line' && !r.type);
   t(
-    '1.7 工具条一行：没有多余的多选开关，标注工具只在有未标注时出现，不横向溢出',
+    '1.7 工具条一行：标注工具只在有未标注时出现，不横向溢出',
     !document.querySelector('.selection-tools') &&
-      !$('#btnMultiMode') &&
       $('#btnNext').getBoundingClientRect().width > 0 === hasTodo &&
       $('.work-tools').scrollWidth <= $('.work-tools').clientWidth + 1,
   );

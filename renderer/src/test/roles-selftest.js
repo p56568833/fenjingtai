@@ -72,7 +72,7 @@ export async function runRoleTests(t) {
     '句子条整合选句和备选，不再显示重复说明与前后按钮',
     $$('#inspector .asset-lines').length === 3 &&
       $$('#inspector .line-cell').length === 9 &&
-      !$('#inspector [data-alt-usage], #inspector [data-swap-a], #inspector .line-sum') &&
+      !$('#inspector [data-alt-usage], #inspector [data-swap-a]') &&
       $$('#inspector .lo-cell').length === 3 &&
       $$('#inspector .is-alt .line-cell.on').length === 0,
   );
@@ -149,8 +149,7 @@ export async function runRoleTests(t) {
     $$('.shared-scene .sent .gap-txt').length === 2 &&
       $$('.shared-scene .sent .gap-txt').every(x => x.textContent === x.closest('.sent').textContent) &&
       !$('.shared-scene .dur[data-gap]') &&
-      $$('.shared-scene .scene-cover.bad .lo-cell.empty').length === 2 &&
-      !$('.shared-scene .scene-cover .sc-sum'),
+      $$('.shared-scene .scene-cover.bad .lo-cell.empty').length === 2,
     $('.shared-scene .scene-cover')?.textContent || '没有画面条',
   );
   const md = buildAssetListMd({ title: 't', rows: state.rows, issues: [], registry: state.assets, speechRate: 4.5 });

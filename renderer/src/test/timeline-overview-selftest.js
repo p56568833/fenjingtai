@@ -45,15 +45,6 @@ export async function runTimelineOverviewTests(t) {
         blocks().length === 0,
     );
     t(
-      '四角说明、图例与灰色刻度移除，仅保留当前句号时间',
-      !$('#segDuration') &&
-        !$('#segSource') &&
-        !$('#segStatus') &&
-        !$('.seg-legend') &&
-        !$('.seg-footer') &&
-        !$('#segTicks'),
-    );
-    t(
       '句号在条上方、时间在下方，两端箭头对齐且字号相同',
       $('#segTime').textContent === '10:00' &&
         $('#segLine').textContent === '第 2 句' &&
@@ -82,7 +73,6 @@ export async function runTimelineOverviewTests(t) {
     lines[1].assetUsages = [{ assetId: 'v', role: 'main', clip: { in: 0, out: 4 } }];
     renderOverview();
     t('素材太短时只涂实际覆盖的前半句，缺口保持灰色', paintedAt(602) && !paintedAt(606));
-    t('选中空缺不会叠加蓝色填充', !$('#segSelectionRange'));
     const seek = $('#segSeek');
     seek.focus();
     t('点击或聚焦时间条不出现蓝色外框', getComputedStyle($('#segbar')).outlineStyle === 'none');

@@ -260,10 +260,8 @@ export async function runVideoReviewTests(t) {
       !card('B1'),
   );
   t(
-    '进度只写在左栏批次卡片上，顶栏不再重复',
-    !$('#vrSummary') &&
-      $('#vrNav .vr-bprogress')?.textContent.includes('3 待审') &&
-      $$('#vrNav [data-vr-batch]').length === 1,
+    '进度写在左栏批次卡片上',
+    $('#vrNav .vr-bprogress')?.textContent.includes('3 待审') && $$('#vrNav [data-vr-batch]').length === 1,
   );
   t(
     '左栏顶上固定当前批次卡片（实际句子、待审数、进度条、「⋯」），下面列出这一批的全部画面',
@@ -285,19 +283,15 @@ export async function runVideoReviewTests(t) {
   click('#vrBatchPick');
   t('再点批次卡片收起菜单', !$('.popover'));
   t(
-    '左边「对着口播看画面」，右边这个画面的全部视频（没有方案 Tab），下面正片和备选两条轨；前后句淡色露出',
-    !$('#vrList .vr-lines') &&
-      !!$(`#vrList .vr-plist [data-vr-id="${cand('A1').id}"]`) &&
+    '左边「对着口播看画面」，右边这个画面的全部视频，下面正片和备选两条轨',
+    !!$(`#vrList .vr-plist [data-vr-id="${cand('A1').id}"]`) &&
       !!$(`#vrList .vr-plist [data-vr-id="${cand('A2').id}"]`) &&
-      !$('#vrList .vr-ptabs') &&
       !!$('#vrList #vrDockTrack #pttLane') &&
-      !!$('#vrList #vrDockTrack #pttAlt') &&
-      !!$('#vrList .vr-ctx.after') &&
-      !$('#vrList .vr-ctx.before'),
+      !!$('#vrList #vrDockTrack #pttAlt'),
   );
   t(
     '列表上面写正片轨排了几秒 / 口播几秒',
-    /已排 [\d.]+ \/ 口播 [\d.]+ 秒/.test($('#vrList .vr-pfill-head')?.textContent || '') && !$('#vrList .vr-also'),
+    /已排 [\d.]+ \/ 口播 [\d.]+ 秒/.test($('#vrList .vr-pfill-head')?.textContent || ''),
     $('#vrList .vr-pfill-head')?.textContent,
   );
   click('#vrBatchMore');
@@ -318,8 +312,7 @@ export async function runVideoReviewTests(t) {
   );
   t(
     '清单写的「缺了什么」显示在候选卡片上，不挂在句子下面',
-    card('A1')?.querySelector('.vr-cov-note')?.textContent === '缺：没有人物面部' &&
-      !$('#vrList .vr-lines .vr-cov-note'),
+    card('A1')?.querySelector('.vr-cov-note')?.textContent === '缺：没有人物面部',
   );
   const shotEl = $('#vrList .vr-shot');
   update('rows');
@@ -329,10 +322,10 @@ export async function runVideoReviewTests(t) {
     '播放器默认不加载（不下载）',
     $$('#vrList video.vr-player').every(v => !v.getAttribute('src')),
   );
-  // 右边卡片不再带播放器：点「播放这段」时候选临时盖在左边播放器上播；空格永远管排好的画面
+  // 右边卡片不再带播放器：点「播放这段」时候选临时盖在左边播放器上播；候选盖着时空格管候选
   t(
     '审核页卡片里没有播放器，左边平时放排好的画面',
-    !card('A1')?.querySelector('.vr-player') && !$('#vrModes') && $('#vrPreview')?.hidden,
+    !card('A1')?.querySelector('.vr-player') && $('#vrPreview')?.hidden,
   );
   click(card('A1').querySelector('[data-vr-play]'));
   await pause(30);
@@ -351,7 +344,15 @@ export async function runVideoReviewTests(t) {
   await pause(20);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
   await pause(30);
-  t('候选盖着时按空格：收起候选，播排好的画面（空格不播候选）', $('#vrPreview').hidden && playthroughState().playing);
+  t(
+    '候选盖着时按空格：暂停 / 继续候选，候选不收起，排好的画面不播',
+    !$('#vrPreview').hidden && !playthroughState().playing,
+  );
+  click('#vrPreview [data-vr-pv-close]');
+  await pause(20);
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  await pause(30);
+  t('收起候选后按空格：播排好的画面', $('#vrPreview').hidden && playthroughState().playing);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
   await pause(20);
   t('再按空格：排好的画面停下，候选也没被打开', !playthroughState().playing && $('#vrPreview').hidden);
@@ -554,10 +555,7 @@ export async function runVideoReviewTests(t) {
       .slice(0, 3)
       .every(r => r.type === 'real') && lines()[3].type == null,
   );
-  t(
-    '整批审完：右边不再写「这一批审完了」，也没有快捷键提示行',
-    !$('.vr-keys') && !$('#vrList').textContent.includes('这一批都审完了'),
-  );
+  t('整批审完：右边不再写「这一批审完了」', !$('#vrList').textContent.includes('这一批都审完了'));
   key('ArrowLeft');
   await pause(30);
   t(
@@ -566,8 +564,7 @@ export async function runVideoReviewTests(t) {
       $$('#vrList .vr-done').length === 2 &&
       $$('#vrList .vr-done.d-ok .vr-done-thumbs').length >= 1 &&
       !$('#vrList .vr-done b') &&
-      !$('#vrList .vr-cand') &&
-      !$('#vrFilter'),
+      !$('#vrList .vr-cand'),
   );
   click($(`#vrList .vr-done[data-vr-id="${cand('A1').id}"] .vr-done-title`));
   await pause(30);
@@ -883,7 +880,7 @@ export async function runVideoReviewTests(t) {
   await pause(60);
   t(
     '清单里有两个方案：审核页不分 Tab，三个视频列在一起',
-    !$('#vrList .vr-ptabs') && !!card('P1a') && !!$(`#vrList .vr-plist [data-vr-id="${cand('P2').id}"]`),
+    !!card('P1a') && !!$(`#vrList .vr-plist [data-vr-id="${cand('P2').id}"]`),
   );
   setDecision(cand('P1a').id, 'ok');
   setDecision(cand('P1b').id, 'ok');
@@ -1069,9 +1066,44 @@ export async function runVideoReviewTests(t) {
     roleOf('P2') === 'main' && atOf('P2')?.start >= 3 && atOf('P2')?.start < 6,
     JSON.stringify(us(0).map(u => [u.role, u.at])),
   );
+  t(
+    '句子分界只画在两条轨上，刻度尺上没有竖线；操作说明收进「?」',
+    !$('#pttRuler .ptt-sep') && $$('#pttLane .ptt-sep').length === 1 && !!$('#vrDockTrack .ptt-help'),
+  );
+  // 双击画面：正片有「定格补满」和「删除」，备选只有「删除」；删除审核通过的视频 = 撤回通过，可以撤销
+  const dbl = el => {
+    const [x, y] = at(el);
+    el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: x, clientY: y }));
+  };
+  dbl(blockOf('P1b'));
+  await pause(30);
+  t(
+    '双击备选：菜单只有删除',
+    !!$('.popover.ptt-menu [data-ptt-act="remove"]') && !$('.popover.ptt-menu [data-ptt-act="freeze"]'),
+  );
+  click($('.popover.ptt-menu [data-ptt-act="remove"]'));
+  await pause(60);
+  t(
+    '删除备选：撤回通过，从备选轨上拿掉',
+    !us(0).some(u => u.assetId === aid('P1b')) && cand('P1b').decision === '' && !blockOf('P1b'),
+  );
+  undo();
+  await pause(60);
+  t('删除可以一步撤销', roleOf('P1b') === 'alt' && cand('P1b').decision === 'ok');
+  dbl(blockOf('P1a'));
+  await pause(30);
+  t(
+    '双击正片：菜单有定格补满和删除',
+    !!$('.popover.ptt-menu [data-ptt-act="freeze"], .popover.ptt-menu [data-ptt-act="unfreeze"]') &&
+      !!$('.popover.ptt-menu [data-ptt-act="remove"]'),
+  );
+  click($('.popover.ptt-menu [data-ptt-act="remove"]'));
+  await pause(60);
+  t('删除正片：从正片轨上拿掉', !us(0).some(u => u.assetId === aid('P1a')) && !blockOf('P1a'));
+  undo();
+  await pause(60);
   setView('table');
   await pause(30);
-  t('表格里没有方案切换', !$('#rows .plan-switch'));
   storage.switchProject(original);
   storage.deleteProject(trackPid);
 

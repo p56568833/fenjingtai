@@ -45,7 +45,7 @@
   min-width: 0;
   padding: 8px 12px;
   border: 1px dashed var(--hairline-2);
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-3);
   font: inherit;

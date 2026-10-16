@@ -19,7 +19,7 @@
   gap: 12px;
   padding: 12px 14px;
   border: 1px solid var(--hairline-2);
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   transition:
     border-color 0.13s,
@@ -48,17 +48,6 @@
   font-weight: 600;
   color: var(--text);
 }
-/* 属于「连播预览与画面时间轴」，保持在 .pdf-layout b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
-.ptt-sep b {
-  position: absolute;
-  bottom: -15px;
-  left: 3px;
-  font-size: 10.5px;
-  font-weight: 500;
-  color: #6f7a8d;
-  white-space: nowrap;
-}
-/* 属于「视频审核」，保持在 .ptt-sep b 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
 .vr-batch-head b {
   font-size: 14px;
   font-weight: 650;
@@ -86,7 +75,7 @@
 .vr-tab b {
   min-width: 18px;
   padding: 0 6px;
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--accent);
   color: #fff;
   font-size: 11px;
@@ -111,7 +100,7 @@
   padding: 5px;
   background: var(--card);
   border: 1px solid var(--hairline-2);
-  border-radius: 3px;
+  border-radius: 4px;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 .pdf-page.portrait {
@@ -255,7 +244,7 @@
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--hairline-2);
-  border-radius: 10px;
+  border-radius: 8px;
 }
 .pack-dest-label {
   flex: none;
@@ -284,7 +273,7 @@
 }
 .pack-bar {
   height: 6px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--hairline);
   overflow: hidden;
 }

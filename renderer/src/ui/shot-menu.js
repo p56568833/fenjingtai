@@ -1,16 +1,9 @@
 /* 共用画面范围调整入口（原文 / 表格两个视图同一套菜单、同一套名称）：
-   共用区域「···」= 将下一句加入这个画面 / 将最后一句移出这个画面 / 解除共用
-   组内句子「···」= 从这句开始使用另一个画面（低频操作收在这里，不在每句旁常驻一排按钮）
+   共用区域「···」= 将下一句加入这个画面 / 将最后一句移出这个画面 / 从选中的这句开始使用另一个画面 / 解除共用
    有差异先展示差异和处理方式，不悄悄覆盖信息。 */
-import { state, rowById, types } from '../app/state.js';
-import {
-  extendGroupNextAction,
-  dropGroupLastAction,
-  splitGroupAtAction,
-  ungroupAction,
-  deleteRows,
-} from '../app/actions.js';
-import { addRefsToShot, relocateAsset, invalidateProbe, relinkByNames } from '../app/asset-actions.js';
+import { state, types } from '../app/state.js';
+import { extendGroupNextAction, dropGroupLastAction, splitGroupAtAction, ungroupAction } from '../app/actions.js';
+import { relocateAsset, invalidateProbe, relinkByNames } from '../app/asset-actions.js';
 import { shotMembers } from '../core/shots.js';
 import { groupExtendNextPlan, groupSplitAtPlan } from '../core/shot-groups.js';
 import { usageList, assetUsageRefs, checkClip } from '../core/asset-model.js';
@@ -21,7 +14,7 @@ import { openMenu, closePop, markPopAnchor } from './base/popover.js';
 import { clearPreviewCache } from './base/media.js';
 import { refreshThumb } from './asset-thumbs.js';
 import { missingPaths } from './asset-files.js';
-import { registerCommand, runCommand } from './base/commands.js';
+import { registerCommand } from './base/commands.js';
 import { probeDuration } from './base/media.js';
 
 const $ = s => document.querySelector(s);
@@ -29,33 +22,7 @@ const actItem = (act, ids, label, desc, { disabled = false, danger = false } = {
   `<div class="pop-item${danger ? ' danger' : ''}${disabled ? ' disabled' : ''}" data-shot-act="${act}" ${ids}>
     <span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
 
-/* 行「···」：素材、共用范围、删除这句（1.10 起删除也收进来：行尾只留一个按钮，不会误点 ✕） */
-export function openRowMenu(anchor, rowId) {
-  const r = rowById(rowId);
-  if (!r || r.kind !== 'line') return;
-  const ids = `data-row-id="${r.id}"`;
-  let html = `<div class="p-title">第 ${r.no} 句</div>`;
-  html += actItem('detail', ids, '画面与素材…', '画面描述、素材与片段');
-  html += actItem('add-file', ids, '添加素材（文件）', '从访达选，一个或多个');
-  html += actItem('add-lib', ids, '从本项目素材添加', '用过一次的文件再关联');
-  if (r.groupId) {
-    const plan = groupSplitAtPlan(state.rows, r.groupId, r.id);
-    html += '<div class="pop-sep"></div>';
-    html += actItem(
-      'split-at',
-      `data-row-id="${r.id}" data-gid="${esc(r.groupId)}"`,
-      '从这句开始使用另一个画面',
-      plan.ok ? '把共用画面拆成前后两个' : plan.reason,
-      { disabled: !plan.ok },
-    );
-  }
-  html += '<div class="pop-sep"></div>';
-  html += actItem('delete', ids, '删除这句', '⌘⌫ · 可撤销', { danger: true });
-  openMenu(anchor, html);
-  markPopAnchor(anchor);
-}
-
-/* 共用区域「···」：范围调整三件套 */
+/* 共用区域「···」：范围调整（加入下一句 / 移出最后一句 / 从选中的这句拆开）和解除共用 */
 export function openGroupMenu(anchor, groupId) {
   const members = shotMembers(
     state.rows,
@@ -78,6 +45,16 @@ export function openGroupMenu(anchor, groupId) {
     `data-gid="${esc(groupId)}"`,
     '将最后一句移出这个画面',
     `第 ${last.no} 句恢复独立画面，保留描述、素材和片段`,
+  );
+  // 从这句拆开：拿当前选中的句子（组里第二句到倒数第二句才行）
+  const sel = members.find(m => m.id === state.sel);
+  const split = sel ? groupSplitAtPlan(state.rows, groupId, sel.id) : null;
+  html += actItem(
+    'split-at',
+    `data-row-id="${sel?.id ?? ''}" data-gid="${esc(groupId)}"`,
+    sel ? `从第 ${sel.no} 句开始使用另一个画面` : '从选中的句子开始使用另一个画面',
+    !sel ? '先点选这个画面里的某一句' : split.ok ? '把共用画面拆成前后两个' : split.reason,
+    { disabled: !split?.ok },
   );
   html += '<div class="pop-sep"></div>';
   html += actItem('ungroup', `data-gid="${esc(groupId)}"`, '解除共用', '各句恢复独立画面，保留现有信息', {
@@ -167,32 +144,6 @@ function onShotAction(item) {
     return;
   }
   closePop();
-  const row = rowById(rowId);
-
-  if (act === 'detail') {
-    runCommand('inspector:open', rowId);
-    return;
-  }
-  if (act === 'add-file') {
-    native.pickAssets().then(paths => {
-      if (!paths || !paths.length) return;
-      const res = addRefsToShot(row, paths);
-      toast(
-        res.added.length ? `已添加 ${res.added.length} 个素材 · ⌘Z 可撤销` : '这些素材都已关联过',
-        null,
-        res.added.length ? 'ok' : 'info',
-      );
-    });
-    return;
-  }
-  if (act === 'add-lib') {
-    runCommand('assets:pick-from-project', row);
-    return;
-  }
-  if (act === 'delete') {
-    deleteRows([rowId]);
-    return;
-  }
 
   if (act === 'extend-next') {
     const plan = groupExtendNextPlan(state.rows, groupId);
@@ -258,12 +209,6 @@ export function initShotMenu() {
   document.addEventListener(
     'click',
     e => {
-      const more = e.target.closest('[data-row-more]');
-      if (more) {
-        e.stopPropagation();
-        openRowMenu(more, +more.dataset.rowMore);
-        return;
-      }
       const gmore = e.target.closest('[data-group-more]');
       if (gmore) {
         e.stopPropagation();

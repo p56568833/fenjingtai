@@ -14,7 +14,7 @@ import { patchChildren, staleBlock } from './base/keyed-patch.js';
 function rowHTML(r, { shared = false, end = false } = {}) {
   // 搜索高亮和淡化不写进来，由 paintSearch 原地刷（开关搜索不换句子块，页面不闪）
   const sentHtml = esc(r.text);
-  return `<div class="row ${r.type ? '' : 'unannotated'}${shared ? ' shared-scene-row' : ''}${end ? ' shared-scene-end' : ''}" data-id="${r.id}"><div class="spine"></div><div class="idx"><input class="row-select" type="checkbox" data-select="${r.id}"><span></span></div><div class="sent" data-id="${r.id}">${sentHtml}</div><div class="dur"></div>${shared ? '' : `${typeboxHTML(r)}${visualHTML(r)}`}<button class="row-act row-more" data-row-more="${r.id}" title="更多操作（素材 / 共用范围 / 删除这句）"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button></div>`;
+  return `<div class="row ${r.type ? '' : 'unannotated'}${shared ? ' shared-scene-row' : ''}${end ? ' shared-scene-end' : ''}" data-id="${r.id}"><div class="spine"></div><div class="idx"><input class="row-select" type="checkbox" data-select="${r.id}"><span></span></div><div class="sent" data-id="${r.id}">${sentHtml}</div><div class="dur"></div>${shared ? '' : `${typeboxHTML(r)}${visualHTML(r)}`}</div>`;
 }
 const typeboxHTML = (r, total = false) =>
   `<div class="typebox">${total ? '<em class="shared-total" title="这几句口播一共占的时间：拿它和右边素材的「可用」比，看画面能不能盖满"></em>' : ''}${chipHTML(r)}</div>`;
@@ -32,7 +32,6 @@ function paintNumbers(wrap, scenes) {
       el._no = no;
       el.querySelector('.idx span').textContent = no;
       el.querySelector('.row-select').setAttribute('aria-label', `勾选第 ${no} 句`);
-      el.querySelector('.row-more').setAttribute('aria-label', `第 ${no} 句的更多操作`);
     }
     const dur = durCellHTML(r);
     if (el._dur !== dur) {

@@ -49,7 +49,7 @@ body.dark .ck-hint kbd {
   color: #fff;
   width: 16px;
   height: 16px;
-  border-radius: 5px;
+  border-radius: 6px;
   display: grid;
   place-items: center;
   background: #7c8c9f;
@@ -89,7 +89,7 @@ body.dark .ck-hint kbd {
 /* 句子 = 勾选对象：底色按类型上色，下边线当「荧光笔下沿」；悬停会给浅灰预示 */
 .as {
   cursor: pointer;
-  border-radius: 5px;
+  border-radius: 6px;
   overflow-wrap: anywhere;
   padding: 0.06em 0.16em;
   margin: 0 0.06em;
@@ -185,7 +185,7 @@ body.multi-mode .as:focus-visible {
 .shared-passage {
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--hairline));
   border-left: 3px solid var(--accent);
-  border-radius: 7px;
+  border-radius: 8px;
   margin: 0 0 24px;
   padding: 0 16px 8px;
   background: color-mix(in srgb, var(--accent) 4%, var(--bg));
@@ -195,7 +195,7 @@ body.multi-mode .as:focus-visible {
   margin: 0 -16px 14px;
   border: 0;
   border-bottom: 1px solid var(--hairline);
-  border-radius: 5px 5px 0 0;
+  border-radius: 6px 6px 0 0;
   flex-wrap: wrap;
 }
 .shared-passage .ck-p:last-child {

@@ -174,6 +174,11 @@ export function initInspector() {
   for (const type of ['input', 'change']) $('#inspector').addEventListener(type, e => (e.currentTarget._html = null));
   registerCommand('inspector:open', openInspectorFor);
   registerCommand('inspector:refresh', () => renderInspector(true));
+  // 工具条上的「对着口播看画面」：不用先打开面板，选中哪句就从哪个画面看
+  $('#btnSync').onclick = () => {
+    if (!state.sel || !rowById(state.sel)) return toast('先点选一句，再对着口播看它的画面', null, 'info');
+    runCommand('playthrough:shot', state.sel);
+  };
   $('#btnDetail').onclick = () => {
     detailOpen = !detailOpen;
     renderInspector(true);

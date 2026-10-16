@@ -108,7 +108,7 @@ export async function runIterationTests(t) {
   t('导入口播后按音频长度推算每句时间', timeline().source === 'fit' && Math.abs(timeline().total - 20) < 0.01);
   t(
     '不再有纯听口播的播放条，秒数只是显示',
-    $('#voiceBar').hidden && !$('#vbPlay') && !$('.dur .tc[data-play]') && $('#durHeading').textContent === '≈时长',
+    $('#voiceBar').hidden && !$('.dur .tc[data-play]') && $('#durHeading').textContent === '≈时长',
   );
   const total = lines().reduce((s, r) => s + timeline().times.get(r.id).end - timeline().times.get(r.id).start, 0);
   t('各句时长加起来等于音频时长', Math.abs(total - 20) < 0.01);

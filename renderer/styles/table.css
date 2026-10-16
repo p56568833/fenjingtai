@@ -124,7 +124,7 @@ body.dark .row.unannotated .sent {
   height: 29px;
   font-size: 11.5px;
   font-weight: 600;
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 0 9px;
   letter-spacing: 0;
   border: 0;
@@ -165,36 +165,6 @@ body.dark .row.unannotated .sent {
 body.dark .t-none kbd {
   background: rgba(255, 255, 255, 0.05);
 }
-/* 行尾操作按钮：删除 */
-.row-act {
-  position: absolute;
-  right: 11px;
-  top: 50%;
-  --row-action-transform: translateY(-50%) scale(0.9);
-  transform: var(--row-action-transform);
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  opacity: 0;
-  transition:
-    opacity 0.13s,
-    transform 0.13s,
-    background 0.13s;
-  width: 23px;
-  height: 23px;
-  border-radius: 5px;
-}
-.row:hover .row-act {
-  opacity: 1;
-  --row-action-transform: translateY(-50%) scale(1);
-}
-.row-act svg {
-  width: 11px;
-  height: 11px;
-  stroke: currentColor;
-  stroke-width: 2.6;
-  stroke-linecap: round;
-}
 .note {
   color: #3f4859;
   overflow-wrap: anywhere;
@@ -202,7 +172,7 @@ body.dark .t-none kbd {
   min-height: 20px;
   border: 1px solid transparent;
   border-left: 1px solid var(--hairline-2);
-  border-radius: 0 9px 9px 0;
+  border-radius: 0 8px 8px 0;
   transition: none;
   font-size: 13px;
   line-height: 1.65;
@@ -381,23 +351,6 @@ body.multi-mode .shared-scene-body {
   border-color: rgba(59, 116, 232, 0.5);
   background: var(--card);
 }
-/* 行尾「···」：低频操作收进菜单，句子旁只留删除 + 更多两个小按钮 */
-.row-more {
-  right: 40px;
-  background: var(--card);
-  border: 1px solid var(--hairline-2);
-  color: var(--text-2);
-}
-.row-more svg {
-  width: 12px;
-  height: 12px;
-  fill: currentColor;
-  stroke: none;
-}
-.row-more:hover {
-  background: var(--row-hover);
-  color: var(--text);
-}
 .dur .tc {
   display: block;
   color: var(--text-2);
@@ -467,13 +420,6 @@ body.dark .tchip.typed {
 /* 选区操作条浮在表格底部：表格末尾多留一段，最后几句能滚到操作条上方，不会被挡住 */
 body.has-select-tools .table-wrap .rows {
   padding-bottom: 72px;
-}
-/* 行尾三个小按钮（＋ 素材 / ··· / ×）竖着叠在右边 */
-:is(.rows, .sec-block) > .row > .row-act {
-  right: 8px;
-}
-:is(.rows, .sec-block) > .row > .row-more {
-  top: 50%;
 }
 /* 紧凑行距（视图 → 紧凑行距，⇧⌘D）：长稿一屏多看几句；画面描述只露两行，点进去编辑时展开全文 */
 body.compact .row {
@@ -573,14 +519,6 @@ body.compact .section-row {
     --note-width: 190px;
     grid-template-columns: 24px minmax(130px, 1.15fr) 40px 125px minmax(150px, 1fr);
   }
-  .row-act,
-  .row:hover .row-act {
-    top: auto;
-    bottom: 3px;
-    --row-action-transform: none;
-    width: 18px;
-    height: 18px;
-  }
   .typebox .tchip {
     font-size: 10.5px;
     gap: 4px;
@@ -589,14 +527,6 @@ body.compact .section-row {
   body.multi-mode .row,
   body.multi-mode .shared-scene-body {
     grid-template-columns: 42px minmax(130px, 1.15fr) 40px 125px minmax(150px, 1fr);
-  }
-  :is(.rows, .sec-block) > .row > .row-act,
-  :is(.rows, .sec-block) > .row:hover > .row-act {
-    bottom: auto;
-    right: 6px;
-    --row-action-transform: translateY(-50%);
-    width: 20px;
-    height: 20px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

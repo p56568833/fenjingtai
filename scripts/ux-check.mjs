@@ -136,10 +136,13 @@ await sleep(400);
 const delInfo = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('.row')];
   const target = rows[5];
-  target.querySelector('.row-more').click();
-  document.querySelector('.pop-item[data-shot-act="delete"]').click();
+  target.querySelector('.sent').click();
   return { idx: target.querySelector('.idx').textContent };
 });
+await sleep(200);
+await page.keyboard.down('Meta');
+await page.keyboard.press('Backspace');
+await page.keyboard.up('Meta');
 await sleep(400);
 const selAfter = await page.evaluate(() => document.querySelector('.row.selected .idx')?.textContent);
 t('删除后选中句不跳第一句', selAfter !== '1', `删第 ${delInfo.idx} 句，现选中第 ${selAfter} 句`);

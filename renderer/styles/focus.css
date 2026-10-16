@@ -13,7 +13,7 @@
   gap: 16px;
   background: var(--card);
   border: 1px solid var(--hairline-2);
-  border-radius: 18px;
+  border-radius: 16px;
   padding: 22px 28px;
   box-shadow: 0 30px 90px rgba(15, 23, 42, 0.25);
   animation: popIn 0.16s cubic-bezier(0.3, 0, 0.2, 1);
@@ -84,7 +84,7 @@
 .fc-current {
   padding: 18px 22px;
   border-left: 6px solid var(--c);
-  border-radius: 10px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--c) 7%, var(--card));
   margin: 8px 0;
 }

@@ -52,7 +52,7 @@ body.dark ::-webkit-scrollbar-thumb {
   height: 42px;
   flex: none;
   background: var(--bg);
-  border-radius: 3px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -211,7 +211,7 @@ body.dark ::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 /* 「还没关联素材」：和「···」「×」一样是悬停才出现的小按钮，浮在行尾，不占布局——鼠标移上去行高不变 */
 .row-assets:not(:has(.row-asset)) {
@@ -280,7 +280,7 @@ body.dark .cover-short .cover-verdict {
   width: 10px;
   height: 10px;
   border: 1.5px solid currentColor;
-  border-radius: 3px;
+  border-radius: 4px;
   opacity: 0.7;
 }
 .asset-cover .cover-fit:hover {

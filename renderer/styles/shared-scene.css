@@ -19,7 +19,7 @@
 }
 .shared-scene-header {
   margin-top: 12px;
-  border-radius: 7px 7px 0 0;
+  border-radius: 8px 8px 0 0;
   border-bottom: 0;
 }
 .shared-scene-header small {
@@ -85,14 +85,6 @@
   display: block;
   left: -8px;
 }
-.shared-scene-lines .row-act,
-.shared-scene-lines .row:hover .row-act {
-  top: auto;
-  --row-action-transform: none;
-  height: 19px;
-  width: 19px;
-  bottom: 8px;
-}
 .shared-scene-body > .typebox {
   grid-column: 4;
   align-self: center;
@@ -102,9 +94,6 @@
   grid-column: 5;
   align-self: center;
   padding: 8px 0;
-}
-.shared-scene-lines .row-more {
-  right: 27px;
 }
 .shared-scene-title,
 .shared-passage-title {
@@ -314,7 +303,7 @@ body.dark .shared-scene::before {
 .scene-cover .lo-cell {
   height: 16px;
   min-width: 14px;
-  border-radius: 5px;
+  border-radius: 6px;
   font-size: 10px;
 }
 /* 都有画面：整条淡一点，不抢句子的注意力 */

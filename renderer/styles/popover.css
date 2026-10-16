@@ -7,7 +7,7 @@
   overflow-y: auto;
   background: var(--card);
   border: 1px solid var(--hairline-2);
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow:
     0 0 0 0.5px rgba(16, 24, 40, 0.04),
     0 18px 48px -12px rgba(16, 24, 40, 0.24),
@@ -34,7 +34,7 @@ body.dark .popover {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 9px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
   color: var(--text);
@@ -70,7 +70,7 @@ body.dark .pop-item:hover {
 .pop-item .pdot {
   width: 9px;
   height: 9px;
-  border-radius: 3px;
+  border-radius: 4px;
   flex: none;
 }
 .pop-item .chk {
@@ -133,7 +133,7 @@ body.dark .pop-sep {
   padding: 5px;
   background: var(--bg);
   border: 1px solid var(--hairline-2);
-  border-radius: 5px;
+  border-radius: 6px;
   color: var(--text);
 }
 .pop-item.disabled {

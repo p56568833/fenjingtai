@@ -242,7 +242,7 @@ body.dark .chip-filter:hover {
 body.drop-voice .stats {
   outline: 2px dashed var(--accent);
   outline-offset: -4px;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 body.drop-voice .stats::after {
   content: '松手：设为口播音频';

@@ -67,9 +67,8 @@ export async function runTablePatchTests(t) {
     );
     t('别人在上面加句：正在看的位置不动', Math.abs(drift(150, top)) < 2, `偏移 ${drift(150, top).toFixed(1)}px`);
     t(
-      '句号变了，勾选框和更多按钮的读屏说明跟着改',
-      rowEl(150).querySelector('.row-select').getAttribute('aria-label') === '勾选第 155 句' &&
-        rowEl(150).querySelector('.row-more').getAttribute('aria-label') === '第 155 句的更多操作',
+      '句号变了，勾选框的读屏说明跟着改',
+      rowEl(150).querySelector('.row-select').getAttribute('aria-label') === '勾选第 155 句',
     );
 
     top = rowEl(150).getBoundingClientRect().top;

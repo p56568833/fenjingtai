@@ -48,7 +48,7 @@
   position: absolute;
   right: 3px;
   bottom: 2px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: #17212bcc;
   color: white;
   font-size: 10px;
@@ -142,7 +142,7 @@
   margin: 6px 0 6px;
   min-height: 30px;
 }
-.inspector .sync-btn {
+.sync-btn {
   height: 28px;
   padding: 0 10px;
   font-size: 12px;
@@ -150,7 +150,7 @@
   border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline-2));
   background: color-mix(in srgb, var(--accent) 6%, var(--card));
 }
-.inspector .sync-btn:hover {
+.sync-btn:hover {
   border-color: var(--accent);
 }
 .detail-assets > .voice-block {
@@ -186,7 +186,7 @@
   right: 1px;
   bottom: 1px;
   height: 2.4em;
-  border-radius: 0 0 5px 5px;
+  border-radius: 0 0 6px 6px;
   pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--bg) 80%);
 }
@@ -202,7 +202,7 @@
   min-width: 74px;
   padding: 4px 9px 4px 7px;
   border: 1px solid var(--hairline-2);
-  border-radius: 7px;
+  border-radius: 8px;
   background: var(--card);
   color: var(--text-2);
   font-size: 11.5px;
@@ -275,7 +275,7 @@
   min-width: 18px;
   height: 26px;
   padding: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   border: 1px solid var(--hairline-2);
   background: transparent;
   color: var(--text-3);

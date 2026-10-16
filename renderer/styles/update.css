@@ -75,7 +75,7 @@ body.dark .btn.update-btn:hover {
   width: 52px;
   height: 52px;
   flex: none;
-  border-radius: 13px;
+  border-radius: 12px;
   box-shadow: 0 6px 18px rgba(59, 116, 232, 0.22);
 }
 .update-modal .upd-kicker {
@@ -212,7 +212,7 @@ body.dark .upd-reason {
 }
 .upd-bar {
   height: 6px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--hairline);
   overflow: hidden;
   margin-top: 14px;

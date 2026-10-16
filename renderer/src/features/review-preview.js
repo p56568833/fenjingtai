@@ -1,6 +1,6 @@
 /* 审核页左边播放器平时放排好的画面（画面时间，下面的时间条也归它）。点候选的「播放这段」或截图时，
-   候选临时盖在上面播，左上角标着「候选」；播完、点「回到画面时间」、按空格或碰下面的时间条，就收起来回到排好的画面。
-   不是两种模式：空格永远播 / 停排好的画面。待返工页没有左边播放器，候选照旧在卡片里播。 */
+   候选临时盖在上面播，左上角标着「候选」；播完、点「回到画面时间」或碰下面的时间条，就收起来回到排好的画面。
+   候选盖着时空格暂停 / 继续候选，收起后空格才管排好的画面。待返工页没有左边播放器，候选照旧在卡片里播。 */
 import { state } from '../app/state.js';
 import { fmtTime } from '../core/text.js';
 import { esc } from '../ui/base/dom.js';
@@ -29,7 +29,7 @@ export function showPreview(id, { at = null } = {}) {
   if (!host || !c) return false;
   if (shown !== id || !host.querySelector('.vr-stage')) {
     stopClip();
-    host.innerHTML = `<div class="vr-pv-head"><span class="vr-pv-badge">候选</span><span class="vr-pv-title">${esc(c.title || c.key || '（未命名）')} · ${fmtTime(c.in)}–${fmtTime(c.out)}</span><button class="vr-pv-close" data-vr-pv-close title="收起候选，回到排好的画面（空格也行）">回到画面时间</button></div>${playerHTML(c)}`;
+    host.innerHTML = `<div class="vr-pv-head"><span class="vr-pv-badge">候选</span><span class="vr-pv-title">${esc(c.title || c.key || '（未命名）')} · ${fmtTime(c.in)}–${fmtTime(c.out)}</span><button class="vr-pv-close" data-vr-pv-close title="收起候选，回到排好的画面">回到画面时间</button></div>${playerHTML(c)}`;
   }
   shown = id;
   host.hidden = false;

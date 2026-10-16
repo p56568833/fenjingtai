@@ -116,6 +116,9 @@ export async function testShotEditPointer(page, report) {
     });
     await page.mouse.click(b.x, b.y);
     check('点选素材保持播放头原位', Math.abs((await read()).time - beforeTime) < 0.01);
+    await page.mouse.click(b.x, b.y, { count: 2, delay: 60 });
+    check('真实鼠标双击素材打开操作菜单', !!(await page.$('.popover.ptt-menu [data-ptt-act="remove"]')));
+    await page.evaluate(async () => (await import('./src/ui/base/popover.js')).closePop());
     const look = await page.evaluate(() => {
       const css = el => getComputedStyle(el);
       const b = document.querySelector('[data-ptt="edit-b"]'),

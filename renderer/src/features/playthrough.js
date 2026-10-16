@@ -12,8 +12,18 @@ import { fmtTime, fmtLen } from '../core/text.js';
 import { layoutShot, itemAt, circled, MIN_LEN } from '../core/shot-layout.js';
 import { movePicture, trimPicture, rollPictures } from '../core/shot-edit.js';
 import { altItems, moveAlt, mainSlotAt, swapIntoMain, insertIntoMain, dropToAlt } from '../core/shot-tracks.js';
-import { setShotTimes, arrangeShot, clearShotTimes, rememberDuration, setFitDone } from '../app/asset-actions.js';
-import { esc, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/base/dom.js';
+import {
+  setShotTimes,
+  arrangeShot,
+  clearShotTimes,
+  rememberDuration,
+  setFitDone,
+  removeUsage,
+} from '../app/asset-actions.js';
+import { decideCandidate } from '../app/candidate-actions.js';
+import { usageList } from '../core/asset-model.js';
+import { esc, toast, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/base/dom.js';
+import { openMenu, closePop, popEl } from '../ui/base/popover.js';
 import { typeIcon } from '../ui/base/type-view.js';
 import { registerCommand } from '../ui/base/commands.js';
 import { reduced, EASE_OUT } from '../ui/base/motion.js';
@@ -212,6 +222,9 @@ const clipLen = it => {
   return Number.isFinite(it.asset.durationSec) ? it.asset.durationSec : null;
 };
 const ALT_ROW = 30; // 备选轨一层的高度（时间上重叠的备选往下叠一层）
+/* 色块上的名字：素材名开头的「第469-471句_」每块都一样，去掉只留后面能认出来的部分（悬停仍看全名） */
+const shortName = name =>
+  String(name || '').replace(/^第\s*\d+(?:\s*[-–—~]\s*\d+)?\s*句[\s_·\-–—:：]*/, '') || name || '';
 let trackAlts = []; // 当前镜头备选轨上的画面（altItems 的结果）
 
 /* 画面的颜色跟着素材走（蓝 / 绿交替），换了先后顺序颜色也不变。
@@ -255,12 +268,10 @@ function renderTrack(i) {
   const step = [1, 2, 5, 10, 15, 30].find(s => dur / s <= 14) || 60;
   let ticks = '';
   for (let x = 0; x <= dur + 1e-6; x += step) ticks += `<span class="ptt-tick" style="left:${pct(x)}">${x}s</span>`;
-  // 句子分界（第 2 句起），方便对照；备选轨上只画线
+  // 句子分界（第 2 句起）：两条轨上各画一道实线，不写字、不能点；刻度尺上不画
   const cuts = u.members.slice(1).map(m => (tl.times.get(m.id)?.start ?? u.start) - u.start);
-  const seps = cuts
-    .map((at, k) => `<span class="ptt-sep" style="left:${pct(at)}"><b>${u.members[k + 1].no}</b></span>`)
-    .join('');
-  const bareSeps = cuts.map(at => `<span class="ptt-sep bare" style="left:${pct(at)}"></span>`).join('');
+  const seps = cuts.map(at => `<span class="ptt-sep" style="left:${pct(at)}"></span>`).join('');
+  const bareSeps = seps;
   // 句间停顿里延续的上一段画面：画成同色的淡尾巴，和预览里看到的对上
   const holds = items
     .map((it, k) => {
@@ -277,7 +288,7 @@ function renderTrack(i) {
       // 标了剪辑里补足的视频才会比片段长：片段之后那截画成补足的样子（定格 / 放慢）
       const short = len != null && len < end - it.start - 0.05;
       const fit = short
-        ? `<span class="ptt-fit" style="left:${((len / Math.max(0.01, end - it.start)) * 100).toFixed(1)}%" title="剪辑里定格 / 放慢补足 ${sec(end - it.start - len)} 秒"><i>定格 / 放慢</i></span>`
+        ? `<span class="ptt-fit" style="left:${((len / Math.max(0.01, end - it.start)) * 100).toFixed(1)}%" title="片段放完后定格补足 ${sec(end - it.start - len)} 秒"><i>定格</i></span>`
         : '';
       const cls = [
         'ptt-block',
@@ -288,32 +299,35 @@ function renderTrack(i) {
       ]
         .filter(Boolean)
         .join(' ');
-      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后 ${sec(end - it.start - len)} 秒在剪辑里定格 / 放慢补足` : ''}\n拖到下面的备选轨：先撤下来`;
-      return `<div class="${cls}" data-ptt="${esc(it.assetId)}" style="left:${pct(it.start)};width:${pct(Math.max(0, end - it.start))}" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头；Shift 拖相接边调整切换点"></span><span class="ptt-label">${circled(it.n)} ${esc(it.asset.name || '')}</span>${fit}<span class="ptt-grip r" title="拖动裁剪结尾；Shift 拖相接边调整切换点"></span></div>`;
+      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后 ${sec(end - it.start - len)} 秒在剪辑里定格 / 放慢补足` : ''}\n拖到下面的备选轨：先撤下来\n双击：定格补满 / 删除`;
+      return `<div class="${cls}" data-ptt="${esc(it.assetId)}" style="left:${pct(it.start)};width:${pct(Math.max(0, end - it.start))}" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头；Shift 拖相接边调整切换点"></span><span class="ptt-label">${circled(it.n)} ${esc(shortName(it.asset.name))}</span>${fit}<span class="ptt-grip r" title="拖动裁剪结尾；Shift 拖相接边调整切换点"></span></div>`;
     })
     .join('');
   const altRows = Math.max(1, ...trackAlts.map(a => a.row + 1));
   const altBlocks = trackAlts
     .map(it => {
-      const title = `备选 · ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒（不播放、不计时长）\n拖上正片轨：落在画面上 = 互换，落在空隙里 = 插进去`;
-      return `<div class="ptt-block alt${it.assetId === pick ? ' on' : ''}" data-ptt="${esc(it.assetId)}" data-alt="1" style="left:${pct(it.start)};width:${pct(Math.max(0, it.end - it.start))};top:${4 + it.row * ALT_ROW}px;height:${ALT_ROW - 6}px" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头"></span><span class="ptt-label">${esc(it.asset.name || '')}</span><span class="ptt-grip r" title="拖动裁剪结尾"></span></div>`;
+      const title = `备选 · ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒（不播放、不计时长）\n拖上正片轨：落在画面上 = 互换，落在空隙里 = 插进去\n双击：删除`;
+      return `<div class="ptt-block alt${it.assetId === pick ? ' on' : ''}" data-ptt="${esc(it.assetId)}" data-alt="1" style="left:${pct(it.start)};width:${pct(Math.max(0, it.end - it.start))};top:${4 + it.row * ALT_ROW}px;height:${ALT_ROW - 6}px" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头"></span><span class="ptt-label">${esc(shortName(it.asset.name))}</span><span class="ptt-grip r" title="拖动裁剪结尾"></span></div>`;
     })
     .join('');
   const timed = !!u.layout?.timed;
-  const html = `<div class="ptt-bar"><strong>画面时间</strong><span class="ptt-mode">${
+  const tips =
+    '拖中间：移动 / 换序\n拖两端：裁剪（Shift 拖相接边调切换点）\n上下拖：在正片和备选之间换\nI / O：裁到播放位置\n双击画面：定格补满 / 删除';
+  const html = `<div class="ptt-bar"><strong>画面时间</strong>${
     !items.length && !trackAlts.length
       ? ''
-      : (timed ? '手动' : '按句子自动') +
-        ' · 拖中间移动 / 换序，拖两端裁剪 · 上下拖动在正片和备选之间换 · I / O 裁到播放位置'
-  }</span><span class="ptt-warn" id="pttWarn"></span><span class="spacer"></span>${timed ? '<button class="ptt-reset" id="pttReset" title="去掉手动时间，按每个画面的出现位置（第几句到第几句）排">恢复按句子</button>' : ''}</div>
+      : `<span class="ptt-mode">${timed ? '手动' : '按句子自动'}</span><span class="ptt-help" title="${esc(tips)}" aria-label="${esc(tips)}">?</span>`
+  }<span class="ptt-warn" id="pttWarn"></span><span class="spacer"></span>${timed ? '<button class="ptt-reset" id="pttReset" title="去掉手动时间，按每个画面的出现位置（第几句到第几句）排">恢复按句子</button>' : ''}</div>
     <div class="ptt-lanes" id="pttLanes">
       <span></span><div class="ptt-ruler" id="pttRuler" title="点击或拖动：跳到这个时间">${ticks}<span class="ptt-rhead" id="pttRHead"></span></div>
       <span class="ptt-lname">正片</span><div class="ptt-lane" id="pttLane">${seps}${holds}${blocks}<span class="ptt-ghost" id="pttGhost" hidden></span><span class="ptt-insert" id="pttInsert" hidden></span><span class="ptt-head" id="pttHead"></span>${
         items.length ? '' : '<span class="ptt-empty">正片轨还没有画面：审核通过视频，或把备选拖上来</span>'
       }</div>
-      <span class="ptt-lname alt">备选</span><div class="ptt-lane alt" id="pttAlt" style="height:${altRows * ALT_ROW + 4}px">${bareSeps}${altBlocks}<span class="ptt-insert" id="pttAltInsert" hidden></span>${
-        trackAlts.length ? '' : '<span class="ptt-empty">排不下的通过视频放在这里；把正片拖下来也行</span>'
-      }</div>
+      <span class="ptt-lname alt">备选</span><div class="ptt-lane alt${trackAlts.length ? '' : ' empty'}" id="pttAlt"${
+        trackAlts.length
+          ? ` style="height:${altRows * ALT_ROW + 4}px"`
+          : ' title="排不下的通过视频放在这里；把正片拖下来也行"'
+      }>${bareSeps}${altBlocks}<span class="ptt-insert" id="pttAltInsert" hidden></span></div>
     </div>`;
   if (html !== trackHtml || trackDirty || !box.querySelector('#pttLanes')) {
     box.innerHTML = html;
@@ -360,6 +374,82 @@ function renderEdit() {
     }
   }
   el.innerHTML = esc(notes.join(' · ')) + action;
+}
+
+/* ── 双击画面的菜单：定格补满 / 删除 ──
+   定格补满：片段放完停在最后一帧，一直补到下一个画面（或这个画面的结尾）；已经补过的可以取消。
+   删除：审核通过的视频 = 撤回通过（回到待审）；其余素材 = 从这个画面移除关联，本地文件保留。都可以 ⌘Z */
+function freezePlan(it) {
+  const u = units[trackUnit];
+  if (!u || !it || it.kind !== 'video') return { ok: false, why: '图片本来就是静止画面，不用定格' };
+  if (it.usage.fitDone) return { ok: true, off: true };
+  const items = u.layout.items;
+  const k = items.findIndex(x => x.assetId === it.assetId);
+  const dur = u.end - u.start;
+  const end = Math.min(it.end, dur);
+  // 手动排的：补到下一个画面开始（没有就到画面结尾）；按句子排的：补到排给它的时间
+  const to = u.layout.timed ? Math.min(items[k + 1]?.start ?? dur, dur) : Math.min(it.slotEnd ?? it.end, dur);
+  if (to <= end + 0.05) return { ok: false, why: '后面紧接着别的画面，没有空出来的时间要补' };
+  return { ok: true, end: u.layout.timed ? to : null, gain: to - end };
+}
+function openBlockMenu(block) {
+  const u = units[trackUnit];
+  const row = unitRow();
+  if (!u || !row) return;
+  const id = block.dataset.ptt;
+  const isAlt = !!block.dataset.alt;
+  const it = isAlt ? trackAlts.find(x => x.assetId === id) : u.layout?.items.find(x => x.assetId === id);
+  if (!it) return;
+  pick = id;
+  for (const el of document.querySelectorAll('#pttLanes .ptt-block')) el.classList.toggle('on', el === block);
+  renderEdit();
+  const item = (act, label, desc, { disabled = false, danger = false } = {}) =>
+    `<div class="pop-item${danger ? ' danger' : ''}${disabled ? ' disabled' : ''}" data-ptt-act="${act}"><span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
+  let html = `<div class="p-title">${isAlt ? '备选' : circled(it.n)} ${esc(shortName(it.asset.name))}</div>`;
+  if (!isAlt) {
+    const f = freezePlan(it);
+    html += f.off
+      ? item('unfreeze', '取消定格', '画面截回片段本身的长度')
+      : item('freeze', '定格补满', f.ok ? `放完停在最后一帧，补足 ${sec(f.gain)} 秒` : f.why, { disabled: !f.ok });
+    html += '<div class="pop-sep"></div>';
+  }
+  const cand = approvedCand(id);
+  html += item(
+    'remove',
+    '删除',
+    cand ? '撤回通过，视频回到待审 · ⌘Z 可撤销' : '从这个画面移除，本地文件保留 · ⌘Z 可撤销',
+    {
+      danger: true,
+    },
+  );
+  openMenu(block, html);
+  popEl.classList.add('ptt-menu');
+  popEl.addEventListener('click', e => {
+    const act = e.target.closest('.pop-item:not(.disabled)')?.dataset.pttAct;
+    if (!act) return;
+    closePop();
+    if (act === 'freeze') {
+      const f = freezePlan(it);
+      if (f.ok) setFitDone(row, id, true, f.end);
+    } else if (act === 'unfreeze') setFitDone(row, id, false);
+    else if (act === 'remove') removePicture(row, id);
+  });
+}
+const approvedCand = assetId => {
+  const cid = state.assets?.[assetId]?.source?.candidate;
+  return cid ? state.candidates?.find(c => c.id === cid && c.decision === 'ok' && c.assetId === assetId) : null;
+};
+function removePicture(row, assetId) {
+  if (pick === assetId) pick = null;
+  const cand = approvedCand(assetId);
+  if (cand) {
+    const r = decideCandidate(cand.id, 'ok'); // 再点一次「通过」= 撤回
+    if (r?.error) toast(r.error, null, 'error');
+    else toast('已从画面上删除，视频回到待审 · ⌘Z 可撤销', null, 'ok');
+    return;
+  }
+  const index = usageList(row).findIndex(x => x.assetId === assetId);
+  if (index >= 0) removeUsage(row, index);
 }
 
 function movePlayhead(t) {
@@ -483,7 +573,6 @@ function onLaneDown(e) {
   const insert = $('#pttInsert');
   const altInsert = $('#pttAltInsert');
   const ghost = $('#pttGhost');
-  trackDirty = true;
   const feedback = $('#pttWarn');
   const oldFeedback = feedback.innerHTML;
   drag = {
@@ -508,6 +597,7 @@ function onLaneDown(e) {
     window.removeEventListener('pointercancel', onCancel, true);
     block.classList.remove('dragging');
     lane.classList.remove('sorting');
+    lanes.classList.remove('dragging');
     block.style.transform = '';
     if (ghost) ghost.hidden = true;
     swapTarget(null);
@@ -518,8 +608,6 @@ function onLaneDown(e) {
       if (lanes.hasPointerCapture(e.pointerId)) lanes.releasePointerCapture(e.pointerId);
     } catch {}
   };
-  // 原生文件名悬浮框会遮住正在拖的素材。
-  for (const el of lanes.querySelectorAll('[title]')) el.removeAttribute('title');
   try {
     lanes.setPointerCapture(e.pointerId);
   } catch {}
@@ -542,9 +630,13 @@ function onLaneDown(e) {
     const delta = toSec(ev.clientX) - toSec(drag.x0);
     if ((Math.abs(ev.clientX - drag.x0) > 3 || Math.abs(ev.clientY - drag.y0) > 6) && !drag.moved) {
       drag.moved = true;
+      trackDirty = true;
+      // 真正开始拖动才隐藏悬浮说明，单击保留节点以接收后续双击。
+      for (const el of lanes.querySelectorAll('[title]')) el.removeAttribute('title');
       if (playing) stop();
       block.classList.add('dragging');
-      lane.classList.add('sorting'); // 其余色块让位时滑过去，不是瞬移
+      lane.classList.add('sorting');
+      lanes.classList.add('dragging'); // 空着的备选轨收成一条细线，拖动时展开好放 // 其余色块让位时滑过去，不是瞬移
     }
     if (!drag.moved) return;
     const len = drag.e0 - drag.s0;
@@ -653,8 +745,13 @@ function onLaneDown(e) {
     const from = d?.moved && mode === 'move' ? block.getBoundingClientRect() : null;
     clearDrag();
     if (!d) return;
+    if (!d.moved) {
+      renderEdit();
+      if (refreshAfterDrag) refreshSoon();
+      return;
+    }
     if (d.moved && d.kind === 'main' && d.cur && !d.cur.changed && d.blocked) editMsg = `没有移动：${d.blocked}`;
-    if (!d.moved || !d.cur) {
+    if (!d.cur) {
       renderTrack(trackUnit);
       settle(it.assetId, from);
       if (refreshAfterDrag) refreshSoon();
@@ -825,11 +922,20 @@ function tick(t) {
   showUnit(i, t);
   const u = units[i];
   const r = u ? rowAtIn(u, t) : null;
-  $('#ptSub').textContent = r ? r.text : '';
+  paintSub(r ? r.text : '');
   $('#ptTime').textContent = `${fmtTime(t)} / ${fmtTime(range ? range.end : timeline().total)}`;
   movePlayhead(t);
   const span = range ? range.end - range.start : timeline().total;
   $('#ptBar').style.width = `${Math.min(100, ((t - (range?.start || 0)) / Math.max(0.01, span)) * 100)}%`;
+}
+
+/* 字幕：嵌在审核页时字幕区固定三行高，播放器不跟着字幕长短伸缩；三行放不下就把字缩小一号 */
+function paintSub(text) {
+  const el = $('#ptSub');
+  if (el.textContent === text) return;
+  el.textContent = text;
+  el.classList.remove('fit');
+  if (docked && el.scrollHeight > el.clientHeight + 1) el.classList.add('fit');
 }
 
 function frame(now) {
@@ -1156,6 +1262,16 @@ export function initPlaythrough() {
   bar.addEventListener('pointerdown', e =>
     scrub(e, bar, f => (range ? range.start + f * (range.end - range.start) : f * timeline().total)),
   );
+  // 双击（或右键）画面：定格补满 / 删除
+  const blockMenu = e => {
+    const block =
+      e.target.closest?.('.ptt-block') || document.elementFromPoint(e.clientX, e.clientY)?.closest('.ptt-block');
+    if (!block || !track.contains(block) || drag) return;
+    e.preventDefault();
+    openBlockMenu(block);
+  };
+  track.addEventListener('dblclick', blockMenu);
+  track.addEventListener('contextmenu', blockMenu);
   // 镜头轨上不做浏览器自带的拖放（拖文字 / 拖图），免得它接管鼠标、打断色块拖动
   track.addEventListener('dragstart', e => e.preventDefault());
   track.addEventListener('click', e => {

@@ -81,7 +81,7 @@
 .voice-block {
   margin: 12px 0 4px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg);
   border: 1px solid var(--hairline);
   font-size: 12px;

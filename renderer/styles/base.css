@@ -20,8 +20,8 @@
   --seg-none: #c9cfdc;
   --row-sel-bd: rgba(59, 116, 232, 0.35);
   --row-hover: rgba(120, 132, 158, 0.07);
-  --row-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
-  --row-shadow-hover: 0 5px 16px rgba(15, 23, 42, 0.08);
+  --row-shadow: none;
+  --row-shadow-hover: none;
   --filter-active-bg: #eaf1ff;
   --filter-active-bd: #b9d0ff;
   --filter-active-tx: #2b5fc7;
@@ -34,17 +34,16 @@
   --bg: #f5f6f8;
   --hairline: #e8eaee;
   --text-3: #737e8f;
-  /* 质感：分层阴影（贴面一圈细边 + 柔和投影）、按钮顶部高光、统一圆角 */
-  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-1: 0 0 0 1px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.05);
+  /* 质感：平面为主，靠细边分层；只有浮层（菜单、弹窗）保留投影。圆角统一为 4 / 6 / 8 / 12 / 16 */
+  --shadow-xs: none;
+  --shadow-1: 0 0 0 1px rgba(16, 24, 40, 0.07);
   --shadow-2: 0 0 0 1px rgba(16, 24, 40, 0.05), 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 16px -6px rgba(16, 24, 40, 0.1);
   --shadow-3:
     0 0 0 1px rgba(16, 24, 40, 0.06), 0 12px 32px -10px rgba(16, 24, 40, 0.22), 0 3px 8px -2px rgba(16, 24, 40, 0.08);
-  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  --btn-bg: linear-gradient(180deg, #ffffff, #fafbfc);
-  --primary-bg: linear-gradient(180deg, #4b78ab, #3d6697);
-  --primary-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 1px 2px rgba(29, 56, 99, 0.28), 0 4px 12px -4px rgba(29, 56, 99, 0.45);
+  --hi: 0 0 #0000;
+  --btn-bg: #ffffff;
+  --primary-bg: #3b74e8;
+  --primary-shadow: none;
   --track-bg: rgba(118, 128, 150, 0.1);
   --note-width: 250px;
   --row-sel-grad: none;
@@ -79,16 +78,15 @@ body.dark {
   --row-sel-grad: none;
   --row-sel-bg: rgba(255, 255, 255, 0.06);
   --sel-ring: rgba(238, 241, 248, 0.38);
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-1: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-xs: none;
+  --shadow-1: 0 0 0 1px rgba(255, 255, 255, 0.07);
   --shadow-2:
     0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 8px 20px -8px rgba(0, 0, 0, 0.6);
   --shadow-3: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px -10px rgba(0, 0, 0, 0.7);
-  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  --btn-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.04));
-  --primary-bg: linear-gradient(180deg, #4f7fb8, #3f6aa0);
-  --primary-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px -6px rgba(40, 90, 170, 0.55);
+  --hi: 0 0 #0000;
+  --btn-bg: rgba(255, 255, 255, 0.05);
+  --primary-bg: #3d7bf0;
+  --primary-shadow: none;
   --track-bg: rgba(255, 255, 255, 0.05);
 }
 * {
@@ -205,10 +203,9 @@ body.dark .btn:hover {
   font-weight: 600;
   background: var(--primary-bg);
   box-shadow: var(--primary-shadow);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
 }
 .btn.primary:hover {
-  filter: brightness(1.06);
+  filter: brightness(1.08);
   background: var(--primary-bg);
   border-color: transparent;
 }
@@ -232,11 +229,11 @@ body.dark .btn:hover {
   box-shadow: none;
 }
 .btn.danger {
-  background: linear-gradient(135deg, #e5533a, #f56a4d);
+  background: #e5533a;
   border-color: transparent;
   color: #fff;
   font-weight: 600;
-  box-shadow: 0 4px 16px rgba(240, 90, 60, 0.35);
+  box-shadow: none;
 }
 .btn.danger:hover {
   filter: brightness(1.1);
@@ -257,7 +254,7 @@ select {
   box-shadow: none;
 }
 .btn.danger:hover {
-  box-shadow: 0 4px 16px rgba(240, 90, 60, 0.35);
+  box-shadow: none;
 }
 .text-button {
   border: 0;

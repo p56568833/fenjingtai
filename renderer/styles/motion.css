@@ -42,7 +42,7 @@ body.dark .mo-sel-ghost {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .pop-glide {
-  border-radius: 9px;
+  border-radius: 8px;
   background: rgba(120, 132, 158, 0.12);
   /* 菜单里鼠标移得快，不回弹、时间短，高亮块贴着鼠标走 */
   transition:

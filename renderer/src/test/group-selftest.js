@@ -139,12 +139,17 @@ export async function runGroupRangeTests(t) {
   t('移出可撤销', rowOf(R(2).id).groupId === g2());
 
   /* 规则 6/7：从这句开始使用另一个画面；单句退化 */
-  click(`[data-row-more="${R(1).id}"]`);
+  const pickRow = id => {
+    state.sel = id;
+    update('selection');
+  };
+  pickRow(R(1).id);
+  click(`[data-group-more="${g2()}"]`);
   await pause(30);
   t(
-    '组内句子「···」提供拆分入口',
+    '共用画面「···」按选中的句子提供拆分入口',
     !!$('[data-shot-act="split-at"]') &&
-      $('[data-shot-act="split-at"]').textContent.includes('从这句开始使用另一个画面'),
+      $('[data-shot-act="split-at"]').textContent.includes(`从第 ${R(1).no} 句开始使用另一个画面`),
   );
   click('[data-shot-act="split-at"]');
   await pause(50);
@@ -161,7 +166,8 @@ export async function runGroupRangeTests(t) {
   await pause(40);
   t('拆分一次撤销完整还原', rowOf(R(0).id).groupId === g2() && shotMembers(state.rows, rowOf(R(0).id)).length === 3);
 
-  click(`[data-row-more="${R(0).id}"]`);
+  pickRow(R(0).id);
+  click(`[data-group-more="${g2()}"]`);
   await pause(30);
   t(
     '首句拆分禁用并说明原因',
@@ -169,7 +175,8 @@ export async function runGroupRangeTests(t) {
       $('[data-shot-act="split-at"]').textContent.includes('第一句'),
   );
   closeMenu();
-  click(`[data-row-more="${R(2).id}"]`);
+  pickRow(R(2).id);
+  click(`[data-group-more="${g2()}"]`);
   await pause(30);
   t(
     '末句拆分指向移出操作',

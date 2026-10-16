@@ -80,6 +80,32 @@
   border-top: 0;
   padding-top: 0;
 }
+/* 审核页一屏一个画面：标题、播放器 + 候选、时间轴竖着排满整个窗口高度，播放器把剩下的高度都吃掉，
+   底下不留一大块空白；左边播放器和右边候选栏上下对齐 */
+#vrList > .vr-shot {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+#vrList > .vr-shot > .vr-split {
+  flex: 1 1 auto;
+}
+.vr-watch {
+  display: flex;
+  flex-direction: column;
+}
+.vr-dock-wrap,
+#vrDockPlayer {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.vr-watch .pt-box.docked {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .vr-shot.focus h4 {
   color: var(--accent);
 }
@@ -94,7 +120,7 @@
 }
 .vr-cand {
   border: 1px solid var(--hairline);
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 12px 14px;
   margin-bottom: 10px;
   background: var(--card);
@@ -128,7 +154,7 @@
   font-size: 11.5px;
   color: #fff;
   background: var(--c-b);
-  border-radius: 5px;
+  border-radius: 6px;
   padding: 1px 6px;
 }
 .vr-head strong {
@@ -198,7 +224,7 @@
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 .vr-player {
   width: 100%;
@@ -302,7 +328,7 @@
   margin: 2px 0 10px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  border-radius: 10px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 8%, var(--card));
   color: var(--accent);
   font: inherit;
@@ -367,7 +393,7 @@
   padding: 9px 10px;
   margin-bottom: 2px;
   font-size: 13.5px;
-  border-radius: 10px;
+  border-radius: 8px;
   transition: background-color 0.15s;
 }
 .vr-nav-shot > span:first-child {
@@ -402,7 +428,7 @@
   font-weight: 650;
   color: #fff;
   background: var(--accent);
-  border-radius: 9px;
+  border-radius: 8px;
   padding: 1px 7px;
 }
 .vr-nav-done {
@@ -458,7 +484,7 @@
   gap: 8px;
   padding: 7px 10px;
   border: 1px solid var(--hairline);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--card);
   box-shadow: var(--shadow-2);
   font-size: 12.5px;
@@ -691,7 +717,7 @@ body.dark .vr-sync {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
-  border-radius: 7px;
+  border-radius: 8px;
   padding: 3px 9px;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
@@ -753,7 +779,7 @@ body.dark .vr-sync {
   color: var(--text-3);
 }
 .vr-done-thumbs .vr-cell {
-  border-radius: 9px;
+  border-radius: 8px;
 }
 .vr-done-thumbs .vr-cell img {
   width: 100%;
@@ -767,7 +793,7 @@ body.dark .vr-sync {
 .vr-bh {
   padding: 12px 13px 13px;
   border: 1px solid var(--hairline);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--card);
   box-shadow: var(--shadow-2);
 }
@@ -896,7 +922,7 @@ body.dark .vr-sync {
   height: 26px;
   margin: -3px -5px -3px 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   font: inherit;
@@ -918,7 +944,7 @@ body.dark .vr-sync {
   margin: 6px 0 4px;
   padding: 8px 11px;
   border: 1px dashed var(--hairline-2);
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   font: inherit;
@@ -1083,7 +1109,7 @@ body.dark .vr-page p.vr-cov-note {
   display: flex;
   flex-direction: column;
   padding: 10px;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #11151f;
   box-shadow: inset 0 0 0 2px #f0a33a;
 }
@@ -1153,7 +1179,7 @@ body.dark .vr-page p.vr-cov-note {
   overflow: visible;
   padding: 10px;
   gap: 8px;
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow: none;
 }
 .pt-box.docked .pt-head,
@@ -1162,22 +1188,56 @@ body.dark .vr-page p.vr-cov-note {
   display: none;
 }
 .pt-box.docked .pt-stage {
-  max-height: 46vh;
+  flex: 1 1 0;
+  min-height: 220px;
+  max-height: none;
+  aspect-ratio: auto;
 }
+/* 字幕区固定三行高、文字在里面居中：字幕一长一短，播放器高度都不变（放不下时 JS 加 .fit 缩小一号） */
 .pt-box.docked .pt-sub {
-  min-height: 2.4em;
+  height: calc(3 * 1.4em);
+  min-height: 0;
   font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
-/* 画面下面那行（类型 · 第几句 · 正在放的片段）播到空白处会少一行：先留够两行的高度，
-   不然播放器一高一矮，下面的画面时间轴跟着上下跳，拖着的色块会从鼠标底下跑开 */
+.pt-box.docked .pt-sub.fit {
+  font-size: 13px;
+}
+/* 画面下面那行（类型 · 第几句 · 正在放的片段）在审核页里不显示：下面的时间条上都看得到 */
 .pt-box.docked .pt-meta {
-  min-height: 38px;
-  align-content: flex-start;
+  display: none;
+}
+/* 浅色主题：审核页里的播放器换成白底卡片，只有画面本身是黑底 */
+body:not(.dark) .vr-watch .pt-box.docked {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+  --hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+}
+body:not(.dark) .pt-box.docked .pt-meta,
+body:not(.dark) .pt-box.docked .pt-time {
+  color: var(--text-2);
+}
+body:not(.dark) .pt-box.docked .pt-controls .btn:not(.primary) {
+  background: var(--btn-bg);
+  color: var(--text);
+  border-color: var(--hairline-2);
+}
+body:not(.dark) .pt-box.docked .pt-controls .btn:not(.primary):hover {
+  background: var(--card-hover);
+  border-color: var(--hairline-2);
+}
+body:not(.dark) .pt-box.docked .pt-card-note {
+  color: #f2f4f8;
 }
 .vr-timeline {
   margin-top: 14px;
   padding: 2px;
-  border-radius: 14px;
+  border-radius: 12px;
   background: #11151f;
   color: #e9edf5;
 }
@@ -1204,7 +1264,7 @@ body.dark .vr-page p.vr-cov-note {
   z-index: 2;
   margin: 0 -14px;
   padding: 8px 14px 10px;
-  border-radius: 0 0 14px 14px;
+  border-radius: 0 0 12px 12px;
   background: inherit;
 }
 /* 方案状态：已填满 / 待审 N / 不够长 / 还差几秒 / 未采用（颜色和句子的画面状态一致） */
@@ -1297,31 +1357,12 @@ body.dark .vr-pst.miss {
   font-weight: 650;
   color: var(--accent);
 }
-/* 前后句：淡色一行，只作衔接参考 */
-.vr-page p.vr-ctx {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 0 12px;
-  margin: 0;
-  padding: 8px 10px 8px 0;
-  font-size: 12.5px;
-  color: var(--text-3);
-}
-.vr-ctx > span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* 属于「右侧面板」，保持在 .vr-ctx > span:last-child 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
 .detail-rework.on span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
-}
-.vr-ctx.after {
-  border-top: 1px solid var(--hairline);
 }
 /* 左栏顶上的当前批次卡片：钉住不随画面列表滚动 */
 .vr-picker {
@@ -1450,7 +1491,7 @@ body.dark .vr-tabs {
   background: rgba(255, 255, 255, 0.05);
 }
 .vr-tab-pill {
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--card);
   box-shadow:
     0 0 0 0.5px rgba(16, 24, 40, 0.08),
@@ -1474,7 +1515,7 @@ body.dark .vr-tab-pill {
   height: 32px;
   padding: 0 8px;
   border: 0;
-  border-radius: 9px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-2);
   font: inherit;
@@ -1584,6 +1625,15 @@ body.dark .vr-tab-pill {
   }
   .vr-watch {
     position: static;
+  }
+  /* 窄窗口上下排：播放器回到 16:9，不再撑满高度 */
+  #vrList > .vr-shot {
+    min-height: 0;
+  }
+  .pt-box.docked .pt-stage {
+    flex: none;
+    min-height: 0;
+    aspect-ratio: 16 / 9;
   }
   .vr-plans > .vr-pbody {
     position: static;

@@ -177,7 +177,7 @@ body.dark .preview-box {
   width: 74px;
   padding: 5px 6px;
   border: 1px solid var(--hairline-2);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--bg);
   color: var(--text);
   font-family: var(--mono);

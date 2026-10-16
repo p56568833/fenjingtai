@@ -439,7 +439,6 @@ function paintVideoReview() {
     host.innerHTML = '<p class="vr-empty">这一批没有候选。</p>';
     return;
   }
-  const { members } = layoutShot(g);
   const open = openOf(g);
   if (!open.some(c => c.id === page.curCand)) page.curCand = open.find(isPending)?.id || open[0]?.id || null;
   const done = g.cands.filter(c => c.id !== page.curCand && !isPending(c));
@@ -461,21 +460,10 @@ function paintVideoReview() {
       ? `<span class="vr-pst ${fill.full ? 'ok' : fill.got > 0 ? 'part' : 'miss'}" title="正片轨上排了多少秒 / 这个画面的口播有多长">已排 ${secText(fill.got)} / 口播 ${secText(fill.dur)} 秒</span>`
       : ''
   }</div>`;
-  // 前后各露一句（淡色），判断画面能不能接上
-  const allLines = state.rows.filter(r => r.kind === 'line');
-  const i0 = members.length ? allLines.indexOf(members[0]) : -1;
-  const i1 = members.length ? allLines.indexOf(members[members.length - 1]) : -1;
-  const ctx = (r, where) =>
-    r
-      ? `<p class="vr-ctx ${where}"><span class="vr-line-no">${r.no}</span><span>${where === 'before' ? '上一句' : '下一句'} · ${esc(r.text)}</span></p>`
-      : '';
-  const need = g.cands.find(c => c.need)?.need || '';
   const reworkNote = g.cands.find(c => c.reworkNote)?.reworkNote || '';
   const shotHTML = `<section class="vr-shot" data-vr-shot="${esc(String(g.key))}">
       <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4>
-      ${need ? `<p class="vr-need"><b>要的画面</b>${esc(need)}</p>` : ''}
       ${reworkNote ? `<p class="vr-need vr-rework-note"><b>原返工意见</b>${esc(reworkNote)}</p>` : ''}</div>
-      ${i0 > 0 ? ctx(allLines[i0 - 1], 'before') : ''}
       <div class="vr-split">
         <div class="vr-watch">
           <div class="vr-dock-wrap"><div id="vrDockPlayer" aria-label="对着口播看画面"></div><div class="vr-preview" id="vrPreview" aria-label="候选预览" hidden></div></div>
@@ -483,7 +471,6 @@ function paintVideoReview() {
         <div class="vr-plans"><div class="vr-pbody">${headHTML}<div class="vr-plist">${layoutShot(g).order.map(itemHTML).join('')}</div></div></div>
       </div>
       <div class="vr-timeline" id="vrDockTrack"></div>
-      ${i1 >= 0 && i1 < allLines.length - 1 ? ctx(allLines[i1 + 1], 'after') : ''}
     </section>`;
   // 这个画面显示的内容一点没变（协作者改的是别的句子、后台存了文件…）：不重建，正在播的视频、截图和滚动位置都留着
   if (shotHTML === painted.shot && painted.shotEl?.parentNode === host) {
@@ -651,12 +638,15 @@ export function videoReviewKey(e) {
   if (/^[ioIO]$/.test(e.key) && isDocked()) return playthroughKey(e);
   if (e.key === ' ') {
     e.preventDefault();
-    // 审核页：空格永远播 / 停排好的画面（看整体效果）；候选正盖在上面就先收起来。看候选点「播放这段」或截图
-    if (previewHost()) {
-      showTimeline();
-      return toggleDocked() || true;
+    // 审核页：候选正盖在左边播放器上时，空格暂停 / 继续这个候选；没有候选盖着就播 / 停排好的画面
+    const pv = previewingId();
+    if (pv) {
+      const c = state.candidates.find(x => x.id === pv);
+      if (c) togglePause(previewHost(), mediaOf(c));
+      return true;
     }
-    if (!page.curCand) return toggleDocked() || true;
+    // 有左边播放器（审核页）就播 / 停排好的画面；待返工页没有，才在卡片里播当前候选
+    if (toggleDocked() || !page.curCand) return true;
     const card = $(`#vrList [data-vr-id="${page.curCand}"]`);
     const c = state.candidates.find(x => x.id === page.curCand);
     pauseDocked();

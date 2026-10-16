@@ -48,7 +48,7 @@
   width: 100%;
   max-height: 62vh;
   background: #000;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
   display: grid;
   place-items: center;
@@ -168,11 +168,38 @@
   color: rgba(255, 255, 255, 0.28);
   letter-spacing: 1px;
 }
+/* 画面时间轴的颜色都走下面这组变量，一直是深色。
+   色块比原来的蓝 / 绿收一点饱和度，但保持足够对比，文字白色；相邻两段之间只有一道暗缝，不留空隙 */
 .pt-track {
+  --ptt-tx: #c4ccda;
+  --ptt-tx2: #9ba5b7;
+  --ptt-tx3: #8d97a9;
+  --ptt-line: rgba(255, 255, 255, 0.08);
+  --ptt-sep: rgba(255, 255, 255, 0.32);
+  --ptt-hover: rgba(255, 255, 255, 0.04);
+  --ptt-stripe1: rgba(255, 255, 255, 0.03);
+  --ptt-stripe2: rgba(255, 255, 255, 0.055);
+  --ptt-a: #35558c;
+  --ptt-b: #2c6b55;
+  --ptt-a-hold: #263a5c;
+  --ptt-b-hold: #22483b;
+  --ptt-hold-bd: rgba(255, 255, 255, 0.28);
+  --ptt-block-tx: #ffffff;
+  --ptt-seam: rgba(0, 0, 0, 0.45);
+  --ptt-sel: #ffffff;
+  --ptt-grip-hover: #e6ebf3;
+  --ptt-grip-dot: rgba(0, 0, 0, 0.55);
+  --ptt-head: #ffffff;
+  --ptt-warn: #f0a33a;
+  --ptt-over: #ff6b6b;
+  --ptt-btn-bd: rgba(255, 255, 255, 0.14);
+  --ptt-btn-bd-hover: rgba(255, 255, 255, 0.3);
+  --ptt-btn-hover: #ffffff;
+  --ptt-alt-bg: rgba(255, 255, 255, 0.035);
   display: grid;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.07);
 }
@@ -184,19 +211,38 @@
   align-items: center;
   gap: 10px;
   font-size: 12px;
-  color: #c4ccda;
+  color: var(--ptt-tx);
 }
 .ptt-bar strong {
   font-weight: 650;
 }
 .ptt-mode {
-  color: #8a94a6;
+  color: var(--ptt-tx2);
   font-size: 11px;
 }
+/* 操作说明收进「?」：鼠标放上去才显示 */
+.ptt-help {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: -4px;
+  border-radius: 50%;
+  border: 1px solid var(--ptt-btn-bd);
+  color: var(--ptt-tx2);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: help;
+  flex: none;
+}
+.ptt-help:hover {
+  border-color: var(--ptt-btn-bd-hover);
+  color: var(--ptt-btn-hover);
+}
 .ptt-reset {
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--ptt-btn-bd);
   background: transparent;
-  color: #c4ccda;
+  color: var(--ptt-tx);
   border-radius: 6px;
   font: inherit;
   font-size: 11px;
@@ -204,14 +250,14 @@
   cursor: pointer;
 }
 .ptt-reset:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  color: #fff;
+  border-color: var(--ptt-btn-bd-hover);
+  color: var(--ptt-btn-hover);
 }
 .ptt-fitbtn {
   margin-left: 8px;
-  border: 1px solid rgba(240, 163, 58, 0.5);
+  border: 1px solid color-mix(in srgb, var(--ptt-warn) 50%, transparent);
   background: transparent;
-  color: #f0a33a;
+  color: var(--ptt-warn);
   border-radius: 6px;
   font: inherit;
   font-size: 11px;
@@ -219,8 +265,7 @@
   cursor: pointer;
 }
 .ptt-fitbtn:hover {
-  border-color: #f0a33a;
-  color: #ffc06a;
+  border-color: var(--ptt-warn);
 }
 .ptt-lane {
   position: relative;
@@ -229,25 +274,25 @@
   border-radius: 0;
   background: repeating-linear-gradient(
     -45deg,
-    rgba(255, 255, 255, 0.03) 0 6px,
-    rgba(255, 255, 255, 0.055) 6px 12px
+    var(--ptt-stripe1) 0 6px,
+    var(--ptt-stripe2) 6px 12px
   ); /* 斜纹 = 空着（黑屏） */
   cursor: pointer;
   user-select: none;
   touch-action: none;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
 }
 .ptt-ruler {
   position: relative;
-  height: 22px;
-  margin-top: 4px;
+  height: 30px;
+  margin-top: 0;
   cursor: pointer;
   user-select: none;
   touch-action: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--ptt-line);
 }
 .ptt-ruler:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--ptt-hover);
 }
 /* 播放头的帽子：倒三角，尖朝下指着下面那条线（和剪映一样） */
 .ptt-rhead {
@@ -258,47 +303,43 @@
   margin-left: -6px;
   border-style: solid;
   border-width: 8px 6px 0;
-  border-color: #fff transparent transparent;
+  border-color: var(--ptt-head) transparent transparent;
   pointer-events: none;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
 }
 .ptt-tick {
   position: absolute;
-  top: 4px;
+  top: 8px;
   transform: translateX(-50%);
   font-size: 10.5px;
   font-family: var(--mono);
-  color: #6f7a8d;
+  color: var(--ptt-tx3);
   pointer-events: none;
 }
 .ptt-tick:first-child {
   transform: none;
 }
+/* 句子分界：两条轨上一道实线（不写字、不能点） */
 .ptt-sep {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 0;
-  border-left: 1px dashed rgba(255, 255, 255, 0.22);
+  border-left: 1.5px solid var(--ptt-sep);
   pointer-events: none;
+  z-index: 1;
 }
-.ptt-sep b::before {
-  content: '第 ';
-}
-.ptt-sep b::after {
-  content: ' 句';
-}
-/* 色块：直角、细一点，没选中时不描边，相邻两段之间留一道暗缝（剪映那样） */
+/* 色块：直角，没选中时不描边，相邻两段之间留一道暗缝（剪映那样） */
 .ptt-block {
   position: absolute;
   top: 3px;
   bottom: 3px;
   min-width: 4px;
   border-radius: 0;
-  background: color-mix(in srgb, var(--accent) 55%, #1b2232);
+  background: var(--ptt-a);
   border: 0;
-  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.45);
-  color: #fff;
+  box-shadow: inset -1px 0 0 var(--ptt-seam);
+  color: var(--ptt-block-tx);
   font-size: 11.5px;
   display: flex;
   align-items: center;
@@ -306,13 +347,13 @@
   cursor: grab;
   box-sizing: border-box;
 }
-/* 绿色跟着素材走（不按第几个交替），换了顺序颜色不变 */
+/* 第二种颜色跟着素材走（不按第几个交替），换了顺序颜色不变 */
 .ptt-block.t1 {
-  background: color-mix(in srgb, #12945f 55%, #1b2232);
+  background: var(--ptt-b);
 }
-/* 选中：白色外框，两头是白色把手，拖把手改长度 */
+/* 选中：外框，两头是把手，拖把手改长度 */
 .ptt-block.on {
-  box-shadow: inset 0 0 0 2px #fff;
+  box-shadow: inset 0 0 0 2px var(--ptt-sel);
   z-index: 2;
 }
 .ptt-block.dragging {
@@ -321,8 +362,8 @@
   z-index: 4;
   /* 浮起来：压在别的色块上面，落点看下面的虚线框 */
   box-shadow:
-    inset 0 0 0 2px #fff,
-    0 10px 24px rgba(0, 0, 0, 0.55);
+    inset 0 0 0 2px var(--ptt-sel),
+    0 10px 24px rgba(0, 0, 0, 0.35);
 }
 /* 拖动时别的色块让位：滑过去 */
 .ptt-lane.sorting .ptt-block:not(.dragging) {
@@ -336,8 +377,8 @@
   top: 3px;
   bottom: 3px;
   border-radius: 0;
-  border: 1.5px dashed rgba(255, 255, 255, 0.75);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px dashed var(--ptt-sel);
+  background: var(--ptt-hover);
   box-sizing: border-box;
   pointer-events: none;
   z-index: 3;
@@ -348,16 +389,13 @@
   }
 }
 .ptt-block.over {
-  box-shadow: inset 0 0 0 1px #ff6b6b;
-  background-image: linear-gradient(90deg, transparent 85%, rgba(255, 80, 80, 0.55));
+  box-shadow: inset 0 0 0 1px var(--ptt-over);
+  background-image: linear-gradient(90deg, transparent 85%, color-mix(in srgb, var(--ptt-over) 45%, transparent));
 }
 .ptt-block.gone {
   display: none;
 }
-.ptt-block {
-  overflow: hidden;
-}
-/* 剪辑里定格 / 放慢补足的那截：同色但更淡、斜纹，和真实素材分开 */
+/* 定格补足的那截：同色但更淡、斜纹，和真实素材分开 */
 .ptt-fit {
   position: absolute;
   top: 0;
@@ -367,15 +405,16 @@
   align-items: center;
   justify-content: center;
   background:
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0 4px, transparent 4px 8px), rgba(14, 18, 28, 0.45);
-  border-left: 1px dashed rgba(255, 255, 255, 0.5);
+    repeating-linear-gradient(135deg, var(--ptt-stripe2) 0 4px, transparent 4px 8px),
+    color-mix(in srgb, var(--ptt-seam) 40%, transparent);
+  border-left: 1px dashed var(--ptt-hold-bd);
   pointer-events: none;
   overflow: hidden;
 }
 .ptt-fit i {
   font-style: normal;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.75);
+  opacity: 0.8;
   white-space: nowrap;
 }
 .ptt-label {
@@ -387,7 +426,7 @@
   text-overflow: ellipsis;
   pointer-events: none;
 }
-/* 两头的把手：选中了才出现、才能拖（先点一下选中，再拖白色把手改长度） */
+/* 两头的把手：选中了才出现、才能拖（先点一下选中，再拖把手改长度） */
 .ptt-grip {
   position: relative;
   flex: none;
@@ -399,7 +438,7 @@
 .ptt-block.on .ptt-grip {
   pointer-events: auto;
   cursor: ew-resize;
-  background: #fff;
+  background: var(--ptt-sel);
 }
 /* 把手中间的竖点 */
 .ptt-block.on .ptt-grip::after {
@@ -410,10 +449,10 @@
   width: 2px;
   height: 10px;
   transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(0, 0, 0, 0.55) 0.9px, transparent 1.1px) 0 0 / 2px 3.3px repeat-y;
+  background: radial-gradient(circle, var(--ptt-grip-dot) 0.9px, transparent 1.1px) 0 0 / 2px 3.3px repeat-y;
 }
 .ptt-block.on .ptt-grip:hover {
-  background: #e6ebf3;
+  background: var(--ptt-grip-hover);
 }
 .ptt-insert {
   position: absolute;
@@ -432,14 +471,13 @@
   position: absolute;
   top: 9px;
   bottom: 9px;
-  background: color-mix(in srgb, var(--accent) 30%, #1b2232);
-  border-top: 1px dashed color-mix(in srgb, var(--accent) 70%, #ffffff);
-  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 70%, #ffffff);
+  background: var(--ptt-a-hold);
+  border-top: 1px dashed var(--ptt-hold-bd);
+  border-bottom: 1px dashed var(--ptt-hold-bd);
   box-sizing: border-box;
 }
 .ptt-hold.t1 {
-  background: color-mix(in srgb, #12945f 30%, #1b2232);
-  border-color: color-mix(in srgb, #12945f 70%, #ffffff);
+  background: var(--ptt-b-hold);
 }
 .ptt-head {
   position: absolute;
@@ -447,11 +485,11 @@
   bottom: -4px;
   width: 2px;
   margin-left: -1px;
-  background: #fff;
+  background: var(--ptt-head);
   border-radius: 0;
   pointer-events: none;
   z-index: 3;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.35);
 }
 .ptt-empty {
   position: absolute;
@@ -459,11 +497,11 @@
   display: grid;
   place-items: center;
   font-size: 12px;
-  color: #8a94a6;
+  color: var(--ptt-tx2);
   pointer-events: none;
 }
 .ptt-warn {
-  color: #f0a33a;
+  color: var(--ptt-warn);
 }
 .pt-box:has(.pt-track:not([hidden])) .pt-stage {
   max-height: 52vh;
@@ -486,12 +524,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ptt-bar .ptt-mode {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
 /* 两条轨：左边一列写轨名，刻度尺和两条轨对齐在右边一列 */
 .ptt-lanes {
   display: grid;
@@ -502,7 +534,7 @@
 .ptt-lname {
   padding-top: 12px;
   font-size: 11px;
-  color: #8a94a6;
+  color: var(--ptt-tx2);
   text-align: right;
   white-space: nowrap;
 }
@@ -512,23 +544,40 @@
 /* 备选轨：不播放、不计时长，所以不画斜纹（斜纹 = 正片上的空白） */
 .ptt-lane.alt {
   margin-bottom: 2px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: var(--ptt-alt-bg);
   box-sizing: border-box;
 }
+/* 没有备选时收成一条细线；拖着正片往下走时展开，好放 */
+.ptt-lane.alt.empty {
+  height: 8px;
+  margin-top: 6px;
+  transition: height 0.14s ease;
+}
+.ptt-lanes:has(.ptt-lane.alt.empty) .ptt-lname.alt {
+  padding-top: 0;
+  line-height: 20px;
+}
+.ptt-lanes.dragging .ptt-lane.alt.empty {
+  height: 34px;
+  margin-top: 0;
+  box-shadow: inset 0 0 0 1px var(--ptt-sep);
+}
+/* 备选画面：和正片同款色块，半透明 */
 .ptt-block.alt {
   bottom: auto;
-  background: rgba(240, 163, 58, 0.13);
-  border: 1px dashed rgba(240, 163, 58, 0.75);
-  box-shadow: none;
-  color: #f6dcae;
+  opacity: 0.72;
 }
-.ptt-block.alt.on {
-  border-color: transparent;
-  box-shadow: inset 0 0 0 2px #fff;
+.ptt-block.alt:hover,
+.ptt-block.alt.on,
+.ptt-block.alt.dragging {
+  opacity: 1;
 }
 /* 备选拖上来、松手会和它互换的那段画面 */
 .ptt-block.swap {
   box-shadow: inset 0 0 0 2px #f0a33a;
   opacity: 0.6;
+}
+/* 双击画面弹出的菜单：弹窗版「对着口播看画面」在遮罩上面，菜单要压在它上面 */
+.popover.ptt-menu {
+  z-index: 400;
 }
