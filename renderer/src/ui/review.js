@@ -2,7 +2,9 @@
    · 分镜方案：未标注 / 缺画面描述 / 主画面缺失 / 片段待调整 / 字幕没找到（素材还没到位也能通过）
    · 素材交付：在方案检查之外，再看需要画面的镜头有没有关联素材、素材文件是否失联
    成功提示只说检查了什么，不把「方案齐了」说成「素材齐了」。 */
-import { state, on, types, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on } from '../app/events.js';
+import { types, timeline } from '../app/project-queries.js';
 import { blankShots, linesText } from '../core/coverage.js';
 import { checkDelivery, unlinkedShots } from '../core/shots.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
@@ -86,7 +88,7 @@ export async function openReview() {
     if (reviewOpen) renderReview();
   }
 }
-export function closeReview() {
+function closeReview() {
   $('#reviewMask').classList.remove('show');
   reviewOpen = false;
 }
@@ -98,8 +100,6 @@ export function initReview() {
   );
   registerCommand('review:open', openReview);
   on('workspace', () => reviewOpen && renderReview());
-  on('assets-changed', () => reviewOpen && renderReview());
-  on('project-changed', () => reviewOpen && renderReview());
   $('#closeReview').onclick = closeReview;
   $('#reviewExport').onclick = () => {
     closeReview();

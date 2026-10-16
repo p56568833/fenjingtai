@@ -1,5 +1,5 @@
 /* 快捷键与帮助（⌘/）：分组列出，类型键位按本项目的类型表生成 */
-import { types } from '../app/state.js';
+import { types } from '../app/project-queries.js';
 import { esc } from './base/dom.js';
 import { registerCommand } from './base/commands.js';
 
@@ -77,7 +77,7 @@ function groups() {
   ];
 }
 
-export function openHelp() {
+function openHelp() {
   $('#helpBody').innerHTML = groups()
     .map(
       ([title, items]) =>

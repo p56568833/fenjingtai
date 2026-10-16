@@ -1,7 +1,7 @@
 /* 拖拽添加素材：从访达拖一个或多个文件到表格某句 / 共用画面区域 / 右侧素材面板。
    拖到哪高亮哪（拖到组内任一句 = 整个共用画面接收）；只建立关联，不动原文件；
    同目标重复文件去重；空白处不接收，也不让浏览器直接打开文件。 */
-import { rowById } from '../app/state.js';
+import { rowById } from '../app/project-queries.js';
 import { addRefsToShot } from '../app/asset-actions.js';
 import { kindOf, assetName } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
@@ -16,7 +16,7 @@ const inVoiceZone = el => !!(el && el.closest && el.closest(VOICE_ZONE));
 /* 拖进窗口的是稿子 / 字幕 / 项目文件时，不当素材，直接导入：
    MD / TXT / Word → 分句预览；SRT / VTT → 对齐剪映字幕；项目 JSON → 新项目。
    想把 txt / md 当素材关联，拖到右侧「画面与素材」面板即可。 */
-export const SCRIPT_EXT = /\.(md|markdown|txt|docx|json|srt|vtt|zip)$/i;
+const SCRIPT_EXT = /\.(md|markdown|txt|docx|json|srt|vtt|zip)$/i;
 const SCRIPT_MIME =
   /^(text\/(plain|markdown|x-markdown|vtt)|application\/(json|zip|x-zip-compressed|x-subrip|vnd\.openxmlformats-officedocument\.wordprocessingml\.document))$/i;
 const looksLikeScript = dt => {
@@ -43,7 +43,7 @@ export async function importDroppedFiles(files) {
 }
 
 /* 拖入的 File 对象 → 本地路径（Electron 32+ 只有 webUtils 这一条通道） */
-export function extractPaths(fileList) {
+function extractPaths(fileList) {
   const out = [];
   for (const f of fileList || []) {
     const p = native.getPathForFile(f);
@@ -53,7 +53,7 @@ export function extractPaths(fileList) {
 }
 
 /* 落点解析：句 / 共用画面 / 右侧面板；空白处返回 null */
-export function targetRowFor(el) {
+function targetRowFor(el) {
   if (!el || !el.closest) return null;
   if (el.closest('#inspector')) {
     const panel = document.querySelector('#inspector');

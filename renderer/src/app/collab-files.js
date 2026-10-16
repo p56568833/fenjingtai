@@ -102,7 +102,6 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
         if (item.kind === 'voice') {
           if (project.voice?.path !== item.path) return false;
           project.voice = { ...project.voice, path: local, name: assetName(local) };
-          change.emit('voice');
         } else {
           const a = project.assets?.[item.id];
           if (!a || a.path !== item.path) return false;
@@ -110,9 +109,7 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
           a.name = assetName(local);
           delete a.durationSec;
           syncMirror(project.rows || [], project.assets);
-          change.emit('assets-changed', { ids: null, kind: 'association' });
         }
-        change.emit('rows');
       },
       { projectId: s.pid },
     );

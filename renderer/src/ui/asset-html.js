@@ -1,6 +1,7 @@
 /* 素材的样子：表格素材卡片、右面板素材条目、句子条、够不够提示（纯拼 HTML，不碰 DOM）。
    数据在 core/asset-model.js（素材库 + 使用记录 + 片段）。 */
-import { state, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { timeline } from '../app/project-queries.js';
 import { shotLineCoverage } from '../app/line-coverage.js';
 import { mainFilled } from '../core/shot-tracks.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
@@ -52,7 +53,7 @@ function fitToggle(cov, ref) {
     : '剪辑里已经补足了（放慢、定格等）：勾上后不再提示时长不够';
   return `<span class="cover-fit${on ? ' on' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-fit-row="${ref.row}" data-fit-asset="${esc(ref.assetId)}" title="${esc(tip)}">剪辑已补足</span>`;
 }
-export function coverHTML(cov, ref) {
+function coverHTML(cov, ref) {
   if (!cov) return '';
   const need = `<span class="cover-need">需要 <b>${s1(cov.need)}</b> 秒</span>`;
   if (cov.verdict === 'still')

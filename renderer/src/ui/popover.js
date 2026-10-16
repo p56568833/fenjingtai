@@ -1,5 +1,7 @@
+import { viewState } from '../app/view-state.js';
 /* 类型菜单与时长统计菜单；通用的弹出 / 定位 / 关闭在 base/popover.js。 */
-import { state, types, timeline, lineSeconds } from '../app/state.js';
+import { state } from '../app/state.js';
+import { types, timeline, lineSeconds } from '../app/project-queries.js';
 import { setSpeechRate } from '../app/actions.js';
 import { clearTiming } from '../app/subtitle.js';
 import { SOURCE_TEXT } from '../core/timeline.js';
@@ -9,7 +11,7 @@ import { runCommand } from './base/commands.js';
 import { openMenu, closePop, initPopover as initPopoverBase } from './base/popover.js';
 
 export function openTypePopover(anchor) {
-  const cur = state.rows.find(r => r.id === state.sel)?.type ?? null;
+  const cur = state.rows.find(r => r.id === viewState.sel)?.type ?? null;
   const items =
     `<div class="p-title">标注为</div>` +
     typeMenuItems('data-t', id => cur === id) +

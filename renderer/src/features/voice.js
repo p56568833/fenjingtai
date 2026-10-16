@@ -1,7 +1,10 @@
+import { viewState } from '../app/view-state.js';
 /* 口播音频播放：底部口播条（播放 / 暂停、进度、正在说的那句、跟随、语速、单句循环）。
    每句的时间来自 app/state 的时间轴：字幕实测 > 按音频长度推算 > 按语速估算。
    对外提供一个播放器（playRange / pause / onTick），连播预览、专注标注、面板「听这段」都用它。 */
-import { state, on, timeline, timeOf, rowById } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on } from '../app/events.js';
+import { timeline, timeOf, rowById } from '../app/project-queries.js';
 import { setVoice, setVoiceDuration, clearVoice, relocateVoice, isVoiceFile } from '../app/voice.js';
 import { shotMembers } from '../core/shots.js';
 import { lineAt, spanOf } from '../core/timeline.js';
@@ -200,7 +203,7 @@ function toggle() {
   if (!a.paused) return a.pause();
   // 第一次播 / 播完了：从当前选中的句子开始
   if (a.currentTime === 0 || a.ended || stopAt != null) {
-    const t = timeOf(state.sel);
+    const t = timeOf(viewState.sel);
     return voicePlayer.playRange(t ? t.start : 0);
   }
   a.play().catch(() => {});
@@ -278,7 +281,12 @@ export function initVoice() {
   registerCommand('voice:toggle', toggle);
   registerCommand('voice:play-from', playFromLine);
   registerCommand('voice:play-shot', playShot);
-  on('voice', () => {
+  on('project-committed', change => {
+    if (
+      change.projectId !== state.projectId ||
+      (!change.full && change.rowIds !== null && !change.fields.includes('voice'))
+    )
+      return;
     if (!state.voice || state.voice.path !== loadedPath) releaseAudio();
     renderBar();
     if (state.voice) ensureAudio();
@@ -291,7 +299,7 @@ export function initVoice() {
   });
   on('collab-status', renderBar);
   // 重渲染后把「正在说」的高亮补回去
-  on('rows', () => {
+  on('view-painted', () => {
     playingId = null;
     if (audio && state.voice) updatePlaying(audio.currentTime);
   });

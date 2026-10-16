@@ -1,6 +1,7 @@
 /* 表格行徽标：片段待调整 / 待返工 + 素材卡片（只在内容变了时重画，换了的卡片带动效）。
    卡片 HTML 在 asset-html.js，缩略图在 asset-thumbs.js，文件失联 / 时长在 asset-files.js。 */
-import { state, rowById } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById } from '../app/project-queries.js';
 import { shotMembers } from '../core/shots.js';
 import { usageList } from '../core/asset-model.js';
 import { pop } from './base/motion.js';

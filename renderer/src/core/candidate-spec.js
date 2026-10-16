@@ -1,7 +1,7 @@
 /* 候选清单格式规范（v3，硬性规定）：给找素材的 AI 看的说明 + 完整示例。
    这是唯一来源：审核页「复制格式规范」复制的是它，仓库根目录的「候选清单格式.md」由它生成（测试会核对两者一致），
    导入时的格式检查在 core/candidates.js 的 validateCandidateDoc / planImport。改规范时三处一起改。 */
-import { CANDIDATE_TYPE, CANDIDATE_VERSION, FILL_EPS, MARGIN_MAX } from './candidates.js';
+import { CANDIDATE_TYPE, CANDIDATE_VERSION, FILL_EPS, MARGIN_MAX } from './candidate-values.js';
 
 export const CANDIDATE_EXAMPLE = {
   type: CANDIDATE_TYPE,

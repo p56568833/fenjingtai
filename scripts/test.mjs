@@ -94,12 +94,14 @@ try {
   const b = await puppeteer.connect({ browserURL: 'http://localhost:9222', defaultViewport: null });
   const page = (await b.pages()).find(p => p.url().includes('renderer/index.html'));
   if (!page) throw new Error('没找到自测页面');
+  const runtimeErrors = [];
+  page.on('pageerror', error => runtimeErrors.push(error.stack || error.message));
   let result = null;
   for (let i = 0; i < 360 && !result; i++) {
     result = await page.evaluate(() => window.__SELFTEST_RESULT__ || null);
     if (!result) await sleep(250);
   }
-  if (!result) throw new Error('自测 90 秒内没跑完');
+  if (!result) throw new Error('自测 90 秒内没跑完' + (runtimeErrors.length ? '\n' + runtimeErrors.join('\n') : ''));
   const line = (ok, name, detail) => `${ok ? '✓' : '✗'} ${name}${detail ? '  — ' + detail : ''}`;
   console.log(`\n自测结果：${result.total - result.failed}/${result.total} 通过\n`);
   for (const c of result.cases) console.log(line(c.ok, c.name, c.ok ? '' : c.detail));
@@ -107,7 +109,9 @@ try {
   if (!result.failed) {
     // 真鼠标验证长录音里的窄灰色缺口，合成 input 事件测不到原生滑块头造成的偏移。
     const fixture = await page.evaluate(async () => {
-      const { state, update } = await import('./src/app/state.js');
+      const { state } = await import('./src/app/state.js');
+      const { update } = await import('./src/app/project-events.js');
+      const { viewState } = await import('./src/app/view-state.js');
       const storage = await import('./src/app/storage.js');
       const { parseAny } = await import('./src/core/parse.js');
       const { setView } = await import('./src/ui/render.js');
@@ -122,7 +126,7 @@ try {
         r.assetUsages = i % 2 ? [] : [{ assetId: 'p', role: 'main' }];
       });
       state.voice = { path: '/tmp/pointer-recording.wav', name: '录音.wav', duration: 3600 };
-      state.sel = lines[0].id;
+      viewState.sel = lines[0].id;
       setView('table');
       update('rows');
       return { original, ids: lines.map(r => r.id) };
@@ -134,7 +138,7 @@ try {
       });
       const point = seconds => bar.left + (seconds / 3600) * bar.width;
       const checkSelection = async (name, id) => {
-        const selected = await page.evaluate(async () => (await import('./src/app/state.js')).state.sel);
+        const selected = await page.evaluate(async () => (await import('./src/app/view-state.js')).viewState.sel);
         const ok = selected === id;
         console.log(line(ok, name, ok ? '' : `选中 ${selected}，应为 ${id}`));
         if (!ok) process.exitCode = 1;
@@ -158,7 +162,7 @@ try {
       await page.evaluate(async original => {
         const storage = await import('./src/app/storage.js');
         storage.switchProject(original);
-        (await import('./src/app/state.js')).update('rows');
+        (await import('./src/app/project-events.js')).update('rows');
       }, fixture.original);
     }
   }

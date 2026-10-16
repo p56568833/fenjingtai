@@ -1,13 +1,16 @@
 /* 视频审核的数据操作：页面不直接修改候选、素材或返工标记。 */
-import { state, rowById, renumber, timeline } from './state.js';
+import { state } from './state.js';
+import { rowById, renumber, timeline } from './project-queries.js';
 import { shotSeconds } from './line-coverage.js';
-import { changeProject } from './project-change.js';
+import { changeProject, editProjectFields } from './project-change.js';
 import { forgetPurged } from './undo.js';
 import { writeBack, flushWriteBack, syncedFiles } from './candidate-sync.js';
 import { shotMembers } from '../core/shots.js';
 import { assetName } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
-import { planImport, attachCandidate, detachCandidate, footageTakenBy, DECISION } from '../core/candidates.js';
+import { planImport, footageTakenBy } from '../core/candidates.js';
+import { attachCandidate, detachCandidate } from '../core/candidate-placement.js';
+import { DECISION } from '../core/candidate-values.js';
 import { reworkShots, resolveOnApprove, setRework, setAssetRework, dismissRework } from '../core/rework.js';
 
 export function registerReworkRequest(doc, shots) {
@@ -95,7 +98,7 @@ export function importCandidateData(doc, srcFile) {
     for (const c of plan.added) Object.assign(c, batch);
     state.candidates = [...state.candidates, ...plan.added];
     change.emit('candidates-changed', { resetIds });
-    change.emit('rows');
+
     return { ...plan, batch, reset };
   });
   if (result.reset) writeBack();
@@ -140,7 +143,7 @@ export function decideCandidate(id, decision) {
     c.decision = next;
     if (next) c.decidedAt = Date.now();
     else delete c.decidedAt;
-    change.emit('rows');
+
     return { candidate: c, next, msg };
   });
   if (!result?.error) writeBack();
@@ -152,10 +155,10 @@ export function setCandidateNote(id, text, session) {
   const c = state.candidates.find(x => x.id === id);
   if (!c || (c.note || '') === text) return;
   // 立即把内存改动登记待保存，防抖由存储层负责；切项目不会丢最后一句意见。
-  changeProject(session?.snapped ? null : '编辑审核意见', () => {
-    if (session) session.snapped = true;
-    c.note = text;
+  const changed = editProjectFields(session?.snapped ? null : '编辑审核意见', {
+    candidates: [{ id, values: { note: text } }],
   });
+  if (changed && session) session.snapped = true;
   writeBack();
 }
 
@@ -168,7 +171,7 @@ export function deleteCandidateBatch(ids) {
     for (const c of removed) invalidateCandidate(c);
     state.candidates = state.candidates.filter(c => !ids.has(c.id));
     change.emit('candidates-changed', { removedIds: removed.map(c => c.id) });
-    change.emit('rows');
+
     return removed;
   });
 }
@@ -197,24 +200,25 @@ export function saveRework(row, assetId, rework, label) {
   return changeProject(label, change => {
     if (assetId) setAssetRework(state.rows, row, assetId, rework);
     else setRework(state.rows, row, rework);
-    change.emit('rows');
+
     return row;
   });
 }
 export function setReworkNote(row, text, session) {
   if (!row || rowById(row.id) !== row) return;
-  changeProject(session?.snapped ? null : '编辑返工要求', () => {
-    if (session) session.snapped = true;
-    const members = shotMembers(state.rows, row);
-    if (members.some(m => m.rework)) {
-      for (const m of members) if (m.rework) m.rework.note = text;
-    } else if (text.trim()) setRework(state.rows, row, { note: text, at: Date.now() });
-  });
+  const members = shotMembers(state.rows, row);
+  const existing = members.filter(m => m.rework);
+  const rows = existing.length
+    ? existing.map(m => ({ id: m.id, values: { rework: { ...m.rework, note: text } } }))
+    : text.trim()
+      ? members.map(m => ({ id: m.id, values: { rework: { note: text, at: Date.now() }, reworkOff: undefined } }))
+      : [];
+  const changed = editProjectFields(session?.snapped ? null : '编辑返工要求', { rows });
+  if (changed && session) session.snapped = true;
 }
 export function dismissShotRework(row) {
   if (!row || rowById(row.id) !== row) return;
   changeProject('不用返工了', change => {
     dismissRework(state.rows, row);
-    change.emit('rows');
   });
 }

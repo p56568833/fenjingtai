@@ -1,7 +1,14 @@
+import { flushWriteBack } from '../app/candidate-sync.js';
+import { tagOldSavedClips } from '../app/candidate-media.js';
+import { publishProjectEvents } from '../app/project-events.js';
+import { runCommand } from '../ui/base/commands.js';
+import { closePlaythrough } from '../features/playthrough.js';
+import { viewState } from '../app/view-state.js';
 /* 1.5 视频审核自测：导入候选清单（不新建项目）、按句号对上画面、通过 → 主画面 + 片段 + 画面描述来源行、
    同一画面再通过的也当主画面、撤回、不要 / 清除、写回候选清单、只保存那几秒、完整原片要确认、撤销、切项目保留。
    原生能力全部用 window.fjtHooks 替身，不碰网络和磁盘。 */
-import { state, update, emit } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { undo, redo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
@@ -9,8 +16,8 @@ import { usageList } from '../core/asset-model.js';
 import { addRefsToShot } from '../app/asset-actions.js';
 import { setType } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
-import { flushWriteBack, tagOldSavedClips, setDecision, openRework } from '../features/video-review.js';
-import { playthroughState } from '../features/playthrough.js';
+import { setDecision, openRework } from '../features/video-review.js';
+import { reviewPlaybackState as playthroughState } from '../features/review-playback.js';
 import { importCandidateData, setReworkNote } from '../app/candidate-actions.js';
 import { parseLines, parseClock, planImport, lineTag } from '../core/candidates.js';
 import { confirmModal } from '../ui/base/dom.js';
@@ -134,19 +141,19 @@ export async function runVideoReviewTests(t) {
   storage.createProject('视频审核测试', parseAny('## 段\n甲。乙。丙。\n## 别的\n丁。'));
   const pid = state.projectId;
   clearUndo();
-  state.view = 'table';
+  viewState.view = 'table';
   update('rows');
   await pause(30);
   const ids = lines()
     .slice(0, 3)
     .map(r => r.id);
-  state.multi = ids;
-  state.sel = ids[0];
-  state.multiMode = true;
+  viewState.multi = ids;
+  viewState.sel = ids[0];
+  viewState.multiMode = true;
   update('selection');
   click('#btnGroup');
   click('#mOk');
-  state.multiMode = false;
+  viewState.multiMode = false;
   setType(ids, 'real');
   addRefsToShot(lines()[0], ['/tmp/原来的照片.jpg']);
   update('rows');
@@ -202,7 +209,7 @@ export async function runVideoReviewTests(t) {
   t('导入后直接进入审核页面', !$('#reviewPage').hidden);
   t(
     '审核与表格共用视图状态，审核是主页面，表格整页收起',
-    state.view === 'review' &&
+    viewState.view === 'review' &&
       $('#reviewPage').matches('main') &&
       $('#tablePage').hidden &&
       !$('#reviewPage').matches('.modal-mask, .modal, [role="dialog"], [aria-modal]') &&
@@ -228,16 +235,19 @@ export async function runVideoReviewTests(t) {
   t('审核页不按弹窗方式拦截 Tab', !tabEvent.defaultPrevented);
   $('#vrBatchPick').blur();
   setView('table');
-  t('统一视图入口切到表格，审核页收起', state.view === 'table' && $('#reviewPage').hidden && !$('#tablePage').hidden);
+  t(
+    '统一视图入口切到表格，审核页收起',
+    viewState.view === 'table' && $('#reviewPage').hidden && !$('#tablePage').hidden,
+  );
   click('#viewToggle [data-v="review"]');
   t(
     '顶栏切回审核，原来的候选和批次仍在',
-    state.view === 'review' && !$('#reviewPage').hidden && state.candidates.length === 3,
+    viewState.view === 'review' && !$('#reviewPage').hidden && state.candidates.length === 3,
   );
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true }));
   t(
     '审核页的全局搜索可用，并切到显示稿件结果的表格页',
-    state.view === 'table' &&
+    viewState.view === 'table' &&
       !$('#tablePage').hidden &&
       $('#searchbar').classList.contains('show') &&
       document.activeElement === $('#searchInput'),
@@ -256,7 +266,7 @@ export async function runVideoReviewTests(t) {
       $('#vrNav .vr-nav-shot.on')?.textContent.includes('2 待审') &&
       $$('#vrList .vr-shot').length === 1 &&
       !!$('#vrList #vrDockPlayer .pt-box.docked') &&
-      $('#ptSub')?.textContent === '甲。' &&
+      $('#review-ptSub')?.textContent === '甲。' &&
       !card('B1'),
   );
   t(
@@ -286,8 +296,8 @@ export async function runVideoReviewTests(t) {
     '左边「对着口播看画面」，右边这个画面的全部视频，下面正片和备选两条轨',
     !!$(`#vrList .vr-plist [data-vr-id="${cand('A1').id}"]`) &&
       !!$(`#vrList .vr-plist [data-vr-id="${cand('A2').id}"]`) &&
-      !!$('#vrList #vrDockTrack #pttLane') &&
-      !!$('#vrList #vrDockTrack #pttAlt'),
+      !!$('#vrList #vrDockTrack #review-pttLane') &&
+      !!$('#vrList #vrDockTrack #review-pttAlt'),
   );
   t(
     '列表上面写正片轨排了几秒 / 口播几秒',
@@ -356,10 +366,50 @@ export async function runVideoReviewTests(t) {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
   await pause(20);
   t('再按空格：排好的画面停下，候选也没被打开', !playthroughState().playing && $('#vrPreview').hidden);
+  {
+    const player = $('#vrDockPlayer .pt-box');
+    const track = $('#review-ptTrack');
+    const before = playthroughState().time;
+    runCommand('playthrough:shot', lines()[0].id);
+    await pause(30);
+    t(
+      '连播弹窗与审核页分别持有播放器',
+      !!$('#ptMask.show #ptStage') &&
+        $('#vrDockPlayer .pt-box') === player &&
+        $('#review-ptTrack') === track &&
+        $('#ptStage') !== $('#review-ptStage'),
+    );
+    closePlaythrough();
+    t(
+      '关闭连播弹窗不搬动审核播放器或改变暂停位置',
+      player.isConnected && track.isConnected && Math.abs(playthroughState().time - before) < 0.02,
+    );
+    const ids = [...document.querySelectorAll('[id]')].map(el => el.id);
+    t('两套播放器同时存在时没有重复元素编号', new Set(ids).size === ids.length);
+  }
+  {
+    // 拖到这个画面的最后一刻（正好是下一个画面的开头）：播放器和时间轴还是这个画面
+    const lead = playthroughState().row;
+    const rr = $('#review-pttRuler').getBoundingClientRect();
+    const at = { bubbles: true, button: 0, pointerId: 9, clientX: rr.right + 5, clientY: rr.top + 5 };
+    $('#review-pttRuler').dispatchEvent(new PointerEvent('pointerdown', at));
+    $('#review-pttRuler').dispatchEvent(new PointerEvent('pointerup', at));
+    await pause(30);
+    const st = playthroughState();
+    t(
+      '停在画面末尾：播放器和时间轴还是这个画面，不跳到下一个',
+      st.row === lead && Math.abs(st.time - st.range.end) < 0.05,
+      JSON.stringify([lead, st.row, st.time, st.range]),
+    );
+  }
   t(
     '右边一栏和左边播放器一样高，内容多了在栏里滚，下面的画面时间条不被挤走',
     Math.abs($('.vr-plans').getBoundingClientRect().height - $('.vr-watch').getBoundingClientRect().height) < 2 &&
       getComputedStyle($('.vr-plans > .vr-pbody')).overflowY === 'auto',
+  );
+  t(
+    '右边一栏不会横向滚动：已保存的长文件名末尾省略',
+    getComputedStyle($('.vr-plans > .vr-pbody')).overflowX === 'hidden' && $('.vr-plans > .vr-pbody').scrollLeft === 0,
   );
   importLoadedFile(file);
   await pause(30);
@@ -489,8 +539,8 @@ export async function runVideoReviewTests(t) {
     '正片轨排满后再通过一个视频：放在备选轨，已通过的主画面不被顶掉',
     us(0).find(x => x.assetId === a2)?.role === 'alt' &&
       us(0).find(x => x.assetId === a1.id)?.role === 'main' &&
-      !!$(`#pttAlt .ptt-block[data-ptt="${a2}"]`),
-    JSON.stringify(us(0).map(u => [u.assetId, u.role, u.at])) + ' alt:' + $$('#pttAlt .ptt-block').length,
+      !!$(`#review-pttAlt .ptt-block[data-ptt="${a2}"]`),
+    JSON.stringify(us(0).map(u => [u.assetId, u.role, u.at])) + ' alt:' + $$('#review-pttAlt .ptt-block').length,
   );
   undo();
   await pause(30);
@@ -504,7 +554,7 @@ export async function runVideoReviewTests(t) {
   note.dispatchEvent(new Event('input', { bubbles: true }));
   note.focus();
   note.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-  t('审核意见框按回车结束输入，仍留在审核页', document.activeElement !== note && state.view === 'review');
+  t('审核意见框按回车结束输入，仍留在审核页', document.activeElement !== note && viewState.view === 'review');
   await pause(1000);
   t(
     '意见写进候选，也写回清单',
@@ -662,7 +712,7 @@ export async function runVideoReviewTests(t) {
   /* 「不要」的：这个画面一个都没通过时留在「待返工」里（不再离开审核页就清掉）；同一份清单再导入也不会重复 */
   $('#viewToggle [data-v="table"]').click();
   await pause(80);
-  t('切回表格页面', $('#reviewPage').hidden && state.view === 'table');
+  t('切回表格页面', $('#reviewPage').hidden && viewState.view === 'table');
   t(
     '离开审核页时，没有通过候选的画面里「不要」的候选留着（在待返工里）',
     cand('B1')?.decision === 'no' && state.candidates.length === 3,
@@ -688,10 +738,10 @@ export async function runVideoReviewTests(t) {
   );
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await pause(30);
-  t('Esc 不关闭审核页面', !$('#reviewPage').hidden && state.view === 'review');
+  t('Esc 不关闭审核页面', !$('#reviewPage').hidden && viewState.view === 'review');
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true }));
   await pause(30);
-  t('⌘T 从审核切回表格', $('#reviewPage').hidden && state.view === 'table');
+  t('⌘T 从审核切回表格', $('#reviewPage').hidden && viewState.view === 'table');
   click('#btnDetail');
 
   /* 旧版本保存的片段：载入时文件名补上句号，素材路径和候选记录一起改 */
@@ -847,13 +897,13 @@ export async function runVideoReviewTests(t) {
   storage.createProject('两条轨测试', parseAny('甲乙丙丁戊己庚辛壬癸。子丑寅卯辰巳午未申酉。'));
   const trackPid = state.projectId;
   const two = lines().map(r => r.id);
-  state.multi = two;
-  state.sel = two[0];
-  state.multiMode = true;
+  viewState.multi = two;
+  viewState.sel = two[0];
+  viewState.multiMode = true;
   update('selection');
   click('#btnGroup');
   click('#mOk');
-  state.multiMode = false;
+  viewState.multiMode = false;
   setType(two, 'real');
   lines().forEach((r, i) => (r.time = { start: i * 3, end: i * 3 + 3, st: 'ok' }));
   update('rows');
@@ -896,12 +946,12 @@ export async function runVideoReviewTests(t) {
   t(
     '正片轨排满再通过：放在备选轨，提示里说清楚',
     roleOf('P2') === 'alt' &&
-      !!$(`#pttAlt .ptt-block[data-ptt="${aid('P2')}"]`) &&
+      !!$(`#review-pttAlt .ptt-block[data-ptt="${aid('P2')}"]`) &&
       $('#toastTxt')?.textContent.includes('备选轨'),
   );
   // 合成指针事件拖色块：按下在色块上，移动 / 松手在两条轨的外框上（和真实鼠标一样被外框接住）
-  const lanes = () => $('#pttLanes');
-  const blockOf = key => $(`#pttLanes .ptt-block[data-ptt="${aid(key)}"]`);
+  const lanes = () => $('#review-pttLanes');
+  const blockOf = key => $(`#review-pttLanes .ptt-block[data-ptt="${aid(key)}"]`);
   const fire = (el, type, x, y) =>
     el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, clientX: x, clientY: y }));
   const at = (el, fx = 0.5) => {
@@ -918,7 +968,7 @@ export async function runVideoReviewTests(t) {
     await pause(60);
   };
   const timeOfX = sec => {
-    const r = $('#pttLane').getBoundingClientRect();
+    const r = $('#review-pttLane').getBoundingClientRect();
     return r.left + (sec / 6) * r.width;
   };
   const laneY = id => at($(id))[1];
@@ -932,7 +982,7 @@ export async function runVideoReviewTests(t) {
   undo();
   await pause(60);
   t('互换可以一步撤销', roleOf('P2') === 'alt' && roleOf('P1a') === 'main');
-  await drag('P1b', [timeOfX(4.5), laneY('#pttAlt')]);
+  await drag('P1b', [timeOfX(4.5), laneY('#review-pttAlt')]);
   t(
     '正片拖到备选轨：撤下来，原来的位置留空，前面的画面不动',
     roleOf('P1b') === 'alt' &&
@@ -943,7 +993,7 @@ export async function runVideoReviewTests(t) {
     JSON.stringify(us(0).map(u => [u.role, u.at])),
   );
   const p1bAt = atOf('P1b');
-  await drag('P1b', [timeOfX(1), laneY('#pttAlt')]);
+  await drag('P1b', [timeOfX(1), laneY('#review-pttAlt')]);
   t(
     '备选在备选轨上自由挪位置，还是备选',
     roleOf('P1b') === 'alt' && atOf('P1b')?.start < p1bAt.start,
@@ -953,7 +1003,7 @@ export async function runVideoReviewTests(t) {
   const slowDrag = async (key, sec, during) => {
     const el = blockOf(key);
     const [x0, y0] = at(el);
-    const px = $('#pttLane').getBoundingClientRect().width / 6;
+    const px = $('#review-pttLane').getBoundingClientRect().width / 6;
     fire(el.querySelector('.ptt-label') || el, 'pointerdown', x0, y0);
     fire(lanes(), 'pointermove', x0 + 10, y0);
     await during();
@@ -963,7 +1013,7 @@ export async function runVideoReviewTests(t) {
   };
   const before = atOf('P1b').start;
   await slowDrag('P1b', 1.5, async () => {
-    emit('project-changed');
+    update('rows');
     update('rows');
     await pause(40);
   });
@@ -978,7 +1028,7 @@ export async function runVideoReviewTests(t) {
     for (const r of lines()) for (const u of r.assetUsages) if (u.assetId === aid('P1a')) u.note = '对方改了';
     for (const r of lines())
       for (const u of r.assetUsages) if (u.assetId === aid('P1b')) u.clip = { ...(u.clip || { in: 0 }), local: true };
-    emit('project-changed');
+    update('rows');
     await pause(40);
   });
   t(
@@ -993,7 +1043,7 @@ export async function runVideoReviewTests(t) {
       for (const u of r.assetUsages)
         if (u.assetId === aid('P1b')) u.at = { ...u.at, start: u.at.start + 0.5, end: u.at.end + 0.5 };
     kept = atOf('P1b').start;
-    emit('project-changed');
+    update('rows');
     await pause(40);
   });
   t('拖动期间同一个画面被别处挪过：这次拖动不保存，不盖掉对方的改动', atOf('P1b').start === kept);
@@ -1001,7 +1051,7 @@ export async function runVideoReviewTests(t) {
   const flick = async (key, sec) => {
     const el = blockOf(key);
     const [x0, y0] = at(el);
-    const px = $('#pttLane').getBoundingClientRect().width / 6;
+    const px = $('#review-pttLane').getBoundingClientRect().width / 6;
     fire(el.querySelector('.ptt-label') || el, 'pointerdown', x0, y0);
     fire(lanes(), 'pointerup', x0 + sec * px, y0);
     await pause(60);
@@ -1033,20 +1083,29 @@ export async function runVideoReviewTests(t) {
   await pause(60);
   t(
     '审核页滚到下面时整块重画：滚动位置不变，时间轴还在原处',
-    scrolled > 0 && Math.abs(host.scrollTop - scrolled) < 2 && !!$('#vrList #vrDockTrack #pttLane'),
+    scrolled > 0 && Math.abs(host.scrollTop - scrolled) < 2 && !!$('#vrList #vrDockTrack #review-pttLane'),
     JSON.stringify([scrolled, host.scrollTop, tall, host.scrollHeight]),
   );
   host.style.maxHeight = '';
   // 和协作同步一样：先报「对方改动已写入」，再刷新界面（审核页会跟着重画）
   const remote = () => {
-    emit('collab-applied');
-    emit('collab-remote');
+    publishProjectEvents(
+      {
+        projectId: state.projectId,
+        source: 'remote',
+        fields: ['rows'],
+        rowIds: lines().map(r => r.id),
+        timing: false,
+        assets: true,
+      },
+      [['collab-remote']],
+    );
   };
   // 协作对方只改了备注：排布没变，不提示
   for (const r of lines()) for (const u of r.assetUsages) if (u.assetId === aid('P1a')) u.note = '对方又改了';
   remote();
   await pause(60);
-  t('协作对方只改了备注：不提示画面被换', !$('#pttWarn')?.textContent.includes('协作对方'));
+  t('协作对方只改了备注：不提示画面被换', !$('#review-pttWarn')?.textContent.includes('协作对方'));
   // 协作对方挪了现在开着的这个画面：「画面时间」那一行说一声
   for (const r of lines())
     for (const u of r.assetUsages) if (u.assetId === aid('P1a')) u.at = { ...u.at, end: u.at.end - 0.5 };
@@ -1054,13 +1113,13 @@ export async function runVideoReviewTests(t) {
   await pause(60);
   t(
     '协作对方挪了开着的画面：画面时间一行提示已换成对方的版本',
-    $('#pttWarn')?.textContent.includes('协作对方'),
-    $('#pttWarn')?.textContent,
+    $('#review-pttWarn')?.textContent.includes('协作对方'),
+    $('#review-pttWarn')?.textContent,
   );
   remote();
   await pause(60);
-  t('对方没再改这个画面：不重复提示', !$('#pttWarn')?.textContent.includes('协作对方'));
-  await drag('P2', [timeOfX(4), laneY('#pttLane')]);
+  t('对方没再改这个画面：不重复提示', !$('#review-pttWarn')?.textContent.includes('协作对方'));
+  await drag('P2', [timeOfX(4), laneY('#review-pttLane')]);
   t(
     '备选拖进正片轨的空隙：插进去，从空隙开头放',
     roleOf('P2') === 'main' && atOf('P2')?.start >= 3 && atOf('P2')?.start < 6,
@@ -1068,7 +1127,7 @@ export async function runVideoReviewTests(t) {
   );
   t(
     '句子分界只画在两条轨上，刻度尺上没有竖线；操作说明收进「?」',
-    !$('#pttRuler .ptt-sep') && $$('#pttLane .ptt-sep').length === 1 && !!$('#vrDockTrack .ptt-help'),
+    !$('#review-pttRuler .ptt-sep') && $$('#review-pttLane .ptt-sep').length === 1 && !!$('#vrDockTrack .ptt-help'),
   );
   // 双击画面：正片有「定格补满」和「删除」，备选只有「删除」；删除审核通过的视频 = 撤回通过，可以撤销
   const dbl = el => {
@@ -1219,8 +1278,8 @@ export async function runVideoReviewTests(t) {
   /* 清场 */
   storage.switchProject(original);
   storage.deleteProject(pid);
-  state.multi = null;
-  state.multiMode = false;
+  viewState.multi = null;
+  viewState.multiMode = false;
   delete window.fjtHooks.writeCandidateReview;
   delete window.fjtHooks.pickFolder;
   delete window.fjtHooks.saveVideoSegment;

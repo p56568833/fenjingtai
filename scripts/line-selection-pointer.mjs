@@ -1,7 +1,9 @@
 /* 真鼠标回归：拖动后的原生 click、撤销步与键盘取消，合成 click 无法覆盖。 */
 export async function testLineSelectionPointer(page, report) {
   const fixture = await page.evaluate(async () => {
-    const { state, update } = await import('./src/app/state.js');
+    const { state } = await import('./src/app/state.js');
+    const { update } = await import('./src/app/project-events.js');
+    const { viewState } = await import('./src/app/view-state.js');
     const storage = await import('./src/app/storage.js');
     const { clearUndo } = await import('./src/app/undo.js');
     const { openInspectorFor } = await import('./src/ui/inspector.js');
@@ -32,8 +34,8 @@ export async function testLineSelectionPointer(page, report) {
         name: '鼠标测试乙',
       },
     });
-    state.sel = rows[0].id;
-    state.multi = null;
+    viewState.sel = rows[0].id;
+    viewState.multi = null;
     update('rows');
     openInspectorFor(rows[0].id);
     clearUndo();
@@ -183,7 +185,7 @@ export async function testLineSelectionPointer(page, report) {
       const storage = await import('./src/app/storage.js');
       storage.switchProject(original);
       storage.deleteProject(projectId);
-      (await import('./src/app/state.js')).update('rows');
+      (await import('./src/app/project-events.js')).update('rows');
     }, fixture);
   }
   return passed;

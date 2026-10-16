@@ -276,4 +276,3 @@ export function alignScript(lines, cues) {
 const round = x => Math.round(x * 1000) / 1000;
 
 /* 时间码格式化在 text.js，这里转引保持旧接口 */
-export { fmtTc } from './text.js';

@@ -1,5 +1,6 @@
 /* 导出 PDF 分镜脚本：选项弹窗 → 生成素材缩略图 → 排版（print-doc.js）→ 主进程 printToPDF 落盘 */
-import { state, types, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { types, timeline } from '../app/project-queries.js';
 import { buildPrintDoc, planDocument, assetRefs, PDF_DEFAULTS } from '../core/print-doc.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
@@ -89,7 +90,7 @@ function renderSummary() {
     : '项目里暂无素材';
 }
 
-export function openPdfExport() {
+function openPdfExport() {
   if (busy) {
     toast('PDF 正在生成，请稍候', null, 'info');
     return;

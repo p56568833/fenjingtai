@@ -23,7 +23,6 @@ export function applyAlignment({ name, cues, times, stats }) {
     }
     state.timing = { name, at: Date.now(), duration: stats.duration, cues };
 
-    change.emit('rows');
     change.notify(
       `已对齐字幕：${stats.ok} 句对上${stats.low + stats.est ? `，${stats.low + stats.est} 句待核对（时长列标黄）` : ''}`,
       null,
@@ -38,7 +37,6 @@ export function clearTiming() {
     for (const r of state.rows) delete r.time;
     state.timing = null;
 
-    change.emit('rows');
     change.notify('已清除字幕时间 · ⌘Z 可撤销', null, 'ok');
   });
 }

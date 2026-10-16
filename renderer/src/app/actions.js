@@ -1,8 +1,11 @@
+import { viewState } from './view-state.js';
 /* 句子 / 章节 / 共用画面的数据操作：界面只调用这里的函数。
    每个数据操作通过 changeProject 统一记录撤销、落盘和广播事件；
    怎么刷界面由界面层订阅事件决定，这里不碰 DOM。 */
-import { changeProject, commitProjectChange } from './project-change.js';
-import { state, currentSelection, rowById, rowIndex, match, types } from './state.js';
+import { changeProject, commitProjectChange, editProjectFields } from './project-change.js';
+import { state } from './state.js';
+import { currentSelection, match } from './selection.js';
+import { rowById, rowIndex, types } from './project-queries.js';
 import { notify } from './events.js';
 import { undo, discardIfUnchanged } from './undo.js';
 import {
@@ -23,7 +26,7 @@ import {
   groupSplitAt,
   groupSplitAtPlan,
 } from '../core/shot-groups.js';
-import { syncMirror, usageList, cloneUsages, hydrateProjectAssets } from '../core/asset-model.js';
+import { usageList, cloneUsages, hydrateProjectAssets } from '../core/asset-model.js';
 import { nextRowId } from '../core/collab-doc.js';
 import { parityOf } from '../core/collab-sync.js';
 import { collabOf } from './storage.js';
@@ -34,7 +37,7 @@ export function rowIdOptions(projectId = state.projectId) {
   return c ? { parity: parityOf(c.role), floor: Number(c.maxId) || 0 } : {};
 }
 const nextId = () => nextRowId(state.rows, rowIdOptions());
-const commit = () => commitProjectChange({ normalize: true, events: [['rows']] });
+const commit = () => commitProjectChange({ normalize: true });
 const tName = t => types().label(t);
 
 /* 从位置 i 开始找最近的句子（跳过章节行），先向后找不到再向前——删除后选中句留在原地 */
@@ -44,7 +47,7 @@ function nearestLine(i) {
   return null;
 }
 
-/* ── 标注（界面收到 marks 事件后能原地刷新的就原地刷新） ── */
+/* ── 标注（提交后由统一变化说明决定局部刷新） ── */
 export function setType(ids, t) {
   ids = expandShotIds(state.rows, ids);
   ids = ids.filter(id => {
@@ -57,9 +60,8 @@ export function setType(ids, t) {
       rowById(id).type = t;
     });
 
-    change.emit('marks', { ids });
     change.emit('annotated', { ids, type: t });
-    change.emit('project-changed');
+
     if (t === null) change.notify(ids.length > 1 ? '已清除这些句子的标注' : '已清除这句的标注', null, 'ok');
   });
 }
@@ -75,9 +77,7 @@ export function markSentences(ids, t) {
       r.type = t;
     });
 
-    change.emit('marks', { ids: targets.map(r => r.id) });
     change.emit('annotated', { ids, type: t });
-    change.emit('project-changed');
   });
 }
 
@@ -86,10 +86,7 @@ export function setNote(id, txt) {
   const r = rowById(id);
   if (!r || r.kind !== 'line' || (r.note || '') === txt) return;
   return changeProject(r.note ? '修改批注' : '写批注', change => {
-    const members = setShotField(state.rows, r, 'note', txt);
-
-    change.emit('notes', { ids: members.map(x => x.id) });
-    change.emit('project-changed');
+    setShotField(state.rows, r, 'note', txt);
   });
 }
 
@@ -101,10 +98,10 @@ export function deleteRows(ids) {
     const firstDel = idxs.length ? Math.min(...idxs) : state.rows.length;
     const gone = new Set(ids);
     state.rows = state.rows.filter(r => !gone.has(r.id));
-    state.multi = null;
-    state.sel = nearestLine(firstDel)?.id ?? null; // 选中句停在删除位置，不跳回第一句
+    viewState.multi = null;
+    viewState.sel = nearestLine(firstDel)?.id ?? null; // 选中句停在删除位置，不跳回第一句
     change.normalize();
-    change.emit('rows');
+
     change.notify(`已删除 ${ids.length} 句`, { label: '撤销', cb: undo }, 'ok');
   });
 }
@@ -150,10 +147,10 @@ export function mergeToPrev(id) {
     // 挂在被并掉那句上的视频候选改挂到合并后的句子，审核页的撤回、改名还能找到它
     for (const c of state.candidates || []) if (c.rowId === cur.id) c.rowId = prev.id;
     state.rows.splice(i, 1);
-    state.multi = null;
-    state.sel = prev.id;
+    viewState.multi = null;
+    viewState.sel = prev.id;
     change.normalize();
-    change.emit('rows');
+
     // 筛选下合并结果可能不可见，明说去向，避免「句子丢了」的错觉
     if (!match(prev)) change.notify(`已并回上一句（第 ${prev.no} 句，当前筛选下不显示，切「全部」可见）`, null, 'info');
     else change.notify('已并回上一句', null, 'ok');
@@ -196,10 +193,10 @@ export function splitAt(id, offset) {
           }
         : {}),
     });
-    state.multi = null;
-    state.sel = nid;
+    viewState.multi = null;
+    viewState.sel = nid;
     change.normalize();
-    change.emit('rows');
+
     change.notify('已从光标处拆分', null, 'ok');
     return nid;
   });
@@ -227,10 +224,10 @@ export function insertAfter(id) {
       });
     }
     state.rows.splice(at, 0, row);
-    state.multi = null;
-    state.sel = nid;
+    viewState.multi = null;
+    viewState.sel = nid;
     change.normalize();
-    change.emit('rows');
+
     return nid;
   });
 }
@@ -249,33 +246,13 @@ export function dropIfEmpty(id) {
       if (j > -1 && (j + 1 >= state.rows.length || state.rows[j + 1].kind === 'section')) state.rows.splice(j, 1);
       freshSection = null;
     }
-    state.sel = nearestLine(i)?.id ?? null;
+    viewState.sel = nearestLine(i)?.id ?? null;
     commit();
     discardIfUnchanged();
   }
 }
 
 /* ── 章节：从句子处拆节 / 节尾接着写新节 / 删标题 / 删整节 ── */
-
-/* 从这句分为新章节：在这句前面插标题，这句成为新章节的第一句。
-   上一行已经是章节标题时拒绝，不然会做出删不掉内容、只能干瞪着的空节 */
-export function addSectionBefore(id) {
-  const i = rowIndex(id);
-  if (i < 0 || state.rows[i].kind !== 'line') return null;
-  if (i > 0 && state.rows[i - 1].kind === 'section') {
-    notify('这句已经是章节开头了', null, 'info');
-    return null;
-  }
-  return changeProject('分出新章节', change => {
-    const sid = nextId();
-    state.rows.splice(i, 0, { id: sid, kind: 'section', text: '新章节' });
-    state.multi = null;
-    change.normalize();
-    change.emit('rows');
-    change.notify('已分出新章节，给它起个名', null, 'ok');
-    return sid;
-  });
-}
 
 /* 在某节最后一句后面立一个新章节（标题 + 开篇空句），返回空句 id 供调用方进入编辑态。
    适合在文档末尾接着写新的一节；空句没写就走人 → dropIfEmpty 连标题一起清 */
@@ -289,11 +266,11 @@ export function insertSectionWithSentence(secId) {
     state.rows.splice(at, 0, { id: sid, kind: 'section', text: '新章节' });
     const nid = nextId();
     state.rows.splice(at + 1, 0, { id: nid, kind: 'line', text: '', note: '', type: null });
-    state.multi = null;
-    state.sel = nid;
+    viewState.multi = null;
+    viewState.sel = nid;
     freshSection = { secId: sid, sentId: nid };
     change.normalize();
-    change.emit('rows');
+
     return nid;
   });
 }
@@ -305,9 +282,9 @@ export function deleteSectionHeader(id) {
   return changeProject('删除章节标题', change => {
     if (freshSection && freshSection.secId === id) freshSection = null;
     state.rows.splice(i, 1);
-    state.multi = null;
+    viewState.multi = null;
     change.normalize();
-    change.emit('rows');
+
     change.notify('已删章节标题，句子保留', null, 'ok');
   });
 }
@@ -332,10 +309,10 @@ export function deleteSectionAll(id) {
     while (j < state.rows.length && state.rows[j].kind !== 'section') j++;
     const n = j - i - 1;
     state.rows.splice(i, j - i);
-    state.multi = null;
-    state.sel = nearestLine(i)?.id ?? null;
+    viewState.multi = null;
+    viewState.sel = nearestLine(i)?.id ?? null;
     change.normalize();
-    change.emit('rows');
+
     change.notify(`已删除「${name}」和其中 ${n} 句`, { label: '撤销', cb: undo }, 'ok');
   });
 }
@@ -349,9 +326,9 @@ export function applyImport(rows, title, { mode = 'replace' } = {}) {
     state.rows = rows;
     state.assets = hydrateProjectAssets({ rows: state.rows, assets: state.assets });
     state.title = title;
-    state.filter = 'all';
-    state.multi = null;
-    state.sel = rows.find(r => r.kind === 'line')?.id ?? null;
+    viewState.filter = 'all';
+    viewState.multi = null;
+    viewState.sel = rows.find(r => r.kind === 'line')?.id ?? null;
     const before = state.candidates.length;
     if (mode === 'update') {
       const alive = new Set(rows.filter(r => r.kind === 'line').map(r => r.id));
@@ -363,7 +340,7 @@ export function applyImport(rows, title, { mode = 'replace' } = {}) {
     }
     const dropped = before - state.candidates.length;
     change.normalize();
-    change.emit('rows');
+
     const n = rows.filter(r => r.kind === 'line').length;
     change.notify(
       `${mode === 'update' ? '稿件已更新' : `已导入「${title}」`} · ${n} 句 · 原项目副本已保留${dropped ? ` · ${dropped} 个视频候选对不上新稿，已移除` : ''}`,
@@ -391,9 +368,7 @@ export function extendGroupNextAction(groupId) {
     if (!res) {
       return false;
     }
-    syncMirror(state.rows, state.assets);
 
-    change.emit('rows');
     change.emit('reveal', { id: res.members[0].id });
     change.notify(`已把第 ${nextNo} 句加入这个画面 · ⌘Z 可撤销`, null, 'ok');
     return true;
@@ -412,9 +387,7 @@ export function dropGroupLastAction(groupId) {
   const lastNo = members[members.length - 1].no;
   return changeProject('将最后一句移出画面', change => {
     groupDropLast(state.rows, groupId);
-    syncMirror(state.rows, state.assets);
 
-    change.emit('rows');
     change.emit('reveal', { id: members[0].id });
     change.notify(`第 ${lastNo} 句已移出，恢复独立画面 · ⌘Z 可撤销`, null, 'ok');
     return true;
@@ -430,9 +403,7 @@ export function splitGroupAtAction(groupId, rowId) {
   }
   return changeProject('从这句开始另一个画面', change => {
     const res = groupSplitAt(state.rows, groupId, rowId);
-    syncMirror(state.rows, state.assets);
 
-    change.emit('rows');
     change.emit('reveal', { id: res.back[0].id });
     change.notify(`已从第 ${target?.no ?? ''} 句开始另一个画面 · ⌘Z 可撤销`, null, 'ok');
     return true;
@@ -448,7 +419,6 @@ export function ungroupAction(ids) {
     });
     normalizeUsageSpans(state.rows); // 每句只留下原本在这句出现的素材
 
-    change.emit('rows');
     change.notify('已解除共用 · ⌘Z 可撤销', null, 'ok');
     return true;
   });
@@ -463,12 +433,11 @@ export function groupSelectionAction(ids) {
   }
   return changeProject('共用画面', change => {
     const members = groupRows(state.rows, ids);
-    state.multiMode = false;
-    state.multi = null;
-    state.sel = members ? members[0].id : ids[0];
+    viewState.multiMode = false;
+    viewState.multi = null;
+    viewState.sel = members ? members[0].id : ids[0];
 
-    change.emit('rows');
-    change.emit('reveal', { id: state.sel });
+    change.emit('reveal', { id: viewState.sel });
     change.notify('已设为共用画面', null, 'ok');
     return true;
   });
@@ -480,10 +449,9 @@ export function repairPunctuationAction() {
   if (!fixes.length) return 0;
   return changeProject('修复孤立标点', change => {
     state.rows = repairPunctuation(state.rows);
-    if (!rowById(state.sel)) state.sel = state.rows.find(r => r.kind === 'line')?.id ?? null;
-    state.multi = null;
+    if (!rowById(viewState.sel)) viewState.sel = state.rows.find(r => r.kind === 'line')?.id ?? null;
+    viewState.multi = null;
 
-    change.emit('rows');
     change.notify(`已修复 ${fixes.length} 行`, null, 'ok');
     return fixes.length;
   });
@@ -493,61 +461,47 @@ export function repairPunctuationAction() {
 export function setShotNote(row, note, { session } = {}) {
   if (!row || (row.note || '') === note) return false;
   const label = !session || !session.snapped ? '编辑画面与素材' : null;
-  return changeProject(label, change => {
-    if (session) session.snapped = true;
-    const members = setShotField(state.rows, row, 'note', note);
-    change.emit('notes', { ids: members.map(x => x.id) });
-    return true;
+  const changed = editProjectFields(label, {
+    rows: shotMembers(state.rows, row).map(m => ({ id: m.id, values: { note } })),
   });
+  if (changed && session) session.snapped = true;
+  return changed;
 }
 
 /* ── 语速 ── */
 export function setSpeechRate(value) {
   if (!(value >= 1 && value <= 10)) return false;
-  return changeProject(null, change => {
-    state.speechRate = value;
-    change.emit('rows');
-    return true;
-  });
+  return editProjectFields(null, { project: { speechRate: value } });
 }
 
 /* ── 项目改名（对话框提交一次 = 一步撤销） ── */
 export function renameProject(title) {
   if (!title || title === state.title) return false;
-  return changeProject('重命名项目', change => {
-    state.title = title;
-    change.emit('title');
-  });
+  return editProjectFields('重命名项目', { project: { title } });
 }
 
 /* ── 改一句的文字（双击编辑提交时） ── */
 export function setSentenceText(id, txt) {
   const r = rowById(id);
   if (!r || !txt || txt === r.text) return false;
-  return changeProject('修改文字', () => {
-    r.text = txt;
-    return true;
-  });
+  return editProjectFields('修改文字', { rows: [{ id, values: { text: txt } }] });
 }
 
 /* ── 表格里边打字边存画面描述：同一次编辑只拍一张快照（撤销回到编辑前） ── */
 export function typeNote(row, text, session) {
   const first = session && session.id === row.id && !session.snapped && text !== session.baseline;
   if (first) row.note = session.baseline;
-  return changeProject(first ? '编辑备注' : null, () => {
-    if (first) session.snapped = true;
-    return setShotField(state.rows, row, 'note', text);
+  const members = shotMembers(state.rows, row);
+  const changed = editProjectFields(first ? '编辑备注' : null, {
+    rows: members.map(m => ({ id: m.id, values: { note: text } })),
   });
+  if (changed && first) session.snapped = true;
+  return members;
 }
 
 /* ── 章节改名 ── */
 export function renameSection(id, txt) {
   const r = rowById(id);
   if (!r || r.kind !== 'section' || !txt || txt === r.text) return false;
-  return changeProject('重命名章节', change => {
-    r.text = txt;
-
-    change.emit('project-changed');
-    return true;
-  });
+  return editProjectFields('重命名章节', { rows: [{ id, values: { text: txt } }] });
 }

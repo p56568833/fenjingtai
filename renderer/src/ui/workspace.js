@@ -1,5 +1,9 @@
+import { viewState } from '../app/view-state.js';
 /* 工作区：导航（跳句 / 下一个未标注 / 恢复光标）+ 侧栏、工具条、徽标的统一刷新 + 列宽拖动 */
-import { state, on, emit, update, rowById } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on, emit } from '../app/events.js';
+import { update } from '../app/project-events.js';
+import { rowById } from '../app/project-queries.js';
 import { rememberCursor } from '../app/storage.js';
 import { repairPunctuationAction } from '../app/actions.js';
 import { setFitDone } from '../app/asset-actions.js';
@@ -30,22 +34,22 @@ export function jumpTo(id, { preserveFilter = false } = {}) {
   if (!rowById(id)) return;
   cancelJump?.();
   closePop();
-  const filtered = !preserveFilter && state.filter !== 'all';
-  if (!preserveFilter) state.filter = 'all';
-  state.multi = null;
+  const filtered = !preserveFilter && viewState.filter !== 'all';
+  if (!preserveFilter) viewState.filter = 'all';
+  viewState.multi = null;
   const r = rowById(id);
-  state.sel =
+  viewState.sel =
     r.kind === 'section' ? (state.rows.slice(state.rows.indexOf(r) + 1).find(x => x.kind === 'line')?.id ?? null) : id;
-  if (filtered) emit('rows');
+  if (filtered) emit('view-refresh');
   else update('selection');
   // 章节标题会吸顶，当前坐标不是章节起点；定位首句也能让浏览器展开屏幕外的正文。
-  const el = document.querySelector(`.row[data-id="${state.sel}"],.as[data-id="${state.sel}"]`);
-  const releaseOutline = beginOutlineJump(state.sel);
+  const el = document.querySelector(`.row[data-id="${viewState.sel}"],.as[data-id="${viewState.sel}"]`);
+  const releaseOutline = beginOutlineJump(viewState.sel);
   // 跳过去后不再给那句闪一圈光（切章节时整组画面框会「散开」一下，看着晃）；选中底色已经标出是哪句
   el?.scrollIntoView({ block: 'center' });
-  const selectedId = state.sel,
+  const selectedId = viewState.sel,
     project = state.projectId,
-    view = state.view;
+    view = viewState.view;
   let frame = 0,
     remaining = 3;
   const guard = scrollGuard(() => {
@@ -57,7 +61,7 @@ export function jumpTo(id, { preserveFilter = false } = {}) {
   const settle = () => {
     if (!guard.active()) return;
     // 长稿占位块展开后继续校准几帧；新导航、切项目 / 视图或用户开始操作立即结束。
-    if (state.sel !== selectedId || state.projectId !== project || state.view !== view || !el?.isConnected)
+    if (viewState.sel !== selectedId || state.projectId !== project || viewState.view !== view || !el?.isConnected)
       return guard.cancel();
     el.scrollIntoView({ block: 'center' });
     if (--remaining) frame = requestAnimationFrame(settle);
@@ -69,7 +73,7 @@ export function jumpTo(id, { preserveFilter = false } = {}) {
 
 export function nextUnmarked() {
   const lines = state.rows.filter(r => r.kind === 'line');
-  const i = lines.findIndex(r => r.id === state.sel);
+  const i = lines.findIndex(r => r.id === viewState.sel);
   const ordered = [...lines.slice(i + 1), ...lines.slice(0, i + 1)];
   const next = ordered.find(r => !r.type);
   if (next) jumpTo(next.id);
@@ -77,7 +81,8 @@ export function nextUnmarked() {
 }
 export function revealSavedCursor() {
   cancelJump?.();
-  const { sel, projectId, view } = state;
+  const { projectId } = state;
+  const { sel, view } = viewState;
   let frame;
   const guard = scrollGuard(() => {
     cancelAnimationFrame(frame);
@@ -87,7 +92,7 @@ export function revealSavedCursor() {
   frame = requestAnimationFrame(() => {
     if (!guard.active()) return;
     guard.cancel();
-    if (state.sel !== sel || state.projectId !== projectId || state.view !== view) return;
+    if (viewState.sel !== sel || state.projectId !== projectId || viewState.view !== view) return;
     const el = document.querySelector(`.row[data-id="${sel}"],.as[data-id="${sel}"]`);
     el?.scrollIntoView({ block: 'center' });
   });
@@ -167,8 +172,6 @@ export function initWorkspace() {
   registerCommand('nav:next-unmarked', nextUnmarked);
   initOverview();
   on('workspace', refresh);
-  on('project-changed', refresh);
-  on('assets-changed', ({ ids }) => refresh({ preservePosition: true, rowIds: ids, stats: true }));
   on('durations', () => renderOverview());
   on('cursor', () => {
     renderOverviewSelection();
@@ -177,17 +180,17 @@ export function initWorkspace() {
     renderOutline();
   });
   on('annotated', ({ type }) => {
-    if (state.autoAdvance && type && !state.focusMode) nextUnmarked();
+    if (viewState.autoAdvance && type && !viewState.focusMode) nextUnmarked();
   });
   $('#btnNext').onclick = nextUnmarked;
   try {
-    state.autoAdvance = localStorage.getItem('fjz:autoAdvance') === 'true';
+    viewState.autoAdvance = localStorage.getItem('fjz:autoAdvance') === 'true';
   } catch {}
-  $('#autoAdvance').checked = state.autoAdvance;
+  $('#autoAdvance').checked = viewState.autoAdvance;
   $('#autoAdvance').onchange = e => {
-    state.autoAdvance = e.target.checked;
+    viewState.autoAdvance = e.target.checked;
     try {
-      localStorage.setItem('fjz:autoAdvance', String(state.autoAdvance));
+      localStorage.setItem('fjz:autoAdvance', String(viewState.autoAdvance));
     } catch {}
   };
   $('#repairHint').onclick = () => {

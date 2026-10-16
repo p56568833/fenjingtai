@@ -1,17 +1,25 @@
-/* 视频候选清单（纯数据，无 DOM、无应用状态）：解析 Claude 给的候选清单、挂到画面 / 撤回、换成本地文件、写回内容。
+import {
+  CANDIDATE_TYPE,
+  CANDIDATE_VERSION,
+  LEGACY_VERSION,
+  FILL_EPS,
+  MARGIN_MAX,
+  parseClock,
+  parseLines,
+  cleanBest,
+  planOf,
+  planName,
+  usableSeconds,
+  candidateChanged,
+} from './candidate-values.js';
+export * from './candidate-values.js';
+export * from './candidate-placement.js';
+/* 视频候选清单（纯数据，无 DOM、无应用状态）：清单校验、导入规划与审核结果导出。
    界面与流程在 features/video-review.js。 */
-import { fmtTime, parseTime } from './text.js';
-import { shotMembers, setShotField, applyRole, applySpan, resolveMainConflicts } from './shots.js';
-import { ensureAsset, usageList, syncMirror, assetName, referencedAssetIds } from './asset-model.js';
+import { fmtTime } from './text.js';
+import { shotMembers } from './shots.js';
+import { usageList, assetName } from './asset-model.js';
 import { reworkScopeErrors } from './candidate-scope.js';
-import { placeApproved } from './shot-tracks.js';
-
-export const CANDIDATE_TYPE = 'fenjingtai-candidates';
-export const DECISION = { ok: '通过', no: '不要', re: '换一个' };
-export const CANDIDATE_VERSION = 3;
-export const LEGACY_VERSION = 2; // v2（没有方案、可以写 for / coverage）的清单照样能导入，一律当作只有方案一
-export const FILL_EPS = 0.5; // 方案加起来比口播短不到 0.5 秒算填满（没录音时口播时长是按语速估的）
-export const MARGIN_MAX = 5; // 下载范围比「最好用的几秒」每边最多宽 5 秒
 
 /* ── 候选清单格式检查（v3，硬性规定）：不合格的整份拒收，返回每一处错在哪（空数组 = 合格）。
    规范说明在 core/candidate-spec.js；字段增减时两边一起改。
@@ -295,33 +303,9 @@ export function duplicateFootageErrors(incoming, existing, rows) {
   return errs;
 }
 
-export function parseClock(v) {
-  if (typeof v === 'number' && isFinite(v)) return Math.max(0, v);
-  const s = String(v ?? '').trim();
-  if (!s) return NaN;
-  if (/^\d+(\.\d+)?$/.test(s)) return Number(s);
-  return parseTime(s) ?? NaN;
-}
 /* "101-103" / "101–103" / [101, 103] / 101 → {from, to} 句号 */
-export function parseLines(v) {
-  if (Array.isArray(v)) return { from: +v[0], to: +(v[1] ?? v[0]) };
-  const m = String(v ?? '').match(/(\d+)\s*(?:[-–—~至到]\s*(\d+))?/);
-  return m ? { from: +m[1], to: +(m[2] || m[1]) } : null;
-}
+
 /* 精选段（best）：AI 认为最好用的那几秒，原片里的秒数，必须落在 in–out 之内；不合格返回 null */
-export function cleanBest(b, tin, tout) {
-  if (!b || typeof b !== 'object') return null;
-  const bi = Number(b.in),
-    bo = Number(b.out);
-  if (!Number.isFinite(bi) || !Number.isFinite(bo) || bo <= bi) return null;
-  if (Number.isFinite(tin) && Number.isFinite(tout) && (bi < tin - 0.01 || bo > tout + 0.01)) return null;
-  const lo = Number.isFinite(tin) ? Math.max(tin, bi) : bi,
-    hi = Number.isFinite(tout) ? Math.min(tout, bo) : bo;
-  return hi > lo ? { in: lo, out: hi } : null;
-}
-export const noteLine = c =>
-  `视频：${c.title || assetName(c.url)}｜${fmtTime(c.in)}–${fmtTime(c.out)}｜${c.license || '版权未注明'}｜${c.page || c.url}`;
-export const remotePath = c => `${c.url.split('#')[0]}#t=${c.in},${c.out}`;
 
 /* 候选清单 → 候选记录（按当前句号找到画面；找不到的列进 skipped）。
    每条记录带 plan（第几个方案，从 1 开始）、seq（在方案里的先后）、short（方案填不满的理由）。
@@ -471,14 +455,9 @@ const rangeOf = members => {
 const sec1 = x => String(Math.round(x * 10) / 10);
 
 /* ── 方案（v3）：画面里几选一的几套视频，方案里的视频按顺序接起来播 ── */
-export const planOf = c => (Number.isSafeInteger(c?.plan) && c.plan > 0 ? c.plan : 1);
-export const PLAN_NAMES = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
-export const planName = n => `方案${PLAN_NAMES[n - 1] || n}`;
+
 /* 一个视频能用几秒：有精选段按精选段，否则整个下载范围 */
-export function usableSeconds(c) {
-  const b = cleanBest(c.best, c.in, c.out);
-  return b ? b.out - b.in : Math.max(0, c.out - c.in);
-}
+
 /* 一个画面的各个方案，按方案号排：[{ plan, cands（按播放顺序）, live（没被否掉的）, okLen, liveLen, short, filled, fits }]。
    need：这个画面的口播秒数；filled = 通过的视频已经填满，fits = 没被否掉的视频加起来够长 */
 export function shotPlans(cands, need) {
@@ -537,162 +516,25 @@ function fillErrors(shots, records, needOf) {
 }
 /* 主画面按方案里的先后排：审核来的视频之间按 seq 排，占它们原来的位置；别的主画面不动。
    只影响按句子自动排的镜头（拖过的按各自的时间放） */
-export function orderPlanMains(members, registry, cands) {
-  const byId = new Map(cands.map(c => [c.id, c]));
-  const candOf = u => {
-    const c = byId.get(registry[u.assetId]?.source?.candidate);
-    return c && c.assetId === u.assetId ? c : null;
-  };
-  for (const m of members) {
-    const list = usageList(m);
-    const slots = list.map((u, i) => (u.role === 'main' && candOf(u) ? i : -1)).filter(i => i >= 0);
-    const sorted = slots
-      .map(i => list[i])
-      .sort((a, b) => planOf(candOf(a)) - planOf(candOf(b)) || (candOf(a).seq ?? 0) - (candOf(b).seq ?? 0));
-    slots.forEach((slot, k) => (list[slot] = sorted[k]));
-  }
-}
 
 /* 通过：挂到画面上，配整个画面。
    正片轨还有空（tl 给了才判断，见 shot-tracks.js 的 placeApproved）：当主画面——按句子自动排时接在后面，
    拖过时间的放进第一个空当；原来的占位主画面（照片等，非视频审核来的）让位成备选。
    正片轨已经填满：放到备选轨（返回 role: 'alt'），拖上正片轨就能换上。
    cands：项目里所有候选（自动排时按清单里的先后排主画面） */
-export function attachCandidate(c, rows, registry, cands = [], { tl = null } = {}) {
-  const row = rows.find(r => r.id === c.rowId);
-  if (!row) return { error: '找不到这个画面（句子可能被删了）' };
-  const members = shotMembers(rows, row);
-  const asset = ensureAsset(registry, remotePath(c), { kind: 'video', name: c.title });
-  asset.source = { candidate: c.id, url: c.url, page: c.page, license: c.license };
-  // 先判断放哪：只看别的候选视频占了多少（占位照片会让位，不算）
-  const place = tl
-    ? placeApproved(registry, members, tl, usableSeconds(c), id => id !== asset.id && !!registry[id]?.source?.candidate)
-    : { role: 'main' };
-  for (const m of members) {
-    let u = usageList(m).find(x => x.assetId === asset.id);
-    if (!u) {
-      m.assetUsages = [...usageList(m), { assetId: asset.id }];
-      u = m.assetUsages[m.assetUsages.length - 1];
-    }
-    // 可用片段：清单写了精选段就用精选段，否则整段（截取保存的始终是 in–out，精选段换算到文件里）
-    const best = cleanBest(c.best, c.in, c.out);
-    u.clip = best ? { ...best } : { in: c.in, out: c.out };
-    delete u.off;
-  }
-  const main = place.role === 'main';
-  applyRole(members, asset.id, place.role);
-  applySpan(members, asset.id, 0, members.length - 1);
-  if (place.at)
-    for (const m of members)
-      for (const u of usageList(m)) if (u.assetId === asset.id) u.at = { ...place.at, of: members[0].id };
-  const demoted = main ? resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate) : [];
-  if (main) orderPlanMains(members, registry, [...cands.filter(x => x.id !== c.id), { ...c, assetId: asset.id }]);
-  const line = noteLine(c);
-  if (!(row.note || '').includes(line))
-    setShotField(rows, row, 'note', (row.note ? row.note.replace(/\s+$/, '') + '\n' : '') + line);
-  syncMirror(members, registry);
-  return { assetId: asset.id, role: place.role, current: main, demoted };
-}
+
 /* 撤回通过：把这个视频从画面上拿掉，画面描述里那一行也删掉 */
-export function detachCandidate(c, rows, registry) {
-  const id = c.assetId;
-  const own = rows.find(r => r.id === c.rowId && r.kind === 'line');
-  // 原来那句还在：就处理它所在的画面；找不到（句子被删了 / 旧数据）：到用着这个视频的每个画面里摘掉
-  const owners = own
-    ? [own]
-    : id
-      ? rows.filter(r => r.kind === 'line' && usageList(r).some(u => u.assetId === id))
-      : [];
-  const line = noteLine(c);
-  const touched = [];
-  for (const row of owners) {
-    const members = shotMembers(rows, row);
-    if (touched.includes(members[0])) continue;
-    touched.push(members[0]);
-    for (const m of members) if (id) m.assetUsages = usageList(m).filter(u => u.assetId !== id);
-    if ((row.note || '').includes(line))
-      setShotField(
-        rows,
-        row,
-        'note',
-        row.note
-          .split('\n')
-          .filter(l => l !== line)
-          .join('\n'),
-      );
-    syncMirror(members, registry);
-  }
-}
+
 /* 保存了那几秒：素材换成本地文件（文件 = 原片 in–out），原链接留在画面描述里。
    可用片段（精选段 / 审核时改过的入出点）换算成文件里的秒数保留下来；覆盖整个文件的就不再记（= 整段）。
    不知道 in / out（旧调用）时退回「整段」。文件真实时长由界面读取后记进 durationSec */
-const r2 = x => Math.round(x * 100) / 100;
-export function localClip(clip, c) {
-  const span = Number.isFinite(c?.in) && Number.isFinite(c?.out) && c.out > c.in ? c.out - c.in : null;
-  if (!clip || span == null || !Number.isFinite(clip.in) || !Number.isFinite(clip.out)) return null;
-  const s = Math.max(0, clip.in - c.in),
-    e = Math.min(span, clip.out - c.in);
-  if (e - s < 0.1 || (s < 0.05 && e > span - 0.05)) return null;
-  return { in: r2(s), out: r2(e) };
-}
-export function swapToLocal(c, localPath, rows, registry) {
-  const a = registry[c.assetId];
-  if (!a) return false;
-  a.path = localPath;
-  a.name = assetName(localPath);
-  a.kind = 'video';
-  delete a.durationSec;
-  for (const r of rows)
-    if (r.kind === 'line')
-      for (const u of usageList(r)) {
-        if (u.assetId !== a.id) continue;
-        const clip = localClip(u.clip, c);
-        if (clip) u.clip = clip;
-        else delete u.clip;
-      }
-  syncMirror(rows, registry);
-  return true;
-}
+
 /* 已经保存到本地、表格里却还挂着在线地址的视频：找出来（返回 [{ asset, cand }]）。
    典型来源：通过 → 保存 → 撤回 → 再通过，再通过时按在线地址新建了素材，候选上的「已保存」还在，
    「保存已通过的片段」又会跳过它，于是一直显示「在线」；或者重复导入的批次里同一段又通过了一次。
    按「链接 + 入出点」对上已通过、已保存的候选（素材记着的候选优先），链接或片段变了的不算 */
-export function staleOnlineClips(cands, rows, registry) {
-  const saved = new Map(); // 在线地址（含入出点）→ 已保存的候选
-  for (const c of cands) if (c.decision === 'ok' && c.savedPath && c.url) saved.set(remotePath(c), c);
-  const byId = new Map(cands.map(c => [c.id, c]));
-  const out = [];
-  for (const id of referencedAssetIds(rows)) {
-    const a = registry[id];
-    if (!a || !saved.has(a.path)) continue;
-    const own = a.source?.candidate ? byId.get(a.source.candidate) : null;
-    const c = own && own.decision === 'ok' && own.savedPath && remotePath(own) === a.path ? own : saved.get(a.path);
-    out.push({ asset: a, cand: c });
-  }
-  return out;
-}
 
 /* 文件名里的句号：按这个画面现在的句子范围（第125-127句 / 第125句）；画面找不到时退回清单里写的 lines */
-export function lineTag(c, rows) {
-  const row = rows.find(r => r.id === c.rowId);
-  const nos = row
-    ? shotMembers(rows, row)
-        .map(m => m.no)
-        .filter(n => n > 0)
-    : [];
-  let from, to;
-  if (nos.length) {
-    from = Math.min(...nos);
-    to = Math.max(...nos);
-  } else {
-    const r = parseLines(c.lines);
-    if (!r || !(r.from > 0)) return '';
-    ({ from, to } = r);
-  }
-  return from === to ? `第${from}句` : `第${from}-${to}句`;
-}
-export const fileTitle = (c, rows) => [lineTag(c, rows), c.title].filter(Boolean).join('_');
-export const hasLineTag = p => /^第\d+(?:-\d+)?句_/.test(assetName(p));
 
 /* 项目 JSON 里带的候选记录：清洗字段，rowId 按导入时的 id 映射改写；对不上句子的丢掉，素材已不在库里的不再算「已挂」 */
 export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = new Set(), assets = {} } = {}) {
@@ -750,7 +592,6 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
 }
 
 /* 同一候选的链接或片段改了：原来通过时挂上的素材、保存好的本地片段都不再代表这个候选 */
-export const candidateChanged = (old, next) => old.url !== next.url || old.in !== next.in || old.out !== next.out;
 
 /* 表格里当主画面的素材（写回时据此标出「正在用的方案」） */
 export function mainAssetIds(rows) {

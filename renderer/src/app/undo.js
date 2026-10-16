@@ -1,7 +1,10 @@
+import { projectDelta } from '../core/project-delta.js';
+import { publishProjectEvents } from './project-events.js';
+import { viewState } from './view-state.js';
 /* 撤销 / 重做：每次改动前存快照，⌘Z 回退一步、⇧⌘Z 再前进一步。快照绑定项目，切项目即清栈。
    快照里带上当时选中的句子，撤销 / 重做后光标回到改动发生的地方。
    这里只管数据；界面（标题、滚动到改动处）订阅 'history' 事件自己刷。 */
-import { state, update, emit } from './state.js';
+import { state } from './state.js';
 import { notify } from './events.js';
 import { persist } from './storage.js';
 import { projectData, applyProjectData } from '../core/project-data.js';
@@ -24,7 +27,7 @@ export const setSnapshotHooks = hooks => {
 export const captureSnapshot = label => ({
   label,
   projectId: state.projectId,
-  sel: state.sel,
+  sel: viewState.sel,
   mark: collabHooks.mark?.(state.projectId),
   // 素材库、字幕时间、类型表、口播音频一起进快照：这些改动都能整体撤销
   data: JSON.stringify(projectData(state, 'history')),
@@ -94,28 +97,24 @@ function prepareSnapshot(u) {
   return p;
 }
 
-export function restoreSnapshotData(u, p = prepareSnapshot(u)) {
+function restoreSnapshotData(u, p = prepareSnapshot(u)) {
   const prevAssets = state.assets || {},
     prevVoice = state.voice;
-  const typesChanged = JSON.stringify(state.types) !== JSON.stringify(p.types || state.types);
-  const voiceChanged = (state.voice?.path || '') !== (p.voice?.path || '');
   applyProjectData(state, p, 'history');
   keepBackgroundResults(prevAssets, prevVoice);
-  state.multi = null;
-  if (u.sel != null && state.rows.some(r => r.id === u.sel && r.kind === 'line')) state.sel = u.sel;
-  else if (state.sel != null && !state.rows.some(r => r.id === state.sel)) {
-    state.sel = state.rows.find(r => r.kind === 'line')?.id ?? null;
+  viewState.multi = null;
+  if (u.sel != null && state.rows.some(r => r.id === u.sel && r.kind === 'line')) viewState.sel = u.sel;
+  else if (viewState.sel != null && !state.rows.some(r => r.id === viewState.sel)) {
+    viewState.sel = state.rows.find(r => r.kind === 'line')?.id ?? null;
   }
-  return { typesChanged, voiceChanged };
 }
 
 function restore(u, data) {
-  const { typesChanged, voiceChanged } = restoreSnapshotData(u, data);
+  const before = JSON.parse(JSON.stringify(projectData(state)));
+  restoreSnapshotData(u, data);
   persist();
-  if (typesChanged) emit('types');
-  if (voiceChanged) emit('voice');
-  update('rows'); // 撤销改的是内存数据，必须广播重渲染
-  emit('history', { sel: state.sel });
+  const events = [['history', { sel: viewState.sel }]];
+  publishProjectEvents({ projectId: state.projectId, source: 'history', ...projectDelta(before, state) }, events);
 }
 
 export function undo() {
@@ -129,7 +128,7 @@ export function undo() {
     return notify(error.message || '这条撤销记录暂时无法恢复', null, 'warn');
   }
   stack.pop();
-  redoStack.push({ ...captureSnapshot(u.label), sel: state.sel });
+  redoStack.push({ ...captureSnapshot(u.label), sel: viewState.sel });
   restore(u, data);
   notify(`已撤销：${u.label}`, null, 'info');
 }

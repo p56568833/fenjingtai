@@ -1,5 +1,7 @@
 /* 红字、每句画面条和全片总览共用同一份项目覆盖结果。 */
-import { state, timeline, types, on } from './state.js';
+import { state } from './state.js';
+import { timeline, types } from './project-queries.js';
+import { on } from './events.js';
 import { buildPictureCoverage } from '../core/coverage.js';
 import { missingPaths, missingRevision } from './asset-status.js';
 import { spanOf } from '../core/timeline.js';
@@ -9,19 +11,7 @@ let cached = null,
 const invalidate = () => {
   cached = null;
 };
-for (const event of [
-  'rows',
-  'marks',
-  'assets-changed',
-  'candidates-changed',
-  'project-changed',
-  'durations',
-  'types',
-  'voice',
-  'project-loaded',
-  'history',
-])
-  on(event, invalidate);
+for (const event of ['project-committed', 'project-loaded', 'durations']) on(event, invalidate);
 
 export function projectPictureCoverage({ refresh = false } = {}) {
   const tl = timeline(),

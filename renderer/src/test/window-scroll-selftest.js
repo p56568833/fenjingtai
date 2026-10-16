@@ -1,4 +1,6 @@
-import { state, emit, update } from '../app/state.js';
+import { viewState } from '../app/view-state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { jumpTo, revealSavedCursor } from '../ui/workspace.js';
 import { preserveReadingPosition } from '../ui/reading-position.js';
@@ -8,7 +10,7 @@ const $ = selector => document.querySelector(selector);
 
 export async function runWindowScrollTests(t) {
   const original = state.projectId;
-  const previousView = state.view;
+  const previousView = viewState.view;
   let project;
   try {
     project = storage.createProject(
@@ -21,7 +23,7 @@ export async function runWindowScrollTests(t) {
       })),
     );
     for (const view of ['table', 'check']) {
-      state.view = view;
+      viewState.view = view;
       update('rows');
       await pause(180);
       const target = () => $(`.row[data-id="91"],.as[data-id="91"]`);
@@ -29,7 +31,7 @@ export async function runWindowScrollTests(t) {
       await pause(100);
       target().scrollIntoView({ block: 'center' });
       await pause(100);
-      state.sel = 1; // 选中句仍在前面，阅读位置已经往后。
+      viewState.sel = 1; // 选中句仍在前面，阅读位置已经往后。
       update('selection');
       await pause(400); // 等滚动后屏幕附近的占位块排完，量到的才是稳定位置
       const before = target();
@@ -37,7 +39,7 @@ export async function runWindowScrollTests(t) {
       window.dispatchEvent(new Event('blur'));
       for (let i = 0; i < 3; i++) {
         state.rows[10].text = `同事第 ${i + 1} 次修改。`;
-        emit('collab-remote');
+        update('rows');
       }
       t(
         `${view} 切到剪辑软件时同事的修改照常显示，正在看的句子不换元素`,
@@ -48,7 +50,7 @@ export async function runWindowScrollTests(t) {
       const drift = target().getBoundingClientRect().top - top;
       t(
         `${view} 切回后阅读位置不动`,
-        target() === before && state.sel === 1 && Math.abs(drift) < 2,
+        target() === before && viewState.sel === 1 && Math.abs(drift) < 2,
         `句子偏移 ${drift.toFixed(1)}px`,
       );
 
@@ -85,7 +87,7 @@ export async function runWindowScrollTests(t) {
     window.dispatchEvent(new Event('focus'));
     storage.switchProject(original);
     if (project) storage.deleteProject(project);
-    state.view = previousView;
+    viewState.view = previousView;
     update('rows');
     await pause(180);
   }

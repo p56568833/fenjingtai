@@ -111,9 +111,9 @@ try {
     // 窗口隐藏后，界面进程仍能接收后台结果、保存数据。
     await page.evaluate(() => {
       setTimeout(async () => {
-        const { state } = await import('./src/app/state.js');
+        const { viewState } = await import('./src/app/view-state.js');
         const { setSentenceText } = await import('./src/app/actions.js');
-        setSentenceText(state.sel, '隐藏窗口后完成的改动。');
+        setSentenceText(viewState.sel, '隐藏窗口后完成的改动。');
         window.__windowFixture.backgroundDone = true;
       }, 100);
     });
@@ -137,7 +137,8 @@ try {
     assert.deepEqual(
       await page.evaluate(async () => {
         const { state } = await import('./src/app/state.js');
-        return { projectId: state.projectId, lineId: state.sel };
+        const { viewState } = await import('./src/app/view-state.js');
+        return { projectId: state.projectId, lineId: viewState.sel };
       }),
       fixture,
       '恢复后保持项目和选中句子',

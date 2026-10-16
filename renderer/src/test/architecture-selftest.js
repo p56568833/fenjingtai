@@ -1,5 +1,10 @@
+import { pendingCount } from '../features/review-model.js';
+import { viewState } from '../app/view-state.js';
 /* 异步保存必须归属启动时的项目和候选；全部原生任务用替身，不碰真实素材。 */
-import { state, on, rowById, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on } from '../app/events.js';
+import { update } from '../app/project-events.js';
+import { rowById, types, timeline } from '../app/project-queries.js';
 import * as storage from '../app/storage.js';
 import { parseAny } from '../core/parse.js';
 import {
@@ -9,10 +14,11 @@ import {
   deleteCandidateBatch,
   purgeRejectedCandidates,
 } from '../app/candidate-actions.js';
-import { renameProject } from '../app/actions.js';
+import { applyRemoteProject } from '../app/collab-apply.js';
+import { setType, setShotNote, renameProject } from '../app/actions.js';
 import { captureSaveTask, saveCandidateSegment, isCandidateBusy } from '../app/candidate-media.js';
 import { flushWriteBack } from '../app/candidate-sync.js';
-import { changeProject } from '../app/project-change.js';
+import { changeProject, saveCurrentProject } from '../app/project-change.js';
 import { clearUndo, canUndo, canRedo, undo, redo, setSnapshotHooks, rebaseHistory } from '../app/undo.js';
 import { addRefsToShot, rememberDuration } from '../app/asset-actions.js';
 import { createReplica, receiveOps, rebaseSnapshot, LOG_MAX } from '../core/collab-sync.js';
@@ -53,7 +59,7 @@ export async function runArchitectureTests(t) {
   const src = '/isolated/architecture-candidates.json';
   const fresh = () => {
     storage.createProject('保存竞态回归', parseAny('第一句话。\n第二句话。'));
-    state.view = 'table';
+    viewState.view = 'table';
     importCandidateData(doc(urlA), src);
     const c = state.candidates[0];
     decideCandidate(c.id, 'ok');
@@ -66,6 +72,181 @@ export async function runArchitectureTests(t) {
     return promise;
   };
   try {
+    {
+      fresh();
+      let initialTimeline = timeline();
+      const changes = [];
+      const off = on('project-committed', value => changes.push({ ...value, observed: timeline() }));
+      try {
+        saveCurrentProject();
+        t('导出前保存不广播项目修改，也不重建时间轴', changes.length === 0 && timeline() === initialTimeline);
+        const row0 = state.rows.find(r => r.kind === 'line');
+        const oldNote = row0.note || '';
+        const session = {};
+        setShotNote(row0, '连续输入一', { session });
+        setShotNote(row0, '连续输入二', { session });
+        undo();
+        t(
+          '连续输入备注只撤销一步，回到输入前内容',
+          state.rows.find(r => r.id === row0.id).note === oldNote && !canUndo(),
+        );
+        changes.length = 0;
+        const cands = state.candidates;
+        let reads = 0;
+        state.candidates = new Proxy(cands, {
+          get(target, key, receiver) {
+            if (/^\d+$/.test(String(key))) reads++;
+            return Reflect.get(target, key, receiver);
+          },
+        });
+        pendingCount();
+        reads = 0;
+        pendingCount();
+        t('待审数量缓存命中后每个候选只访问一次', reads === cands.length);
+        state.candidates = cands;
+        initialTimeline = timeline();
+        renameProject('只改项目名称');
+        t(
+          '改名提交一次变化说明，保留时间轴缓存',
+          changes.length === 1 && !changes[0].timing && timeline() === initialTimeline,
+        );
+        changeProject('修改备注', () => {
+          state.rows.find(r => r.kind === 'line').note = '新备注';
+        });
+        t(
+          '只改备注保留时间轴缓存，变更范围包含对应句子',
+          timeline() === initialTimeline && changes.at(-1).rowIds.includes(state.rows.find(r => r.kind === 'line').id),
+        );
+        const row = state.rows.find(r => r.kind === 'line');
+        changeProject('修改计时', change => {
+          row.time = { start: 1, end: 4, st: 'ok' };
+          change.emit('view-refresh');
+        });
+        t(
+          '修改计时时在通知订阅者前使缓存失效',
+          changes.at(-1).timing &&
+            changes.at(-1).observed !== initialTimeline &&
+            timeline().times.get(row.id).end === 4,
+        );
+        t(
+          '项目状态不再包含界面选区、筛选或视图',
+          !['sel', 'multi', 'filter', 'query', 'view'].some(key => Object.hasOwn(state, key)),
+        );
+        const selected = viewState.sel;
+        const count = changes.length;
+        let rejected = false;
+        try {
+          changeProject('不可序列化的修改', () => {
+            viewState.sel = -1;
+            row.circular = row;
+          });
+        } catch {
+          rejected = true;
+        }
+        t(
+          '提交校验失败时恢复项目对象并且不广播修改',
+          rejected && !Object.hasOwn(row, 'circular') && changes.length === count && state.rows.includes(row),
+        );
+        t('项目失败恢复同时还原独立的界面选区', viewState.sel === selected);
+      } finally {
+        off();
+      }
+    }
+    {
+      fresh();
+      update('rows');
+      const row = state.rows.find(r => r.kind === 'line');
+      const rowNode = document.querySelector(`.row[data-id="${row.id}"]`);
+      const filters = document.querySelector('#filters').firstElementChild;
+      let initialTimeline = timeline();
+      const commits = [];
+      let workspace = 0;
+      const offCommit = on('project-committed', change => commits.push(change));
+      const offWorkspace = on('workspace', () => workspace++);
+      try {
+        setShotNote(row, '通过统一提交刷新的描述');
+        t(
+          '描述修改不发送旧通知也会显示，保留表格与统计节点',
+          document.querySelector(`.row[data-id="${row.id}"]`) === rowNode &&
+            rowNode.querySelector('.note').textContent === row.note &&
+            document.querySelector('#filters').firstElementChild === filters,
+        );
+        t(
+          '描述修改只提交一次、工作区只刷新一次且时间轴不失效',
+          commits.length === 1 && workspace === 1 && timeline() === initialTimeline,
+        );
+        workspace = 0;
+        const count = commits.length;
+        row.note = '协作传来的描述';
+        applyRemoteProject(
+          { pid: state.projectId },
+          {
+            rows: new Set([row.id]),
+            fields: new Set(['note']),
+            meta: new Set(),
+            structural: false,
+            assets: false,
+            cands: false,
+            removed: [],
+          },
+        );
+        t(
+          '协作局部修改只发布一次提交，不再退回整体刷新',
+          commits.length === count + 1 &&
+            commits.at(-1).source === 'remote' &&
+            workspace === 1 &&
+            document.querySelector(`.row[data-id="${row.id}"]`) === rowNode &&
+            rowNode.querySelector('.note').textContent === '协作传来的描述' &&
+            timeline() === initialTimeline,
+        );
+        setType([row.id], 'fx');
+        undo();
+        t(
+          '撤销标注使用同一变化清单恢复显示，时间轴缓存保留',
+          commits.at(-1).source === 'history' &&
+            commits.at(-1).rowFields.includes('type') &&
+            timeline() === initialTimeline &&
+            document.querySelector(`.row[data-id="${row.id}"]`) === rowNode,
+        );
+        const previousCount = commits.length;
+        update('view-refresh');
+        t(
+          '筛选与布局刷新不伪装成项目修改，也不失效时间轴',
+          commits.length === previousCount && timeline() === initialTimeline,
+        );
+        const note = document.querySelector(`.note[data-id="${row.id}"]`);
+        note.focus();
+        workspace = 0;
+        let caretStayed = true;
+        for (const text of ['正在输入', '正在输入画面', '正在输入画面描述']) {
+          note.textContent = text;
+          const range = document.createRange();
+          range.selectNodeContents(note);
+          range.collapse(false);
+          getSelection().removeAllRanges();
+          getSelection().addRange(range);
+          const { anchorNode, anchorOffset } = getSelection();
+          note.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+          caretStayed &&= getSelection().anchorNode === anchorNode && getSelection().anchorOffset === anchorOffset;
+        }
+        t(
+          '连续输入描述立即保存且不更换输入节点、不移动光标',
+          rowById(row.id).note === '正在输入画面描述' &&
+            document.activeElement === note &&
+            document.querySelector(`.note[data-id="${row.id}"]`) === note &&
+            caretStayed &&
+            timeline() === initialTimeline,
+        );
+        t('连续输入时不在每个按键后重复刷新工作区', workspace === 0);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        t('输入停顿后合并刷新一次工作区，保持输入焦点', workspace === 1 && document.activeElement === note);
+        note.blur();
+        await tick();
+      } finally {
+        offCommit();
+        offWorkspace();
+      }
+    }
     let c = fresh();
     let pending = begin(c);
     importCandidateData(doc(urlB), src);
@@ -220,7 +401,7 @@ export async function runArchitectureTests(t) {
         state.title = '失败标题';
         state.speechRate = 9;
         state.mediaDir = '/failed';
-        state.filter = 'none';
+        viewState.filter = 'none';
         row.text = '失败正文';
         state.rows = [];
         change.emit('failed-change-test');

@@ -17,7 +17,7 @@ let checking = false;
    这样写在旧版的纯文字更新窗口和 GitHub 发布页里也整齐。
    隔了好几版时主进程把每一版拼成「【分镜台 x.y.z】」开头的几段；老版本写的是整段文字，照段落显示 */
 const KINDS = { 新增: 'add', 支持: 'support', 优化: 'improve', 修复: 'fix' };
-export function parseNotes(text) {
+function parseNotes(text) {
   const versions = [];
   let cur = null;
   let group = null;
@@ -87,7 +87,7 @@ function notesHTML(text) {
 }
 const mb = n => (n > 0 ? `${(n / 1048576).toFixed(n > 104857600 ? 0 : 1)} MB` : '');
 
-export async function checkUpdate({ manual = false, open = manual } = {}) {
+async function checkUpdate({ manual = false, open = manual } = {}) {
   if (checking || phase === 'downloading' || phase === 'installing') return;
   checking = true;
   let r;
@@ -169,7 +169,7 @@ function renderUpdate(progress = null) {
 }
 
 /* 点「更新」：先再查一次，确保显示和下载的是现在最新的一版（应用开着期间可能又发了新版） */
-export async function openUpdate() {
+async function openUpdate() {
   if (phase === 'idle' || phase === 'ready') {
     const had = !!info;
     await checkUpdate({ manual: !had, open: false });

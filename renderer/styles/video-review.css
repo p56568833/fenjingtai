@@ -320,6 +320,13 @@
   color: var(--c-real);
   white-space: nowrap;
 }
+/* 展开卡片底下的「已保存：文件名」很长：占满一行、末尾省略（悬停看全名），不把右边一栏撑出横向滚动 */
+.vr-after .vr-saved {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .inspector .vr-open {
   display: flex;
   align-items: center;
@@ -471,12 +478,6 @@
 .vr-tag.d-re {
   background: color-mix(in srgb, #d9820b 14%, transparent);
   color: #b26a06;
-}
-.vr-done-list {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr); /* 长标题、长意见在行内省略，不把整列撑出横向滚动条 */
-  gap: 6px;
-  margin-top: 10px;
 }
 .vr-done {
   display: flex;
@@ -1082,7 +1083,7 @@ body.dark .vr-page p.vr-cov-note {
 }
 
 /* ── 画面：左边「对着口播看画面」，右边这个画面的视频（通过 / 不要），下面两条轨 ──
-   播放器和画面时间轴就是连播预览那一套，嵌进来只看这一个画面（features/playthrough.js 的 dockPlaythrough） */
+   播放器和画面时间轴就是连播预览那一套，各自的实例只看这一个画面（features/review-playback.js） */
 .vr-split {
   display: grid;
   grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
@@ -1254,6 +1255,7 @@ body:not(.dark) .pt-box.docked .pt-card-note {
   position: absolute;
   inset: 0;
   overflow-y: auto;
+  overflow-x: hidden; /* 卡片里再长的内容也不能把这一栏撑出横向滚动 */
   overscroll-behavior: contain;
   padding: 3px 6px 3px 3px; /* 选中卡片的描边不被裁掉 */
 }
@@ -1344,12 +1346,6 @@ body.dark .vr-pst.miss {
 /* 候选挂在句子下面，和句子文字左对齐 */
 .vr-line-cands {
   margin: 8px 0 8px 52px;
-}
-.vr-line-cands .vr-done-list {
-  margin-top: 0;
-}
-.vr-line-cands .vr-cand + .vr-done-list {
-  margin-top: 2px;
 }
 .vr-page p.vr-span {
   margin: 0 0 6px;

@@ -1,5 +1,7 @@
 /* 审查报告的隔离回归：后台重画、输入法组合、播放器取消和拖动取消。 */
-import { state, emit, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { emit } from '../app/events.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
@@ -7,7 +9,7 @@ import { startEdit } from '../ui/edit.js';
 import { renderAll, setView } from '../ui/render.js';
 import { runCommand } from '../ui/base/commands.js';
 import { importCandidateData } from '../app/candidate-actions.js';
-import { addRefsToShot, setUsageRole, setShotTimes } from '../app/asset-actions.js';
+import { addRefsToShot, setUsageLines, setShotTimes } from '../app/asset-actions.js';
 import { playerHTML, playClip, stopClip, setVoiceOn } from '../features/clip-player.js';
 import { voicePlayer } from '../features/voice.js';
 import { closePlaythrough, playthroughState, playthroughKey, trackDragging } from '../features/playthrough.js';
@@ -27,7 +29,7 @@ export async function runAuditTests(t) {
     const sent = document.querySelector(`.row[data-id="${row.id}"] .sent`);
     startEdit(sent);
     sent.textContent = '正在修改的新正文。';
-    emit('rows');
+    emit('view-refresh');
     t('后台更新不替换正在输入的句子编辑器', sent.isConnected && document.activeElement === sent);
     sent.blur();
     // 隐藏自测窗口不一定获得系统焦点，补发编辑器依赖的失焦事件。
@@ -50,7 +52,7 @@ export async function runAuditTests(t) {
     note.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
     note.textContent = 'huamian';
     note.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
-    emit('rows');
+    emit('view-refresh');
     t('输入法组合中不保存拼音，也不被后台重画打断', !row.note && note.isConnected && document.activeElement === note);
     note.textContent = '画面描述';
     note.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '画面描述' }));
@@ -164,7 +166,7 @@ export async function runAuditTests(t) {
     row = firstLine();
     row.type = 'real';
     addRefsToShot(row, ['/isolated/audit.png']);
-    setUsageRole(row, 0, 'main');
+    setUsageLines(row, 0, 0, 0);
     update('rows');
     runCommand('playthrough:shot', row.id);
     if (playthroughState().playing) playthroughKey(new KeyboardEvent('keydown', { key: ' ' }));

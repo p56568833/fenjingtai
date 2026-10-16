@@ -66,7 +66,7 @@ function applyAlign() {
 }
 
 /* 改稿后重新对齐：用项目里存着的那份字幕重跑一遍 */
-export function realignSaved() {
+function realignSaved() {
   if (!state.timing?.cues?.length) {
     toast('这个项目还没有对齐过字幕', null, 'info');
     return;
@@ -74,7 +74,7 @@ export function realignSaved() {
   startSrtAlign({ name: state.timing.name, cues: state.timing.cues });
 }
 
-export function pickSrt() {
+function pickSrt() {
   return native.importFile('srt').then(r => {
     if (!r) return;
     if (r.error) toast(r.error, null, 'error');

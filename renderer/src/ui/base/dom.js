@@ -1,6 +1,6 @@
 /* 界面通用小工具：转义 / 高亮 / toast / 确认弹窗 / 可编辑文字读取 */
 
-export const $ = s => document.querySelector(s);
+const $ = s => document.querySelector(s);
 
 export const esc = s =>
   String(s ?? '')
@@ -9,13 +9,6 @@ export const esc = s =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-
-/* 搜索命中加 <mark> 高亮（q 已确保非空且命中） */
-export const hiText = (t, q) => {
-  const i = t.toLowerCase().indexOf(q.toLowerCase());
-  if (i < 0) return esc(t);
-  return esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length));
-};
 
 /* 中文输入法正在组合中（打拼音未上屏）时，按键不该触发任何命令 */
 export const composing = e => e.isComposing || e.keyCode === 229;

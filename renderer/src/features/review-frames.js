@@ -17,7 +17,7 @@ const active = new Map();
 let running = 0;
 const CELLS = 9; // 从片段开头到结尾均匀抽 9 帧，审核页排成 3×3
 export const stripHTML = () => `<div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(CELLS)}</div>`;
-const stripOf = id => document.querySelector(`[data-vr-id="${id}"] .vr-strip`);
+const stripOf = job => (job.host.isConnected ? job.host.querySelector(`[data-vr-id="${job.c.id}"] .vr-strip`) : null);
 /* 渲染后把截图放进卡片：截过的直接放，没截的排队去截 */
 export function paintStrips(host, cands) {
   for (const c of cands) {
@@ -25,11 +25,11 @@ export function paintStrips(host, cands) {
     if (!strip) continue;
     const got = getFrames(c);
     if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
-    else queueFrames(c);
+    else queueFrames(c, host);
   }
 }
 const signature = c => JSON.stringify([state.projectId, c.url, c.in, c.out, c.savedPath || '']);
-export const getFrames = c => {
+const getFrames = c => {
   const cached = frames.get(c.id);
   return cached?.signature === signature(c) ? cached.cells : null;
 };
@@ -49,11 +49,11 @@ export function retainFrames(candidates) {
   for (let i = queue.length - 1; i >= 0; i--) if (!ids.has(queue[i].c.id)) queue.splice(i, 1);
 }
 /* 审核页自己最多排两个截图任务（还要和全应用共用 withDecodeSlot 的名额）；任务绑定项目和素材内容，换项目 / 更新候选就取消旧结果。 */
-function queueFrames(c) {
+function queueFrames(c, host) {
   const sig = signature(c);
   if (getFrames(c) || queue.some(q => q.c.id === c.id && q.signature === sig)) return;
   if (active.has(c.id)) active.get(c.id).abort();
-  queue.push({ c: { ...c }, signature: sig, projectId: state.projectId });
+  queue.push({ host, c: { ...c }, signature: sig, projectId: state.projectId });
   pump();
 }
 function pump() {
@@ -103,14 +103,14 @@ async function grab(job, signal) {
       const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / CELLS;
       cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in), signal, t - c.in) });
       if (!valid()) break;
-      stripOf(orig.id)?.replaceChildren(
+      stripOf(job)?.replaceChildren(
         ...cells.map(x => x.cell),
         ...Array.from({ length: CELLS - cells.length }, () => loadingCell()),
       );
     }
   } catch (error) {
     if (valid()) {
-      const strip = stripOf(orig.id);
+      const strip = stripOf(job);
       if (strip)
         strip.innerHTML = error?.outOfRange
           ? `<div class="vr-cell fail">入出点 ${fmtTime(c.in)}–${fmtTime(c.out)} 超出了这个视频的长度（${fmtTime(error.outOfRange)}）：清单里的时间写错了，点「换一个」让 AI 改</div>`
@@ -137,13 +137,13 @@ async function frameAt(v, t, label, signal, rel) {
 }
 
 /* 已通过那一行的小图：自己从视频里解一帧（macOS 系统缩略图常给的是默认播放器的图标，比如 B 站） */
-export function paintDoneThumb(c) {
+export function paintDoneThumb(c, host) {
   const path = c.savedPath;
   const projectId = state.projectId;
   videoFrame(path).then(url => {
-    const cell = document.querySelector(`#vrList .vr-done[data-vr-id="${c.id}"] .vr-done-thumbs .vr-cell`);
+    const cell = host.querySelector(`.vr-done[data-vr-id="${c.id}"] .vr-done-thumbs .vr-cell`);
     const cur = state.candidates.find(x => x.id === c.id);
-    if (!cell || state.projectId !== projectId || cur?.savedPath !== path) return; // 换了画面 / 片段被换掉：这张不用了
+    if (!host.isConnected || !cell || state.projectId !== projectId || cur?.savedPath !== path) return; // 换了画面 / 片段被换掉：这张不用了
     if (!url) {
       cell.textContent = '没有缩略图';
       return;

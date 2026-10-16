@@ -1,7 +1,11 @@
+import { projectRefresh } from '../core/project-refresh.js';
+import { viewState } from '../app/view-state.js';
 /* 专注标注：一次只看一句（共用画面算一个），大字居中、前后各留两句上下文，
    按 1–5 标完自动跳到下一句——长稿逐句过类型时不用找行、不用挪鼠标。
    全部改动走 actions（照常可撤销、落盘），退出时光标停在最后处理的那一句。 */
-import { state, on, rowById, types, lineSeconds, timeOf } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on } from '../app/events.js';
+import { rowById, types, lineSeconds, timeOf } from '../app/project-queries.js';
 import { setType, markSentences, setNote } from '../app/actions.js';
 import { rememberCursor } from '../app/storage.js';
 import { shots } from '../core/shots.js';
@@ -44,7 +48,7 @@ function step(list, index, dir) {
   return -1;
 }
 
-export function openFocusMode() {
+function openFocusMode() {
   if (open || performance.now() - closedAt < 400) return; // 菜单和键盘同时发来时不要关了又开
   const list = units();
   if (!list.length) {
@@ -52,7 +56,7 @@ export function openFocusMode() {
     return;
   }
   closePop();
-  let i = unitOf(list, state.sel);
+  let i = unitOf(list, viewState.sel);
   if (i < 0) i = 0;
   if (onlyTodo && !isTodo(list[i])) {
     const next = step(list, i, 1);
@@ -61,21 +65,21 @@ export function openFocusMode() {
   }
   curId = list[i][0].id;
   open = true;
-  state.focusMode = true;
+  viewState.focusMode = true;
   $('#fcTodo').checked = onlyTodo;
   $('#focusMask').classList.add('show');
   render();
 }
 
-export function closeFocusMode() {
+function closeFocusMode() {
   if (!open) return;
   open = false;
-  state.focusMode = false;
+  viewState.focusMode = false;
   closedAt = performance.now();
   $('#focusMask').classList.remove('show');
   if (curId != null && rowById(curId)) {
-    state.sel = curId;
-    state.multi = null;
+    viewState.sel = curId;
+    viewState.multi = null;
     renderSelectionOnly();
     rememberCursor();
     document.querySelector(`.row[data-id="${curId}"],.as[data-id="${curId}"]`)?.scrollIntoView({ block: 'center' });
@@ -175,7 +179,7 @@ function mark(type) {
   const g = list[unitOf(list, curId)];
   if (!g) return;
   const ids = g.map(r => r.id);
-  if (state.view === 'check') markSentences(ids, type);
+  if (viewState.view === 'check') markSentences(ids, type);
   else setType(ids, type);
   if (type) lastType = type;
   if (type) {
@@ -325,9 +329,11 @@ export function initFocus() {
     }
   });
   $('#fcNote').addEventListener('blur', saveNote);
-  on('rows', render); // 撤销 / 重做 / 删改句子后跟着刷新
+  on('project-committed', change => {
+    if (change.projectId === state.projectId && projectRefresh(change).focus) render();
+  });
+  on('view-refresh', render);
   on('project-loaded', closeFocusMode);
-  on('types', render);
   document.querySelector('#btnFocus')?.addEventListener('click', openFocusMode);
   registerCommand('focus:open', openFocusMode);
 }

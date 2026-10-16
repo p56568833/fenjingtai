@@ -1,6 +1,6 @@
 import { shotMembers } from './shots.js';
 import { usageList, assetName } from './asset-model.js';
-import { lineTag, hasLineTag } from './candidates.js';
+import { lineTag, hasLineTag } from './candidate-placement.js';
 import { candidateScope } from './candidate-scope.js';
 
 export function candidateBatches(candidates, rows = []) {

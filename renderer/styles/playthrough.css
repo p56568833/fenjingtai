@@ -269,7 +269,7 @@
 }
 .ptt-lane {
   position: relative;
-  height: 38px;
+  height: 48px;
   margin-top: 0;
   border-radius: 0;
   background: repeating-linear-gradient(
@@ -338,7 +338,6 @@
   border-radius: 0;
   background: var(--ptt-a);
   border: 0;
-  box-shadow: inset -1px 0 0 var(--ptt-seam);
   color: var(--ptt-block-tx);
   font-size: 11.5px;
   display: flex;
@@ -351,19 +350,60 @@
 .ptt-block.t1 {
   background: var(--ptt-b);
 }
+/* 描边（暗缝 / 选中框 / 超出 / 互换）画在最上面一层：胶片铺满色块后，块本身的 inset 阴影会被盖住 */
+.ptt-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  box-shadow: inset -1px 0 0 var(--ptt-seam);
+}
+/* 胶片：顶上留 3px 露出色块的颜色（相邻两段靠它区分），下面横着铺这段片段的小截图 */
+.ptt-film {
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 0;
+  width: 100%;
+  display: flex;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.ptt-film.img {
+  background-repeat: repeat-x;
+  background-size: auto 100%;
+  background-position: left center;
+}
+.ptt-frame {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.35);
+}
+.ptt-frame canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 /* 选中：外框，两头是把手，拖把手改长度 */
 .ptt-block.on {
-  box-shadow: inset 0 0 0 2px var(--ptt-sel);
   z-index: 2;
+}
+.ptt-block.on::after {
+  box-shadow: inset 0 0 0 2px var(--ptt-sel);
 }
 .ptt-block.dragging {
   cursor: grabbing;
   opacity: 0.92;
   z-index: 4;
   /* 浮起来：压在别的色块上面，落点看下面的虚线框 */
-  box-shadow:
-    inset 0 0 0 2px var(--ptt-sel),
-    0 10px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+.ptt-block.dragging::after {
+  box-shadow: inset 0 0 0 2px var(--ptt-sel);
 }
 /* 拖动时别的色块让位：滑过去 */
 .ptt-lane.sorting .ptt-block:not(.dragging) {
@@ -388,7 +428,7 @@
     transition: none;
   }
 }
-.ptt-block.over {
+.ptt-block.over::after {
   box-shadow: inset 0 0 0 1px var(--ptt-over);
   background-image: linear-gradient(90deg, transparent 85%, color-mix(in srgb, var(--ptt-over) 45%, transparent));
 }
@@ -410,6 +450,7 @@
   border-left: 1px dashed var(--ptt-hold-bd);
   pointer-events: none;
   overflow: hidden;
+  z-index: 1;
 }
 .ptt-fit i {
   font-style: normal;
@@ -417,23 +458,48 @@
   opacity: 0.8;
   white-space: nowrap;
 }
+/* 名字叠在胶片左上角的半透明深色条上：看得清，不挡画面 */
 .ptt-label {
-  flex: 1;
+  position: relative;
+  z-index: 1;
+  flex: 0 1 auto;
+  align-self: flex-start;
   min-width: 0;
-  padding: 0 10px;
+  margin: 6px 0 0 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(10, 14, 22, 0.72);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
 }
+.ptt-block:not(:has(.ptt-frame, .ptt-film.img)) .ptt-label {
+  align-self: center;
+  margin-top: 0;
+  background: none;
+}
 /* 两头的把手：选中了才出现、才能拖（先点一下选中，再拖把手改长度） */
 .ptt-grip {
   position: relative;
+  z-index: 4;
   flex: none;
   width: 10px;
   max-width: 25%;
   align-self: stretch;
   pointer-events: none;
+}
+.ptt-grip.r {
+  margin-left: auto;
+}
+/* 备选色块矮一些：名字条贴紧一点 */
+.ptt-block.alt .ptt-label {
+  margin-top: 4px;
+  line-height: 14px;
+  font-size: 10.5px;
 }
 .ptt-block.on .ptt-grip {
   pointer-events: auto;
@@ -574,8 +640,10 @@
 }
 /* 备选拖上来、松手会和它互换的那段画面 */
 .ptt-block.swap {
-  box-shadow: inset 0 0 0 2px #f0a33a;
   opacity: 0.6;
+}
+.ptt-block.swap::after {
+  box-shadow: inset 0 0 0 2px #f0a33a;
 }
 /* 双击画面弹出的菜单：弹窗版「对着口播看画面」在遮罩上面，菜单要压在它上面 */
 .popover.ptt-menu {

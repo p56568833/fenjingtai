@@ -1,5 +1,6 @@
 /* 多项目管理：顶栏「项目」菜单（列表 / 新建 / 切换 / 删除 / 最近删除 / 从备份恢复）+ 菜单内重命名 */
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
 import { renameProject } from '../app/actions.js';
@@ -166,7 +167,7 @@ function saveProjectName() {
 }
 
 /* 新建空项目：原生菜单和项目菜单共用，随后在对话框中起名。 */
-export function newEmptyProject() {
+function newEmptyProject() {
   storage.createProject('未命名项目', []);
   afterProjectChange();
   openProjectName();

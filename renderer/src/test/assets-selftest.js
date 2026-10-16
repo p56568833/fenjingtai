@@ -1,6 +1,7 @@
 /* 素材 / 片段 / 预览 / 拖拽 / 失联重定位 自测（隔离 fixture，不碰真实项目）。
    DOM 拖拽只负责从 File 对象取路径，取到路径后的完整管线用 handleDropPaths 直接驱动。 */
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { undo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';

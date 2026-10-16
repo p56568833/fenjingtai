@@ -109,12 +109,12 @@ function apply(dark) {
   document.querySelector('#btnTheme').title = `浅色 / 深色切换 (⌘L)${pref === 'system' ? ' · 当前跟随系统' : ''}`;
 }
 
-export function toggleTheme() {
+function toggleTheme() {
   const dark = !(targetDark ?? document.body.classList.contains('dark'));
   setPref(dark ? 'dark' : 'light');
   switchTo(dark);
 }
-export function followSystem() {
+function followSystem() {
   setPref('system');
   switchTo(media.matches);
 }
@@ -127,7 +127,7 @@ const getDensity = () => {
     return false;
   }
 };
-export function toggleDensity() {
+function toggleDensity() {
   const on = !document.body.classList.contains('compact');
   document.body.classList.toggle('compact', on);
   try {

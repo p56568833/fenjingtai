@@ -15,8 +15,6 @@ export function setVoice(path, duration) {
   return changeProject(state.voice ? '更换口播音频' : '导入口播音频', change => {
     state.voice = { path, name: assetName(path), duration: isFinite(duration) && duration > 0 ? duration : null };
 
-    change.emit('voice');
-    change.emit('rows');
     change.notify(
       state.timing
         ? `已导入口播音频「${state.voice.name}」，每句时间用对齐好的字幕 · ⌘Z 可撤销`
@@ -34,7 +32,6 @@ export function setVoiceDuration(duration) {
   if (Math.abs((state.voice.duration || 0) - duration) < 0.01) return;
   changeProject(null, change => {
     state.voice.duration = duration;
-    change.emit('rows');
   });
 }
 
@@ -43,8 +40,6 @@ export function clearVoice() {
   return changeProject('移除口播音频', change => {
     state.voice = null;
 
-    change.emit('voice');
-    change.emit('rows');
     change.notify('已移除口播音频（本地文件保留）· ⌘Z 可撤销', null, 'ok');
   });
 }
@@ -56,8 +51,6 @@ export function relocateVoice(path) {
     state.voice = { ...state.voice, path, name: assetName(path) };
     change.emit('asset-relocated', { moves: [[from, path]] });
 
-    change.emit('voice');
-    change.emit('rows');
     return true;
   });
 }

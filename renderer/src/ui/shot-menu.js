@@ -1,7 +1,9 @@
+import { viewState } from '../app/view-state.js';
 /* 共用画面范围调整入口（原文 / 表格两个视图同一套菜单、同一套名称）：
    共用区域「···」= 将下一句加入这个画面 / 将最后一句移出这个画面 / 从选中的这句开始使用另一个画面 / 解除共用
    有差异先展示差异和处理方式，不悄悄覆盖信息。 */
-import { state, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { types } from '../app/project-queries.js';
 import { extendGroupNextAction, dropGroupLastAction, splitGroupAtAction, ungroupAction } from '../app/actions.js';
 import { relocateAsset, invalidateProbe, relinkByNames } from '../app/asset-actions.js';
 import { shotMembers } from '../core/shots.js';
@@ -23,7 +25,7 @@ const actItem = (act, ids, label, desc, { disabled = false, danger = false } = {
     <span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
 
 /* 共用区域「···」：范围调整（加入下一句 / 移出最后一句 / 从选中的这句拆开）和解除共用 */
-export function openGroupMenu(anchor, groupId) {
+function openGroupMenu(anchor, groupId) {
   const members = shotMembers(
     state.rows,
     state.rows.find(r => r.groupId === groupId),
@@ -47,7 +49,7 @@ export function openGroupMenu(anchor, groupId) {
     `第 ${last.no} 句恢复独立画面，保留描述、素材和片段`,
   );
   // 从这句拆开：拿当前选中的句子（组里第二句到倒数第二句才行）
-  const sel = members.find(m => m.id === state.sel);
+  const sel = members.find(m => m.id === viewState.sel);
   const split = sel ? groupSplitAtPlan(state.rows, groupId, sel.id) : null;
   html += actItem(
     'split-at',
@@ -89,7 +91,7 @@ function showDiffModal(title, diffs, onOk) {
 }
 
 /* 重新定位失联文件：先说清有几处引用，选新文件后一起修好；时长不兼容只标记不改时间 */
-export async function relocateFlow(row, index, done) {
+async function relocateFlow(row, index, done) {
   const u = usageList(row)[index];
   const asset = u && (state.assets || {})[u.assetId];
   if (!asset) return;

@@ -8,16 +8,12 @@ import { stopClip } from './clip-player.js';
 import { retainFrames, paintStrips, paintDoneThumb } from './review-frames.js';
 import { page, touched, reworkList, reworkShown, reworkOpen, batchOfCand, rangeText } from './review-model.js';
 import { reworkNavHTML, paintTabs } from './review-nav.js';
-import { cardHTML, doneHTML, paintLineFocus } from './review-cards.js';
 
-const $ = s => document.querySelector(s);
-
-export function renderRework(host) {
+export function renderRework(host, nav, { cardHTML, doneHTML, paintLineFocus }) {
   const list = reworkList();
   if (!list.some(s => s.lead.id === page.curRework)) page.curRework = list[0]?.lead.id ?? null;
-  const nav = $('#vrNav');
   nav.innerHTML = reworkNavHTML(list);
-  paintTabs();
+  paintTabs(nav);
   nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
   glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide');
   const s = list.find(x => x.lead.id === page.curRework);
@@ -70,6 +66,6 @@ export function renderRework(host) {
     </section>`;
   paintLineFocus(state.candidates.find(c => c.id === page.curCand) || null);
   paintStrips(host, open);
-  for (const c of shown) if (c.decision === 'ok' && c.savedPath && !touched.has(c.id)) paintDoneThumb(c);
+  for (const c of shown) if (c.decision === 'ok' && c.savedPath && !touched.has(c.id)) paintDoneThumb(c, host);
   retainFrames(open);
 }

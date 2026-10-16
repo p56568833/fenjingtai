@@ -3,32 +3,22 @@ import { state } from '../app/state.js';
 import { reworkShots } from '../core/rework.js';
 import { esc } from '../ui/base/dom.js';
 import { glide } from '../ui/base/motion.js';
-import {
-  page,
-  pendingCount,
-  isPending,
-  batchLabel,
-  fmtDay,
-  batchDetail,
-  rangeText,
-  sectionOf,
-} from './review-model.js';
-
-const $ = s => document.querySelector(s);
+import { fmtDay, batchDetail } from '../core/review-format.js';
+import { page, pendingCount, isPending, batchLabel, rangeText, sectionOf } from './review-model.js';
 
 /* 左栏：当前批次标题打开切换菜单，进度独立显示；下面是这一批的全部画面（按章节） */
 /* 待审 / 待返工切换的白色滑块：和顶栏「审核 / 表格」一样滑过去。
    左栏每次重画都会换掉这排按钮，所以上一次的位置记在这里，新滑块从那儿出发 */
-export let tabGeo = null;
-export function paintTabs() {
-  const box = $('#vrNav .vr-tabs');
+let tabGeo = null;
+export function paintTabs(nav) {
+  const box = nav.querySelector('.vr-tabs');
   const on = box?.querySelector('.vr-tab.on');
   if (!box || !on) return;
   glide(box, on, 'vr-tab-pill', { from: tabGeo });
   tabGeo = box._glide || tabGeo;
 }
 /* 审核页顶上的切换：待审（按批次）/ 待返工（所有批次没过关的画面） */
-export function tabsHTML() {
+function tabsHTML() {
   const p = pendingCount();
   const r = reworkShots(state.rows, state.candidates).length;
   const tab = (id, label, n, tip) =>

@@ -1,6 +1,10 @@
+import { viewState } from '../app/view-state.js';
 /* 表格按块原地更新：没变的句子不换元素；别人增删改句子时正在看的位置不动；句号、时长原地改；
    共用画面、筛选、章节显隐、搜索高亮、原文视图互切都和整表重画的结果一致。 */
-import { state, emit, update, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { emit } from '../app/events.js';
+import { update } from '../app/project-events.js';
+import { types } from '../app/project-queries.js';
 import * as storage from '../app/storage.js';
 import { setType } from '../app/actions.js';
 import { undo, clearUndo } from '../app/undo.js';
@@ -15,7 +19,7 @@ let nextId = 1000;
 
 export async function runTablePatchTests(t) {
   const original = state.projectId;
-  const previousView = state.view;
+  const previousView = viewState.view;
   let project;
   try {
     const rows = [];
@@ -24,12 +28,12 @@ export async function runTablePatchTests(t) {
       rows.push({ id: i, kind: 'line', text: text(i), note: i % 7 ? '' : `第 ${i} 句的画面描述` });
     }
     project = storage.createProject('按块更新回归', rows);
-    state.view = 'table';
-    state.filter = 'all';
-    state.query = '';
+    viewState.view = 'table';
+    viewState.filter = 'all';
+    viewState.query = '';
     update('rows');
     await pause(200);
-    const remote = () => emit('collab-remote');
+    const remote = () => update('rows');
 
     /* 正在看第 150 句：别人改它上面看不见的地方，它在屏幕上的位置不动 */
     const look = async id => {
@@ -40,7 +44,7 @@ export async function runTablePatchTests(t) {
       return rowEl(id).getBoundingClientRect().top;
     };
     const drift = (id, top) => rowEl(id).getBoundingClientRect().top - top;
-    state.sel = 1; // 选中句在很前面，阅读位置在后面
+    viewState.sel = 1; // 选中句在很前面，阅读位置在后面
     update('selection');
     let top = await look(150);
     const kept = rowEl(150);
@@ -96,7 +100,7 @@ export async function runTablePatchTests(t) {
 
     /* 选中、勾选状态不写进行的 HTML：换选中不换元素，新元素也带上选中状态 */
     const row151 = rowEl(151);
-    state.sel = 151;
+    viewState.sel = 151;
     update('selection');
     t('换选中句只改选中底色，不换元素', rowEl(151) === row151 && row151.classList.contains('selected'));
     state.rows[at(151)].text = '选中的这句被同事改了。';
@@ -141,7 +145,7 @@ export async function runTablePatchTests(t) {
     const typeId = types().list[0].id;
     state.rows[at(110)].type = typeId;
     state.rows[at(112)].type = typeId;
-    state.filter = typeId;
+    viewState.filter = typeId;
     update('rows');
     await pause(60);
     const filtered = rowEl(110)?.closest('.shared-scene');
@@ -150,7 +154,7 @@ export async function runTablePatchTests(t) {
       !!filtered && filtered.querySelectorAll('.row').length === 2 && !rowEl(111),
     );
     t('筛选下一句都没有的章节不显示', $$('#rows .sec-block').length === 1);
-    state.filter = 'all';
+    viewState.filter = 'all';
     update('rows');
     await pause(60);
     t(
@@ -159,21 +163,21 @@ export async function runTablePatchTests(t) {
     );
 
     /* 搜索：命中的句子高亮，其余淡化；清空后恢复 */
-    state.query = '第 200 句。'; // 带句号走正文搜索；不带会被当成编号直达
-    emit('rows');
+    viewState.query = '第 200 句。'; // 带句号走正文搜索；不带会被当成编号直达
+    emit('view-refresh');
     await pause(60);
     t('搜索高亮命中的句子，其余淡化', !!rowEl(200).querySelector('mark') && rowEl(201).classList.contains('qdim'));
-    state.query = '';
-    emit('rows');
+    viewState.query = '';
+    emit('view-refresh');
     await pause(60);
     t('清空搜索恢复', !rowEl(200).querySelector('mark') && !rowEl(201).classList.contains('qdim'));
 
     /* 原文视图和表格互切：各自整块重来，回到表格时内容完整 */
-    state.view = 'check';
+    viewState.view = 'check';
     update('rows');
     await pause(60);
     t('切到原文视图：表格的行都不在了', !$('#rows .row') && !!$('#rows .as'));
-    state.view = 'table';
+    viewState.view = 'table';
     update('rows');
     await pause(60);
     t(
@@ -186,11 +190,11 @@ export async function runTablePatchTests(t) {
     );
 
     /* 没有句子的筛选：显示空状态；切回来空状态消失 */
-    state.filter = '__none__';
+    viewState.filter = '__none__';
     update('rows');
     await pause(30);
     t('筛选下一句都没有：显示空状态', !!$('#rows .empty-hint') && !$('#rows .row'));
-    state.filter = 'all';
+    viewState.filter = 'all';
     update('rows');
     await pause(30);
     t('切回全部：空状态消失', !$('#rows .empty-hint') && !!$('#rows .row'));
@@ -231,7 +235,7 @@ export async function runTablePatchTests(t) {
     undo();
     await pause(60);
     t('撤销改字：表格里显示原来的句子', rowEl(63).querySelector('.sent').textContent === text(63));
-    state.view = 'check';
+    viewState.view = 'check';
     update('rows');
     await pause(60);
     const span = () => $('#rows .as[data-id="64"]');
@@ -241,7 +245,7 @@ export async function runTablePatchTests(t) {
     undo();
     await pause(60);
     t('原文视图撤销标注：句子回到未标注', !span().classList.contains('typed'));
-    state.view = 'table';
+    viewState.view = 'table';
     update('rows');
     await pause(60);
 
@@ -286,11 +290,11 @@ export async function runTablePatchTests(t) {
     window.dispatchEvent(new Event('focus'));
   } finally {
     window.dispatchEvent(new Event('focus'));
-    state.filter = 'all';
-    state.query = '';
+    viewState.filter = 'all';
+    viewState.query = '';
     storage.switchProject(original);
     if (project) storage.deleteProject(project);
-    state.view = previousView;
+    viewState.view = previousView;
     update('rows');
     await pause(180);
   }

@@ -1,5 +1,8 @@
+import { viewState } from '../app/view-state.js';
 /* 总览的蓝色必须与正文画面覆盖一致，选中态不能掩盖空缺。 */
-import { state, update, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
+import { timeline } from '../app/project-queries.js';
 import * as storage from '../app/storage.js';
 import { parseAny } from '../core/parse.js';
 import { runCommand } from '../ui/base/commands.js';
@@ -26,8 +29,8 @@ export async function runTimelineOverviewTests(t) {
       r.time = { start: [10, 600, 3500][i], end: [20, 608, 3520][i], st: 'ok' };
     });
     state.voice = { path: '/tmp/overview-test-recording.wav', name: '录音.wav', duration: 3600 };
-    state.sel = lines[1].id;
-    state.view = 'table';
+    viewState.sel = lines[1].id;
+    viewState.view = 'table';
     update('rows');
     openDurPopover($('#btnDur'));
     t(
@@ -81,9 +84,9 @@ export async function runTimelineOverviewTests(t) {
     t('换句只刷新当前位置', $('#segTime').textContent === '58:20' && $('#segLine').textContent === '第 3 句');
     seek.value = '603';
     seek.dispatchEvent(new Event('input', { bubbles: true }));
-    t('点击时间条按实际时间跳句', state.sel === lines[1].id && $('#segTime').textContent === '10:00');
+    t('点击时间条按实际时间跳句', viewState.sel === lines[1].id && $('#segTime').textContent === '10:00');
     seek.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
-    t('时间条方向键逐句选择', state.sel === lines[2].id);
+    t('时间条方向键逐句选择', viewState.sel === lines[2].id);
     lines.forEach((r, i) => {
       r.groupId = i < 2 ? 'pause-before' : 'pause-after';
       r.time = { start: [2140.6, 2153.44, 2161.02][i], end: [2153.44, 2159.88, 2162.84][i], st: 'ok' };

@@ -160,12 +160,12 @@ const pos = await page.evaluate(() => {
   mid.scrollIntoView({ block: 'center' });
   return +mid.dataset.id;
 });
-await page.evaluate(id => {
-  import('./src/app/state.js').then(m => {
-    m.state.sel = id;
-    m.state.multi = null;
-    m.update('selection');
-  });
+await page.evaluate(async id => {
+  const { viewState } = await import('./src/app/view-state.js');
+  const { update } = await import('./src/app/project-events.js');
+  viewState.sel = id;
+  viewState.multi = null;
+  update('selection');
 }, pos);
 await sleep(120);
 await page.click('#viewToggle button[data-v="check"]');
@@ -187,7 +187,7 @@ await sleep(400);
 await page.evaluate(async () => {
   const { parseAny } = await import('./src/core/parse.js');
   const storage = await import('./src/app/storage.js');
-  const { update } = await import('./src/app/state.js');
+  const { update } = await import('./src/app/project-events.js');
   let txt = '';
   for (let s = 0; s < 20; s++) {
     txt += `## 第${s}章\n`;

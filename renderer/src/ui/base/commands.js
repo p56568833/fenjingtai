@@ -3,11 +3,13 @@
 const registry = new Map();
 
 export function registerCommand(name, fn) {
+  if (registry.has(name)) throw new Error(`命令重复登记：${name}`);
+  if (typeof fn !== 'function') throw new TypeError(`命令缺少实现：${name}`);
   registry.set(name, fn);
 }
 export function runCommand(name, ...args) {
   const fn = registry.get(name);
-  if (!fn) return false;
+  if (!fn) throw new Error(`命令未登记：${name}`);
   fn(...args);
   return true;
 }

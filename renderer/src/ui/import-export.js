@@ -1,9 +1,11 @@
 /* 导入导出：文件 / 粘贴；MD（含批注回读）/ 素材清单 / CSV / 项目 JSON。
    桌面版导出走系统保存对话框。解析与生成都是 core/ 里的纯函数，这里只管流程和弹窗。 */
-import { state, update, types, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
+import { types, timeline } from '../app/project-queries.js';
 import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
-import { commitProjectChange } from '../app/project-change.js';
+import { saveCurrentProject } from '../app/project-change.js';
 import { applyImport, rowIdOptions } from '../app/actions.js';
 import { probePaths, isMissing } from '../app/asset-actions.js';
 import { normalizeProjectRows, reconcileDraft } from '../core/project-import.js';
@@ -11,7 +13,8 @@ import { buildAnnotatedMd, buildAssetListMd, buildCsv, buildProjectJson } from '
 import { parseAny, migrateSections, mdTypes } from '../core/parse.js';
 import { normalizeProjectData } from '../core/project-data.js';
 import { normalizeReworkRequests } from '../core/candidate-scope.js';
-import { CANDIDATE_TYPE, sanitizeProjectCandidates } from '../core/candidates.js';
+import { CANDIDATE_TYPE } from '../core/candidate-values.js';
+import { sanitizeProjectCandidates } from '../core/candidates.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
 import { toast, confirmModal, esc } from './base/dom.js';
@@ -148,7 +151,7 @@ export function importLoadedFile(r) {
 }
 
 /* 弹系统文件对话框选稿子导入（导入菜单和原生菜单 ⌘O 共用） */
-export async function importFromFile() {
+async function importFromFile() {
   importLoadedFile(await native.importFile());
 }
 
@@ -164,7 +167,7 @@ async function download(name, content) {
   return false;
 }
 
-export async function doExport(kind, checked = false) {
+async function doExport(kind, checked = false) {
   if (kind === 'pdf') return runCommand('pdf:open');
   if (kind === 'json') return runCommand('pack:export-open'); // 先选：仅项目文件 / 连同素材打包
   const issues = deliveryIssues();
@@ -210,7 +213,7 @@ export async function doExport(kind, checked = false) {
 /* 仅导出项目 JSON（不含素材文件本身） */
 async function exportProjectJson() {
   const title = state.title || '未命名项目';
-  commitProjectChange({ now: true });
+  saveCurrentProject();
   await download(
     `${safeFileName(title)}·项目.json`,
     buildProjectJson({
@@ -229,7 +232,7 @@ async function exportProjectJson() {
 }
 
 /* ── 菜单与装配 ── */
-export function openPaste() {
+function openPaste() {
   $('#pasteMask').classList.add('show');
   setTimeout(() => $('#pasteArea').focus(), 60);
 }

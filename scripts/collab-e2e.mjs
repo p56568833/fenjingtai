@@ -47,6 +47,7 @@ async function page(port) {
     p = (await b.pages()).find(x => x.url().includes('index.html'));
     if (!p) await sleep(200);
   }
+  p.on('pageerror', error => console.error(`协作测试窗口 ${port}：${error.stack || error.message}`));
   await p.waitForFunction(() => !!document.querySelector('#btnCollab'), { timeout: 15000 });
   return { b, p };
 }
@@ -181,7 +182,6 @@ try {
         const r = state.rows.filter(x => x.kind === 'line')[i];
         changeProject('改画面描述', change => {
           r.note = text;
-          change.emit('notes', { ids: [r.id] });
         });
         return r.id;
       },
@@ -218,7 +218,6 @@ try {
       const id = nextRowId(state.rows, rowIdOptions());
       changeProject('插句', change => {
         state.rows.splice(4, 0, { id, kind: 'line', text: 'B 插的一句', note: '', type: null });
-        change.emit('rows');
       });
       return id;
     });
@@ -237,10 +236,12 @@ try {
 
   await step('对方停在哪句：A 的表格里标出 B 的位置', async () => {
     const sel = await run(B.p, async () => {
-      const { state, update } = await import('./src/app/state.js');
-      state.sel = state.rows.filter(r => r.kind === 'line')[6].id;
+      const { state } = await import('./src/app/state.js');
+      const { update } = await import('./src/app/project-events.js');
+      const { viewState } = await import('./src/app/view-state.js');
+      viewState.sel = state.rows.filter(r => r.kind === 'line')[6].id;
       update('selection');
-      return state.sel;
+      return viewState.sel;
     });
     await until(A.p, sel => document.querySelector(`.row.peer-here[data-id="${sel}"]`), 'A 标出', 3000, sel);
   });
@@ -259,10 +260,12 @@ try {
     assert.equal(await A.p.$eval('.cl-menu-location', el => el.textContent), position.label);
     assert.equal(await A.p.$eval('#collabMenu', (el, text) => el.textContent.includes(text), position.text), false);
     const next = await run(B.p, async () => {
-      const { state, update } = await import('./src/app/state.js');
-      state.sel = state.rows.filter(r => r.kind === 'line').at(-1).id;
+      const { state } = await import('./src/app/state.js');
+      const { update } = await import('./src/app/project-events.js');
+      const { viewState } = await import('./src/app/view-state.js');
+      viewState.sel = state.rows.filter(r => r.kind === 'line').at(-1).id;
       update('selection');
-      return state.sel;
+      return viewState.sel;
     });
     await until(
       A.p,
@@ -276,14 +279,14 @@ try {
       next,
     );
     await run(A.p, async () => {
-      const { state } = await import('./src/app/state.js');
-      state.filter = 'none';
+      const { viewState } = await import('./src/app/view-state.js');
+      viewState.filter = 'none';
     });
     await A.p.click('#collabMenu [data-cl="jump"]');
     assert.deepEqual(
       await run(A.p, async () => {
-        const { state } = await import('./src/app/state.js');
-        return { sel: state.sel, filter: state.filter, menu: !!document.querySelector('#collabMenu') };
+        const { viewState } = await import('./src/app/view-state.js');
+        return { sel: viewState.sel, filter: viewState.filter, menu: !!document.querySelector('#collabMenu') };
       }),
       { sel: next, filter: 'all', menu: false },
     );
@@ -355,7 +358,6 @@ try {
           changeProject('加素材', change => {
             state.assets[id] = { id, kind: 'image', path: file, name: file.split('/').pop() };
             r.assetUsages = [...(r.assetUsages || []), { assetId: id }];
-            change.emit('rows');
           });
         },
         id,
@@ -455,7 +457,6 @@ try {
             changeProject('加素材', change => {
               state.assets[id] = { id, kind: 'video', path: file, name: file.split('/').pop() };
               r.assetUsages = [...(r.assetUsages || []), { assetId: id }];
-              change.emit('rows');
             });
           },
           id,
@@ -512,7 +513,6 @@ try {
           state.assets.e2eCa = { id: 'e2eCa', kind: 'video', path: aClip, name: aClip.split('/').pop() };
           state.assets.e2eCb = { id: 'e2eCb', kind: 'video', path: 'https://example.invalid/b.mp4#t=10,20' };
           r.assetUsages = [...(r.assetUsages || []), { assetId: 'e2eCa' }, { assetId: 'e2eCb' }];
-          change.emit('rows');
         });
       },
       aClip,

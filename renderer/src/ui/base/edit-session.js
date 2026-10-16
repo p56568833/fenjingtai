@@ -11,7 +11,7 @@ export function flushPendingEdits() {
 const deferred = new Map();
 let listening = false;
 let resumeTimer = null;
-function editingIn(root) {
+export function isEditingIn(root) {
   const el = document.activeElement;
   return (
     !!el?.closest?.(root) &&
@@ -22,7 +22,7 @@ function editingIn(root) {
 }
 export const clearDeferredRender = key => deferred.delete(key);
 export function deferRenderWhileEditing(key, root, render) {
-  if (!editingIn(root)) return false;
+  if (!isEditingIn(root)) return false;
   deferred.set(key, { root, render });
   if (!listening) {
     listening = true;
@@ -31,7 +31,7 @@ export function deferRenderWhileEditing(key, root, render) {
       // 失焦提交先完成，再按最新数据刷新；移到另一个编辑器时继续等待。
       resumeTimer = setTimeout(() => {
         for (const [name, job] of [...deferred]) {
-          if (editingIn(job.root)) continue;
+          if (isEditingIn(job.root)) continue;
           deferred.delete(name);
           job.render();
         }

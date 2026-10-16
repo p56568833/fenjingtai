@@ -1,6 +1,9 @@
+import { viewState } from '../app/view-state.js';
 /* ⌘F 搜索：输入后定位首个结果，↓/↑ 继续向后 / 向前跳转，Enter 选定当前这句并收起搜索。
    也能输入句子编号（248、248-256）或口播时间（26:37、26:37-27:21）直达。 */
-import { state, queryLineIds, queryJumpLabel, rowById, match } from '../app/state.js';
+import { queryLineIds, queryJumpLabel } from '../app/search-queries.js';
+import { rowById } from '../app/project-queries.js';
+import { match } from '../app/selection.js';
 import { setView } from './render.js';
 import { runCommand } from './base/commands.js';
 import { closePop, syncPopToAnchor, popEl } from './base/popover.js';
@@ -14,7 +17,7 @@ function qMatches() {
 }
 
 export function openSearch() {
-  if (state.view === 'review') setView('table'); // 搜索的是稿件句子，直接显示搜索结果所在的页面
+  if (viewState.view === 'review') setView('table'); // 搜索的是稿件句子，直接显示搜索结果所在的页面
   const bar = document.querySelector('#searchbar');
   cancelLeave(bar);
   const was = bar.classList.contains('show');
@@ -45,8 +48,8 @@ export function closeSearch() {
     () => bar.classList.remove('show'),
   );
   // 只原地去掉高亮和淡化，不重画正文：页面不闪，也不会漂回搜索前的位置
-  if (state.query) {
-    state.query = '';
+  if (viewState.query) {
+    viewState.query = '';
     paintSearch();
   }
   const inp = document.querySelector('#searchInput');
@@ -63,15 +66,15 @@ function selectResult(id) {
 function qNav(d) {
   const m = qMatches();
   if (!m.length) return;
-  const current = m.indexOf(state.sel);
+  const current = m.indexOf(viewState.sel);
   const i = current < 0 ? (d > 0 ? 0 : m.length - 1) : (current + d + m.length) % m.length;
   selectResult(m[i]);
   updateQCount();
 }
 function updateQCount() {
   const m = qMatches();
-  document.querySelector('#searchCnt').textContent = state.query
-    ? `${m.length ? m.indexOf(state.sel) + 1 : 0}/${m.length}`
+  document.querySelector('#searchCnt').textContent = viewState.query
+    ? `${m.length ? m.indexOf(viewState.sel) + 1 : 0}/${m.length}`
     : '';
   document.querySelector('#searchJump').textContent = queryJumpLabel();
 }
@@ -86,8 +89,8 @@ export function initSearch() {
     clearTimeout(timer);
     if (composing) return false;
     const q = inp.value.trim();
-    if (q === state.query) return false;
-    state.query = q;
+    if (q === viewState.query) return false;
+    viewState.query = q;
     paintSearch(); // 原地刷新高亮和淡化，不换句子块
     const first = qMatches()[0];
     if (first != null) selectResult(first);
@@ -100,7 +103,7 @@ export function initSearch() {
   // 回车＝选定当前这一句：收起搜索停在这里（防抖还没生效时先定位第一个结果）；没有结果时留着搜索框继续改
   const confirm = () => {
     apply();
-    if (qMatches().includes(state.sel)) closeSearch();
+    if (qMatches().includes(viewState.sel)) closeSearch();
   };
   document.querySelector('#qNext').onclick = () => navigate(1);
   document.querySelector('#qPrev').onclick = () => navigate(-1);

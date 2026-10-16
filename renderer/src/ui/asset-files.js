@@ -1,5 +1,6 @@
 /* 素材文件的状态：是否失联、本地视频的时长（读元数据，不解码画面）。 */
-import { state, emit } from '../app/state.js';
+import { state } from '../app/state.js';
+import { emit } from '../app/events.js';
 import { probePaths, isMissing, rememberDuration } from '../app/asset-actions.js';
 import { usageList, kindOf, LINK_RE, referencedAssetIds } from '../core/asset-model.js';
 import { probeDuration } from './base/media.js';

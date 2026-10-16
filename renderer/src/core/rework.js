@@ -9,7 +9,7 @@
    这个画面里有候选被通过：要求都算解决，标了不满意的旧素材挪到备选，从这一页消失。 */
 import { shotMembers, applyRole } from './shots.js';
 import { usageList } from './asset-model.js';
-import { planOf, planName } from './candidates.js';
+import { planOf, planName } from './candidate-values.js';
 import { sentenceScope } from './candidate-scope.js';
 
 const REJECT = new Set(['no', 're']);

@@ -1,5 +1,5 @@
 /* 标注类型的界面呈现：类型标签 / 色点 / 标注菜单项。颜色全部由类型主色派生（CSS 里用 --tc）。 */
-import { types } from '../../app/state.js';
+import { types } from '../../app/project-queries.js';
 import { ICONS } from '../../core/types.js';
 import { esc } from './dom.js';
 

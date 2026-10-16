@@ -1,6 +1,9 @@
+import { viewState } from '../app/view-state.js';
 /* 局域网协作（2.0）的界面：顶栏「协作」按钮、共享 / 加入弹窗、表格里标出对方停在哪句。
    数据和连接都在 app/collab.js；这里只管显示和收集输入。 */
-import { state, on, emit, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on, emit } from '../app/events.js';
+import { update } from '../app/project-events.js';
 import * as collab from '../app/collab.js';
 import { setMediaDirectory } from '../app/candidate-media.js';
 import * as native from '../platform/native.js';
@@ -371,7 +374,7 @@ async function onAction(act, el) {
   if (act === 'jump') {
     const location = peerLocation();
     if (!location) return toast('对方当前位置暂不可用', null, 'info');
-    if (state.view === 'review') runCommand('view:set', 'table');
+    if (viewState.view === 'review') runCommand('view:set', 'table');
     return runCommand('nav:jump', location.id);
   }
   if (act === 'copycode' || act === 'copyaddress') {
@@ -540,7 +543,9 @@ export function initCollab() {
     });
   });
   on('collab-files', () => (open || menuOpen()) && render());
-  on('assets-changed', () => (open || menuOpen()) && refreshMissing());
+  on('project-committed', change => {
+    if (change.projectId === state.projectId && change.assets && (open || menuOpen())) refreshMissing();
+  });
   on('collab-presence', () => {
     paintPresence();
     renderMenu();

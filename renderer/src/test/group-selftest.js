@@ -1,6 +1,8 @@
+import { viewState } from '../app/view-state.js';
 /* 共用画面范围调整自测：加入下一句 / 移出最后一句 / 从这句拆分 / 解除，
    覆盖章节边界、相邻另一组、差异确认、单句退化、重复建立拒绝、撤销还原、插入取消不破坏。 */
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { undo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
@@ -31,9 +33,9 @@ export async function runGroupRangeTests(t) {
   await pause(30);
   const R = n => lines()[n];
   const group = ids => {
-    state.multi = ids;
-    state.sel = ids[0];
-    state.multiMode = true;
+    viewState.multi = ids;
+    viewState.sel = ids[0];
+    viewState.multiMode = true;
     update('selection');
     click('#btnGroup');
     click('#mOk');
@@ -44,32 +46,32 @@ export async function runGroupRangeTests(t) {
   await pause(50);
   const gAll = () => rowOf(R(0).id).groupId;
   t('共用画面建立成功', !!gAll() && shotMembers(state.rows, rowOf(R(0).id)).length === 4);
-  state.multiMode = false;
-  state.multi = null;
+  viewState.multiMode = false;
+  viewState.multi = null;
   click(`.row[data-id="${R(1).id}"] .sent`);
-  t('直接点击第二句选中第二句', state.sel === R(1).id);
+  t('直接点击第二句选中第二句', viewState.sel === R(1).id);
   const scene = () => $(`.shared-scene[data-owner="${R(0).id}"]`);
   click(scene());
-  t('点同一共用画面的空白保持第二句', state.sel === R(1).id);
+  t('点同一共用画面的空白保持第二句', viewState.sel === R(1).id);
   click(scene().querySelector('.typebox'));
-  t('点同一共用画面的总时长保持第二句', state.sel === R(1).id);
+  t('点同一共用画面的总时长保持第二句', viewState.sel === R(1).id);
   click(scene().querySelector('.tchip'));
-  t('打开共用类型菜单保持第二句', state.sel === R(1).id && !!$('.popover'));
+  t('打开共用类型菜单保持第二句', viewState.sel === R(1).id && !!$('.popover'));
   closeMenu();
   click(scene().querySelector('[data-detail]'));
-  t('点共用画面标题打开面板并保持第二句', state.sel === R(1).id && !$('#inspector').hidden);
+  t('点共用画面标题打开面板并保持第二句', viewState.sel === R(1).id && !$('#inspector').hidden);
   const fixtures = fixtureInfo();
   if (fixtures?.dir) {
     addRefsToShot(R(0), [`${fixtures.dir}/样图.png`]);
     await pause(30);
     click(scene().querySelector('.row-asset'));
-    t('点共用素材卡打开面板并保持第二句', state.sel === R(1).id && !$('#inspector').hidden);
+    t('点共用素材卡打开面板并保持第二句', viewState.sel === R(1).id && !$('#inspector').hidden);
   }
   click(`.row[data-id="${R(2).id}"] .sent`);
-  t('直接点击同画面的第三句仍切换句子', state.sel === R(2).id);
+  t('直接点击同画面的第三句仍切换句子', viewState.sel === R(2).id);
   click(`.row[data-id="${R(4).id}"] .sent`);
   click(scene());
-  t('从其他画面进入共用区选中第一句', state.sel === R(0).id);
+  t('从其他画面进入共用区选中第一句', viewState.sel === R(0).id);
   click(`[data-group-more="${gAll()}"]`);
   await pause(30);
   t(
@@ -140,7 +142,7 @@ export async function runGroupRangeTests(t) {
 
   /* 规则 6/7：从这句开始使用另一个画面；单句退化 */
   const pickRow = id => {
-    state.sel = id;
+    viewState.sel = id;
     update('selection');
   };
   pickRow(R(1).id);
@@ -196,11 +198,11 @@ export async function runGroupRangeTests(t) {
   const gA = rowOf(R(0).id).groupId,
     gB = rowOf(R(2).id).groupId;
   t('两个相邻共用画面并存', !!gA && !!gB && gA !== gB);
-  state.multiMode = false;
-  state.multi = null;
+  viewState.multiMode = false;
+  viewState.multi = null;
   click(`.row[data-id="${R(1).id}"] .sent`);
   click(`.shared-scene[data-owner="${R(2).id}"] .shared-scene-title`);
-  t('点击另一共用画面正常切换至另一组', state.sel === R(2).id);
+  t('点击另一共用画面正常切换至另一组', viewState.sel === R(2).id);
   click(`[data-group-more="${gA}"]`);
   await pause(30);
   t(
@@ -214,8 +216,8 @@ export async function runGroupRangeTests(t) {
   rowOf(R(0).id).status = 'ready';
   rowOf(R(1).id).status = 'ready';
   storage.persist();
-  state.multi = [R(0).id, R(1).id];
-  state.sel = R(0).id;
+  viewState.multi = [R(0).id, R(1).id];
+  viewState.sel = R(0).id;
   update('selection');
   await pause(30);
   t('同组选区拒绝重复建立', $('#btnGroup').disabled && $('#btnGroup').title.includes('已经在同一个共用画面'));
@@ -247,19 +249,19 @@ export async function runGroupRangeTests(t) {
   t('解除共用可撤销', rowOf(R(0).id).groupId === gA);
 
   /* 原文视图同一套入口、同一套名称 */
-  state.view = 'check';
+  viewState.view = 'check';
   update('rows');
   await pause(40);
   t('原文视图共用区也有「···」', !!$('.shared-passage [data-group-more]'));
-  state.sel = R(1).id;
-  state.multi = null;
-  state.multiMode = false;
+  viewState.sel = R(1).id;
+  viewState.multi = null;
+  viewState.multiMode = false;
   update('selection');
   const passage = $(`.shared-passage[data-note-owner="${R(0).id}"]`);
   passage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  t('原文共用区域的空白也保持组内当前句', state.sel === R(1).id);
+  t('原文共用区域的空白也保持组内当前句', viewState.sel === R(1).id);
   click(passage.querySelector('[data-detail]'));
-  t('原文共用标题打开面板也保持组内当前句', state.sel === R(1).id);
+  t('原文共用标题打开面板也保持组内当前句', viewState.sel === R(1).id);
   click($('.shared-passage [data-group-more]'));
   await pause(30);
   t(
@@ -270,7 +272,7 @@ export async function runGroupRangeTests(t) {
       $('[data-shot-act="extend-next"]').textContent.includes('将下一句加入这个画面'),
   );
   closeMenu();
-  state.view = 'table';
+  viewState.view = 'table';
   update('rows');
   await pause(30);
 
@@ -281,8 +283,8 @@ export async function runGroupRangeTests(t) {
     .map(p => p.id);
   storage.switchProject(original);
   for (const id of created) storage.deleteProject(id);
-  state.multi = null;
-  state.multiMode = false;
+  viewState.multi = null;
+  viewState.multiMode = false;
   clearUndo();
   update('rows');
   await pause(30);

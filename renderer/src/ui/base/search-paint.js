@@ -1,6 +1,8 @@
+import { viewState } from '../../app/view-state.js';
 /* 搜索高亮视图：命中句的关键词加 <mark>、其余句子淡化，原地改在已有元素上。
    不写进句子块的 HTML：开关搜索、换关键词都不用换掉句子块，浏览器记住的行高和滚动位置都不动，页面不闪。 */
-import { state, rowById, qMatch } from '../../app/state.js';
+import { rowById } from '../../app/project-queries.js';
+import { qMatch } from '../../app/search-queries.js';
 
 function unmark(box) {
   const marks = box.querySelectorAll('mark');
@@ -39,7 +41,7 @@ export function paintSearch(scope = document.querySelector('#rows')) {
   const els = scope.matches?.('.row[data-id],.as[data-id]')
     ? [scope]
     : scope.querySelectorAll('.row[data-id],.as[data-id]');
-  const query = state.query;
+  const query = viewState.query;
   for (const el of els) {
     const r = rowById(+el.dataset.id);
     if (!r) continue;

@@ -1,11 +1,14 @@
+import { viewState } from '../app/view-state.js';
 /* 1.3.2 回归：自定义标注类型 / 口播音频与时间轴 / 连播预览 / 界面整理 */
-import { state, update, types, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
+import { types, timeline } from '../app/project-queries.js';
 import * as storage from '../app/storage.js';
 import { undo, clearUndo } from '../app/undo.js';
 import { setProjectTypes } from '../app/types-actions.js';
 import { setVoice, clearVoice } from '../app/voice.js';
 import { deleteRows, groupSelectionAction } from '../app/actions.js';
-import { addRefsToShot, setUsageRole } from '../app/asset-actions.js';
+import { addRefsToShot, setUsageLines } from '../app/asset-actions.js';
 import { usageList } from '../core/asset-model.js';
 import { parseAny } from '../core/parse.js';
 import { defaultTypes } from '../core/types.js';
@@ -21,8 +24,8 @@ const lines = () => state.rows.filter(r => r.kind === 'line');
 const key = (el, k, opts = {}) =>
   el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
 const select = id => {
-  state.sel = id;
-  state.multi = null;
+  viewState.sel = id;
+  viewState.multi = null;
   update('selection');
 };
 
@@ -34,7 +37,7 @@ export async function runIterationTests(t) {
     parseAny('## 开场\n第一句话在这里。第二句稍微长一点点。\n第三句。第四句话。\n## 结尾\n第五句。'),
   );
   clearUndo();
-  state.view = 'table';
+  viewState.view = 'table';
   update('rows');
   await pause(30);
 
@@ -81,7 +84,7 @@ export async function runIterationTests(t) {
   t('Esc 关闭类型编辑器且不保存', !$('#typeEditorMask').classList.contains('show') && types().has('a'));
 
   // 原文视图和专注标注也认自定义类型
-  state.view = 'check';
+  viewState.view = 'check';
   update('rows');
   select(lines()[2].id);
   key(document.body, '6');
@@ -89,7 +92,7 @@ export async function runIterationTests(t) {
     '原文视图按 6 标注自定义类型',
     lines()[2].type === 't1' && $(`.as[data-id="${lines()[2].id}"]`).classList.contains('typed'),
   );
-  state.view = 'table';
+  viewState.view = 'table';
   update('rows');
   select(lines()[3].id);
   runCommand('focus:open');
@@ -147,7 +150,7 @@ export async function runIterationTests(t) {
   await pause(20);
   t('Esc 关闭连播预览', !$('#ptMask').classList.contains('show'));
   t('关闭连播预览后时间条不残留播放位置线', $('#segPlayhead').hidden);
-  state.sel = lines()[0].id;
+  viewState.sel = lines()[0].id;
   key(document.body, ' ');
   await pause(60);
   t('空格从选中的句子打开对着口播看画面', $('#ptMask').classList.contains('show'));
@@ -232,7 +235,7 @@ export async function runIterationTests(t) {
       fx.dir + '/样图.png',
       fx.dir + '/a-very-long-file-name-that-should-not-break-the-layout-图片素材名字特别长用来验证布局不被撑坏.png',
     ]);
-    setUsageRole(row0(), 1, 'main');
+    setUsageLines(row0(), 1, 0, 1);
     t('同一段设两个主画面，两个都是主画面', usageList(row0()).filter(u => u.role === 'main').length === 2);
     runCommand('playthrough:shot', g0);
     await pause(80);

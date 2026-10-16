@@ -1,3 +1,4 @@
+import { viewState } from './view-state.js';
 /* 标注类型表的修改（本项目）：改名 / 改色 / 排序 / 增删，一次保存 = 一步撤销。
    删除正在使用的类型时，用到它的句子按 remap 改成别的类型（或清除标注），不会留下「未知类型」。 */
 import { changeProject } from './project-change.js';
@@ -18,11 +19,10 @@ export function setProjectTypes(next, { remap = {}, asDefault = false } = {}) {
       moved++;
     }
     state.types = list;
-    if (state.filter !== 'all' && state.filter !== 'none' && !ids.has(state.filter)) state.filter = 'all';
+    if (viewState.filter !== 'all' && viewState.filter !== 'none' && !ids.has(viewState.filter))
+      viewState.filter = 'all';
     if (asDefault) setDefaultTypes(list);
 
-    change.emit('types');
-    change.emit('rows');
     change.notify(moved ? `标注类型已更新，${moved} 句改了类型 · ⌘Z 可撤销` : '标注类型已更新 · ⌘Z 可撤销', null, 'ok');
     return { moved };
   });

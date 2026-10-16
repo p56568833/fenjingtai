@@ -1,14 +1,15 @@
+import { buildReviewIndex } from '../core/review-index.js';
 /* 视频审核页的页面状态和派生数据：正在看哪一批 / 哪个画面 / 哪个候选，以及按批次、按画面、按句子整理好的候选。
    只读 state，不碰 DOM；页面渲染和交互在 video-review.js。 */
-import { state, rowById, lineSeconds, timeline, on } from '../app/state.js';
+import { state } from '../app/state.js';
+import { timeline, projectRevision } from '../app/project-queries.js';
 import { candidateBatches } from '../core/candidate-queries.js';
 import { shotMembers } from '../core/shots.js';
-import { usageList } from '../core/asset-model.js';
 import { reworkShots } from '../core/rework.js';
-import { planOf } from '../core/candidates.js';
+import { planOf } from '../core/candidate-values.js';
 import { layoutShot as layoutPictures } from '../core/shot-layout.js';
 import { mainFilled, mainGaps } from '../core/shot-tracks.js';
-import { targetLines } from './clip-player.js';
+import { fmtDay } from '../core/review-format.js';
 
 export const page = {
   mode: 'review', // 'review' 待审（按批次） | 'rework' 待返工（所有批次没过关的画面）
@@ -23,35 +24,33 @@ export const touched = new Set();
 
 /* 未采用：正片轨已经用通过的视频排满了，别的还没审的视频不再算待审（想用还能自己点通过）。
    候选多的时候 isPending 会被调很多次：候选、审核结果、句子都没变就用上次算的 */
-let idleMemo = null;
-let idleKey = null;
-let usageRev = 0; // 拖动两条轨只改使用记录、不换数组：靠事件计数让「未采用」跟着重算
-for (const ev of ['rows', 'assets-changed', 'history', 'project-loaded']) on(ev, () => usageRev++);
-export function idleIds() {
+let cached = null;
+let cacheKey = null;
+function reviewIndex() {
   const key = [
-    usageRev,
-    state.candidates,
+    projectRevision(),
+    state.projectId,
     state.rows,
-    timeline(),
-    state.candidates.map(c => `${c.id}${c.decision || ''}`).join(),
+    state.candidates,
+    state.rows.length,
+    state.candidates.length,
   ];
-  if (idleMemo && idleKey && key.every((k, i) => k === idleKey[i])) return idleMemo;
-  idleKey = key;
-  const byLead = new Map();
-  for (const c of state.candidates) {
-    if (c.decision) continue;
-    const lead = leadOf(c);
-    if (lead && !byLead.has(lead)) byLead.set(lead, null);
+  if (!cached || !key.every((value, i) => value === cacheKey[i])) {
+    cacheKey = key;
+    cached = { ...buildReviewIndex(state.rows, state.candidates), idle: null };
   }
+  return cached;
+}
+function idleIds() {
+  const index = reviewIndex();
+  if (index.idle) return index.idle;
   const out = new Set();
-  for (const lead of byLead.keys()) {
-    const members = shotMembers(state.rows, lead);
-    const ids = new Set(members.map(m => m.id));
-    const cands = state.candidates.filter(c => ids.has(c.rowId));
-    if (mainFilled(state.assets || {}, members, timeline(), fromReview))
+  const tl = timeline();
+  for (const { members, cands } of index.groups.values()) {
+    if (cands.some(c => !c.decision) && mainFilled(state.assets || {}, members, tl, fromReview))
       for (const c of cands) if (!c.decision) out.add(c.id);
   }
-  idleMemo = out;
+  index.idle = out;
   return out;
 }
 /* 正片轨上审核来的视频（占位照片之类不算） */
@@ -59,31 +58,22 @@ const fromReview = id => !!state.assets?.[id]?.source?.candidate;
 export const isIdle = c => !c.decision && idleIds().has(c.id);
 export const isPending = c => !c.decision && !idleIds().has(c.id);
 export const pendingCount = () => state.candidates.filter(isPending).length;
-export const candidatesForRow = row =>
-  row ? state.candidates.filter(c => shotMembers(state.rows, row).some(m => m.id === c.rowId)) : [];
 
 /* 句子所在章节名 */
-export function sectionOf(rowId) {
-  let name = '';
-  for (const r of state.rows) {
-    if (r.kind === 'section') name = r.text;
-    if (r.id === rowId) return name;
-  }
-  return '';
-}
-export const leadOf = c => {
-  const row = rowById(c.rowId);
-  return row ? shotMembers(state.rows, row)[0] : null;
-};
+export const sectionOf = rowId => reviewIndex().sections.get(rowId) || '';
+export const leadOf = c => reviewIndex().byRow.get(c.rowId)?.lead || null;
 
 /* 批次：按导入时间新的在前；1.8 以前导入的没有批次，归成「之前导入的」 */
-export const batches = () => candidateBatches(state.candidates, state.rows);
+export const batches = () => {
+  const index = reviewIndex();
+  return (index.batches ||= candidateBatches(state.candidates, state.rows));
+};
 
 export const batchLabel = b => b.label;
 
 /* 一批里的画面：按稿子顺序，带章节名和待审数 */
 export function shotsOf(batch) {
-  const order = new Map(state.rows.map((r, i) => [r.id, i]));
+  const { order } = reviewIndex();
   const map = new Map();
   for (const c of batch?.cands || []) {
     const lead = leadOf(c);
@@ -105,26 +95,15 @@ export const curBatchObj = () => batches().find(b => b.id === page.curBatch) || 
 export const curShots = () => shotsOf(curBatchObj());
 export const curGroup = () => curShots().find(g => g.key === page.curShot) || null;
 
-export const fmtDay = t => {
-  if (!t) return '';
-  const d = new Date(t);
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-};
 export const rangeText = lead => {
   if (!lead) return '找不到对应句子';
   const members = shotMembers(state.rows, lead);
   return members.length > 1 ? `第 ${members[0].no}–${members[members.length - 1].no} 句` : `第 ${members[0].no} 句`;
 };
 
-export const batchDetail = b =>
-  [b.detail, b.scope.missing && b.scope.count ? '部分句子已移除' : ''].filter(Boolean).join(' · ');
-
 /* 一个画面的候选按清单里的先后排（清单里同一方案的视频挨在一起） */
-export function layoutShot(g) {
-  const members = g?.lead ? shotMembers(state.rows, g.lead) : [];
-  const order = [...(g?.cands || [])].sort((a, b) => planOf(a) - planOf(b) || (a.seq ?? 0) - (b.seq ?? 0));
-  return { members, whole: order, byNo: new Map(), order };
-}
+export const orderedCandidates = g =>
+  [...(g?.cands || [])].sort((a, b) => planOf(a) - planOf(b) || (a.seq ?? 0) - (b.seq ?? 0));
 /* 正片轨排了多少：{ got（盖住的秒数）, dur（口播秒数）, full }；不知道时间返回 null */
 export function trackFill(g) {
   const members = g?.lead ? shotMembers(state.rows, g.lead) : [];
@@ -134,48 +113,7 @@ export function trackFill(g) {
   return { got: Math.max(0, layout.dur - empty), dur: layout.dur, full: layout.items.length > 0 && empty === 0 };
 }
 /* 展开着的候选（待审的 + 这次刚审过的），按清单里的先后——↑↓ 换候选也按这个顺序走 */
-export const openOf = g => layoutShot(g).order.filter(c => isPending(c) || touched.has(c.id));
-
-/* 秒数显示：保留一位小数，整数不带 .0 */
-export const secText = x => String(Math.round(Math.max(0, x) * 10) / 10);
-/* 这句有没有画面：先看表格里实际的画面排布（和预览、表格的「每句的画面」同一套算法），再看候选审到哪一步。
-   cov：这个画面每句的盖住情况（shotLineCoverage 的结果，渲染时整组算一次传进来）。
-   sec：标签里的秒数（有画面时「盖住 / 需要」，没画面时「需 N 秒」）。
-   清单里写的「缺了什么」只在审核卡片上提示；审过并通过就算接受了，句子标签不再因为它报问题 */
-export function coverageOf(row, shotCands, cov) {
-  const hits = shotCands.filter(c => targetLines(c).target.some(r => r.id === row.id));
-  const ok = hits.filter(c => c.decision === 'ok');
-  const x = cov?.find(y => y.row.id === row.id);
-  const need = x ? x.need : lineSeconds(row);
-  if (x && x.state !== 'ok' && x.state !== 'empty') {
-    const sec = `${secText(x.got)} / ${secText(need)} 秒`;
-    return {
-      cls: 'part',
-      text: '画面不够长',
-      sec,
-      tip: `画面只盖住这句 ${secText(x.got)} 秒，口播 ${secText(need)} 秒，后面 ${secText(need - x.got)} 秒是空的`,
-    };
-  }
-  if (x?.state === 'ok') {
-    const sec = `${secText(need)} / ${secText(need)} 秒`;
-    if (ok.length) return { cls: 'ok', text: '✓ 有画面', sec };
-    if (hits.some(isPending)) return { cls: 'wait', text: '待审', sec: `需 ${secText(need)} 秒` };
-    return { cls: 'has', text: '表格里有其他素材', sec };
-  }
-  // 这句没画面（或者还不知道时间）
-  const sec = `需 ${secText(need)} 秒`;
-  if (hits.some(isPending)) return { cls: 'wait', text: '待审', sec };
-  if (!x && usageList(row).some(u => !u.off)) return { cls: 'has', text: '表格里有其他素材' };
-  if (hits.some(c => c.decision === 're')) return { cls: 'miss', text: '等新候选', sec };
-  if (ok.length)
-    return {
-      cls: 'miss',
-      text: '还缺画面',
-      sec,
-      tip: '通过的画面在表格里没排到这句（可能只配了前面几句），这句播出来是空的',
-    };
-  return { cls: 'miss', text: '还缺画面', sec };
-}
+export const openOf = g => orderedCandidates(g).filter(c => isPending(c) || touched.has(c.id));
 
 /* ── 待返工：所有批次里没过关（否掉了、一个都没通过）或者你写了要求的画面，按稿子顺序列在一页 ── */
 export const reworkList = () => reworkShots(state.rows, state.candidates);

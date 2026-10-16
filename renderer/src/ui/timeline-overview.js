@@ -1,15 +1,17 @@
+import { viewState } from '../app/view-state.js';
 /* 全片总览：真实录音作为尺子，选中句子的时间与素材状态独立于播放位置。 */
-import { state, timeline, rowById } from '../app/state.js';
+import { state } from '../app/state.js';
+import { timeline, rowById } from '../app/project-queries.js';
 import { projectPictureCoverage } from '../app/line-coverage.js';
 import { lineAt } from '../core/timeline.js';
 import { fmtTime } from '../core/text.js';
 import { runCommand } from './base/commands.js';
 
 const $ = selector => document.querySelector(selector);
-export const overviewTotal = () => (state.voice?.duration > 0 ? state.voice.duration : timeline().total);
+const overviewTotal = () => (state.voice?.duration > 0 ? state.voice.duration : timeline().total);
 
 export function renderOverviewSelection() {
-  const row = rowById(state.sel),
+  const row = rowById(viewState.sel),
     tm = row?.kind === 'line' ? timeline().times.get(row.id) : null;
   const label = $('#segSelection'),
     point = $('#segPointer'),
@@ -66,7 +68,7 @@ export function initOverview() {
   const selectTime = seconds => {
     const order = state.rows.filter(r => r.kind === 'line').map(r => r.id);
     const id = lineAt(timeline(), order, seconds);
-    if (id != null && id !== state.sel) runCommand('nav:jump', id);
+    if (id != null && id !== viewState.sel) runCommand('nav:jump', id);
   };
   seek.addEventListener('input', () => selectTime(Number(seek.value)));
   // 原生滑块会为滑块头预留宽度，长录音上几像素就可能错开数句。
@@ -103,7 +105,7 @@ export function initOverview() {
   seek.addEventListener('lostpointercapture', stopDrag);
   seek.addEventListener('keydown', event => {
     const order = state.rows.filter(r => r.kind === 'line').map(r => r.id);
-    let index = order.indexOf(state.sel);
+    let index = order.indexOf(viewState.sel);
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
       index = Math.max(0, Math.min(order.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
     else if (event.key === 'Home') index = 0;

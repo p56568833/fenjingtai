@@ -2,8 +2,9 @@
    · 导出「项目文件」时二选一：仅项目 JSON，或项目 + 用到的本地素材打成一个 ZIP（先统计好文件数、大小、找不到的文件）
    · 导入 ZIP：选好素材解压到哪（默认「影片 › 分镜台素材 › 项目名」），解压、把路径换成新位置，作为新项目打开
    打包和解压都在主进程里做（边读边写，不占内存），这里只管弹窗、进度和取消。 */
-import { state, types } from '../app/state.js';
-import { commitProjectChange } from '../app/project-change.js';
+import { state } from '../app/state.js';
+import { types } from '../app/project-queries.js';
+import { saveCurrentProject } from '../app/project-change.js';
 import { packPlan, toPacked, fromPacked } from '../core/pack.js';
 import { buildProjectJson } from '../core/export-doc.js';
 import { safeFileName } from '../core/text.js';
@@ -17,7 +18,7 @@ let busy = null; // 'export' | 'import'
 let plan = null; // { files: Map, sizes }
 let pending = null; // 待导入的压缩包 { zip, title, parent, bytes, files }
 
-export function fmtBytes(n) {
+function fmtBytes(n) {
   if (!(n > 0)) return '0 MB';
   if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(n >= 10 * 1024 ** 3 ? 0 : 1) + ' GB';
   return Math.max(0.1, n / 1024 ** 2).toFixed(n >= 100 * 1024 ** 2 ? 0 : 1) + ' MB';
@@ -98,7 +99,7 @@ async function goExport() {
     return runCommand('export:project-json');
   }
   if (!plan) return;
-  commitProjectChange({ now: true });
+  saveCurrentProject();
   // 找不到的文件不进包，项目里也保持原路径（导入后显示失联，而不是指向包里不存在的文件）
   const present = new Map([...plan.files].filter(([p]) => plan.sizes[p]?.exists));
   const project = toPacked(currentProject(), present);
@@ -130,7 +131,7 @@ async function goExport() {
 }
 
 /* ── 导入 ── */
-export async function importPackFile(file) {
+async function importPackFile(file) {
   if (busy) return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完', null, 'info');
   if (!file?.path) return toast('没拿到这个压缩包的路径', null, 'error');
   const info = await native.packInspect(file.path);

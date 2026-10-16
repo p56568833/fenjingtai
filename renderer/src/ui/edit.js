@@ -1,6 +1,9 @@
+import { viewState } from '../app/view-state.js';
 /* 编辑交互：双击改字 / Enter 拆分 / 句首 ⌫ 合并 / 插入 / 备注跳行与撤销。
    全部走 #rows 事件委托；中文输入法组合中的按键一律放行给输入法。 */
-import { state, emit, rowById, currentSelection, visibleLineIds, toggleLineSelection } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById } from '../app/project-queries.js';
+import { currentSelection, visibleLineIds, toggleLineSelection } from '../app/selection.js';
 import {
   mergeToPrev,
   splitAt,
@@ -11,21 +14,12 @@ import {
   typeNote,
 } from '../app/actions.js';
 import { esc, composing, toast, readEditable } from './base/dom.js';
-import { durCellHTML } from './time-view.js';
-import { renderStats } from './render-stats.js';
 import { rowBadges } from './badges.js';
 import { registerEditFlush } from './base/edit-session.js';
 import { staleBlock } from './base/keyed-patch.js';
 import { renderSelectionOnly, selectedMemberOrOwner } from './base/selection.js';
 import { markPopAnchor, closePop } from './base/popover.js';
 import { openTypePopover } from './popover.js';
-
-/* 打字时侧栏 / 徽标的刷新合并成停手后一次，长稿里每个按键不再全量刷新 */
-let wsTimer = null;
-const workspaceSoon = () => {
-  clearTimeout(wsTimer);
-  wsTimer = setTimeout(() => emit('workspace'), 250);
-};
 
 /* ── 光标工具 ── */
 function caretState(el) {
@@ -92,10 +86,6 @@ function commitSentEdit(el) {
   const txt = el.textContent.trim();
   if (!r) return;
   if (txt && setSentenceText(r.id, txt)) {
-    el.innerHTML = esc(txt); // 原地更新，不重建整页
-    const row = el.closest('.row');
-    if (row) row.querySelector('.dur').innerHTML = durCellHTML(r);
-    renderStats();
     toast('已修改这句话', null, 'ok');
   } else if (!txt) {
     if (el._inserting)
@@ -107,7 +97,7 @@ function commitSentEdit(el) {
 }
 
 /* 切换视图 / 重建界面前把进行中的编辑提交掉（改字、批注、章节改名），不丢输入 */
-export function flushPendingEdits() {
+function flushPendingEdits() {
   for (const s of [...document.querySelectorAll('.sent[contenteditable="true"]')]) commitSentEdit(s);
   for (const ed of [...document.querySelectorAll('.as-note-edit')])
     ed.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
@@ -157,14 +147,7 @@ function onNoteInput(el) {
   const r = rowById(+el.dataset.id);
   if (!r) return;
   staleBlock(el);
-  typeNote(r, readEditable(el), noteEdit).forEach(x => {
-    const other = document.querySelector(`.note[data-id="${x.id}"]`);
-    if (other && other !== el) {
-      other.textContent = x.note;
-      staleBlock(other);
-    }
-  });
-  workspaceSoon();
+  typeNote(r, readEditable(el), noteEdit);
 }
 function focusNextNote(el) {
   const notes = [...document.querySelectorAll('#rows .note')];
@@ -177,27 +160,27 @@ function focusNextNote(el) {
 
 /* ── 选择（表格行 / 总览段） ── */
 function selectOnClick(id, e) {
-  if (e.shiftKey && state.sel != null && state.sel !== id) {
+  if (e.shiftKey && viewState.sel != null && viewState.sel !== id) {
     const ids = visibleLineIds();
-    const a = ids.indexOf(state.sel),
+    const a = ids.indexOf(viewState.sel),
       b = ids.indexOf(id);
     if (a > -1 && b > -1) {
       const [s, t] = a < b ? [a, b] : [b, a];
-      state.multi = ids.slice(s, t + 1);
+      viewState.multi = ids.slice(s, t + 1);
       return;
     }
   }
-  if (e.metaKey || e.ctrlKey || state.multiMode) {
-    if (!state.multi) state.multi = state.sel != null ? [state.sel] : [];
-    const i = state.multi.indexOf(id);
-    if (i > -1) state.multi.splice(i, 1);
-    else state.multi.push(id);
-    state.sel = id;
-    if (!state.multi.length) state.multi = null;
+  if (e.metaKey || e.ctrlKey || viewState.multiMode) {
+    if (!viewState.multi) viewState.multi = viewState.sel != null ? [viewState.sel] : [];
+    const i = viewState.multi.indexOf(id);
+    if (i > -1) viewState.multi.splice(i, 1);
+    else viewState.multi.push(id);
+    viewState.sel = id;
+    if (!viewState.multi.length) viewState.multi = null;
     return;
   }
-  state.multi = null;
-  state.sel = id;
+  viewState.multi = null;
+  viewState.sel = id;
 }
 
 /* ── 装配 ── */
@@ -220,7 +203,7 @@ export function initEdit() {
     const selection = e.target.closest('.row-select');
     if (selection) {
       e.stopPropagation();
-      if (e.shiftKey && state.sel != null) selectOnClick(+selection.dataset.select, e);
+      if (e.shiftKey && viewState.sel != null) selectOnClick(+selection.dataset.select, e);
       else toggleLineSelection(+selection.dataset.select, selection.checked);
       closePop();
       renderSelectionOnly();
@@ -229,8 +212,8 @@ export function initEdit() {
 
     const shared = e.target.closest('.shared-scene');
     if (shared && !e.target.closest('.row')) {
-      state.sel = selectedMemberOrOwner(+shared.dataset.owner);
-      state.multi = null;
+      viewState.sel = selectedMemberOrOwner(+shared.dataset.owner);
+      viewState.multi = null;
       renderSelectionOnly();
       const chip = e.target.closest('.tchip');
       if (chip) {
@@ -252,7 +235,7 @@ export function initEdit() {
 
   // Shift 点选一段句子时不要顺带拉出浏览器原生的文字选区（满屏蓝色高亮）；正在编辑的格子里照常可以 Shift 扩选文字
   rows.addEventListener('mousedown', e => {
-    if (state.view !== 'table' || !e.shiftKey) return;
+    if (viewState.view !== 'table' || !e.shiftKey) return;
     const ae = document.activeElement;
     if (ae && ae !== document.body && ae.isContentEditable && ae.contains(e.target)) return;
     if (e.target.closest('input, textarea, select')) return;
@@ -272,7 +255,6 @@ export function initEdit() {
     if (el.classList.contains('sent') && el.isContentEditable) commitSentEdit(el);
     if (el.classList.contains('note')) {
       if (!el.textContent.trim()) el.innerHTML = '';
-      if (noteEdit?.snapped) emit('workspace');
       noteEdit = null;
     }
   });

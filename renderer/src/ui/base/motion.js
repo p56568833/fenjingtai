@@ -6,7 +6,7 @@
    系统开了「减少动态效果」，或自动化自测在跑（html[data-motion="off"]），全部直接跳到结果。 */
 
 export const SPRING = 'cubic-bezier(0.34, 1.45, 0.5, 1)'; // 带回弹：滑块、弹出
-export const SOFT_SPRING = 'cubic-bezier(0.3, 1.18, 0.5, 1)'; // 轻回弹：整行移动
+const SOFT_SPRING = 'cubic-bezier(0.3, 1.18, 0.5, 1)'; // 轻回弹：整行移动
 export const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
 
 export const reduced = () =>

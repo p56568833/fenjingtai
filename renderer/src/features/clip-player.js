@@ -1,8 +1,9 @@
 /* 视频审核里的片段播放器：只显示建议片段这几秒的进度条、叠口播字幕、可同时放口播音频。
    口播对齐：精选段的开头对齐到它在正片轨上的位置；还没放上去的按清单里的先后估（见 slotOf）。 */
-import { state, rowById, lines, timeOf, renumber, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById, lines, timeOf, renumber, timeline } from '../app/project-queries.js';
 import { shotMembers } from '../core/shots.js';
-import { planOf, usableSeconds, cleanBest } from '../core/candidates.js';
+import { planOf, usableSeconds, cleanBest } from '../core/candidate-values.js';
 import { layoutShot } from '../core/shot-layout.js';
 import { esc } from '../ui/base/dom.js';
 import { voicePlayer } from './voice.js';

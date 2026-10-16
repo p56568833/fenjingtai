@@ -1,3 +1,4 @@
+import { viewState } from '../app/view-state.js';
 /* 面板改变正文宽度时，保持正在看的句子在视口中的位置。
    只测可见块里的句子，避免展开长稿中所有 content-visibility 占位块。 */
 import { state } from '../app/state.js';
@@ -33,7 +34,7 @@ export function preserveReadingPosition(changeLayout) {
   const anchor = wrap && visibleSentence(wrap);
   if (!anchor) return changeLayout();
   const project = state.projectId,
-    view = state.view,
+    view = viewState.view,
     oldOverflowAnchor = wrap.style.overflowAnchor;
   let frame = null,
     done = false,
@@ -59,7 +60,7 @@ export function preserveReadingPosition(changeLayout) {
     if (
       done ||
       state.projectId !== project ||
-      state.view !== view ||
+      viewState.view !== view ||
       !sentence ||
       Math.abs(wrap.scrollTop - scrollTop) > 1
     ) {

@@ -1,9 +1,14 @@
-import { state, update, currentSelection, types } from '../app/state.js';
+import { viewState } from '../app/view-state.js';
+import { usageList } from '../core/asset-model.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
+import { currentSelection } from '../app/selection.js';
+import { types } from '../app/project-queries.js';
 import { shotMembers, shots, checkDelivery } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
 import { undo, clearUndo } from '../app/undo.js';
 import { setType, setNote, markSentences, mergeToPrev } from '../app/actions.js';
-import { addRefsToShot, setShotRefsFromText, removeUsage } from '../app/asset-actions.js';
+import { addRefsToShot, removeUsage } from '../app/asset-actions.js';
 import { renderInspector } from '../ui/inspector.js';
 import { previewImport } from '../ui/import-export.js';
 import { jumpTo, nextUnmarked, openReview } from '../ui/workspace.js';
@@ -15,7 +20,7 @@ const $ = s => document.querySelector(s),
   $$ = s => [...document.querySelectorAll(s)];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 // 1.7.1 起界面上没有「多选句子」开关了，逐句点选模式只在自测里直接切
-const toggleMultiMode = () => setMultiMode(!state.multiMode);
+const toggleMultiMode = () => setMultiMode(!viewState.multiMode);
 const click = s => $(s).click();
 const input = (s, value) => {
   const el = $(s);
@@ -38,28 +43,28 @@ export async function runWorkspaceTests(t) {
   const navigationProject = state.projectId;
   const sections = state.rows.filter(r => r.kind === 'section');
   for (const view of ['table', 'check']) {
-    state.view = view;
+    viewState.view = view;
     update('rows');
     await pause(40);
     const wrap = $('#tableWrap');
     let navigationDetail;
     const firstLine = state.rows[state.rows.indexOf(sections[0]) + 1];
     const thirdLine = state.rows[state.rows.indexOf(sections[2]) + 1];
-    state.sel = firstLine.id;
+    viewState.sel = firstLine.id;
     update('selection');
     $(`.row[data-id="${thirdLine.id}"],.as[data-id="${thirdLine.id}"]`).scrollIntoView({ block: 'center' });
     await pause(80);
     t(
       `${view} 浏览到第3章时目录跟着高亮，选中句仍在第1章`,
-      $('.outline-item.active')?.dataset.jump === String(sections[2].id) && state.sel === firstLine.id,
+      $('.outline-item.active')?.dataset.jump === String(sections[2].id) && viewState.sel === firstLine.id,
     );
-    state.sel = thirdLine.id;
+    viewState.sel = thirdLine.id;
     update('selection');
     $(`.row[data-id="${firstLine.id}"],.as[data-id="${firstLine.id}"]`).scrollIntoView({ block: 'center' });
     await pause(80);
     t(
       `${view} 浏览回第1章时目录跟着高亮，选中句仍在第3章`,
-      $('.outline-item.active')?.dataset.jump === String(sections[0].id) && state.sel === thirdLine.id,
+      $('.outline-item.active')?.dataset.jump === String(sections[0].id) && viewState.sel === thirdLine.id,
     );
     const atChapterStart = section => {
       const si = state.rows.indexOf(section);
@@ -68,7 +73,7 @@ export async function runWorkspaceTests(t) {
       const rect = el.getBoundingClientRect();
       const top = wrap.getBoundingClientRect().top + $('#thead').getBoundingClientRect().height;
       navigationDetail = JSON.stringify({
-        selected: state.sel,
+        selected: viewState.sel,
         first: firstLine.id,
         top: rect.top,
         bottom: rect.bottom,
@@ -76,11 +81,11 @@ export async function runWorkspaceTests(t) {
         visibleBottom: wrap.getBoundingClientRect().bottom,
         scrollTop: wrap.scrollTop,
       });
-      return state.sel === firstLine.id && rect.top >= top && rect.bottom <= wrap.getBoundingClientRect().bottom;
+      return viewState.sel === firstLine.id && rect.top >= top && rect.bottom <= wrap.getBoundingClientRect().bottom;
     };
     for (const index of [2, 0, 1, 1]) {
       const section = sections[index];
-      if (index === 1 && state.sel === state.rows[state.rows.indexOf(section) + 1].id) {
+      if (index === 1 && viewState.sel === state.rows[state.rows.indexOf(section) + 1].id) {
         wrap.scrollTop += 500;
         await pause(40);
       }
@@ -105,20 +110,20 @@ export async function runWorkspaceTests(t) {
     const position = wrap.scrollTop;
     await pause(120);
     t(`${view} 跳转后开始滚动会取消迟后校准`, Math.abs(wrap.scrollTop - position) <= 2);
-    state.filter = 'a';
-    state.multi = [state.sel];
+    viewState.filter = 'a';
+    viewState.multi = [viewState.sel];
     update('rows');
     click(`#outline [data-jump="${sections[2].id}"]`);
     await pause(100);
     t(
       `${view} 目录跳转解除筛选并清空多选`,
-      state.filter === 'all' && state.multi === null && atChapterStart(sections[2]),
+      viewState.filter === 'all' && viewState.multi === null && atChapterStart(sections[2]),
       navigationDetail,
     );
   }
   storage.switchProject(original);
   storage.deleteProject(navigationProject);
-  state.view = 'table';
+  viewState.view = 'table';
   storage.createProject('新版工作流测试', parseAny('## 开场\n甲：“好。”乙。丙。\n## 后半段\n丁。戊。'));
   clearUndo();
   update('rows');
@@ -127,14 +132,14 @@ export async function runWorkspaceTests(t) {
     third = first + 2;
   t('章节目录显示所有有内容章节', $$('.outline-item').length === 2);
   setType([first], 'a');
-  state.sel = first;
+  viewState.sel = first;
   nextUnmarked();
-  t('下一个未标注可定位', state.sel === second);
-  state.autoAdvance = true;
+  t('下一个未标注可定位', viewState.sel === second);
+  viewState.autoAdvance = true;
   setType([second], 'real');
-  t('可选自动跳转', state.sel === third);
-  state.autoAdvance = false;
-  state.view = 'table';
+  t('可选自动跳转', viewState.sel === third);
+  viewState.autoAdvance = false;
+  viewState.view = 'table';
   update('rows');
   t(
     '默认隐藏多选框',
@@ -142,7 +147,7 @@ export async function runWorkspaceTests(t) {
   );
   toggleMultiMode();
   t('多选按钮显示勾选框', getComputedStyle($('.row-select')).display !== 'none');
-  t('多选模式从空选区开始', state.multiMode && currentSelection().length === 0);
+  t('多选模式从空选区开始', viewState.multiMode && currentSelection().length === 0);
   t('空选区共用按钮置灰', $('#btnGroup').disabled && $('#btnGroup').title.includes('连续两句'));
   click(`[data-select="${first}"]`);
   click(`[data-select="${second}"]`);
@@ -156,14 +161,14 @@ export async function runWorkspaceTests(t) {
   toggleMultiMode();
   t(
     '完成选择退出并清空勾选',
-    !state.multiMode &&
+    !viewState.multiMode &&
       currentSelection().length === 0 &&
       !$$('.row-select:checked').length &&
       getComputedStyle($('.row-select')).display === 'none',
   );
   // 1.7.1：勾选框只看勾选集合——光标停着的那句不会被顺带勾上，勾光标那句也不会反而取消
-  state.sel = third;
-  state.multi = null;
+  viewState.sel = third;
+  viewState.multi = null;
   update('selection');
   t('光标所在句的勾选框不显示为已勾', !$(`[data-select="${third}"]`).checked);
   click(`[data-select="${first}"]`);
@@ -176,14 +181,14 @@ export async function runWorkspaceTests(t) {
       !$('#selectTools').hidden,
   );
   click(`[data-select="${first}"]`);
-  t('取消最后一句勾选后回到单选', state.multi === null && $('#selectTools').hidden);
-  state.sel = first;
+  t('取消最后一句勾选后回到单选', viewState.multi === null && $('#selectTools').hidden);
+  viewState.sel = first;
   update('selection');
   click(`[data-select="${first}"]`);
-  t('勾光标所在的那句是勾上而不是取消', state.multi?.length === 1 && state.multi[0] === first);
+  t('勾光标所在的那句是勾上而不是取消', viewState.multi?.length === 1 && viewState.multi[0] === first);
   click('#btnClearSel');
-  t('操作条「取消」清空勾选', state.multi === null && $('#selectTools').hidden);
-  state.view = 'check';
+  t('操作条「取消」清空勾选', viewState.multi === null && $('#selectTools').hidden);
+  viewState.view = 'check';
   update('rows');
   toggleMultiMode();
   const selectSentence = id =>
@@ -197,8 +202,8 @@ export async function runWorkspaceTests(t) {
   click('#btnGroup');
   click('#mOk');
   await pause(30);
-  t('共用成功退出多选并保住结果', !state.multiMode && state.multi === null && state.sel === first);
-  state.view = 'table';
+  t('共用成功退出多选并保住结果', !viewState.multiMode && viewState.multi === null && viewState.sel === first);
+  viewState.view = 'table';
   update('rows');
   t(
     '共用后收起勾选框',
@@ -265,8 +270,8 @@ export async function runWorkspaceTests(t) {
       state.rows.find(r => r.id === first),
     ).every(r => r.note === '分组画面'),
   );
-  state.sel = first;
-  state.multi = null;
+  viewState.sel = first;
+  viewState.multi = null;
   update('selection');
   if ($('#inspector').hidden) click('#btnDetail');
   input('#detailNote', '镜头组新描述');
@@ -343,7 +348,8 @@ export async function runWorkspaceTests(t) {
       state.rows.find(r => r.id === first),
     ).every(r => r.assets.includes('参考.png')),
   );
-  setShotRefsFromText(assetRow(), '/tmp/参考.png\n/tmp/样片.mp4');
+  while (usageList(assetRow()).length) removeUsage(assetRow(), 0);
+  addRefsToShot(assetRow(), ['/tmp/参考.png', '/tmp/样片.mp4']);
   renderInspector(true);
   t(
     '视频素材点缩略图预览（片段在预览里设），卡片上只有「不满意」',
@@ -369,7 +375,7 @@ export async function runWorkspaceTests(t) {
   );
   undo();
   undo();
-  state.view = 'check';
+  viewState.view = 'check';
   update('rows');
   setNote(first, '从原文更新的批注');
   t('原文共用画面将两句话围在同一区块', $$('.shared-passage').length === 1 && $$('.shared-passage .as').length === 2);
@@ -411,14 +417,14 @@ export async function runWorkspaceTests(t) {
   undo();
   t('撤销后批注仍只显示一次', $$('.shared-passage .as-note').length === 1);
 
-  state.view = 'table';
+  viewState.view = 'table';
   update('rows');
   click('#btnDetail');
-  state.sel = third;
-  state.multi = null;
+  viewState.sel = third;
+  viewState.multi = null;
   update('selection');
   t('非共用句不显示解除共用', $('#btnUngroup').hidden === true);
-  state.sel = first;
+  viewState.sel = first;
   update('selection');
   t('共用句上出现解除共用', $('#btnUngroup').hidden === false);
   click('#btnUngroup');
@@ -432,29 +438,29 @@ export async function runWorkspaceTests(t) {
   toggleMultiMode();
   toggleMultiMode();
   t('完成选择不影响已建共用', !!state.rows.find(r => r.id === first).groupId);
-  state.view = 'check';
+  viewState.view = 'check';
   update('rows');
   const beforeTypes = state.rows.map(r => r.type);
   click('#filters [data-f="none"]');
-  t('筛选后选区指向可见句子', !!document.querySelector(`.as[data-id="${state.sel}"]`));
+  t('筛选后选区指向可见句子', !!document.querySelector(`.as[data-id="${viewState.sel}"]`));
   t(
     '原文顶部是筛选，不会改类型',
     JSON.stringify(state.rows.map(r => r.type)) === JSON.stringify(beforeTypes) && $$('.as').length === 3,
   );
-  state.sel = third;
-  state.multi = null;
+  viewState.sel = third;
+  viewState.multi = null;
   update('selection');
   markSentences([third], 'real');
   t('原文筛选中标注后移出未标列表', $$('.as').length === 2);
-  state.filter = 'all';
-  state.view = 'table';
+  viewState.filter = 'all';
+  viewState.view = 'table';
   update('rows');
   jumpTo(second);
   await pause(500);
   storage.switchProject(original);
   storage.switchProject(storage.allProjects().find(p => p.title === '新版工作流测试').id);
   update('rows');
-  t('切回项目恢复处理位置', state.sel === second);
+  t('切回项目恢复处理位置', viewState.sel === second);
   openDurPopover($('#btnDur'));
   $('#speechRate').value = '3';
   click('#saveRate');
@@ -504,8 +510,8 @@ export async function runWorkspaceTests(t) {
       !!saved.assets,
   );
   // 视图切换：不提交的编辑不丢，定位不跳走
-  state.view = 'table';
-  state.filter = 'all';
+  viewState.view = 'table';
+  viewState.filter = 'all';
   update('rows');
   await pause(30);
   const editRow = state.rows.find(r => r.kind === 'line');
@@ -520,7 +526,7 @@ export async function runWorkspaceTests(t) {
     state.rows.find(r => r.id === editRow.id)?.text === '切换视图前改的字。',
     state.rows.find(r => r.id === editRow.id)?.text,
   );
-  t('切换视图保持当前句子定位', state.sel === editRow.id && !!$(`.as[data-id="${editRow.id}"]`));
+  t('切换视图保持当前句子定位', viewState.sel === editRow.id && !!$(`.as[data-id="${editRow.id}"]`));
   t(
     '筛选与视图同步数据',
     JSON.stringify(state.rows.map(r => r.note)) === JSON.stringify(storage.current().rows.map(r => r.note)),
@@ -536,12 +542,12 @@ export async function runWorkspaceTests(t) {
       $('.work-tools').scrollWidth <= $('.work-tools').clientWidth + 1,
   );
   const toolLines = state.rows.filter(r => r.kind === 'line' && !r.groupId);
-  state.sel = toolLines[0].id;
-  state.multi = null;
+  viewState.sel = toolLines[0].id;
+  viewState.multi = null;
   update('selection');
   await pause(20);
   t('1.7 只选一句时不弹选区操作条', $('#selectTools').hidden);
-  state.multi = [toolLines[0].id, toolLines[1].id];
+  viewState.multi = [toolLines[0].id, toolLines[1].id];
   update('selection');
   await pause(20);
   // 1.10：能共用时显示「共用一个画面」；不能共用（不连续 / 跨章节）时直接写原因，不摆灰按钮
@@ -551,7 +557,7 @@ export async function runWorkspaceTests(t) {
       ($('#btnGroup').getBoundingClientRect().width > 0 || $('#selHint').getBoundingClientRect().width > 0),
   );
   t('1.10 操作条上有类型按钮', $$('#selTypes [data-sel-type]').length === types().list.length + 1);
-  state.multi = null;
+  viewState.multi = null;
   update('selection');
 
   // 共用画面里移除一个素材：其余素材的逐句位置（off）不能被选中那一句的记录覆盖
@@ -605,9 +611,9 @@ export async function runWorkspaceTests(t) {
     .map(p => p.id);
   storage.switchProject(original);
   for (const id of created) storage.deleteProject(id);
-  state.view = 'table';
-  state.filter = 'all';
-  state.autoAdvance = false;
+  viewState.view = 'table';
+  viewState.filter = 'all';
+  viewState.autoAdvance = false;
   clearUndo();
   update('rows');
 }

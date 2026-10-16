@@ -1,7 +1,9 @@
 /* 应用内素材预览浮层：图片大图（适应窗口/缩放）+ 视频播放器（播放暂停/进度/时间）
    + 视频片段编辑（入点/出点：当前播放位置或手输、校验、片段预览、清除）。
    全应用只有一个播放器：换素材、关闭、切项目都先停播释放，绝不同时播两个、不留黑屏装成功。 */
-import { state, on, rowById } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on } from '../app/events.js';
+import { rowById } from '../app/project-queries.js';
 import { setUsageClip, rememberDuration } from '../app/asset-actions.js';
 import { usageList, kindOf, clipText, checkClip, fileUrl, assetName, LINK_RE, AUDIO_EXT } from '../core/asset-model.js';
 import { fmtTime, parseTime } from '../core/text.js';
@@ -60,7 +62,7 @@ function stopPlayer() {
   released = true;
 }
 export const isReleased = () => released;
-export function playerCurrentTime() {
+function playerCurrentTime() {
   return video && isFinite(video.currentTime) ? video.currentTime : null;
 }
 

@@ -1,8 +1,10 @@
+import { viewState } from './view-state.js';
 /* 数据层：项目数据落在本机磁盘文件（主进程原子写 + 自动备份）。
    library 结构：{ v:2, currentId, projects: {[id]: project}, settings: {defaultTypes?}, trash: {[id]: {project, deletedAt}} }
    写盘只发「改动过的项目」（增量补丁），主进程合并后整文件原子写：
    项目再多，打字时渲染进程也不用把整个库深拷贝、跨进程搬一遍。 */
-import { state, loadProjectIntoState, bumpRev } from './state.js';
+import { state } from './state.js';
+import { loadProjectIntoState } from './project-load.js';
 import { emit, notify } from './events.js';
 import { demoProject } from '../core/demo.js';
 import { normalizeTypes } from '../core/types.js';
@@ -73,11 +75,13 @@ function demoLibrary() {
 export const current = () => library.projects[library.currentId];
 /* 按 id 取库里的项目（后台任务完成时项目已经切走，要改的是原项目） */
 export const projectById = id => library?.projects?.[id] || null;
+/* 当前项目用活动对象，后台项目用库内对象；所有异步操作共用这一身份判断。 */
+export const projectForId = id => (id === state.projectId ? state : projectById(id));
 export const allProjects = () => Object.values(library.projects).sort((a, b) => b.updatedAt - a.updatedAt);
 export const settings = () => library.settings;
 
 /* 新项目默认用的类型表（用户在类型编辑器里勾了「以后新建项目也用这套」才有） */
-export const defaultTypesForNew = () => normalizeTypes(library?.settings?.defaultTypes);
+const defaultTypesForNew = () => normalizeTypes(library?.settings?.defaultTypes);
 /* 设置改了（局域网协作的名字等）：记下待写盘 */
 export function saveSettings() {
   if (!library) return;
@@ -91,11 +95,11 @@ export function setDefaultTypes(types) {
 }
 
 /* 把 state 里的当前项目内容写回 library；state 还没装载任何项目时不动盘上的数据 */
-export function syncFromState() {
+function syncFromState() {
   const p = current();
   if (!p || state.projectId !== library.currentId) return;
   applyProjectData(p, state, 'storage');
-  p.cursorId = state.sel;
+  p.cursorId = viewState.sel;
   p.updatedAt = Date.now();
   dirtyIds.add(p.id);
 }
@@ -129,7 +133,6 @@ function schedule(now = false) {
 
 export function persist(now = false) {
   syncFromState();
-  bumpRev();
   schedule(now);
   notifyWrite(library?.currentId);
 }
@@ -198,10 +201,10 @@ export function archiveCurrentCopy(label) {
 
 /* 光标位置单独记（不算改动、不进撤销），停 1.5 秒再写，方向键连按不会连写 */
 export function rememberCursor() {
-  if (!library || state.sel == null) return;
+  if (!library || viewState.sel == null) return;
   const p = current();
-  if (p && p.id === state.projectId && p.cursorId !== state.sel) {
-    p.cursorId = state.sel;
+  if (p && p.id === state.projectId && p.cursorId !== viewState.sel) {
+    p.cursorId = viewState.sel;
     dirtyIds.add(p.id);
     const version = ++revision;
     clearTimeout(saveTimer);

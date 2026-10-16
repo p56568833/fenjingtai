@@ -1,12 +1,15 @@
+import { flushWriteBack } from '../app/candidate-sync.js';
+import { viewState } from '../app/view-state.js';
 /* 1.10 自测：撤销后回写候选清单、回写失败时不清掉「不要」、危险确认框回车不执行、提示条分类型、
    操作条批量标注、替换整稿清掉旧候选、紧凑行距。原生能力全部用 window.fjtHooks 替身，不碰网络和磁盘。 */
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { undo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
 import { applyImport } from '../app/actions.js';
 import { importLoadedFile } from '../ui/import-export.js';
-import { closeVideoReview, flushWriteBack } from '../features/video-review.js';
+import { closeVideoReview } from '../features/video-review.js';
 import { confirmModal, toast } from '../ui/base/dom.js';
 import { runCommand } from '../ui/base/commands.js';
 
@@ -59,7 +62,7 @@ export async function runRelease110Tests(t) {
   try {
     storage.createProject('1.10 自测', parseAny('## 段\n甲。乙。丙。\n## 别的\n丁。'));
     clearUndo();
-    state.view = 'table';
+    viewState.view = 'table';
     update('rows');
     await pause(30);
 
@@ -143,8 +146,8 @@ export async function runRelease110Tests(t) {
     const ids = lines()
       .slice(1, 3)
       .map(r => r.id);
-    state.multi = ids;
-    state.sel = ids[0];
+    viewState.multi = ids;
+    viewState.sel = ids[0];
     update('selection');
     await pause(30);
     const typeBtn = $('#selTypes [data-sel-type]');
@@ -154,11 +157,11 @@ export async function runRelease110Tests(t) {
       '操作条上点类型按钮，选中的句子一起标上',
       !!typeBtn && ids.every(id => state.rows.find(r => r.id === id).type === typeBtn.dataset.selType),
     );
-    state.multi = [lines()[2].id, lines()[3].id]; // 跨章节
+    viewState.multi = [lines()[2].id, lines()[3].id]; // 跨章节
     update('selection');
     await pause(30);
     t('跨章节选中时直接写出不能共用的原因', !$('#selHint').hidden && $('#selHint').textContent.includes('章节'));
-    state.multi = null;
+    viewState.multi = null;
     update('selection');
 
     /* 替换整稿：旧候选、字幕对齐一起清掉 */

@@ -1,7 +1,12 @@
+import { deferRenderWhileEditing, clearDeferredRender } from './base/edit-session.js';
+import { viewState } from '../app/view-state.js';
 /* 右侧「画面与素材」面板：画面描述 / 素材（角色、出现位置、片段）/ 这个画面对应的口播时间 / 视频候选入口。
    画面描述输入即保存；添加和移除素材集中在列表下方。
    角色和位置的改动只刷面板和素材卡，不重建整张表（长稿视口不跳）。 */
-import { state, on, emit, update, rowById, types, timeline } from '../app/state.js';
+import { state } from '../app/state.js';
+import { on } from '../app/events.js';
+import { update } from '../app/project-events.js';
+import { rowById, types, timeline } from '../app/project-queries.js';
 import { setShotNote } from '../app/actions.js';
 import { removeUsage, addRefsToShot, autoAssignRoles } from '../app/asset-actions.js';
 import { usageList } from '../core/asset-model.js';
@@ -23,7 +28,6 @@ import { patchHTML } from './base/html-patch.js';
 
 const $ = s => document.querySelector(s);
 let detailOpen = false;
-let wsTimer = null;
 let session = null; // 本次聚焦编辑描述的撤销会话：同一次编辑只拍一张快照
 
 export const isInspectorOpen = () => detailOpen;
@@ -82,8 +86,9 @@ export function renderInspector(force = false) {
   $('#btnDetail').setAttribute('aria-expanded', String(detailOpen));
   $('#btnDetail').classList.toggle('active', detailOpen);
   if (!detailOpen) return;
-  if (!force && panel.contains(document.activeElement)) return;
-  const r = rowById(state.sel);
+  if (!force && deferRenderWhileEditing('inspector-project', '#inspector', () => renderInspector())) return;
+  clearDeferredRender('inspector-project');
+  const r = rowById(viewState.sel);
   if (!r || r.kind !== 'line') {
     panel.innerHTML = '<div class="side-title">画面与素材</div><p class="side-empty">先选择一句口播。</p>';
     panel._html = null;
@@ -135,8 +140,8 @@ function markNoteClamp() {
 export function openInspectorFor(id) {
   const r = rowById(id);
   if (!r || r.kind !== 'line') return;
-  state.sel = id;
-  state.multi = null;
+  viewState.sel = id;
+  viewState.multi = null;
   detailOpen = true;
   update('selection');
   renderInspector(true);
@@ -176,8 +181,8 @@ export function initInspector() {
   registerCommand('inspector:refresh', () => renderInspector(true));
   // 工具条上的「对着口播看画面」：不用先打开面板，选中哪句就从哪个画面看
   $('#btnSync').onclick = () => {
-    if (!state.sel || !rowById(state.sel)) return toast('先点选一句，再对着口播看它的画面', null, 'info');
-    runCommand('playthrough:shot', state.sel);
+    if (!viewState.sel || !rowById(viewState.sel)) return toast('先点选一句，再对着口播看它的画面', null, 'info');
+    runCommand('playthrough:shot', viewState.sel);
   };
   $('#btnDetail').onclick = () => {
     detailOpen = !detailOpen;
@@ -185,8 +190,6 @@ export function initInspector() {
   };
   on('cursor', () => renderInspector());
   on('collab-status', () => renderInspector(true)); // 局域网协作连上 / 断开：失联素材上的「从对方电脑取」跟着变
-  on('voice', () => renderInspector(true));
-  on('types', () => renderInspector(true));
   on('durations', () => renderInspector()); // 读到了文件时长：卡片上的「文件 / 可用」补上数（正在输入时不打断）
 
   const panel = $('#inspector');
@@ -272,9 +275,6 @@ export function initInspector() {
   panel.addEventListener('input', e => {
     const r = panelRow();
     if (!r) return;
-    if (e.target.id === 'detailNote' && setShotNote(r, e.target.value, { session })) {
-      clearTimeout(wsTimer);
-      wsTimer = setTimeout(() => emit('workspace'), 250); // 停手后再刷侧栏 / 徽标
-    }
+    if (e.target.id === 'detailNote') setShotNote(r, e.target.value, { session });
   });
 }

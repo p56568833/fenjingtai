@@ -1,7 +1,10 @@
+import { viewState } from '../app/view-state.js';
 /* 勾选视图交互：选中句子即弹标注卡（选 A / B roll 四类、写批注），卡跟选区走；
    拖选几句后按 1-5 / 点顶部色块＝批量标；批注以红字显示在句子下方，点红字可改。
    数据改动统一走 actions（快照 + 落盘 + 原地刷新）。 */
-import { state, rowById, visibleLineIds, currentSelection, toggleLineSelection, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById, types } from '../app/project-queries.js';
+import { visibleLineIds, currentSelection, toggleLineSelection } from '../app/selection.js';
 import { markSentences, setNote, splitGroupAtAction } from '../app/actions.js';
 import { groupSplitAtPlan } from '../core/shot-groups.js';
 import { renderSelectionOnly, selectedMemberOrOwner } from './base/selection.js';
@@ -24,12 +27,12 @@ function rangeIds(a, b) {
 /* 把选中句带到视口 */
 function revealCursor() {
   renderSelectionOnly();
-  const el = document.querySelector(`.as[data-id="${state.sel}"]`);
+  const el = document.querySelector(`.as[data-id="${viewState.sel}"]`);
   el && el.scrollIntoView({ block: 'nearest' });
 }
 function setCursor(id, { atMouse = false } = {}) {
-  state.multi = null;
-  state.sel = id;
+  viewState.multi = null;
+  viewState.sel = id;
   revealCursor();
   popCardForSelection({ atMouse });
 }
@@ -66,8 +69,8 @@ function selectionCardHTML() {
 
 /* 卡跟选区走：鼠标选的就弹在光标旁（跟手），键盘换句时锚在句子下方 */
 function popCardForSelection({ atMouse = false } = {}) {
-  if (state.view !== 'check' || state.sel == null) return;
-  const el = document.querySelector(`.as[data-id="${state.sel}"]`);
+  if (viewState.view !== 'check' || viewState.sel == null) return;
+  const el = document.querySelector(`.as[data-id="${viewState.sel}"]`);
   if (!el) return;
   const r = el.getBoundingClientRect();
   openMenu(el, selectionCardHTML(), atMouse ? { atMouse: true } : { pos: { x: r.left, y: r.bottom + 8 } });
@@ -127,20 +130,20 @@ export function initCheck() {
   const rows = document.querySelector('#rows');
 
   rows.addEventListener('mousedown', e => {
-    if (state.view !== 'check') return;
+    if (viewState.view !== 'check') return;
     if (e.target.closest('[data-detail]')) return;
     dragClick = false;
     const el = e.target.closest('.as');
     if (!el) {
       const shared = e.target.closest('.shared-passage');
-      if (shared && state.sel != null && selectedMemberOrOwner(+shared.dataset.noteOwner) === state.sel) {
+      if (shared && viewState.sel != null && selectedMemberOrOwner(+shared.dataset.noteOwner) === viewState.sel) {
         closePop();
         return;
       }
       // 点空白：取消选中（虚线一起消失），卡由全局点击关闭器收
-      if (state.sel != null || state.multi) {
-        state.sel = null;
-        state.multi = null;
+      if (viewState.sel != null || viewState.multi) {
+        viewState.sel = null;
+        viewState.multi = null;
         renderSelectionOnly();
       }
       closePop();
@@ -148,15 +151,15 @@ export function initCheck() {
     }
     e.preventDefault(); // 拖选不能带出原生文字选区
     const id = +el.dataset.id;
-    if (state.multiMode) {
+    if (viewState.multiMode) {
       toggleLineSelection(id);
       closePop();
       renderSelectionOnly();
       return;
     }
-    if (e.shiftKey && state.sel != null && state.sel !== id) {
-      state.multi = rangeIds(state.sel, id);
-      state.sel = id;
+    if (e.shiftKey && viewState.sel != null && viewState.sel !== id) {
+      viewState.multi = rangeIds(viewState.sel, id);
+      viewState.sel = id;
       revealCursor();
       popCardForSelection({ atMouse: true });
       return;
@@ -166,7 +169,7 @@ export function initCheck() {
   });
 
   rows.addEventListener('mouseover', e => {
-    if (state.view !== 'check' || !sweep) return;
+    if (viewState.view !== 'check' || !sweep) return;
     const el = e.target.closest('.as');
     if (!el) return;
     const id = +el.dataset.id;
@@ -174,8 +177,8 @@ export function initCheck() {
       closePop(); // 一动就是拖选：卡收起，拖完再弹
       sweep.lastId = id;
       sweep.moved = true;
-      state.multi = rangeIds(sweep.startId, id);
-      state.sel = sweep.startId;
+      viewState.multi = rangeIds(sweep.startId, id);
+      viewState.sel = sweep.startId;
       renderSelectionOnly();
     }
   });
@@ -279,7 +282,7 @@ export function initCheck() {
 /* 勾选视图的键盘：方向键挪光标，1-5 / 0 作用于当前选中（拖选后批量），⌫ 擦除。
    返回 true 表示按键已消费。 */
 export function handleCheckKey(e) {
-  if (state.multiMode && (e.key === ' ' || e.key === 'Enter')) {
+  if (viewState.multiMode && (e.key === ' ' || e.key === 'Enter')) {
     const target = e.target.closest?.('.as');
     if (target) {
       e.preventDefault();
@@ -292,7 +295,7 @@ export function handleCheckKey(e) {
     e.preventDefault();
     const ids = visibleLineIds();
     if (!ids.length) return true;
-    let i = ids.indexOf(state.sel);
+    let i = ids.indexOf(viewState.sel);
     i =
       i === -1
         ? e.key === 'ArrowDown'
@@ -323,7 +326,7 @@ export function handleCheckKey(e) {
   if (e.key === 'Enter') {
     e.preventDefault(); // 阅读视图没有备注框可跳：Enter 就是「下一句」
     const all = visibleLineIds();
-    const next = all[all.indexOf(state.sel) + 1];
+    const next = all[all.indexOf(viewState.sel) + 1];
     if (next != null) setCursor(next);
     return true;
   }

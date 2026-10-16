@@ -1,7 +1,8 @@
 /* 标注类型编辑器（本项目）：改名字 / 颜色 / 图标 / 是否需要配画面、排序（= 快捷键 1–9）、增删。
    在弹窗里改的是草稿，点「保存」才生效，一次保存 = 一步撤销。
    删掉正在用的类型时，必须选好这些句子改成什么（别的类型或清除标注）。 */
-import { state, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { types } from '../app/project-queries.js';
 import { setProjectTypes } from '../app/types-actions.js';
 import { DEFAULT_TYPES, ICONS, MAX_TYPES, PALETTE, newTypeId, defaultTypes, typeUsage } from '../core/types.js';
 import { esc, toast } from '../ui/base/dom.js';
@@ -83,7 +84,7 @@ function collect() {
   });
 }
 
-export function openTypeEditor() {
+function openTypeEditor() {
   draft = types().list.map(t => ({ ...t }));
   removed = new Map();
   $('#teDefault').checked = false;

@@ -292,30 +292,3 @@ export const itemAt = (layout, rel) =>
 
 /* 圈号：① … ⑳，再多就用 (21) */
 export const circled = n => (n >= 1 && n <= 20 ? String.fromCharCode(0x2460 + n - 1) : `(${n})`);
-
-/* 拖动 / 填秒数时的约束：不出 [0, dur]、不和前后画面重叠、最短 MIN_LEN。返回修正后的 {start, end} */
-export function clampSpan(items, index, start, end, dur, mode = 'both') {
-  const prev = index > 0 ? items[index - 1] : null;
-  const next = index < items.length - 1 ? items[index + 1] : null;
-  const lo = prev ? Math.min(prev.end, dur) : 0;
-  const hi = next ? next.start : dur;
-  let s = start,
-    e = end;
-  if (mode === 'move') {
-    const len = Math.min(e - s, hi - lo);
-    s = Math.max(lo, Math.min(s, hi - len));
-    e = s + len;
-  } else if (mode === 'start') {
-    // 拖开始：结束不动，开始最多到结束前 MIN_LEN
-    e = Math.min(hi, e);
-    s = Math.max(lo, Math.min(s, e - MIN_LEN));
-  } else if (mode === 'end') {
-    // 拖结束：开始不动，结束最少到开始后 MIN_LEN
-    s = Math.max(lo, s);
-    e = Math.min(hi, Math.max(e, s + MIN_LEN));
-  } else {
-    s = Math.max(lo, Math.min(s, hi - MIN_LEN));
-    e = Math.min(hi, Math.max(e, s + MIN_LEN));
-  }
-  return { start: round1(Math.max(0, s)), end: round1(e) };
-}

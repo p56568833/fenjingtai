@@ -1,6 +1,8 @@
+import { viewState } from '../app/view-state.js';
 /* 1.3 新功能回归（npm test 时由 selftest.js 调用）：
    重做 / 撤销回到原位 / ⌫ 与 ⌘⌫ / 弹窗栈 Esc / 搜索输入法 / 专注标注 / 剪映字幕对齐 / 拖入导入稿子 */
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { clearUndo, undo, redo, canRedo } from '../app/undo.js';
 import * as actions from '../app/actions.js';
@@ -36,14 +38,14 @@ export async function runFeatureTests(t) {
     parseAny('## 开场\n第一句开场白。第二句讲清楚问题所在。\n## 结尾\n第三句这句没录。第四句是结尾的总结。'),
   );
   clearUndo();
-  state.view = 'table';
-  state.filter = 'all';
+  viewState.view = 'table';
+  viewState.filter = 'all';
   update('rows');
   await pause(30);
   const L = n => lines()[n];
 
   /* ── 重做 ── */
-  state.sel = L(0).id;
+  viewState.sel = L(0).id;
   actions.setType([L(0).id], 'real');
   undo();
   t('撤销后可以重做', canRedo() && !L(0).type);
@@ -55,15 +57,15 @@ export async function runFeatureTests(t) {
   clearUndo();
 
   /* ── 撤销回到改动的那一句 ── */
-  state.sel = L(3).id;
+  viewState.sel = L(3).id;
   actions.setType([L(3).id], 'fx');
-  state.sel = L(0).id;
+  viewState.sel = L(0).id;
   undo();
-  t('撤销后光标回到改动的句子', state.sel === L(3).id, `sel=${state.sel}`);
+  t('撤销后光标回到改动的句子', viewState.sel === L(3).id, `sel=${viewState.sel}`);
 
   /* ── ⌫ 只清标注，⌘⌫ 才删句 ── */
-  state.sel = L(1).id;
-  state.multi = null;
+  viewState.sel = L(1).id;
+  viewState.multi = null;
   actions.setType([L(1).id], 'stock');
   document.activeElement?.blur();
   const n0 = lines().length;
@@ -99,11 +101,11 @@ export async function runFeatureTests(t) {
   inp.value = 'di';
   inp.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
   await pause(220);
-  t('输入法组合中不搜索', state.query === '');
+  t('输入法组合中不搜索', viewState.query === '');
   inp.value = '第四';
   inp.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
   await pause(220);
-  t('上屏后才搜索', state.query === '第四');
+  t('上屏后才搜索', viewState.query === '第四');
   inp.value = '';
   inp.dispatchEvent(new InputEvent('input', { bubbles: true }));
   await pause(220);
@@ -111,7 +113,7 @@ export async function runFeatureTests(t) {
   /* ── 专注标注 ── */
   for (const r of lines()) r.type = null;
   update('rows');
-  state.sel = L(0).id;
+  viewState.sel = L(0).id;
   document.activeElement?.blur();
   key('e', { metaKey: true }, document.body);
   await pause(30);
@@ -131,7 +133,7 @@ export async function runFeatureTests(t) {
   await pause(20);
   t(
     'Esc 退出并停在处理的句子',
-    !$('#focusMask').classList.contains('show') && !state.focusMode && lines().some(r => r.id === state.sel),
+    !$('#focusMask').classList.contains('show') && !viewState.focusMode && lines().some(r => r.id === viewState.sel),
   );
 
   /* ── 剪映字幕对齐 ── */

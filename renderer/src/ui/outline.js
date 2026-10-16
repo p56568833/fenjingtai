@@ -1,3 +1,4 @@
+import { viewState } from '../app/view-state.js';
 /* 左侧章节目录：各章句数 / 未标数，点击跳转；高亮跟随正文浏览位置 */
 import { state } from '../app/state.js';
 import { esc } from './base/dom.js';
@@ -12,14 +13,16 @@ let jumpTarget = null;
 function syncActiveOutline() {
   frame = 0;
   if (!outlineOpen || !items.length) return;
-  let active = jumpTarget?.project === state.projectId && jumpTarget.view === state.view ? jumpTarget.id : null;
+  let active = jumpTarget?.project === state.projectId && jumpTarget.view === viewState.view ? jumpTarget.id : null;
   if (active !== null) return showActiveOutline(active);
   const wrap = document.querySelector('#tableWrap');
   const box = wrap.getBoundingClientRect();
   const probe = box.top + box.height * 0.5;
   for (const item of items) {
     const anchor = item.sectionId
-      ? document.querySelector(`${state.view === 'check' ? '.ck-sec' : '.section-row'}[data-sid="${item.sectionId}"]`)
+      ? document.querySelector(
+          `${viewState.view === 'check' ? '.ck-sec' : '.section-row'}[data-sid="${item.sectionId}"]`,
+        )
       : document.querySelector(`.row[data-id="${item.jump}"],.as[data-id="${item.jump}"]`);
     if (!anchor) continue; // 筛选后这一章可能没有可见句子
     if (active === null || anchor.getBoundingClientRect().top <= probe) active = item.jump;
@@ -50,7 +53,7 @@ export function beginOutlineJump(id) {
   const target = {
     id: section?.id ?? state.rows.find(r => r.kind === 'line')?.id,
     project: state.projectId,
-    view: state.view,
+    view: viewState.view,
   };
   jumpTarget = target;
   if (outlineOpen) showActiveOutline(target.id);

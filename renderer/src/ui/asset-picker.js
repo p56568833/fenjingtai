@@ -1,7 +1,8 @@
 /* 「本项目素材」选择器：把项目里已经添加过的文件再次关联到当前句子 / 共用画面。
    按需弹出（不是常驻侧栏）；只列当前项目，不掺别的项目；不复制本地文件。
    使用次数按独立画面统计：共用三句算一处。 */
-import { state, rowById } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById } from '../app/project-queries.js';
 import { addRefsToShot } from '../app/asset-actions.js';
 import { countAssetShots, kindOf, KIND_LABEL, assetName } from '../core/asset-model.js';
 import { esc, toast } from './base/dom.js';

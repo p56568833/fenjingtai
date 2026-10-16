@@ -1,12 +1,25 @@
+import { viewState } from '../app/view-state.js';
 /* 自动化回归测试（npm test / electron . --selftest 时运行）：
    数据层直接调函数断言，关键交互用真实 DOM 事件模拟，结果挂到 window.__SELFTEST_RESULT__ */
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { snapshot, undo, clearUndo } from '../app/undo.js';
+import { changeProject } from '../app/project-change.js';
 import * as actions from '../app/actions.js';
 import { parseAny } from '../core/parse.js';
 import { demoProject } from '../core/demo.js';
 
+// 创建章节菜单测试的输入；真实操作由菜单执行，不保留已退出产品的拆节实现。
+function sectionFixture(id) {
+  return changeProject('测试章节', change => {
+    const at = state.rows.findIndex(r => r.id === id);
+    const sid = Math.max(...state.rows.map(r => r.id)) + 1;
+    state.rows.splice(at, 0, { id: sid, kind: 'section', text: '新章节' });
+    change.emit('view-refresh');
+    return sid;
+  });
+}
 const R = [];
 const t = (name, ok, detail = '') => R.push({ name, ok: !!ok, detail });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -49,8 +62,8 @@ const caretOffset = el => {
 };
 
 export async function runSelfTest() {
-  state.autoAdvance = false;
-  state.view = 'table';
+  viewState.autoAdvance = false;
+  viewState.view = 'table';
   // 沙箱数据目录可能残留上个会话的空项目（比如 ux-check 删过项目）：没有句子就补一份示例
   if (!rows().length) {
     const d = demoProject();
@@ -64,8 +77,8 @@ export async function runSelfTest() {
 
   /* ── 2. 标注 + 撤销 ── */
   const firstId = rows()[0].id;
-  state.sel = firstId;
-  state.multi = null;
+  viewState.sel = firstId;
+  viewState.multi = null;
   actions.setType([firstId], 'fx');
   t('标注生效', rows()[0].type === 'fx');
   undo();
@@ -73,7 +86,7 @@ export async function runSelfTest() {
 
   /* ── 3. 键盘数字标注（DOM 事件；1=A 2=真实素材 … 0=清除） ── */
   document.activeElement && document.activeElement.blur();
-  state.sel = firstId;
+  viewState.sel = firstId;
   update('selection');
   key(document.body, '2');
   await sleep(30);
@@ -109,7 +122,7 @@ export async function runSelfTest() {
   const a0 = rows()[0].text,
     a1 = rows()[1].text;
   const seam = a0.length;
-  state.sel = rows()[1].id;
+  viewState.sel = rows()[1].id;
   update('selection');
   el = $(`.row[data-id="${rows()[1].id}"] .sent`);
   el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
@@ -214,7 +227,7 @@ export async function runSelfTest() {
   document.activeElement.blur();
 
   /* ── 11. 筛选下合并的提示 ── */
-  state.filter = 'none';
+  viewState.filter = 'none';
   update('rows');
   await sleep(30);
   const noneRows = rows().filter(r => !r.type);
@@ -228,7 +241,7 @@ export async function runSelfTest() {
       undo();
     }
   }
-  state.filter = 'all';
+  viewState.filter = 'all';
   update('rows');
   await sleep(30);
 
@@ -238,10 +251,12 @@ export async function runSelfTest() {
     const secCount0 = state.rows.filter(r => r.kind === 'section').length;
     const si0 = state.rows.findIndex((r, i) => r.kind === 'line' && i > 0 && state.rows[i - 1].kind === 'line');
     const tgt = state.rows[si0];
-    const newSid = actions.addSectionBefore(tgt.id);
+    const newSid = sectionFixture(tgt.id);
     await sleep(30);
-    t('从句子分出新章节', newSid != null && state.rows[si0].kind === 'section' && state.rows[si0 + 1].id === tgt.id);
-    t('章节开头拒绝重复分节', actions.addSectionBefore(tgt.id) == null);
+    t(
+      '章节菜单测试数据包含标题与正文',
+      newSid != null && state.rows[si0].kind === 'section' && state.rows[si0 + 1].id === tgt.id,
+    );
     update('rows');
     await sleep(30);
     const ni = state.rows.findIndex(r => r.id === newSid);
@@ -318,7 +333,7 @@ export async function runSelfTest() {
         state.rows[si0]?.id === tgt.id &&
         state.rows.filter(r => r.kind === 'section').length === secCount0,
     );
-    const s2 = actions.addSectionBefore(tgt.id);
+    const s2 = sectionFixture(tgt.id);
     await sleep(30);
     const nBefore = rows().length;
     actions.deleteSectionAll(s2);
@@ -345,8 +360,8 @@ export async function runSelfTest() {
       !state.rows.some(r => r.kind === 'section' && !secIds.has(r.id)) && !state.rows.some(r => r.id === sentId),
     );
     state.rows = JSON.parse(base);
-    state.filter = 'all';
-    state.sel = rows()[0]?.id ?? null;
+    viewState.filter = 'all';
+    viewState.sel = rows()[0]?.id ?? null;
     storage.persist(true); // 必须落盘：persist 会把 state.rows 反写回项目库，只改内存的话截断版数据会留在盘上污染下一轮
     update('rows');
     await sleep(30);
@@ -380,11 +395,11 @@ export async function runSelfTest() {
   storage.switchProject(id0);
   t('删除项目回到原项目', state.projectId === id0 && storage.allProjects().length === projCount);
   clearUndo();
-  state.sel = rows()[0]?.id ?? null;
+  viewState.sel = rows()[0]?.id ?? null;
   update('rows');
 
   /* ── 14. 勾选视图：先选句、再标类型；段落封顶续分 ── */
-  state.view = 'check';
+  viewState.view = 'check';
   update('rows');
   await sleep(30);
   t('勾选视图渲染（一句一 span）', $$('.as').length === rows().length, `${$$('.as').length}/${rows().length}`);
@@ -399,16 +414,19 @@ export async function runSelfTest() {
     const sp = $(`.as[data-id="${blankId}"]`);
     sp.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    t('单击＝选中（不标类型）', state.sel === blankId && rowOf(blankId).type === null && sp.classList.contains('cur'));
+    t(
+      '单击＝选中（不标类型）',
+      viewState.sel === blankId && rowOf(blankId).type === null && sp.classList.contains('cur'),
+    );
     key(document.body, '1');
     await sleep(30);
     t('按 1 标成 A roll', rowOf(blankId).type === 'a' && sp.classList.contains('st-a'), `type=${rowOf(blankId).type}`);
-    t('标完光标留在原句（不自动跳下一句）', state.sel === blankId);
+    t('标完光标留在原句（不自动跳下一句）', viewState.sel === blankId);
     undo();
     await sleep(20);
 
-    state.sel = blankId;
-    state.multi = null;
+    viewState.sel = blankId;
+    viewState.multi = null;
     update('selection');
     key(document.body, '2');
     await sleep(30);
@@ -416,8 +434,8 @@ export async function runSelfTest() {
     undo();
     await sleep(20);
 
-    state.sel = blankId;
-    state.multi = null;
+    viewState.sel = blankId;
+    viewState.multi = null;
     update('selection');
     const spFresh = $(`.as[data-id="${blankId}"]`); // undo 会重建 DOM，旧引用已脱离
     spFresh.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
@@ -439,7 +457,11 @@ export async function runSelfTest() {
   $(`.as[data-id="${idB}"]`).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
   document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   await sleep(20);
-  t('拖选＝连选多句', state.multi && state.multi.length === 4, `multi=${state.multi && state.multi.length}`);
+  t(
+    '拖选＝连选多句',
+    viewState.multi && viewState.multi.length === 4,
+    `multi=${viewState.multi && viewState.multi.length}`,
+  );
   key(document.body, '3');
   await sleep(30);
   t(
@@ -487,7 +509,7 @@ export async function runSelfTest() {
     t('批注可撤销', !rows().find(r => r.id === hovId).note);
   }
   selSpan().blur && selSpan().blur();
-  state.view = 'table';
+  viewState.view = 'table';
   update('rows');
 
   // PDF 分镜脚本：菜单入口、选项弹窗、快捷键隔离、排版结构
@@ -503,8 +525,8 @@ export async function runSelfTest() {
   pdfItem && click(pdfItem);
   await sleep(30);
   t('PDF 选项弹窗打开', $('#pdfMask').classList.contains('show'));
-  state.sel = rows()[0].id;
-  state.multi = null;
+  viewState.sel = rows()[0].id;
+  viewState.multi = null;
   const typeBeforePdf = rows()[0].type;
   key(document.body, '5');
   await sleep(20);
@@ -515,7 +537,7 @@ export async function runSelfTest() {
   t('Esc 关闭 PDF 弹窗', !$('#pdfMask').classList.contains('show'));
   key(document.body, 'E', { metaKey: true, shiftKey: true });
   await sleep(20);
-  t('⇧⌘E 导出 PDF，不进入专注标注', $('#pdfMask').classList.contains('show') && !state.focusMode);
+  t('⇧⌘E 导出 PDF，不进入专注标注', $('#pdfMask').classList.contains('show') && !viewState.focusMode);
   key(document.body, 'Escape');
   await sleep(20);
   {
@@ -542,7 +564,7 @@ export async function runSelfTest() {
       const m = await import(path);
       await m[fn](t);
     } catch (error) {
-      t(`${label} 套件异常`, false, (error.stack || error.message).split('\n')[0]);
+      t(`${label} 套件异常`, false, error.stack || error.message);
     }
   };
   await suite('素材', './assets-selftest.js', 'runAssetTests');

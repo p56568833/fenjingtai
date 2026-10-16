@@ -107,7 +107,6 @@ onSync('data:status-sync', e => {
   store.load();
   e.returnValue = store.info();
 });
-handle('data:load', () => store.load());
 handle('data:save', (_e, patch) => store.savePatch(patch));
 /* 渲染进程 beforeunload 时的同步冲刷：invoke 是异步的，进程退出前来不及完成 */
 onSync('data:save-sync', (e, patch) => {

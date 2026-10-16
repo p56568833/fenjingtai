@@ -1,5 +1,7 @@
 /* 审核文件操作的交互：选择位置、确认、进度和结果提示。 */
-import { state, renumber, on, emit } from '../app/state.js';
+import { state } from '../app/state.js';
+import { renumber } from '../app/project-queries.js';
+import { on, emit } from '../app/events.js';
 import {
   captureSaveTask,
   saveCandidateSegment,
@@ -8,11 +10,10 @@ import {
   relinkSavedClips,
 } from '../app/candidate-media.js';
 import { retagPlan } from '../core/candidate-queries.js';
-import { fileTitle } from '../core/candidates.js';
+import { fileTitle } from '../core/candidate-placement.js';
 import { assetName } from '../core/asset-model.js';
 import { toast, confirmModal } from '../ui/base/dom.js';
 import * as nat from '../platform/native.js';
-const $ = s => document.querySelector(s);
 const native = name => nat[name];
 
 export async function ensureMediaDir(force = false) {
@@ -33,14 +34,12 @@ export function saveAllLabel() {
   return `正在保存 ${batchRun.i}/${batchRun.n}${p}`;
 }
 function paintProgress(id) {
-  const all = $('#vrSaveAll');
-  const label = saveAllLabel();
-  if (all && label) {
-    all.textContent = label;
-    all.style.setProperty('--p', (batchRun.id && batchRun.id === id ? pctOf(id) : 0) + '%');
-  }
+  emit('candidate-save-progress', {
+    label: saveAllLabel(),
+    percent: batchRun?.id === id ? pctOf(id) : 0,
+  });
 }
-export async function saveSegment(id, { quiet = false } = {}) {
+async function saveSegment(id, { quiet = false } = {}) {
   const task = captureSaveTask(id);
   if (!task) return null;
   const dir = await ensureMediaDir();

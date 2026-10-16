@@ -1,6 +1,10 @@
+import { viewState } from '../app/view-state.js';
 /* 原文视图：整篇原文排版（保留段落），先选句子、再标类型。
    只有渲染；点击 / 拖选 / 键盘交互在 check-view.js。 */
-import { state, rowById, currentSelection, qMatch, match, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById, types } from '../app/project-queries.js';
+import { currentSelection, match } from '../app/selection.js';
+import { qMatch } from '../app/search-queries.js';
 import { sharedScenes } from './asset-html.js';
 import { esc } from './base/dom.js';
 import { takeAnimation } from './base/anim.js';
@@ -8,7 +12,7 @@ import { patchChildren, staleBlock } from './base/keyed-patch.js';
 
 /* 句子 span 的基础类名与配色（选中高亮 cur 由 renderSelectionOnly 统一管理，不在这里）。
    渲染与标注后的原地刷新共用同一份，状态永远和数据对得上 */
-export function spanClass(r) {
+function spanClass(r) {
   const st = r.type ? ` typed st-${r.type}` : '';
   return `as${st}`; // 搜索淡化由 paintSearch 原地刷
 }
@@ -120,7 +124,7 @@ export function updateCheckSpans(ids) {
     const el = document.querySelector(`.as[data-id="${id}"]`);
     if (!el) continue;
     staleBlock(el);
-    el.className = spanClass(r) + (sel.has(id) ? ' cur' : '') + (state.query && !qMatch(r) ? ' qdim' : '');
+    el.className = spanClass(r) + (sel.has(id) ? ' cur' : '') + (viewState.query && !qMatch(r) ? ' qdim' : '');
     if (r.type) el.style.setProperty('--tc', types().color(r.type));
     else el.style.removeProperty('--tc');
   }

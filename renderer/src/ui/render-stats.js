@@ -1,5 +1,7 @@
+import { viewState } from '../app/view-state.js';
 /* 顶部统计：全片时间与素材挂载总览 + 筛选条 + 进度。 */
-import { state, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { types } from '../app/project-queries.js';
 import { shots, linkedUsages } from '../core/shots.js';
 import { esc } from './base/dom.js';
 import { filterList } from './base/type-view.js';
@@ -20,10 +22,10 @@ export function renderStats() {
   renderOverview(lines);
   document.querySelector('#filters').innerHTML = filterList()
     // 「未标注」为 0 时不占位置（正在用这个筛选时除外）
-    .filter(f => f.id !== 'none' || counts.none || state.filter === 'none')
+    .filter(f => f.id !== 'none' || counts.none || viewState.filter === 'none')
     .map(
       f =>
-        `<button class="chip-filter ${state.filter === f.id ? 'active' : ''}${f.id !== 'all' && !shotCounts[f.id] ? ' empty' : ''}" data-f="${f.id}" aria-pressed="${state.filter === f.id}"><span class="dot" style="background:${f.color}"></span>${esc(f.label)}<span class="n">${f.id === 'all' ? shotGroups.length : shotCounts[f.id] || 0}</span></button>`,
+        `<button class="chip-filter ${viewState.filter === f.id ? 'active' : ''}${f.id !== 'all' && !shotCounts[f.id] ? ' empty' : ''}" data-f="${f.id}" aria-pressed="${viewState.filter === f.id}"><span class="dot" style="background:${f.color}"></span>${esc(f.label)}<span class="n">${f.id === 'all' ? shotGroups.length : shotCounts[f.id] || 0}</span></button>`,
     )
     .join('');
   const filters = document.querySelector('#filters');

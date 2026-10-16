@@ -1,4 +1,6 @@
-import { state, update, emit } from '../app/state.js';
+import { viewState } from '../app/view-state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import { groupRows } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
 import { addRefsToShot, removeUsage } from '../app/asset-actions.js';
@@ -10,7 +12,7 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function runInspectorScrollTests(t) {
   const original = state.projectId,
-    oldView = state.view,
+    oldView = viewState.view,
     wasOpen = !$('#inspector').hidden;
   if (wasOpen) $('#btnDetail').click();
   const rows = parseAny(
@@ -38,8 +40,8 @@ export async function runInspectorScrollTests(t) {
   let insertProject = null;
   try {
     for (const view of ['table', 'check']) {
-      state.view = view;
-      state.sel = lines[0].id; // 已选句在屏幕外，不能因为开面板而滚回去。
+      viewState.view = view;
+      viewState.sel = lines[0].id; // 已选句在屏幕外，不能因为开面板而滚回去。
       update('rows');
       await pause(650); // 等切项目的入场动画结束，再测面板引起的位置变化。
       const wrap = $('#tableWrap');
@@ -58,8 +60,8 @@ export async function runInspectorScrollTests(t) {
         const drift = Math.abs(at() - before);
         t(
           `${view} ${action}素材面板保持第215句的位置`,
-          drift <= 2 && Math.abs(immediate - before) <= 2 && state.sel === lines[0].id,
-          JSON.stringify({ before, immediate, after: at(), drift, selected: state.sel }),
+          drift <= 2 && Math.abs(immediate - before) <= 2 && viewState.sel === lines[0].id,
+          JSON.stringify({ before, immediate, after: at(), drift, selected: viewState.sel }),
         );
         if (action === '打开' && view === 'table')
           t('开面板确实改变正文宽度', sentence.getBoundingClientRect().width < width - 20);
@@ -112,7 +114,7 @@ export async function runInspectorScrollTests(t) {
     ).join('\n');
     storage.createProject('插句位置测试', parseAny(text));
     insertProject = state.projectId;
-    state.view = 'table';
+    viewState.view = 'table';
     update('rows');
     await pause(650);
     const target = state.rows.filter(r => r.kind === 'line')[299];
@@ -123,7 +125,7 @@ export async function runInspectorScrollTests(t) {
     const track = [];
     for (let k = 0; k < 3; k++) {
       state.rows.splice(3, 0, { id: 900000 + k, kind: 'line', type: 'real', text: '同事在前面新插的一句。' });
-      emit('collab-remote');
+      update('rows');
       for (let f = 0; f < 6; f++) {
         // 这一帧画完之后再量：看到的就是屏幕上真正出现过的位置
         await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
@@ -140,7 +142,7 @@ export async function runInspectorScrollTests(t) {
     storage.switchProject(original);
     storage.deleteProject(project);
     if (insertProject) storage.deleteProject(insertProject);
-    state.view = oldView;
+    viewState.view = oldView;
     update('rows');
     if (wasOpen) $('#btnDetail').click();
     await pause(100);

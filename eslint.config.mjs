@@ -7,6 +7,16 @@ export default [
   js.configs.recommended,
   {
     files: ['renderer/**/*.js'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        ...['filter', 'sel', 'multi', 'multiMode', 'query', 'view', 'autoAdvance', 'focusMode'].map(property => ({
+          object: 'state',
+          property,
+          message: '界面状态使用 app/view-state.js，不放入项目数据。',
+        })),
+      ],
+    },
     languageOptions: { sourceType: 'module', globals: { ...globals.browser } },
   },
   {

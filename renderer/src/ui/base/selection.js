@@ -1,26 +1,29 @@
+import { viewState } from '../../app/view-state.js';
 /* 选中态视图：可独立刷新，不依赖编辑或整页渲染。 */
-import { state, emit, currentSelection, checkedIds, rowById } from '../../app/state.js';
+import { emit } from '../../app/events.js';
+import { currentSelection, checkedIds } from '../../app/selection.js';
+import { rowById } from '../../app/project-queries.js';
 import { glideSelection } from './motion.js';
 
 /* 点共用画面的公共区域时沿用组内当前句；换到另一画面才选其第一句。 */
 export function selectedMemberOrOwner(ownerId) {
   const owner = rowById(ownerId);
-  const selected = rowById(state.sel);
+  const selected = rowById(viewState.sel);
   return owner?.groupId && selected?.kind === 'line' && selected.groupId === owner.groupId ? selected.id : ownerId;
 }
 
 /* 只刷选中高亮，不重建 DOM（键盘导航 / 点选时不打断进行中的编辑） */
 export function renderSelectionOnly() {
-  document.body.classList.toggle('multi-mode', state.multiMode);
+  document.body.classList.toggle('multi-mode', viewState.multiMode);
   document.body.classList.toggle('multi-active', checkedIds().length > 0); // 勾了一句也一直显示勾，不用等第二句
-  document.querySelector('#selectionHeading').textContent = state.multiMode ? '选择 / #' : '#';
+  document.querySelector('#selectionHeading').textContent = viewState.multiMode ? '选择 / #' : '#';
   emit('cursor');
   const sel = new Set(currentSelection());
-  if (state.view === 'check') {
+  if (viewState.view === 'check') {
     document.querySelectorAll('.as').forEach(el => {
       const checked = sel.has(+el.dataset.id);
       el.classList.toggle('cur', checked);
-      if (state.multiMode) {
+      if (viewState.multiMode) {
         el.setAttribute('role', 'checkbox');
         el.setAttribute('aria-checked', String(checked));
         el.tabIndex = 0;

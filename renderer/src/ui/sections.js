@@ -1,6 +1,8 @@
+import { viewState } from '../app/view-state.js';
 /* 章节管理：在左侧目录里管——鼠标移上去点「···」或右键弹菜单（改名 / 插入新章节 / 只删标题 / 删整节），
    双击目录里的章节名直接改名；正文里的章节标题只是标题，双击也能改名。数据操作全在 actions.js。 */
-import { state, rowById } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById } from '../app/project-queries.js';
 import {
   insertSectionWithSentence,
   deleteSectionHeader,
@@ -57,7 +59,7 @@ function sectionMenu(id, anchor) {
     `
     <div class="p-title">章节「${esc(r.text)}」</div>
     <div class="pop-item" data-sec-act="rename" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="main">改名</span></div>
-    ${state.view === 'table' ? `<div class="pop-item" data-sec-act="insert" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span class="main">在这节后面插入新章节<span class="desc">立个标题和空句，接着往下写</span></span></div>` : ''}
+    ${viewState.view === 'table' ? `<div class="pop-item" data-sec-act="insert" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span class="main">在这节后面插入新章节<span class="desc">立个标题和空句，接着往下写</span></span></div>` : ''}
     <div class="pop-sep"></div>
     <div class="pop-item" data-sec-act="delhead" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 7l4-4M4 7l4 4"/></svg><span class="main">只删标题<span class="desc">${headDesc}</span></span></div>
     <div class="pop-item danger" data-sec-act="delall" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m-1 0v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6"/></svg><span class="main">删除整节<span class="desc">标题和 ${n} 句一起删</span></span></div>

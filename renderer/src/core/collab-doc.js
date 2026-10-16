@@ -8,7 +8,8 @@
      两个人同时在不同地方插句不会互相打乱。
    · base：本机记着的「共享形态」（每项存成稳定排序的 JSON 字符串，比较快）。本机改动 = 本机项目和 base 的差。 */
 import { assetName, syncMirror } from './asset-model.js';
-import { remotePath, localClip } from './candidates.js';
+import { remotePath } from './candidate-values.js';
+import { localClip } from './candidate-placement.js';
 import { projectFieldKeys } from './project-data.js';
 
 export const COLLAB_PROTO = 1;

@@ -1,5 +1,8 @@
 /* 表格视图：逐句一行的标注主界面 */
-import { state, rowById, currentSelection, match, qMatch, types } from '../app/state.js';
+import { state } from '../app/state.js';
+import { rowById, types } from '../app/project-queries.js';
+import { currentSelection, match } from '../app/selection.js';
+import { qMatch } from '../app/search-queries.js';
 import { sharedScenes, shotTotalText } from './asset-html.js';
 import { esc } from './base/dom.js';
 import { durCellHTML, durHeading } from './time-view.js';

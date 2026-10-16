@@ -1,16 +1,18 @@
 import { createPreviewMedia } from '../features/playthrough-media.js';
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { parseAny } from '../core/parse.js';
 import { groupSelectionAction } from '../app/actions.js';
-import { addRefsToShot, setUsageRole, setUsageLines, setShotTimes } from '../app/asset-actions.js';
+import { addRefsToShot, setUsageLines, setShotTimes } from '../app/asset-actions.js';
 import { runCommand } from '../ui/base/commands.js';
 import { playthroughState, closePlaythrough } from '../features/playthrough.js';
 
 const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
 const pause = ms => new Promise(r => setTimeout(r, ms));
-const until = async fn => {
-  for (let i = 0; i < 100 && !fn(); i++) await pause(20);
+const until = async (fn, ms = 2000) => {
+  for (let i = 0; i < ms / 20 && !fn(); i++) await pause(20);
   return !!fn();
 };
 
@@ -96,12 +98,20 @@ export async function runPlaythroughMediaTests(t) {
     update('rows');
     groupSelectionAction([rows[0].id, rows[1].id]);
     addRefsToShot(rows[0], [fx.dir + '/样片.mp4', fx.dir + '/样图.png']);
-    setUsageRole(rows[0], 1, 'main');
     setUsageLines(rows[0], 0, 0, 0);
     setUsageLines(rows[0], 1, 1, 1);
     addRefsToShot(rows[2], [fx.dir + '/样片.mp4']);
     runCommand('playthrough:shot', rows[0].id);
     await until(() => $('#ptStage .pt-media:not(.pt-pending)'));
+    // 时间轴胶片：视频色块铺上真截图，图片色块直接平铺图片，名字条叠在上面
+    await until(() => $('#pttLane .ptt-block[data-film-src] .ptt-frame canvas'), 8000);
+    t(
+      '时间轴视频色块铺上胶片截图，图片色块平铺图片',
+      $$('#pttLane .ptt-block[data-film-src] .ptt-frame canvas').length >= 1 &&
+        !!$('#pttLane .ptt-block[data-film-img] .ptt-film.img') &&
+        getComputedStyle($('#pttLane .ptt-block[data-film-src] .ptt-label')).backgroundColor !== 'rgba(0, 0, 0, 0)',
+      `截图 ${$$('#pttLane .ptt-frame canvas').length} 张`,
+    );
     let blanks = 0;
     const samples = [];
     const watcher = new MutationObserver(() => {

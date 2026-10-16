@@ -1,7 +1,9 @@
+import { viewState } from './app/view-state.js';
 /* 装配入口：初始化各模块、订阅渲染、把原生菜单动作翻译成命令。
    分层：core/ 纯数据规则 → app/ 状态与数据操作 → ui/ 视图与交互 → features/ 独立功能；platform/ 原生能力。
    上层可以用下层，下层不知道上层（ESLint 里有规则把关）。 */
-import { state, on, loadProjectIntoState } from './app/state.js';
+import { on } from './app/events.js';
+import { loadProjectIntoState } from './app/project-load.js';
 import * as storage from './app/storage.js';
 import * as native from './platform/native.js';
 import { initModal, toast, confirmModal } from './ui/base/dom.js';
@@ -241,7 +243,7 @@ async function boot() {
   document.querySelector('#filters').addEventListener('click', e => {
     const f = e.target.closest('.chip-filter');
     if (!f) return;
-    state.filter = f.dataset.f;
+    viewState.filter = f.dataset.f;
     renderAll(); // 留下来的句子滑到新位置，筛掉的淡出，新出现的淡入（render.js）
   });
   document.querySelector('#btnTypes').addEventListener('click', () => runCommand('types:edit'));

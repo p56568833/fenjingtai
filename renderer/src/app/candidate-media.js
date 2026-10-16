@@ -1,13 +1,15 @@
 /* 候选媒体任务：用启动时的不可变信息定位结果，完成时只提交到仍匹配的原项目。 */
-import { state, renumber, on } from './state.js';
+import { state } from './state.js';
+import { renumber } from './project-queries.js';
+import { on } from './events.js';
 import { emit, notify } from './events.js';
-import { projectById, allProjects } from './storage.js';
+import { projectForId, allProjects } from './storage.js';
 import { changeProject } from './project-change.js';
 import { candidateVersion } from './candidate-actions.js';
 import { writeBack } from './candidate-sync.js';
 import { invalidateProbe, probePaths, isMissing } from './asset-actions.js';
-import { swapToLocal, fileTitle, staleOnlineClips, hasLineTag, lineTag } from '../core/candidates.js';
-import { assetName, syncMirror, referencedAssetIds, usageList } from '../core/asset-model.js';
+import { swapToLocal, fileTitle, staleOnlineClips, hasLineTag, lineTag } from '../core/candidate-placement.js';
+import { assetName, syncMirror, referencedAssetIds } from '../core/asset-model.js';
 import { fetchClip } from './collab.js';
 import * as native from '../platform/native.js';
 
@@ -15,7 +17,7 @@ const jobs = new Map();
 const jobKey = (pid, id) => `${pid}|${id}`;
 export const isCandidateBusy = (id, pid = state.projectId) => jobs.has(jobKey(pid, id));
 const sourceOf = c => JSON.stringify([c.url, c.in, c.out, c.rowId, c.best || null, c.assetId]);
-const projectOf = pid => (pid === state.projectId ? state : projectById(pid));
+const projectOf = projectForId;
 
 export function captureSaveTask(id) {
   const c = state.candidates.find(x => x.id === id);
@@ -51,7 +53,6 @@ export function setMediaDirectory(projectId, dir) {
     null,
     (change, p) => {
       p.mediaDir = dir;
-      change.emit('candidate-media');
     },
     { projectId },
   );
@@ -92,11 +93,6 @@ export async function saveCandidateSegment(task, dir) {
         swapToLocal(c, result.path, p.rows, p.assets || {});
         invalidateProbe();
         writeBack(p.candidates);
-        // 只换了这个素材的文件：原地刷新用到它的那几句，不整表重建（批量保存时表格不会一段一跳）
-        const ids = p.rows
-          .filter(r => r.kind === 'line' && usageList(r).some(u => u.assetId === c.assetId))
-          .map(r => r.id);
-        change.emit('assets-changed', { ids, kind: 'association' });
       },
       { projectId: task.projectId },
     );
@@ -135,7 +131,6 @@ export function applyMovedPaths(moved) {
         syncMirror(project.rows || [], project.assets || {});
         writeBack(project.candidates || []);
         invalidateProbe();
-        change.emit('rows');
       },
       { projectId: stored.id },
     );
@@ -225,7 +220,6 @@ export function relinkSavedClips({ quiet = false } = {}) {
         if (!fixed && !gone) return false;
         invalidateProbe();
         writeBack(project.candidates);
-        change.emit('rows');
       },
       { projectId: pid },
     );

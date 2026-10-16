@@ -1,3 +1,8 @@
+import { prepareProjectEdit } from '../renderer/src/core/project-edit.js';
+import { buildReviewIndex } from '../renderer/src/core/review-index.js';
+import { transitionSession } from '../renderer/src/core/collab-session-state.js';
+import { registerCommand, runCommand } from '../renderer/src/ui/base/commands.js';
+import { fmtTc } from '../renderer/src/core/text.js';
 import { buildPrintDoc, planDocument, fmtLong } from '../renderer/src/core/print-doc.js';
 import { buildPictureCoverage, coverageOf as coverOf } from '../renderer/src/core/coverage.js';
 import assert from 'node:assert/strict';
@@ -30,6 +35,8 @@ import { candidateBatches } from '../renderer/src/core/candidate-queries.js';
 import { sentenceScope, normalizeReworkRequests } from '../renderer/src/core/candidate-scope.js';
 import { normalizeProjectRows, reconcileDraft } from '../renderer/src/core/project-import.js';
 import { normalizeProjectData, projectData, applyProjectData } from '../renderer/src/core/project-data.js';
+import { projectDelta } from '../renderer/src/core/project-delta.js';
+import { projectRefresh } from '../renderer/src/core/project-refresh.js';
 import { captureMutation, restoreMutation } from '../renderer/src/core/project-transaction.js';
 import { searchLineIds, parseJump, jumpLineIds } from '../renderer/src/core/search.js';
 let count = 0;
@@ -483,7 +490,7 @@ test('项目 JSON 交换完整回读素材库与片段范围', () => {
 });
 
 /* ── 1.3：剪映字幕对齐 / 时长估算 ── */
-const { parseSubtitles, alignScript, fmtTc } = await import('../renderer/src/core/subtitle-align.js');
+const { parseSubtitles, alignScript } = await import('../renderer/src/core/subtitle-align.js');
 const { speechUnits } = await import('../renderer/src/core/text.js');
 test('SRT / VTT 解析：带小时、逗号或点毫秒、样式标签、BOM', () => {
   const cues = parseSubtitles(
@@ -827,7 +834,7 @@ const { normalizeTypes, typeIndex, newTypeId } = await import('../renderer/src/c
 const { buildTimeline, lineAt, spanOf } = await import('../renderer/src/core/timeline.js');
 const { buildCsv, buildAnnotatedMd, buildAssetListMd } = await import('../renderer/src/core/export-doc.js');
 const { safeFileName } = await import('../renderer/src/core/text.js');
-const { pruneTypingJunk, usagesFromText } = await import('../renderer/src/core/asset-model.js');
+const { pruneTypingJunk } = await import('../renderer/src/core/asset-model.js');
 const { mdTypes } = await import('../renderer/src/core/parse.js');
 
 test('类型表清洗：去重、补默认值、封顶 9 个，空表退回默认五类', () => {
@@ -945,36 +952,15 @@ test('导出文件名：去掉 / : 等会被当成路径的字符', () => {
 });
 test('素材路径打字残留：只清没被引用、且是别的路径前缀的条目', () => {
   const reg = {};
-  for (let i = 1; i <= 8; i++) usagesFromText(reg, [], '/a/b.mp4'.slice(0, i));
+  for (let i = 1; i <= 8; i++) ensureAsset(reg, '/a/b.mp4'.slice(0, i), { kind: 'doc' });
   const keep = Object.values(reg).find(a => a.path === '/a/b.mp4').id;
-  const other = usagesFromText(reg, [], '/x/独立素材.png')[0].assetId;
+  const other = ensureAsset(reg, '/x/独立素材.png').id;
   const removed = pruneTypingJunk(reg, new Set([keep]));
   assert.equal(removed, 7);
   assert.deepEqual(Object.keys(reg).sort(), [keep, other].sort());
 });
 
 /* ── 1.6：合并后的交叉点 ── */
-const { firstVisualUsage } = await import('../renderer/src/core/asset-model.js');
-test('连播预览取这句出现的主画面：备选、叠加、不在这句的都不上屏', () => {
-  const reg = {
-    m: { id: 'm', kind: 'image', path: '/a/主.png' },
-    o: { id: 'o', kind: 'image', path: '/a/叠.png' },
-    x: { id: 'x', kind: 'video', path: '/a/备.mp4' },
-    n: { id: 'n', kind: 'video', path: '/a/后.mp4' },
-  };
-  const row = {
-    assetUsages: [
-      { assetId: 'x', role: 'alt' },
-      { assetId: 'o', role: 'overlay' },
-      { assetId: 'n', role: 'main', off: true },
-      { assetId: 'm', role: 'main' },
-    ],
-  };
-  assert.equal(firstVisualUsage(reg, row).asset.id, 'm');
-  row.assetUsages[3].off = true;
-  assert.equal(firstVisualUsage(reg, row), null);
-  assert.equal(firstVisualUsage(reg, { assetUsages: [{ assetId: 'n' }] }).asset.id, 'n', '未分配的也算');
-});
 test('PDF 按自定义类型排版：类型名、颜色，不需要配画面的不写「画面待定」', () => {
   const types = [
     { id: 'talk', label: '口播', full: '口播出镜', color: '#112233', visual: false },
@@ -994,8 +980,7 @@ test('PDF 按自定义类型排版：类型名、颜色，不需要配画面的�
 });
 
 /* ── 1.8：一个镜头多个主画面 + 手动出现时间 ── */
-const { layoutShot, itemAt, clampSpan, linesOfTime, syncSpansFromTimes } =
-  await import('../renderer/src/core/shot-layout.js');
+const { layoutShot, itemAt, linesOfTime, syncSpansFromTimes } = await import('../renderer/src/core/shot-layout.js');
 const L8 = () => {
   // 三句，每句 9 个字 → 语速 4.5 字/秒 时每句 2 秒，整段 6 秒
   const rows = [1, 2, 3].map(i => ({ id: i, kind: 'line', no: i, text: '一二三四五六七八九', type: 'real' }));
@@ -1230,16 +1215,6 @@ test('镜头排布：没有主画面时退回第一个未分配的画面（旧�
   const rows = L8();
   setUs(rows, [{ assetId: 'c' }, { assetId: 'a' }]);
   assert.deepEqual(spans(layoutShot(REG8, rows, tl8(rows))), [['c', 0, 6]]);
-});
-test('拖动约束：不出口播、不压前后画面、最短 0.2 秒、平移保持长度', () => {
-  const items = [
-    { start: 0, end: 2 },
-    { start: 3, end: 5 },
-  ];
-  assert.deepEqual(clampSpan(items, 1, 1, 5, 6, 'start'), { start: 2, end: 5 });
-  assert.deepEqual(clampSpan(items, 0, 0, 4, 6, 'end'), { start: 0, end: 3 });
-  assert.deepEqual(clampSpan(items, 1, 5, 7, 6, 'move'), { start: 4, end: 6 });
-  assert.deepEqual(clampSpan(items, 1, 4.95, 5, 6, 'start'), { start: 4.8, end: 5 });
 });
 test('手动出现时间随项目保存、载入不丢', () => {
   const p = {
@@ -2884,6 +2859,162 @@ test('相接边同时裁左右两段，切换点两侧没有缝隙且视频内�
   assert.deepEqual(draft.entries[1].clip, { in: 22, out: 32.7 });
   const bound = rollPictures([items[0], editVideo('b', 7, 19.7, 0, 12.7)], 0, 3, 19.7);
   assert.equal(bound.cut, 7);
+});
+
+test('变化清单区分备注和标注，局部刷新不重建时间关系', () => {
+  const before = { rows: [{ id: 1, kind: 'line', text: '口播', note: '原描述' }], assets: {} };
+  const after = structuredClone(before);
+  after.rows[0].note = '新描述';
+  let change = projectDelta(before, after);
+  assert.deepEqual(change.rowFields, ['note']);
+  assert.deepEqual(change.rowIds, [1]);
+  assert.equal(change.timing, false);
+  assert.equal(projectRefresh(change).table, false);
+  assert.equal(projectRefresh(change).notes, true);
+  assert.equal(projectRefresh(change).stats, false);
+  after.rows[0].type = 'real';
+  change = projectDelta(before, after);
+  assert.equal(projectRefresh(change).marks, true);
+  assert.equal(projectRefresh(change).stats, true);
+});
+test('素材内容变化定位到使用它的句子，不要求业务操作手写刷新范围', () => {
+  const before = {
+    rows: [
+      { id: 1, kind: 'line', assetUsages: [{ assetId: 'a' }] },
+      { id: 2, kind: 'line', assetUsages: [{ assetId: 'b' }] },
+      { id: 3, kind: 'line', assetUsages: [{ assetId: 'a' }] },
+    ],
+    assets: { a: { path: 'a.mp4' }, b: { path: 'b.mp4' } },
+  };
+  const after = structuredClone(before);
+  after.assets.a.path = 'new-a.mp4';
+  const change = projectDelta(before, after);
+  assert.deepEqual(change.assetRowIds, [1, 3]);
+  assert.equal(projectRefresh(change).table, false);
+  assert.equal(projectRefresh(change).review, true);
+});
+test('候选审核和保存目录变化不刷新表格，审核页仍收到更新', () => {
+  for (const field of ['candidates', 'mediaDir', 'reworkRequests']) {
+    const plan = projectRefresh(projectDelta({ rows: [], [field]: null }, { rows: [], [field]: 'changed' }));
+    assert.equal(plan.table, false);
+    assert.equal(plan.workspace, false);
+    assert.equal(plan.review, true);
+  }
+});
+test('句子增删、重排、分组和未知字段保留完整块更新', () => {
+  const before = {
+    rows: [
+      { id: 1, kind: 'line' },
+      { id: 2, kind: 'line' },
+    ],
+  };
+  for (const rows of [
+    before.rows.slice(1),
+    [...before.rows].reverse(),
+    [{ ...before.rows[0], groupId: 'g' }, before.rows[1]],
+    [{ ...before.rows[0], futureField: true }, before.rows[1]],
+  ])
+    assert.equal(projectRefresh(projectDelta(before, { rows })).table, true);
+  assert.equal(projectRefresh({ fields: [], rowIds: null }).table, true);
+  assert.equal(projectRefresh({ fields: [], rowIds: [], full: true }).review, true);
+});
+
+test('局部编辑只涉及目标字段，保留素材对象并准确报告时间变化', () => {
+  const row = { id: 1, kind: 'line', text: '原文', note: '旧备注', assetUsages: [{ assetId: 'a' }] };
+  const project = {
+    rows: [row],
+    candidates: [],
+    assets: {
+      toJSON() {
+        throw new Error('不应遍历素材库');
+      },
+    },
+  };
+  const usages = row.assetUsages;
+  const edit = prepareProjectEdit(project, { rows: [{ id: 1, values: { note: '新备注' } }] });
+  assert.equal(row.note, '旧备注');
+  edit.apply();
+  assert.equal(row.note, '新备注');
+  assert.equal(row.assetUsages, usages);
+  assert.deepEqual(edit.changes.rowIds, [1]);
+  assert.deepEqual(edit.changes.rowFields, ['note']);
+  assert.equal(edit.changes.timing, false);
+  assert.equal(edit.changes.assets, false);
+  edit.rollback();
+  assert.equal(row.note, '旧备注');
+  assert.equal(prepareProjectEdit(project, { rows: [{ id: 1, values: { text: '新原文' } }] }).changes.timing, true);
+});
+test('局部编辑整体校验；对象失效、非法字段或应用失败不会留下半次修改', () => {
+  const row = { id: 1, kind: 'line', note: '保留' };
+  const candidate = { id: 'c', note: '旧意见' };
+  const project = { rows: [row], candidates: [candidate] };
+  assert.throws(
+    () =>
+      prepareProjectEdit(project, {
+        rows: [
+          { id: 1, values: { note: '不应写入' } },
+          { id: 2, values: { note: '失效' } },
+        ],
+      }),
+    /失效/,
+  );
+  assert.throws(() => prepareProjectEdit(project, { rows: [{ id: 1, values: { groupId: '越界' } }] }), /不支持/);
+  assert.equal(row.note, '保留');
+  Object.defineProperty(candidate, 'note', { writable: false });
+  const edit = prepareProjectEdit(project, {
+    rows: [{ id: 1, values: { note: '临时' } }],
+    candidates: [{ id: 'c', values: { note: '失败' } }],
+  });
+  assert.throws(() => edit.apply());
+  assert.equal(row.note, '保留');
+  assert.equal(candidate.note, '旧意见');
+  assert.equal(prepareProjectEdit(project, { rows: [{ id: 1, values: { note: '保留' } }] }).changed, false);
+});
+test('审核索引按共用画面归集候选，保留章节和稿件顺序，忽略失效引用', () => {
+  const rows = [
+    { id: 0, kind: 'section', text: '第一章' },
+    { id: 1, kind: 'line', groupId: 'g' },
+    { id: 2, kind: 'line', groupId: 'g' },
+    { id: 3, kind: 'line' },
+  ];
+  const cands = [
+    { id: 'a', rowId: 2 },
+    { id: 'b', rowId: 1 },
+    { id: 'c', rowId: 3 },
+    { id: 'missing', rowId: 99 },
+  ];
+  const index = buildReviewIndex(rows, cands);
+  assert.equal(index.byRow.get(1), index.byRow.get(2));
+  assert.deepEqual(
+    index.byRow.get(1).cands.map(c => c.id),
+    ['a', 'b'],
+  );
+  assert.equal(index.byRow.get(2).lead.id, 1);
+  assert.equal(index.groups.size, 2);
+  assert.equal(index.sections.get(3), '第一章');
+  assert.equal(index.order.get(3), 3);
+});
+test('协作连接遵守角色状态；掉线和重新配对后可恢复在线', () => {
+  const guest = { rep: { role: 'guest' }, status: 'offline' };
+  for (const next of ['connecting', 'online', 'offline', 'connecting', 'needs-code', 'online'])
+    transitionSession(guest, next);
+  assert.equal(guest.status, 'online');
+  assert.throws(() => transitionSession(guest, 'waiting'), /无效/);
+  assert.equal(guest.status, 'online');
+  const host = { rep: { role: 'host' }, status: 'waiting' };
+  transitionSession(host, 'online');
+  transitionSession(host, 'waiting');
+  assert.throws(() => transitionSession(host, 'needs-code'), /无效/);
+});
+test('命令遗漏和重复登记明确失败，合法命令只执行一次', () => {
+  assert.throws(() => runCommand('audit:missing'), /未登记/);
+  let n = 0;
+  registerCommand('audit:once', value => {
+    n += value;
+  });
+  assert.throws(() => registerCommand('audit:once', () => {}), /重复/);
+  assert.equal(runCommand('audit:once', 2), true);
+  assert.equal(n, 2);
 });
 
 console.log(`${count} 项数据回归通过`);

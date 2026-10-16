@@ -1,12 +1,14 @@
+import { viewState } from '../app/view-state.js';
 /* 1.4 素材角色与位置自测：默认角色、表格只摆要用的、角色同步整组、
    同一句只能有一个主画面、位置（第几句到第几句）、交稿检查、素材清单、解除共用后各句各留各的、撤销。 */
-import { state, update } from '../app/state.js';
+import { state } from '../app/state.js';
+import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { undo, clearUndo } from '../app/undo.js';
 import { parseAny } from '../core/parse.js';
 import { checkDelivery } from '../core/shots.js';
 import { usageList } from '../core/asset-model.js';
-import { addRefsToShot, setUsageLines, toggleAlt, swapPictures } from '../app/asset-actions.js';
+import { addRefsToShot, setUsageLines, toggleAlt } from '../app/asset-actions.js';
 import { setType, ungroupAction } from '../app/actions.js';
 import { buildAssetListMd } from '../core/export-doc.js';
 import { renderInspector } from '../ui/inspector.js';
@@ -29,19 +31,19 @@ export async function runRoleTests(t) {
   const original = state.projectId;
   storage.createProject('素材角色测试', parseAny('## 段\n甲。乙。丙。\n## 别的\n丁。'));
   clearUndo();
-  state.view = 'table';
+  viewState.view = 'table';
   update('rows');
   await pause(30);
   const ids = lines()
     .slice(0, 3)
     .map(r => r.id);
-  state.multi = ids;
-  state.sel = ids[0];
-  state.multiMode = true;
+  viewState.multi = ids;
+  viewState.sel = ids[0];
+  viewState.multiMode = true;
   update('selection');
   click('#btnGroup');
   click('#mOk');
-  state.multiMode = false;
+  viewState.multiMode = false;
   setType(ids, 'real');
   const A = lines()[0];
   const fixtureDir = window.native.fixtureInfo()?.dir || '/tmp';
@@ -63,8 +65,8 @@ export async function runRoleTests(t) {
     cell(),
   );
 
-  state.sel = A.id;
-  state.multi = null;
+  viewState.sel = A.id;
+  viewState.multi = null;
   update('selection');
   if ($('#inspector').hidden) click('#btnDetail');
   click(`[data-detail="${A.id}"]`);
@@ -122,17 +124,6 @@ export async function runRoleTests(t) {
   toggleAlt(lines()[0], indexOf(id1));
   update('rows');
   t('跨句备选的范围保持原样', usageOf(id1).role === 'alt' && onlyAt(id1, 0, 1));
-  {
-    const onAt = (n, id) => us(n).some(u => u.assetId === id && !u.off);
-    swapPictures(lines()[0], id0, id2);
-    t(
-      '两个画面对调的数据操作仍可用',
-      onAt(0, id2) && !onAt(0, id0) && onAt(1, id0) && onAt(2, id0) && !onAt(1, id2) && us()[0].assetId === id2,
-    );
-    swapPictures(lines()[0], id0, id2);
-    update('rows');
-    t('再对调一次换回原样', onAt(0, id0) && !onAt(0, id2) && onAt(1, id2) && us()[0].assetId === id0);
-  }
   const issuesOf = () => checkDelivery(state.rows).find(x => x.id === lines()[0].id)?.issues || [];
   t('每句都有画面时交稿检查不报', !issuesOf().some(x => x.includes('主画面')), issuesOf().join('、'));
   toggleAlt(lines()[0], indexOf(id2));
@@ -202,9 +193,9 @@ export async function runRoleTests(t) {
     'scroll-a': { id: 'scroll-a', kind: 'link', path: 'https://example.com/a', name: '素材甲' },
     'scroll-b': { id: 'scroll-b', kind: 'link', path: 'https://example.com/b', name: '素材乙' },
   });
-  state.sel = 91;
-  state.multi = null;
-  state.filter = 'all';
+  viewState.sel = 91;
+  viewState.multi = null;
+  viewState.filter = 'all';
   update('rows');
   click('[data-detail="91"]');
   const target = () => $('.row[data-id="91"] .sent');
@@ -220,7 +211,7 @@ export async function runRoleTests(t) {
     action();
     await pause(100);
     const drift = target().getBoundingClientRect().top - top;
-    t(name, state.sel === 91 && Math.abs(drift) < 2, `选中 ${state.sel}，句子偏移 ${drift.toFixed(1)}px`);
+    t(name, viewState.sel === 91 && Math.abs(drift) < 2, `选中 ${viewState.sel}，句子偏移 ${drift.toFixed(1)}px`);
   };
   click('#inspector [data-line-usage="0"][data-line="0"]');
   await stayAfter('长稿：再点单句转备选仍停在原句原位置', () =>
@@ -241,8 +232,8 @@ export async function runRoleTests(t) {
     .map(p => p.id);
   storage.switchProject(original);
   for (const id of created) storage.deleteProject(id);
-  state.multi = null;
-  state.multiMode = false;
+  viewState.multi = null;
+  viewState.multiMode = false;
   clearUndo();
   update('rows');
   await pause(30);

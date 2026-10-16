@@ -1,7 +1,9 @@
 /* 真鼠标验证镜头轨的插入排序、双端裁剪、播放头独立与原子撤销。 */
 export async function testShotEditPointer(page, report) {
   const fixture = await page.evaluate(async () => {
-    const { state, update } = await import('./src/app/state.js');
+    const { state } = await import('./src/app/state.js');
+    const { update } = await import('./src/app/project-events.js');
+    const { viewState } = await import('./src/app/view-state.js');
     const storage = await import('./src/app/storage.js');
     const { clearUndo } = await import('./src/app/undo.js');
     const { runCommand } = await import('./src/ui/base/commands.js');
@@ -33,7 +35,7 @@ export async function testShotEditPointer(page, report) {
       'edit-b': { id: 'edit-b', kind: 'image', path: `${fx.dir}/角色-主.png`, name: '乙图片' },
       'edit-c': { id: 'edit-c', kind: 'image', path: `${fx.dir}/角色-叠.png`, name: '丙图片' },
     });
-    state.sel = rows[0].id;
+    viewState.sel = rows[0].id;
     update('rows');
     runCommand('playthrough:shot', rows[0].id);
     if (playthroughState().playing) playthroughKey({ key: ' ', preventDefault() {} });
@@ -344,7 +346,7 @@ export async function testShotEditPointer(page, report) {
       const storage = await import('./src/app/storage.js');
       storage.switchProject(original);
       storage.deleteProject(projectId);
-      (await import('./src/app/state.js')).update('rows');
+      (await import('./src/app/project-events.js')).update('rows');
     }, fixture);
   }
   return passed;

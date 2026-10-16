@@ -1,4 +1,5 @@
-import { state, on } from './state.js';
+import { state } from './state.js';
+import { on } from './events.js';
 import { emit, notify } from './events.js';
 import { reviewPayload, mainAssetIds } from '../core/candidates.js';
 import * as native from '../platform/native.js';
