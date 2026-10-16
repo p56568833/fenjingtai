@@ -24,7 +24,7 @@ body.dark .searchbar {
   display: flex;
 }
 .searchbar input {
-  width: 220px;
+  width: 280px;
   height: 30px;
   border: 1px solid var(--hairline-2);
   border-radius: 8px;
@@ -45,6 +45,15 @@ select:focus-visible {
 }
 .searchbar input:focus {
   border-color: rgba(59, 116, 232, 0.5);
+}
+/* 输入编号或时间时提示会跳到哪一句 */
+.searchbar .jump {
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.searchbar .jump:empty {
+  display: none;
 }
 .searchbar .cnt {
   font-family: var(--mono);
@@ -79,5 +88,6 @@ mark {
   background: rgba(255, 194, 77, 0.5);
   color: inherit;
   border-radius: 3px;
-  padding: 0 1px;
+  /* 用阴影向外多出 1px 底色而不是 padding：加减高亮不改变文字宽度，不会让句子换行 */
+  box-shadow: 0 0 0 1px rgba(255, 194, 77, 0.5);
 }

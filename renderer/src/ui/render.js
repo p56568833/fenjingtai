@@ -11,6 +11,7 @@ import { renderSelectionOnly } from './base/selection.js';
 import { revealRow } from './base/dom.js';
 import { registerCommand, runCommand } from './base/commands.js';
 import { staleBlock } from './base/keyed-patch.js';
+import { paintSearch } from './base/search-paint.js';
 
 function syncTitle() {
   const t = document.querySelector('#projTitle');
@@ -65,6 +66,7 @@ function paintAll() {
   renderStats();
   if (state.view === 'check') renderCheck();
   else if (!reviewing) renderTable();
+  if (!reviewing) paintSearch();
   emit('workspace');
   renderSelectionOnly();
   flipPlay(document.querySelector('#rows'), flip);

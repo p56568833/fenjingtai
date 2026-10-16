@@ -6,8 +6,8 @@ import { typeIndex } from '../core/types.js';
 import { projectData, normalizeProjectData } from '../core/project-data.js';
 import { buildTimeline } from '../core/timeline.js';
 import { syncSpansFromTimes } from '../core/shot-layout.js';
-import { speechUnits } from '../core/text.js';
-import { searchLineIds } from '../core/search.js';
+import { speechUnits, fmtTime } from '../core/text.js';
+import { searchLineIds, parseJump, jumpLineIds } from '../core/search.js';
 
 export { on, emit } from './events.js';
 
@@ -83,20 +83,38 @@ export function visibleLineIds() {
 /* 搜索结果与正文高亮共用一份结果，避免把共用备注重复算成组内每一句。 */
 let queryKey = '',
   queryRows = null,
+  queryTl = null,
   queryIds = [],
+  queryJump = null,
   querySet = new Set();
+/* 编号 / 时间直达的句子不受类型筛选限制；纯数字、小数点时间直达不到时退回正文搜索。 */
 export function queryLineIds() {
   const key = `${rev}|${state.rows.length}|${state.filter}|${state.query}`;
-  if (queryRows !== state.rows || queryKey !== key) {
+  const tl = timeline();
+  if (queryRows !== state.rows || queryKey !== key || queryTl !== tl) {
     queryRows = state.rows;
     queryKey = key;
-    queryIds = searchLineIds(
-      state.rows.filter(r => r.kind === 'line' && match(r)),
-      state.query,
-    );
+    queryTl = tl;
+    const jump = parseJump(state.query);
+    queryJump = jump ? jumpLineIds(jump, lines(), tl, fmtTime) : null;
+    // 纯数字 / 小数点时间能直达就只给那一句；直达不到（比如没有这一句）才当普通文字搜
+    const text =
+      !jump || (jump.loose && !queryJump.ids.length)
+        ? searchLineIds(
+            state.rows.filter(r => r.kind === 'line' && match(r)),
+            state.query,
+          )
+        : [];
+    queryIds = [...new Set([...(queryJump?.ids || []), ...text])];
+    if (jump?.loose && text.length) queryJump = null; // 已按文字搜到结果，不再提示「没有第 N 句」
     querySet = new Set(queryIds);
   }
   return queryIds;
+}
+/* 搜索条上的直达说明（「→ 第 248 句」「26:37 → 第 248 句」），不是编号 / 时间时为空。 */
+export function queryJumpLabel() {
+  queryLineIds();
+  return state.query ? queryJump?.label || '' : '';
 }
 export function qMatch(r) {
   if (!state.query) return true;

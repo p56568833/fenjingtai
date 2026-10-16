@@ -7,7 +7,8 @@ import { pop } from './base/motion.js';
 import { assetCards, shotLineCoverage, coverStrip } from './asset-html.js';
 import { hydrateAssetCards } from './asset-thumbs.js';
 import { probeDurations } from './asset-files.js';
-import { esc, hiText } from './base/dom.js';
+import { esc } from './base/dom.js';
+import { paintSearch } from './base/search-paint.js';
 import { charRangesForTimes } from '../core/text.js';
 import { patchHTML } from './base/html-patch.js';
 
@@ -41,20 +42,16 @@ function animateCards(id, assets) {
 /* 每句有没有画面：已经放了画面的镜头里，没画面的句子整句字标红，只盖住一部分的把没盖住的那几个字标红
    （句内按字数估算位置）；共用画面的标题旁边放一条「每句的画面」，一眼看出哪几句是空的 */
 function sentHtml(text, ranges) {
-  const q = state.query && text.toLowerCase().includes(state.query.toLowerCase()) ? state.query : '';
-  if (!ranges.length) return q ? hiText(text, q) : esc(text);
-  // 搜索高亮和红字可能交叠：按所有边界切开，每一小段各自包上
-  const qi = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  if (!ranges.length) return esc(text);
+  // 搜索高亮不写在这里：paintSearch 在写好的文字上原地包 <mark>，可以跨过红字边界
   const cuts = new Set([0, text.length]);
   for (const r of ranges) cuts.add(r.from).add(r.to);
-  if (qi >= 0) cuts.add(qi).add(qi + q.length);
   const pts = [...cuts].sort((a, b) => a - b);
   let html = '';
   for (let k = 0; k < pts.length - 1; k++) {
     const a = pts[k],
       b = pts[k + 1];
     let part = esc(text.slice(a, b));
-    if (qi >= 0 && a >= qi && b <= qi + q.length) part = `<mark>${part}</mark>`;
     const r = ranges.find(x => a >= x.from && b <= x.to);
     if (r) {
       const tip = r.from === 0 && r.to === text.length ? '这句没有画面' : '这里没有画面';
@@ -72,6 +69,7 @@ function paintSent(sent, text, ranges) {
   if (html && marked && sent._gapHtml === html) return;
   sent.innerHTML = html ?? sentHtml(text, []);
   sent._gapHtml = html;
+  paintSearch(sent.closest('.row'));
 }
 function paintGaps(el, r) {
   const members = shotMembers(state.rows, r);

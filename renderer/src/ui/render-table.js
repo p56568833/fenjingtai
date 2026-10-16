@@ -1,7 +1,7 @@
 /* 表格视图：逐句一行的标注主界面 */
 import { state, rowById, currentSelection, match, qMatch, types } from '../app/state.js';
 import { sharedScenes, shotTotalText } from './asset-html.js';
-import { esc, hiText } from './base/dom.js';
+import { esc } from './base/dom.js';
 import { durCellHTML, durHeading } from './time-view.js';
 import { chipHTML } from './base/type-view.js';
 import { takeAnimation } from './base/anim.js';
@@ -12,9 +12,9 @@ import { patchChildren, staleBlock } from './base/keyed-patch.js';
    句号和时长也不写进来：前面加一句、删一句，后面每句的句号和起始时间都会变，那样整张表都得换，
    由 paintNumbers 在原地改。shared：在共用画面里（类型和素材格放在整组右边，不在这行里） */
 function rowHTML(r, { shared = false, end = false } = {}) {
-  const qdim = state.query && !qMatch(r) ? ' qdim' : '';
-  const sentHtml = state.query && qMatch(r) ? hiText(r.text, state.query) : esc(r.text);
-  return `<div class="row ${r.type ? '' : 'unannotated'}${qdim}${shared ? ' shared-scene-row' : ''}${end ? ' shared-scene-end' : ''}" data-id="${r.id}"><div class="spine"></div><div class="idx"><input class="row-select" type="checkbox" data-select="${r.id}"><span></span></div><div class="sent" data-id="${r.id}">${sentHtml}</div><div class="dur"></div>${shared ? '' : `${typeboxHTML(r)}${visualHTML(r)}`}<button class="row-act row-more" data-row-more="${r.id}" title="更多操作（素材 / 共用范围 / 删除这句）"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button></div>`;
+  // 搜索高亮和淡化不写进来，由 paintSearch 原地刷（开关搜索不换句子块，页面不闪）
+  const sentHtml = esc(r.text);
+  return `<div class="row ${r.type ? '' : 'unannotated'}${shared ? ' shared-scene-row' : ''}${end ? ' shared-scene-end' : ''}" data-id="${r.id}"><div class="spine"></div><div class="idx"><input class="row-select" type="checkbox" data-select="${r.id}"><span></span></div><div class="sent" data-id="${r.id}">${sentHtml}</div><div class="dur"></div>${shared ? '' : `${typeboxHTML(r)}${visualHTML(r)}`}<button class="row-act row-more" data-row-more="${r.id}" title="更多操作（素材 / 共用范围 / 删除这句）"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button></div>`;
 }
 const typeboxHTML = (r, total = false) =>
   `<div class="typebox">${total ? '<em class="shared-total" title="这几句口播一共占的时间：拿它和右边素材的「可用」比，看画面能不能盖满"></em>' : ''}${chipHTML(r)}</div>`;

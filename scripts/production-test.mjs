@@ -31,7 +31,7 @@ import { sentenceScope, normalizeReworkRequests } from '../renderer/src/core/can
 import { normalizeProjectRows, reconcileDraft } from '../renderer/src/core/project-import.js';
 import { normalizeProjectData, projectData, applyProjectData } from '../renderer/src/core/project-data.js';
 import { captureMutation, restoreMutation } from '../renderer/src/core/project-transaction.js';
-import { searchLineIds } from '../renderer/src/core/search.js';
+import { searchLineIds, parseJump, jumpLineIds } from '../renderer/src/core/search.js';
 let count = 0;
 function test(name, fn) {
   fn();
@@ -61,6 +61,34 @@ test('搜索正文定位到具体句，共用描述不重复计算，纯备注�
     ),
     [2, 4, 6, 7],
   );
+});
+test('搜索识别句子编号与口播时间，其他文字照常搜索', () => {
+  assert.deepEqual(parseJump('248'), { kind: 'no', from: 248, to: 248, loose: true });
+  assert.deepEqual(parseJump('#248'), { kind: 'no', from: 248, to: 248, loose: false });
+  assert.deepEqual(parseJump('第 248 句'), { kind: 'no', from: 248, to: 248, loose: false });
+  assert.deepEqual(parseJump('256-248'), { kind: 'no', from: 248, to: 256, range: true });
+  assert.deepEqual(parseJump('第248句到第256句'), { kind: 'no', from: 248, to: 256, range: true });
+  assert.deepEqual(parseJump('26:37'), { kind: 'time', from: 1597, to: 1597, loose: false });
+  assert.deepEqual(parseJump('1:02:05'), { kind: 'time', from: 3725, to: 3725, loose: false });
+  assert.deepEqual(parseJump('26分37秒'), { kind: 'time', from: 1597, to: 1597, loose: false });
+  assert.deepEqual(parseJump('26.37'), { kind: 'time', from: 1597, to: 1597, loose: true });
+  assert.deepEqual(parseJump('1.02.05'), { kind: 'time', from: 3725, to: 3725, loose: true });
+  assert.deepEqual(parseJump('26.37-27.21'), { kind: 'time', from: 1597, to: 1641, range: true });
+  assert.deepEqual(parseJump('26:37 ~ 27:21'), { kind: 'time', from: 1597, to: 1641, range: true });
+  for (const text of ['GLP-1', '26:70', '批发商', '5.5', '26.7', '26.75', '26.375', '', '1-2-3'])
+    assert.equal(parseJump(text), null, text);
+  const lines = [1, 2, 3, 4].map(id => ({ id }));
+  const tl = {
+    total: 40,
+    times: new Map(lines.map(r => [r.id, { start: (r.id - 1) * 10, end: r.id * 10 }])),
+  };
+  const fmt = sec => `${sec}s`;
+  assert.deepEqual(jumpLineIds(parseJump('3'), lines, tl, fmt), { ids: [3], label: '→ 第 3 句' });
+  assert.deepEqual(jumpLineIds(parseJump('3-9'), lines, tl, fmt).ids, [3, 4]);
+  assert.deepEqual(jumpLineIds(parseJump('9'), lines, tl, fmt), { ids: [], label: '没有第 9 句' });
+  assert.deepEqual(jumpLineIds(parseJump('0:25'), lines, tl, fmt), { ids: [3], label: '25s → 第 3 句' });
+  assert.deepEqual(jumpLineIds(parseJump('0:15-0:25'), lines, tl, fmt).ids, [2, 3]);
+  assert.deepEqual(jumpLineIds(parseJump('1:00'), lines, tl, fmt), { ids: [], label: '超出全片时长 40s' });
 });
 test('中文右引号留在句尾', () =>
   assert.deepEqual(splitSentences('他说：“行。”她回答：“好！”'), ['他说：“行。”', '她回答：“好！”']));

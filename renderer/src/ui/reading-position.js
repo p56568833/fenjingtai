@@ -49,23 +49,31 @@ export function preserveReadingPosition(changeLayout) {
   });
   const cancel = guard.cancel;
   cancelPending = cancel;
+  // 重画可能把锚定的句子元素整个换掉（如去掉搜索高亮），按句子 id 找回新元素继续对齐
+  const id = anchor.sentence.dataset.id;
+  const current = () =>
+    anchor.sentence.isConnected ? anchor.sentence : wrap.querySelector(`.sent[data-id="${id}"],.as[data-id="${id}"]`);
   const fix = () => {
     if (!guard.active()) return;
+    const sentence = current();
     if (
       done ||
       state.projectId !== project ||
       state.view !== view ||
-      !anchor.sentence.isConnected ||
+      !sentence ||
       Math.abs(wrap.scrollTop - scrollTop) > 1
     ) {
       cancel();
       return;
     }
+    anchor.sentence = sentence;
     const delta = anchor.sentence.getBoundingClientRect().top - wrap.getBoundingClientRect().top - anchor.offset;
     if (Math.abs(delta) >= 1) wrap.scrollTop += delta;
     scrollTop = wrap.scrollTop;
   };
   changeLayout();
+  // 重画中内容高度临时变化会让浏览器夹住 scrollTop，这不是用户在滚，不能当成操作而放弃校准
+  scrollTop = wrap.scrollTop;
   fix(); // 同一帧内完成，避免先跳一下再跳回来。
   let remaining = 3;
   const settle = () => {

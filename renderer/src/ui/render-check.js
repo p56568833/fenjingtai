@@ -2,7 +2,7 @@
    只有渲染；点击 / 拖选 / 键盘交互在 check-view.js。 */
 import { state, rowById, currentSelection, qMatch, match, types } from '../app/state.js';
 import { sharedScenes } from './asset-html.js';
-import { esc, hiText } from './base/dom.js';
+import { esc } from './base/dom.js';
 import { takeAnimation } from './base/anim.js';
 import { patchChildren, staleBlock } from './base/keyed-patch.js';
 
@@ -10,8 +10,7 @@ import { patchChildren, staleBlock } from './base/keyed-patch.js';
    渲染与标注后的原地刷新共用同一份，状态永远和数据对得上 */
 export function spanClass(r) {
   const st = r.type ? ` typed st-${r.type}` : '';
-  const qdim = state.query && !qMatch(r) ? ' qdim' : '';
-  return `as${st}${qdim}`;
+  return `as${st}`; // 搜索淡化由 paintSearch 原地刷
 }
 const spanStyle = r => (r.type ? ` style="--tc:${types().color(r.type)}"` : '');
 
@@ -46,8 +45,7 @@ export function renderCheck() {
     bufChars = 0,
     group = null; // 正在攒的共用画面：{ owner, html }
   const span = r => {
-    const hit = state.query && qMatch(r);
-    const txt = hit ? hiText(r.text, state.query) : esc(r.text);
+    const txt = esc(r.text);
     const note = r.note && !r.groupId ? `<span class="as-note" data-note="${r.id}">${esc(r.note)}</span>` : '';
     return `<span class="${spanClass(r)}"${spanStyle(r)} data-id="${r.id}">${txt}</span>` + note;
   };
@@ -122,7 +120,7 @@ export function updateCheckSpans(ids) {
     const el = document.querySelector(`.as[data-id="${id}"]`);
     if (!el) continue;
     staleBlock(el);
-    el.className = spanClass(r) + (sel.has(id) ? ' cur' : '');
+    el.className = spanClass(r) + (sel.has(id) ? ' cur' : '') + (state.query && !qMatch(r) ? ' qdim' : '');
     if (r.type) el.style.setProperty('--tc', types().color(r.type));
     else el.style.removeProperty('--tc');
   }

@@ -160,7 +160,7 @@ export async function runTablePatchTests(t) {
     );
 
     /* 搜索：命中的句子高亮，其余淡化；清空后恢复 */
-    state.query = '第 200 句';
+    state.query = '第 200 句。'; // 带句号走正文搜索；不带会被当成编号直达
     emit('rows');
     await pause(60);
     t('搜索高亮命中的句子，其余淡化', !!rowEl(200).querySelector('mark') && rowEl(201).classList.contains('qdim'));
