@@ -42,7 +42,7 @@ export function slotOf(c) {
   if (c.assetId) {
     const layout = layoutShot(state.assets || {}, members, timeline());
     const it = layout?.items.find(x => x.assetId === c.assetId);
-    if (it) return { start: layout.start + it.start, end: layout.start + Math.min(it.end, layout.dur) };
+    if (it) return { start: layout.start + it.start, end: layout.start + Math.min(it.slotEnd ?? it.end, layout.dur) };
   }
   const ids = new Set(members.map(m => m.id));
   const seq = state.candidates

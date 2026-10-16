@@ -12,7 +12,7 @@ import { fmtTime, fmtLen } from '../core/text.js';
 import { layoutShot, itemAt, circled, MIN_LEN } from '../core/shot-layout.js';
 import { movePicture, trimPicture, rollPictures } from '../core/shot-edit.js';
 import { altItems, moveAlt, mainSlotAt, swapIntoMain, insertIntoMain, dropToAlt } from '../core/shot-tracks.js';
-import { setShotTimes, arrangeShot, clearShotTimes } from '../app/asset-actions.js';
+import { setShotTimes, arrangeShot, clearShotTimes, rememberDuration, setFitDone } from '../app/asset-actions.js';
 import { esc, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/base/dom.js';
 import { typeIcon } from '../ui/base/type-view.js';
 import { registerCommand } from '../ui/base/commands.js';
@@ -147,6 +147,14 @@ function prefetchNext(i, t) {
   media.prefetch('', null);
 }
 
+/* 播放时顺便记下视频真实时长：裁剪结尾最远能拉回到原片末尾。在线视频只用地址里那一段，不记整条文件的长度 */
+function noteDuration(item, el) {
+  if (/#t=/.test(item.asset.path || '')) return;
+  const keep = () => el.duration > 0 && Number.isFinite(el.duration) && rememberDuration(item.asset, el.duration);
+  if (el.readyState >= 1) keep();
+  else el.addEventListener('loadedmetadata', keep, { once: true });
+}
+
 /* ── 画面：按镜头排布换素材，下一段提前准备首帧 ── */
 function showUnit(i, t) {
   const u = units[i];
@@ -180,7 +188,10 @@ function showUnit(i, t) {
         `${item.kind === 'video' ? '视频' : '图片'}读不出来（文件失联或格式不支持）`,
       );
     });
-    if (item.kind === 'video' && el.isConnected) videoEl = el;
+    if (item.kind === 'video' && el.isConnected) {
+      videoEl = el;
+      noteDuration(item, el);
+    }
   } else {
     media.clear();
     stage.innerHTML = items.length ? '<div class="pt-gap">这段没有画面</div>' : cardHTML(r, color);
@@ -263,7 +274,11 @@ function renderTrack(i) {
     .map((it, k) => {
       const end = Math.min(it.end, dur);
       const len = clipLen(it);
-      const short = len != null && len < it.end - it.start - 0.05;
+      // 标了剪辑里补足的视频才会比片段长：片段之后那截画成补足的样子（定格 / 放慢）
+      const short = len != null && len < end - it.start - 0.05;
+      const fit = short
+        ? `<span class="ptt-fit" style="left:${((len / Math.max(0.01, end - it.start)) * 100).toFixed(1)}%" title="剪辑里定格 / 放慢补足 ${sec(end - it.start - len)} 秒"><i>定格 / 放慢</i></span>`
+        : '';
       const cls = [
         'ptt-block',
         toneOf(r.id, items, k) ? 't1' : '',
@@ -273,8 +288,8 @@ function renderTrack(i) {
       ]
         .filter(Boolean)
         .join(' ');
-      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后面停在最后一帧` : ''}\n拖到下面的备选轨：先撤下来`;
-      return `<div class="${cls}" data-ptt="${esc(it.assetId)}" style="left:${pct(it.start)};width:${pct(Math.max(0, end - it.start))}" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头；Shift 拖相接边调整切换点"></span><span class="ptt-label">${circled(it.n)} ${esc(it.asset.name || '')}</span>${short ? '<span class="ptt-short" style="left:' + ((len / Math.max(0.01, end - it.start)) * 100).toFixed(1) + '%"></span>' : ''}<span class="ptt-grip r" title="拖动裁剪结尾；Shift 拖相接边调整切换点"></span></div>`;
+      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后 ${sec(end - it.start - len)} 秒在剪辑里定格 / 放慢补足` : ''}\n拖到下面的备选轨：先撤下来`;
+      return `<div class="${cls}" data-ptt="${esc(it.assetId)}" style="left:${pct(it.start)};width:${pct(Math.max(0, end - it.start))}" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头；Shift 拖相接边调整切换点"></span><span class="ptt-label">${circled(it.n)} ${esc(it.asset.name || '')}</span>${fit}<span class="ptt-grip r" title="拖动裁剪结尾；Shift 拖相接边调整切换点"></span></div>`;
     })
     .join('');
   const altRows = Math.max(1, ...trackAlts.map(a => a.row + 1));
@@ -323,14 +338,28 @@ function renderEdit() {
   if (remoteMsg) notes.push(remoteMsg.text);
   if (editMsg) notes.push(editMsg);
   editMsg = '';
+  let action = '';
   if (it) {
     const dur = u.end - u.start;
     const len = clipLen(it);
+    const end = Math.min(it.end, dur);
+    const slot = Math.min(it.slotEnd ?? it.end, dur);
     if (it.over) notes.push(`${circled(it.n)} 超出口播 ${sec(it.end - dur)} 秒，超出的部分不放`);
-    if (len != null && len < it.end - it.start - 0.05)
-      notes.push(`${circled(it.n)} 片段只有 ${sec(len)} 秒，后 ${sec(it.end - it.start - len)} 秒停在最后一帧`);
+    if (it.usage.fitDone && len != null) {
+      notes.push(
+        len < end - it.start - 0.05
+          ? `${circled(it.n)} 片段 ${sec(len)} 秒，后 ${sec(end - it.start - len)} 秒在剪辑里定格 / 放慢补足`
+          : `${circled(it.n)} 已标剪辑里补足：结尾可以拉过片段末尾`,
+      );
+      action =
+        '<button class="ptt-fitbtn" data-ptt-fit="off" title="不再按定格 / 放慢补足：画面截回片段本身的长度">取消补足</button>';
+    } else if (it.kind === 'video' && slot > end + 0.05) {
+      notes.push(`${circled(it.n)} 片段只有 ${sec(end - it.start)} 秒，后面 ${sec(slot - end)} 秒没有画面`);
+      action =
+        '<button class="ptt-fitbtn" data-ptt-fit="on" title="剪辑里用定格或放慢补足：画面拉到排给它的时间，不再提示不够长">定格 / 放慢补足</button>';
+    }
   }
-  el.textContent = notes.join(' · ');
+  el.innerHTML = esc(notes.join(' · ')) + action;
 }
 
 function movePlayhead(t) {
@@ -456,7 +485,7 @@ function onLaneDown(e) {
   const ghost = $('#pttGhost');
   trackDirty = true;
   const feedback = $('#pttWarn');
-  const oldFeedback = feedback.textContent;
+  const oldFeedback = feedback.innerHTML;
   drag = {
     plan: shotPlan(),
     k,
@@ -484,7 +513,7 @@ function onLaneDown(e) {
     swapTarget(null);
     if (insert) insert.hidden = true;
     if (altInsert) altInsert.hidden = true;
-    feedback.textContent = oldFeedback;
+    feedback.innerHTML = oldFeedback;
     try {
       if (lanes.hasPointerCapture(e.pointerId)) lanes.releasePointerCapture(e.pointerId);
     } catch {}
@@ -1133,6 +1162,11 @@ export function initPlaythrough() {
     if (e.target.closest('#pttReset')) {
       const row = unitRow();
       if (row) clearShotTimes(row);
+    }
+    const fit = e.target.closest('[data-ptt-fit]');
+    if (fit && pick) {
+      const row = unitRow();
+      if (row) setFitDone(row, pick, fit.dataset.pttFit === 'on');
     }
   });
   on('workspace', refreshSoon);

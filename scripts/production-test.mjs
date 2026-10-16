@@ -1,5 +1,5 @@
 import { buildPrintDoc, planDocument, fmtLong } from '../renderer/src/core/print-doc.js';
-import { buildPictureCoverage } from '../renderer/src/core/coverage.js';
+import { buildPictureCoverage, coverageOf as coverOf } from '../renderer/src/core/coverage.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -980,7 +980,9 @@ const REG8 = {
   c: { id: 'c', kind: 'image', path: '/a/丙.png', name: '丙' },
 };
 const tl8 = rows => buildTimeline(rows, { speechRate: 4.5 });
-const spans = lay => lay.items.map(it => [it.assetId, +it.start.toFixed(2), +it.end.toFixed(2)]);
+// 排给每个画面的时间（视频画面本身还会截到可用长度，见 shown）
+const spans = lay => lay.items.map(it => [it.assetId, +it.start.toFixed(2), +(it.slotEnd ?? it.end).toFixed(2)]);
+const shown = lay => lay.items.map(it => [it.assetId, +it.start.toFixed(2), +it.end.toFixed(2)]);
 const setUs = (rows, us) =>
   rows.forEach(r => (r.assetUsages = us.map(u => ({ ...u, ...(u.at ? { at: { ...u.at } } : {}) }))));
 test('镜头排布：一个主画面铺满整段；两个都是整段时平分', () => {
@@ -1013,11 +1015,22 @@ test('镜头排布：几个画面配同一段时按顺序接起来，视频占�
   const clip = (id, len) => ({ assetId: id, role: 'main', clip: { in: 0, out: len } });
   setUs(rows, [clip('v1', 1.5), clip('v2', 2)]);
   let lay = layoutShot(reg, rows, tl8(rows));
-  assert.deepEqual(spans(lay), [
+  assert.deepEqual(shown(lay), [
     ['v1', 0, 1.5],
-    ['v2', 1.5, 6],
+    ['v2', 1.5, 3.5],
   ]);
-  assert.equal(lay.items[1].over, false, '不够长：最后一个拉到末尾，后面 2.5 秒是空白');
+  assert.equal(lay.items[1].slotEnd, 6, '不够长：画面只放片段那么长，排给它的时间仍到末尾');
+  assert.equal(lay.items[1].over, false);
+  assert.equal(coverOf(lay.items[1], lay.dur).lack, 2.5, '后面 2.5 秒是空白，够不够照排给它的时间算');
+  setUs(rows, [clip('v1', 1.5), { ...clip('v2', 2), fitDone: true }]);
+  assert.deepEqual(
+    shown(layoutShot(reg, rows, tl8(rows))),
+    [
+      ['v1', 0, 1.5],
+      ['v2', 1.5, 6],
+    ],
+    '标了剪辑里补足（定格 / 放慢）：照排给它的时间放',
+  );
   setUs(rows, [clip('v1', 1.5), { assetId: 'p', role: 'main' }, { assetId: 'u', role: 'main' }]);
   assert.deepEqual(spans(layoutShot(reg, rows, tl8(rows))), [
     ['v1', 0, 1.5],
@@ -2094,6 +2107,35 @@ test('够不够：需要 = 分到的口播秒数，可用 = 可用片段（没�
   assert.equal(m.get('y').n, 1);
   assert.equal(shotCoverage(null).size, 0);
 });
+test('剪辑已补足：差几秒的视频标上后算够，每句的画面也按盖满算', async () => {
+  const { lineCoverage } = await import('../renderer/src/core/coverage.js');
+  const { extraOf } = await import('../renderer/src/core/asset-model.js');
+  const item = fitDone => ({
+    kind: 'video',
+    start: 0,
+    end: 6,
+    asset: { path: '/m/z.mp4', durationSec: 4 },
+    usage: { assetId: 'z', ...(fitDone ? { fitDone: true } : {}) },
+  });
+  assert.equal(coverageOf(item(false), 6).verdict, 'short');
+  const c = coverageOf(item(true), 6);
+  assert.equal(c.verdict, 'ok');
+  assert.equal(c.fixed, true);
+  assert.ok(Math.abs(c.lack - 2) < 1e-9);
+  assert.deepEqual(extraOf({ fitDone: true }), { fitDone: true });
+  const registry = { z: { id: 'z', kind: 'video', path: '/m/z.mp4', durationSec: 4 } };
+  const rows = fitDone => [
+    {
+      id: 1,
+      kind: 'line',
+      text: '一',
+      assetUsages: [{ assetId: 'z', role: 'main', ...(fitDone ? { fitDone: true } : {}) }],
+    },
+  ];
+  const tl = { source: 'srt', times: new Map([[1, { start: 0, end: 6 }]]) };
+  assert.equal(lineCoverage(registry, rows(false), tl)[0].state, 'part');
+  assert.equal(lineCoverage(registry, rows(true), tl)[0].state, 'ok');
+});
 test('v3 画面范围照抄分镜表；每个方案都要填满口播，填不满只能单独交一个并写明理由', () => {
   const rows = [438, 439, 440, 441].map((n, i) => ({
     id: i + 1,
@@ -2767,11 +2809,44 @@ test('末帧停留区裁剪保持真实出点，不生成超出源视频的入�
   assert.deepEqual(trimPicture([item], 0, 'end', 7, 10).clip, { in: 0, out: 4 });
   assert.equal(trimPicture([item], 0, 'start', 9, 10).clip.in, 3.8);
 });
-test('未知时长的视频止于已知片段边界，图片裁剪不产生视频入出点', () => {
+test('右拖结尾最多到原片末尾；标了剪辑里补足才能拉过去，片段本身不变', () => {
+  const item = editVideo('a', 0, 4, 0, 4, 4);
+  assert.equal(trimPicture([item], 0, 'end', 9, 10).end, 4);
+  const fit = { ...item, usage: { ...item.usage, fitDone: true } };
+  const draft = trimPicture([fit], 0, 'end', 9, 10);
+  assert.equal(draft.end, 9);
+  assert.deepEqual(draft.clip, { in: 0, out: 4 });
+});
+test('右裁短后还能拉回原长：上限按原片，不按上次裁剩的出点', () => {
+  const item = editVideo('a', 0, 5, 10, 15, 60);
+  const short = trimPicture([item], 0, 'end', 3, 10);
+  assert.deepEqual(short.clip, { in: 10, out: 13 });
+  const trimmed = { ...item, end: short.end, usage: { clip: short.clip } };
+  assert.deepEqual(trimPicture([trimmed], 0, 'end', 5, 10).clip, { in: 10, out: 15 });
+  assert.equal(trimPicture([trimmed], 0, 'end', 9, 10).end, 9);
+});
+test('未知时长的本地视频结尾不设上限，图片裁剪不产生视频入出点', () => {
   const item = editVideo('a', 0, 5, 10, 15, null);
-  assert.equal(trimPicture([item], 0, 'end', 9, 10).end, 5);
+  const short = trimPicture([item], 0, 'end', 3, 10);
+  const trimmed = { ...item, end: short.end, usage: { clip: short.clip } };
+  assert.equal(trimPicture([trimmed], 0, 'end', 9, 10).end, 9);
   const image = { ...item, kind: 'image', usage: {} };
   assert.ok(!trimPicture([image], 0, 'start', 2, 10).clip);
+});
+test('在线视频只在地址里那一段内收放，左裁拉不到那段之前', () => {
+  const item = {
+    ...editVideo('a', 6, 11.7, 11.4, 17.1, null),
+    asset: { path: 'https://x.test/v.mp4#t=10.9,17.4' },
+  };
+  const left = trimPicture([item], 0, 'start', 0, 20);
+  assert.equal(left.start, 5.5);
+  assert.deepEqual(left.clip, { in: 10.9, out: 17.1 });
+  const right = trimPicture([item], 0, 'end', 20, 20);
+  assert.equal(right.end, 12);
+  assert.deepEqual(right.clip, { in: 11.4, out: 17.4 });
+  const short = trimPicture([item], 0, 'end', 8, 20);
+  const trimmed = { ...item, end: short.end, usage: { clip: short.clip } };
+  assert.equal(trimPicture([trimmed], 0, 'end', 20, 20).end, 12);
 });
 test('相接边同时裁左右两段，切换点两侧没有缝隙且视频内容连续对应', () => {
   const items = [editVideo('a', 0, 7), editVideo('b', 7, 19.7, 20, 32.7)];

@@ -4,8 +4,9 @@
    两种排法：
    · 按句子（默认）：每个主画面跟着它的「出现位置」（第几句到第几句）走。
        几个主画面配的是同一段句子（视频审核里同一个方案的视频都配整个画面）：按顺序一个接一个，视频占它可用片段那么长，
-       图片和还不知道时长的视频平分剩下的时间；跨过末尾的截到末尾，整个排在末尾之后的标 over（排不下），
-       不够长的最后一个拉到这段末尾（后面是空白）。
+       图片和还不知道时长的视频平分剩下的时间；跨过末尾的截到末尾，整个排在末尾之后的标 over（排不下）。
+       排完后视频一律截到它真实可用的长度（slotEnd 记下排给它的时间），后面没盖住的就是空白；
+       标了剪辑里补足（fitDone：定格 / 放慢）的不截。
        配的句子不一样、又有重叠时，重叠的那几句平分。
    · 手动：在「对着口播看画面」里拖过 / 填过秒数后，每个主画面带一个 at = {start, end, of}：
        start / end 是相对这个镜头开头的秒数，of 记下设置时镜头第一句的 id。
@@ -196,8 +197,9 @@ function byTimes(items, owner, dur) {
   });
 }
 
-/* 一个镜头的排布：{ start, end, dur（口播里的绝对时间）, timed, items: [{n, assetId, usage, asset, kind, start, end, auto, over}] }
-   items 里的 start / end 是相对镜头开头的秒数，按开始时间排好、编号 n 从 1 开始 */
+/* 一个镜头的排布：{ start, end, dur（口播里的绝对时间）, timed, items: [{n, assetId, usage, asset, kind, start, end, slotEnd, auto, over}] }
+   items 里的 start / end 是相对镜头开头的秒数，按开始时间排好、编号 n 从 1 开始；
+   end 是画面真正放到哪（视频不超过可用长度），slotEnd 是排给它的时间到哪（够不够按它算） */
 export function layoutShot(registry, members, tl) {
   if (!members.length) return null;
   const span = spanOf(
@@ -221,6 +223,13 @@ export function layoutShot(registry, members, tl) {
   const timed = items.some(it => validAt(it.usage.at, owner));
   if (timed) byTimes(items, owner, dur);
   else bySentence(items, members, tl, span.start);
+  // 视频只画、只播它真实可用的那么长：排给它的时间（slotEnd）比片段长，多出来的就是空白，不拉长素材。
+  // 标了「剪辑里补足」（定格 / 放慢）的照排给它的时间放
+  for (const it of items) {
+    it.slotEnd = it.end;
+    const len = usableLength(it);
+    if (len != null && !it.usage?.fitDone && it.end - it.start > len + 0.05) it.end = it.start + Math.max(MIN_LEN, len);
+  }
   items.sort((a, b) => a.start - b.start || a.listIndex - b.listIndex);
   items.forEach((it, k) => {
     it.n = k + 1;

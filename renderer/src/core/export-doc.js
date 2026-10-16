@@ -63,6 +63,7 @@ const embedUsages = (r, registry) =>
         : {}),
       ...(isRole(u.role) ? { role: u.role } : {}),
       ...(u.off ? { off: true } : {}),
+      ...(u.fitDone ? { fitDone: true } : {}),
       ...(u.at ? { at: { ...u.at } } : {}),
       ...(u.rework ? { rework: { ...u.rework } } : {}),
     };

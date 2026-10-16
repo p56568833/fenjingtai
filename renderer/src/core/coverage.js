@@ -2,7 +2,8 @@
    · 需要：它在这段口播里分到的秒数（core/shot-layout.js 排出来的那一段；超出口播的部分不算）
    · 可用：标出来的可用片段（使用记录上的 clip）的长度；没标 = 整个文件
    · 文件：本地文件的实际时长（asset.durationSec，界面读出来后记下）；在线视频还没保存时没有
-   结论只拿「可用」和「需要」比：ok 够 / short 差多少 / unknown 时长还不知道 / still 图片（不限时长） */
+   结论只拿「可用」和「需要」比：ok 够 / short 差多少 / unknown 时长还不知道 / still 图片（不限时长）
+   使用记录上标了 fitDone（剪辑里已经补足，比如放慢、定格）：不够也算够，fixed 记下原本差多少 */
 import { LINK_RE } from './asset-model.js';
 import { layoutShot } from './shot-layout.js';
 import { shots } from './shots.js';
@@ -15,7 +16,8 @@ const validClip = c => !!c && finite(c.in) && finite(c.out) && c.out > c.in;
 
 /* item：layoutShot().items 里的一项；shotDur：这个镜头的口播总长 */
 export function coverageOf(item, shotDur) {
-  const end = finite(shotDur) ? Math.min(item.end, shotDur) : item.end;
+  const slot = item.slotEnd ?? item.end; // 排给它的时间（画面本身截到可用长度，需要的秒数照排给它的算）
+  const end = finite(shotDur) ? Math.min(slot, shotDur) : slot;
   const need = Math.max(0, end - item.start);
   if (item.kind !== 'video') return { need, verdict: 'still' };
   const path = item.asset?.path || '';
@@ -31,6 +33,7 @@ export function coverageOf(item, shotDur) {
   const out = { need, usable, file, clip, whole: !clip, online };
   if (usable == null) return { ...out, verdict: 'unknown' };
   if (usable + COVER_EPS >= need) return { ...out, verdict: 'ok', spare: Math.max(0, usable - need) };
+  if (item.usage?.fitDone) return { ...out, verdict: 'ok', spare: 0, fixed: true, lack: need - usable };
   return { ...out, verdict: 'short', lack: need - usable };
 }
 
@@ -44,7 +47,7 @@ export function shotCoverage(layout) {
 
 /* ── 每句有没有画面 ──
    按镜头里的画面排布（和预览播出来一样）看每句口播被画面盖住了几秒：
-   视频只算它可用片段那么长（排给它的时间比片段长，多出来的就是空白）；图片排到多长就盖多长。
+   视频只算它可用片段那么长（排给它的时间比片段长，多出来的就是空白；标了剪辑已补足的按排给它的时间算）；图片排到多长就盖多长。
    一点没盖住的句子算没画面；盖住了一部分、只差不到 0.5 秒的不算 */
 export const GAP_MIN = 0.5;
 export function lineCoverage(registry, members, tl, { missing = new Set() } = {}) {
@@ -53,7 +56,8 @@ export function lineCoverage(registry, members, tl, { missing = new Set() } = {}
   const spans = layout.items
     .map(it => {
       const c = coverageOf(it, layout.dur);
-      const len = it.kind === 'video' && finite(c.usable) ? Math.min(it.end - it.start, c.usable) : it.end - it.start;
+      const len =
+        it.kind === 'video' && finite(c.usable) && !c.fixed ? Math.min(it.end - it.start, c.usable) : it.end - it.start;
       return [layout.start + it.start, layout.start + it.start + Math.max(0, len), missing.has(it.asset?.path)];
     })
     .sort((a, b) => a[0] - b[0]);

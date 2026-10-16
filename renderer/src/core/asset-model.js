@@ -47,7 +47,7 @@ export function fileUrl(p) {
 }
 
 export const usagePath = (registry, u) => registry[u.assetId]?.path || u.path || '';
-/* 使用记录上除 assetId / clip 以外要跟着走的字段（角色、位置、手动设的出现时间 at） */
+/* 使用记录上除 assetId / clip 以外要跟着走的字段（角色、位置、手动设的出现时间 at、时长已在剪辑里补足 fitDone） */
 const cleanAtField = at => {
   if (!at || typeof at !== 'object') return null;
   const start = Number(at.start),
@@ -61,6 +61,7 @@ export const extraOf = u => {
   return {
     ...(isRole(u?.role) ? { role: u.role } : {}),
     ...(u?.off ? { off: true } : {}),
+    ...(u?.fitDone ? { fitDone: true } : {}),
     ...(at ? { at } : {}),
     ...(rework ? { rework } : {}),
   };

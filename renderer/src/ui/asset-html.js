@@ -43,7 +43,16 @@ export function shotTotalText(members) {
 /* 够不够：需要 / 可用 / 文件 三个数 + 结论（数据见 core/coverage.js） */
 const COVER_TIP =
   '需要：这个画面在口播里要占的秒数\n可用：标出来的可用片段（在预览里按 I / O 设入点出点）；没标就按整个文件算\n文件：本地文件的实际长度\n够不够只拿「可用」和「需要」比';
-export function coverHTML(cov) {
+/* 差几秒但剪辑里已经补足（放慢、定格…）：勾上就不再报红。row / assetId 给了才画这个勾 */
+function fitToggle(cov, ref) {
+  if (!ref) return '';
+  const on = !!cov.fixed;
+  const tip = on
+    ? `原本差 ${s1(cov.lack)} 秒，已标为剪辑里补足；点击取消`
+    : '剪辑里已经补足了（放慢、定格等）：勾上后不再提示时长不够';
+  return `<span class="cover-fit${on ? ' on' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-fit-row="${ref.row}" data-fit-asset="${esc(ref.assetId)}" title="${esc(tip)}">剪辑已补足</span>`;
+}
+export function coverHTML(cov, ref) {
   if (!cov) return '';
   const need = `<span class="cover-need">需要 <b>${s1(cov.need)}</b> 秒</span>`;
   if (cov.verdict === 'still')
@@ -60,13 +69,15 @@ export function coverHTML(cov) {
     : cov.file != null
       ? `<span class="cover-file">文件 ${s1(cov.file)} 秒</span>`
       : '<span class="cover-file">文件时长未知</span>';
-  const verdict =
-    cov.verdict === 'ok'
+  const verdict = cov.fixed
+    ? `✓ 已补足 · 原差 ${s1(cov.lack)} 秒`
+    : cov.verdict === 'ok'
       ? `✓ 够${cov.spare >= 0.05 ? `，余 ${s1(cov.spare)} 秒` : ''}`
       : cov.verdict === 'short'
         ? `✗ 差 ${s1(cov.lack)} 秒`
         : '时长未知';
-  return `<span class="asset-cover cover-${cov.verdict}" title="${esc(COVER_TIP)}">${need}${usable}${file}<span class="cover-verdict">${verdict}</span></span>`;
+  const fit = cov.fixed || cov.verdict === 'short' ? fitToggle(cov, ref) : '';
+  return `<span class="asset-cover cover-${cov.verdict}${cov.fixed ? ' cover-fixed' : ''}" title="${esc(COVER_TIP)}">${need}${usable}${file}<span class="cover-verdict">${verdict}</span>${fit}</span>`;
 }
 const coverageFor = members => shotCoverage(layoutShot(state.assets || {}, members, timeline()));
 
@@ -111,7 +122,7 @@ export function assetCards(r) {
       ]
         .filter(Boolean)
         .join(' · ');
-      return `<button class="row-asset ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-detail="${r.id}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc(where || '上屏')}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov)}</span></button>`;
+      return `<button class="row-asset ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-detail="${r.id}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc(where || '上屏')}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov, { row: r.id, assetId: u.assetId })}</span></button>`;
     })
     .join('');
   const altBtn = alts.length
@@ -235,7 +246,7 @@ export function inspectorAssets(r, { missing } = {}) {
         return `<div class="inspector-asset${stateCls} ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-usage-index="${index}">
       <button class="asset-open" data-preview-usage="${index}" title="${esc(path)}">
         ${thumbHTML(path, kind)}
-        <span class="asset-caption"><strong>${esc(a.name || baseName(path))}</strong><small>${esc(stateLine)}</small>${coverHTML(cov)}</span>
+        <span class="asset-caption"><strong>${esc(a.name || baseName(path))}</strong><small>${esc(stateLine)}</small>${coverHTML(cov, { row: r.id, assetId: u.assetId })}</span>
       </button>
       ${gone ? `<div class="asset-actions">${fetchable ? `<button class="asset-mini" data-fetch-asset="${esc(u.assetId)}" title="这个文件在 ${esc(peer.peer || '对方')} 的电脑上：通过局域网拷一份到你自己的素材文件夹">${ICON_FETCH}<span>从对方电脑取</span></button>` : ''}<button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button></div>` : ''}
 

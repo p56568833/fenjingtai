@@ -264,6 +264,54 @@ body.dark .cover-short .cover-verdict {
   color: #ff8e94;
   background: color-mix(in srgb, #ff8e94 12%, transparent);
 }
+/* 「剪辑已补足」勾：差几秒但剪辑里补上了，勾上后结论变成已补足（灰绿，不再报红） */
+.asset-cover .cover-fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 4px;
+  border-radius: 4px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.asset-cover .cover-fit::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+.asset-cover .cover-fit:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.asset-cover .cover-fit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.asset-cover .cover-fit.on {
+  color: #12945f;
+}
+.asset-cover .cover-fit.on::before {
+  opacity: 1;
+  background: currentColor
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m2.5 6.2 2.3 2.3 4.7-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 100% no-repeat;
+}
+.cover-fixed .cover-verdict {
+  color: #4d8a6f;
+  background: color-mix(in srgb, #4d8a6f 9%, transparent);
+  font-weight: 500;
+}
+body.dark .asset-cover .cover-fit.on {
+  color: #6fd6a4;
+}
+body.dark .cover-fixed .cover-verdict {
+  color: #8cc4a8;
+  background: color-mix(in srgb, #8cc4a8 10%, transparent);
+}
 .asset-caption strong {
   display: block;
   font-size: 12px;

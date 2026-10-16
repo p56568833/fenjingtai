@@ -2,6 +2,7 @@
 import { state, on, emit, update, rowById } from '../app/state.js';
 import { rememberCursor } from '../app/storage.js';
 import { repairPunctuationAction } from '../app/actions.js';
+import { setFitDone } from '../app/asset-actions.js';
 import { repairCandidates } from '../core/shots.js';
 import { toast, confirmModal } from './base/dom.js';
 import { closePop } from './base/popover.js';
@@ -200,6 +201,19 @@ export function initWorkspace() {
       { danger: false },
     );
   };
+  // 素材卡上的「剪辑已补足」勾：卡片本身是按钮（打开面板 / 预览），捕获阶段先拦下，只切换勾
+  const toggleFit = e => {
+    const fit = e.target.closest?.('[data-fit-asset]');
+    if (!fit) return;
+    if (e.type === 'keydown' && e.key !== ' ' && e.key !== 'Enter') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = rowById(+fit.dataset.fitRow);
+    if (!r || !setFitDone(r, fit.dataset.fitAsset, fit.getAttribute('aria-checked') !== 'true')) return;
+    if (isInspectorOpen()) renderInspector(true);
+  };
+  document.addEventListener('click', toggleFit, true);
+  document.addEventListener('keydown', toggleFit, true);
   // 任意 data-jump（节奏色条 / 章节目录 / 交稿检查）：跳到那句
   document.addEventListener('click', e => {
     const jump = e.target.closest('[data-jump]');

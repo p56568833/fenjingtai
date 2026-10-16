@@ -207,6 +207,21 @@
   border-color: rgba(255, 255, 255, 0.3);
   color: #fff;
 }
+.ptt-fitbtn {
+  margin-left: 8px;
+  border: 1px solid rgba(240, 163, 58, 0.5);
+  background: transparent;
+  color: #f0a33a;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.ptt-fitbtn:hover {
+  border-color: #f0a33a;
+  color: #ffc06a;
+}
 .ptt-lane {
   position: relative;
   height: 38px;
@@ -339,6 +354,30 @@
 .ptt-block.gone {
   display: none;
 }
+.ptt-block {
+  overflow: hidden;
+}
+/* 剪辑里定格 / 放慢补足的那截：同色但更淡、斜纹，和真实素材分开 */
+.ptt-fit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0 4px, transparent 4px 8px), rgba(14, 18, 28, 0.45);
+  border-left: 1px dashed rgba(255, 255, 255, 0.5);
+  pointer-events: none;
+  overflow: hidden;
+}
+.ptt-fit i {
+  font-style: normal;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  white-space: nowrap;
+}
 .ptt-label {
   flex: 1;
   min-width: 0;
@@ -388,15 +427,6 @@
 }
 .ptt-insert[hidden] {
   display: none;
-}
-.ptt-short {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  background: repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.35) 0 3px, transparent 3px 6px);
-  border-left: 2px solid #f0a33a;
-  pointer-events: none;
 }
 .ptt-hold {
   position: absolute;

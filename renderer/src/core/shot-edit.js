@@ -65,14 +65,17 @@ export function movePicture(items, index, start, dur) {
   return { entries, changed, reordered: dest !== index, index: dest, ...entries[dest] };
 }
 
+/* 原片范围（和剪辑软件一样）：裁剪只在这个范围里收放，裁掉的部分随时能拉回来，不会越裁越少。
+   在线视频还没保存时只有地址里 #t=入,出 那一段；本地文件是整个文件，还不知道时长时结尾不设上限。 */
 const sourceOf = it => {
-  const cin = it.usage?.clip?.in || 0;
-  const usable = usableLength(it);
-  const duration = it.asset?.durationSec;
-  // 已知原片长度时允许把裁掉的内容拉回来；不知道长度时止于已知片段末尾。
-  const limit =
-    Number.isFinite(duration) && duration > cin ? duration : cin + (usable ?? Math.max(MIN_LEN, it.end - it.start));
-  return { cin, usable: usable ?? Math.max(MIN_LEN, it.end - it.start), limit };
+  const m = String(it.asset?.path || '').match(/#t=([\d.]+),([\d.]+)/);
+  const d = it.asset?.durationSec;
+  const [from, to] = m && +m[2] > +m[1] ? [+m[1], +m[2]] : [0, Number.isFinite(d) && d > 0 ? d : Infinity];
+  const clip = it.usage?.clip;
+  const cin = Number.isFinite(clip?.in) ? clip.in : from;
+  const usable = usableLength(it) ?? Math.max(MIN_LEN, it.end - it.start);
+  // 已有片段落在范围外（旧数据）时把范围放宽到片段本身，不把它挤掉
+  return { cin, usable, from: Math.min(from, cin), to: Math.max(to, cin + usable) };
 };
 
 export function trimPicture(items, index, edge, value, dur) {
@@ -86,20 +89,22 @@ export function trimPicture(items, index, edge, value, dur) {
   const video = it.kind === 'video';
   const src = sourceOf(it);
   if (edge === 'start') {
-    const min = video ? Math.max(lo, it.start - src.cin) : lo;
+    const min = video ? Math.max(lo, it.start - (src.cin - src.from)) : lo;
     const max = Math.min(oldEnd - MIN_LEN, video ? it.start + src.usable - MIN_LEN : Infinity);
     if (ceil1(min) > floor1(max)) return null;
     entry.start = round1(clamp(round1(value), ceil1(min), floor1(max)));
     entry.end = round1(oldEnd);
   } else {
-    const max = Math.min(hi, video ? Math.max(oldEnd, it.start + src.limit - src.cin) : Infinity);
+    // 结尾最远拉到原片末尾，不凭空拉长；标了剪辑里补足（定格 / 放慢）的可以拉过去，片段本身不变
+    const free = !video || it.usage?.fitDone;
+    const max = Math.min(hi, free ? Infinity : Math.max(oldEnd, it.start + src.to - src.cin));
     if (ceil1(it.start + MIN_LEN) > floor1(max)) return null;
     entry.end = round1(clamp(round1(value), ceil1(it.start + MIN_LEN), floor1(max)));
   }
   const changed = Math.abs(entry.start - it.start) > 0.05 || Math.abs(entry.end - oldEnd) > 0.05;
   if (video && changed) {
-    const cin = edge === 'start' ? Math.max(0, src.cin + entry.start - it.start) : src.cin;
-    const endLimit = edge === 'start' ? src.cin + Math.min(src.usable, oldEnd - it.start) : src.limit;
+    const cin = edge === 'start' ? Math.max(src.from, src.cin + entry.start - it.start) : src.cin;
+    const endLimit = edge === 'start' ? src.cin + Math.min(src.usable, oldEnd - it.start) : src.to;
     entry.clip = {
       in: round1(cin),
       out: round1(Math.min(endLimit, cin + entry.end - entry.start)),
@@ -116,10 +121,10 @@ export function rollPictures(items, index, value, dur) {
   if (!a || !b || Math.abs(a.end - b.start) > 0.05) return null;
   const sa = sourceOf(a),
     sb = sourceOf(b);
-  const lo = Math.max(a.start + MIN_LEN, b.kind === 'video' ? b.start - sb.cin : 0);
+  const lo = Math.max(a.start + MIN_LEN, b.kind === 'video' ? b.start - (sb.cin - sb.from) : 0);
   const hi = Math.min(
     Math.min(b.end, dur) - MIN_LEN,
-    a.kind === 'video' ? Math.max(a.end, a.start + sa.limit - sa.cin) : dur,
+    a.kind === 'video' && !a.usage?.fitDone ? Math.max(a.end, a.start + sa.to - sa.cin) : dur,
     b.kind === 'video' ? b.start + sb.usable - MIN_LEN : dur,
   );
   if (ceil1(lo) > floor1(hi)) return null;

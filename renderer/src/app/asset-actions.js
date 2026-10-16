@@ -256,6 +256,22 @@ export function arrangeShot(row, { mains = [], alts = [] } = {}, label = '调整
   });
 }
 
+/* 视频差几秒但剪辑里已经补足（放慢、定格…）：标上之后够不够、每句的画面、全片时间条都按盖满算 */
+export function setFitDone(row, assetId, on) {
+  const members = shotMembers(state.rows, row);
+  const hits = members.flatMap(m => usageList(m).filter(u => u.assetId === assetId));
+  if (!hits.length || hits.every(u => !!u.fitDone === !!on)) return false;
+  return changeProject(on ? '标记剪辑已补足时长' : '取消剪辑已补足', change => {
+    for (const u of hits) {
+      if (on) u.fitDone = true;
+      else delete u.fitDone;
+    }
+
+    change.emit('assets-changed', { ids: members.map(m => m.id), kind: 'usage' });
+    return true;
+  });
+}
+
 /* 恢复按句子：去掉这个镜头里所有画面的手动时间 */
 export function clearShotTimes(row) {
   const members = shotMembers(state.rows, row);

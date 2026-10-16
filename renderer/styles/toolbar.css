@@ -12,7 +12,7 @@
 }
 .seg-timeline {
   position: relative;
-  padding: 24px 0;
+  padding: 20px 0;
 }
 .seg-selection {
   position: absolute;
@@ -42,7 +42,7 @@
 }
 .seg-pointer {
   position: absolute;
-  top: 19px;
+  top: 15px;
   left: var(--seg-position, 0%);
   transform: translateX(-50%);
   width: 8px;
@@ -53,20 +53,20 @@
 }
 .seg-pointer-bottom {
   top: auto;
-  bottom: 19px;
+  bottom: 15px;
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 .segbar {
   background: var(--seg-empty);
   overflow: hidden;
   position: relative;
-  height: 8px;
-  border-radius: 3px;
+  height: 4px;
+  border-radius: 2px;
 }
 .segbar .seg {
   position: absolute;
   top: 0;
-  height: 8px;
+  height: 100%;
 }
 .seg.mounted {
   background: var(--seg-mounted);
@@ -76,7 +76,7 @@
 }
 .seg-seek {
   position: absolute;
-  top: 13px;
+  top: 7px;
   left: 0;
   margin: 0;
   width: 100%;
@@ -230,8 +230,8 @@ body.dark .chip-filter:hover {
 }
 .seg-playhead {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
+  top: -4px;
+  bottom: -4px;
   width: 2px;
   margin-left: -1px;
   border-radius: 1px;
