@@ -70,6 +70,16 @@
 
 当前协作协议面向一个主机和一个访客。增加人数需要另行设计身份、句子编号和冲突处理。
 
+## 剪映导出
+
+- `core/edit-export-plan.js`：通用导出计划，只接受快照与显式依赖，输出整数微秒的片段/音轨/字幕/定格派生/问题；不读状态、DOM 或文件系统。
+- `app/edit-export.js`：保存后深拷贝快照、本机预检、调用计划、任务生命周期与结果绑定；不修改项目、不产生撤销步。
+- `features/jianying-export.js`：导出弹窗与进度/结果界面；命令 `jianying:export`。
+- `platform/native.js`、`electron/preload.js`：窄 IPC 接口，进度/结果事件按任务绑定并可解绑。
+- `electron/ipc-jianying.js`：参数校验、单任务、取消、补登记与事件发送。
+- `electron/jianying-export.js`：素材复制、定格抽帧、视频口播抽音轨、暂存目录原子提交、封面/报告/说明。
+- `electron/jianying/`：剪映 11.6 专用格式。`schema.js` 生成 `draft_info.json`，`meta.js` 生成 meta/索引条目，`platform.js` 探测应用、版本、草稿库与设备指纹，`register.js` 安全写 `root_meta_info.json`，`validate.js` 校验计划/草稿/索引，`paths.js` 处理命名与路径边界。剪映私有格式不得进入项目数据或共享协作字段。
+
 ## 验证
 
 - `npm run lint` 检查模块循环、分层边界和实际代码错误。

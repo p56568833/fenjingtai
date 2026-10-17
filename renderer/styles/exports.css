@@ -289,3 +289,440 @@
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
+
+/* ═════════ 导出到剪映 ═════════ */
+.modal.jy-modal {
+  width: 560px;
+}
+.jy-modal p {
+  margin: 0;
+}
+.jy-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.jy-target b {
+  font-size: 13px;
+  color: var(--text);
+}
+.jy-target small {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.jy-target[data-level='ok'] {
+  border-color: rgba(18, 160, 107, 0.35);
+}
+.jy-target[data-level='warn'] {
+  border-color: rgba(217, 130, 11, 0.42);
+  background: color-mix(in srgb, var(--todo) 6%, var(--bg));
+}
+.jy-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.jy-field > span {
+  flex: none;
+  width: 58px;
+}
+.jy-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.jy-field input:focus {
+  border-color: rgba(59, 116, 232, 0.5);
+}
+.jy-seg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.jy-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.jy-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+.jy-choice input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+.jy-choice b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+.jy-choice small {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.jy-dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.jy-dest code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 11.5px;
+}
+.jy-line {
+  margin-bottom: 10px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.jy-summary {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.jy-sum-row {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.jy-sum-row b {
+  flex: none;
+  width: 58px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.jy-sum-row span {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+.jy-sum-row[data-issues='block'] span {
+  color: #c82d35;
+}
+.jy-sum-row[data-issues='confirm'] span {
+  color: var(--todo);
+}
+.jy-empty,
+.jy-error {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.jy-error {
+  color: #c82d35;
+}
+.jy-more {
+  padding-top: 10px;
+  margin-bottom: 10px;
+  border-top: 1px solid var(--hairline);
+}
+.jy-more summary {
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.jy-more-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  margin: 12px 0 8px;
+}
+.jy-more-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.jy-more-grid label.jy-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.jy-more-grid select {
+  padding: 7px 8px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: inherit;
+}
+.jy-more-grid input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+.jy-hint {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+.jy-more .jy-hint {
+  margin: 0;
+}
+.jy-issues {
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0 10px;
+  border-top: 1px solid var(--hairline);
+}
+.jy-issues-head {
+  padding: 8px 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.jy-issue {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+button.jy-issue {
+  cursor: pointer;
+}
+button.jy-issue:hover {
+  background: var(--row-hover);
+}
+.jy-issue-level {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.jy-issue[data-level='block'] .jy-issue-level {
+  color: #c82d35;
+  background: rgba(200, 45, 53, 0.1);
+}
+.jy-issue[data-level='confirm'] .jy-issue-level {
+  color: var(--todo);
+  background: color-mix(in srgb, var(--todo) 12%, transparent);
+}
+.jy-issue[data-level='info'] .jy-issue-level {
+  color: var(--text-3);
+  background: var(--hairline);
+}
+.jy-issue-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.jy-issue-where {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.jy-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+.jy-confirm input {
+  accent-color: var(--accent);
+}
+.jy-run-head {
+  margin-bottom: 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.jy-stages {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 14px;
+  list-style: none;
+}
+.jy-stage {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.jy-stage-dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline-2);
+  border-radius: 50%;
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--text-3);
+}
+.jy-stage[data-state='active'] {
+  color: var(--text);
+}
+.jy-stage[data-state='active'] .jy-stage-dot {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.jy-stage[data-state='active'] .jy-stage-dot::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: jyPulse 1.2s ease-in-out infinite;
+}
+.jy-stage[data-state='done'] {
+  color: var(--text-2);
+}
+.jy-stage[data-state='done'] .jy-stage-dot {
+  border-color: rgba(18, 160, 107, 0.5);
+  color: #12a06b;
+}
+.jy-stage[data-state='skip'] {
+  opacity: 0.75;
+}
+.jy-stage-name {
+  flex: none;
+}
+.jy-stage-detail {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.jy-progress {
+  margin-bottom: 10px;
+}
+.jy-progress[data-known='0'] .pack-bar {
+  visibility: hidden;
+}
+.jy-progress .pack-bar {
+  margin-bottom: 6px;
+}
+.jy-progress-txt {
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.jy-done-head {
+  margin-bottom: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.jy-done-head[data-level='ok'] {
+  color: #12945f;
+}
+.jy-done-head[data-level='warn'] {
+  color: var(--todo);
+}
+.jy-result {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.jy-res-row {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.jy-res-row b {
+  flex: none;
+  width: 58px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.jy-res-row span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.jy-res-row code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.jy-btns {
+  flex-wrap: wrap;
+}
+@keyframes jyPulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jy-stage[data-state='active'] .jy-stage-dot::after {
+    animation: none;
+  }
+}

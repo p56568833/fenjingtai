@@ -16,6 +16,17 @@ window.addEventListener('error', e => {
 });
 window.addEventListener('unhandledrejection', e => reportError('renderer-rejection', e.reason));
 
+/* 事件订阅：返回解绑函数（窗口关闭、切换项目或重新绑定前调用），避免监听器越挂越多 */
+function subscribe(channel, cb) {
+  const listener = (_event, payload) => {
+    try {
+      cb(payload);
+    } catch {}
+  };
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+}
+
 contextBridge.exposeInMainWorld('native', {
   isNative: true,
   pickAssets: () => ipcRenderer.invoke('assets:pick'),
@@ -94,6 +105,16 @@ contextBridge.exposeInMainWorld('native', {
   cancelUpdate: () => ipcRenderer.invoke('update:cancel'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   onUpdateProgress: cb => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
+  // 导出到剪映（11.6 草稿适配）
+  jianyingDetect: () => ipcRenderer.invoke('jianying:detect'),
+  jianyingExport: req => ipcRenderer.invoke('jianying:export', req), // 立即返回 { ok, jobId } 或 { ok:false, error }
+  jianyingCancel: jobId => ipcRenderer.invoke('jianying:cancel', jobId),
+  jianyingRegister: req => ipcRenderer.invoke('jianying:register', req), // { draftDir } → { ok, registered, error? }
+  jianyingReveal: target => ipcRenderer.invoke('jianying:reveal', target),
+  jianyingOpenApp: () => ipcRenderer.invoke('jianying:open-app'),
+  jianyingPickFolder: current => ipcRenderer.invoke('jianying:pick-folder', current),
+  onJianyingProgress: cb => subscribe('jianying:progress', cb),
+  onJianyingResult: cb => subscribe('jianying:result', cb),
 });
 
 // 页面与预加载处于不同的脚本环境，页面异常需要在页面环境中监听。

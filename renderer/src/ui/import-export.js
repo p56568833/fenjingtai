@@ -261,6 +261,8 @@ function openExportMenu(anchor) {
       <div class="p-title">导出「${esc(state.title)}」</div>
       <div class="pop-item" data-x="review"><svg class="mi" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></svg><span class="main">交稿检查<span class="desc">${n ? `${n} 个镜头待处理` : '分镜方案完整 · 可再勾选检查素材交付'}</span></span></div>
       <div class="pop-sep"></div>
+      <div class="pop-item" data-x="jianying"><svg class="mi" viewBox="0 0 24 24"><path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z"/><path d="m4 9 1.6-4h4L8 9m4 0 1.6-4h4L16 9"/></svg><span class="main">导出到剪映<span class="desc">按分镜排布生成可编辑草稿，本机剪映继续剪</span></span></div>
+      <div class="pop-sep"></div>
       <div class="pop-item" data-x="pdf"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg><span class="main">PDF 分镜脚本<span class="desc">按镜头排版，发给别人直接看 · ⇧⌘E</span></span></div>
       <div class="pop-sep"></div>
       <div class="pop-item" data-x="md"><span class="pdot" style="background:var(--accent)"></span><span class="main">带批注的 MD<span class="desc">回写成批注稿，接回原来的工作流</span></span></div>
@@ -328,6 +330,7 @@ export function initImportExport() {
       if (x && pop) {
         closePop();
         if (x.dataset.x === 'review') runCommand('review:open');
+        else if (x.dataset.x === 'jianying') runCommand('jianying:export');
         else doExport(x.dataset.x);
       }
     },

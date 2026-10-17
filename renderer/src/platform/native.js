@@ -93,6 +93,17 @@ export const cancelUpdate = call('cancelUpdate');
 export const installUpdate = call('installUpdate');
 export const onUpdateProgress = cb => n()?.onUpdateProgress?.(cb);
 
+/* 导出到剪映（11.6 草稿适配）：detect / export / cancel / register / reveal / openApp / pickFolder */
+export const jianyingDetect = call('jianyingDetect');
+export const jianyingExport = call('jianyingExport');
+export const jianyingCancel = call('jianyingCancel');
+export const jianyingRegister = call('jianyingRegister');
+export const jianyingReveal = call('jianyingReveal');
+export const jianyingOpenApp = call('jianyingOpenApp');
+export const jianyingPickFolder = call('jianyingPickFolder');
+export const onJianyingProgress = cb => n()?.onJianyingProgress?.(cb) || (() => {});
+export const onJianyingResult = cb => n()?.onJianyingResult?.(cb) || (() => {});
+
 /* 菜单 / 系统 */
 export const onMenuAction = cb => n().onMenuAction(cb);
 export const fixtureInfo = () => n()?.fixtureInfo?.() || null;

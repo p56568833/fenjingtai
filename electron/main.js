@@ -138,6 +138,7 @@ registerFileIpc(deps);
 registerVideoIpc(deps);
 registerPackIpc(deps);
 registerCollabIpc({ ...deps, app });
+require('./ipc-jianying').registerJianyingIpc({ handle, win }); // 导出到剪映（草稿适配、文件任务、进度/取消）
 const { cleanStaleUpdates } = registerUpdateIpc({ handle, isSelftest: IS_SELFTEST });
 
 app.whenReady().then(() => {
