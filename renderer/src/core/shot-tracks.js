@@ -40,7 +40,8 @@ export function altItems(registry, members, tl) {
       const a = tl.times.get(members[sp.empty ? 0 : sp.from]?.id);
       const b = tl.times.get(members[sp.empty ? members.length - 1 : sp.to]?.id);
       const s = a ? Math.max(0, a.start - layout.start) : 0;
-      const e = b ? b.end - layout.start : dur;
+      // 配到最后一句的：连同后面的句间停顿，到镜头结尾
+      const e = b && !sp.empty && sp.to < members.length - 1 ? b.end - layout.start : dur;
       it.start = round1(Math.min(s, dur - MIN_LEN));
       it.end = round1(Math.min(dur, it.start + Math.max(MIN_LEN, len ?? e - s)));
     }

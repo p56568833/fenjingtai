@@ -5,7 +5,7 @@ import { DEFAULT_TYPES, typeIndex } from './types.js';
 import { projectData } from './project-data.js';
 import { shots, roleLabel, spanText, isRole } from './shots.js';
 import { fmtTc } from './text.js';
-import { buildTimeline, SOURCE_TEXT } from './timeline.js';
+import { buildTimeline, shotSpan, SOURCE_TEXT } from './timeline.js';
 import { usageList, clipText, assetName, kindOf } from './asset-model.js';
 
 const linesOf = rows => rows.filter(r => r.kind === 'line');
@@ -15,9 +15,13 @@ function timelineOf(ctx) {
     buildTimeline(linesOf(ctx.rows), { voiceDuration: ctx.voiceDuration, speechRate: ctx.speechRate || 4.5 })
   );
 }
-const secsOf = (tl, r) => {
-  const t = tl.times.get(r.id);
-  return t ? t.end - t.start : 0;
+/* 一个画面要占几秒：从第一句开口到下一个画面开口（含句间停顿），和分镜台里的镜头时长一致 */
+const shotSecsOf = (tl, g) => {
+  const sp = shotSpan(
+    tl,
+    g.map(r => r.id),
+  );
+  return sp ? sp.end - sp.start : 0;
 };
 const fmtMin = sec => (sec >= 60 ? (sec / 60).toFixed(1) + ' 分钟' : Math.round(sec) + ' 秒');
 
@@ -114,7 +118,7 @@ export function buildAssetListMd(ctx) {
   const tl = timelineOf(ctx);
   const shotList = shots(rows);
   const lines = linesOf(rows);
-  let out = `# 素材清单 · ${title}\n`;
+  let out = `# 素材清单 · ${title}\n\n每个画面后面的秒数 = 这个画面在成片里要占的时长：从第一句开口到下一个画面开口（含句间停顿），找素材按这个长度找够。\n`;
   for (const t of ti.list.filter(x => x.visual)) {
     const items = shotList
       .filter(g => g[0].type === t.id)
@@ -123,7 +127,7 @@ export function buildAssetListMd(ctx) {
         members: g,
         text: g.map(r => r.text).join(''),
         range: g.map(r => r.no).join('、'),
-        secs: g.reduce((s, r) => s + secsOf(tl, r), 0),
+        secs: shotSecsOf(tl, g),
         start: tl.times.get(g[0].id)?.start,
       }));
     if (!items.length) continue;

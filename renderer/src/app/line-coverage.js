@@ -4,7 +4,7 @@ import { timeline, types } from './project-queries.js';
 import { on } from './events.js';
 import { buildPictureCoverage } from '../core/coverage.js';
 import { missingPaths, missingRevision } from './asset-status.js';
-import { spanOf } from '../core/timeline.js';
+import { shotSpan } from '../core/timeline.js';
 
 let cached = null,
   key = null;
@@ -40,7 +40,7 @@ export function projectPictureCoverage({ refresh = false } = {}) {
 }
 
 export function shotSeconds(members) {
-  const sp = spanOf(
+  const sp = shotSpan(
     timeline(),
     members.map(m => m.id),
   );

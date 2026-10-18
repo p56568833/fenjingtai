@@ -73,12 +73,13 @@
 ## 剪映导出
 
 - `core/edit-export-plan.js`：通用导出计划，只接受快照与显式依赖，输出整数微秒的片段/音轨/字幕/定格派生/问题；不读状态、DOM 或文件系统。
+- `core/jianying-target.js`：剪映版本验证与目标状态的纯函数；只有主进程标记 supported 且版本恰为 11.6.0 才显示「已适配」，未验证版本不生成、不登记。
 - `app/edit-export.js`：保存后深拷贝快照、本机预检、调用计划、任务生命周期与结果绑定；不修改项目、不产生撤销步。
 - `features/jianying-export.js`：导出弹窗与进度/结果界面；命令 `jianying:export`。
 - `platform/native.js`、`electron/preload.js`：窄 IPC 接口，进度/结果事件按任务绑定并可解绑。
 - `electron/ipc-jianying.js`：参数校验、单任务、取消、补登记与事件发送。
-- `electron/jianying-export.js`：素材复制、定格抽帧、视频口播抽音轨、暂存目录原子提交、封面/报告/说明。
-- `electron/jianying/`：剪映 11.6 专用格式。`schema.js` 生成 `draft_info.json`，`meta.js` 生成 meta/索引条目，`platform.js` 探测应用、版本、草稿库与设备指纹，`register.js` 安全写 `root_meta_info.json`，`validate.js` 校验计划/草稿/索引，`paths.js` 处理命名与路径边界。剪映私有格式不得进入项目数据或共享协作字段。
+- `electron/jianying-export.js`：素材复制、真实媒体探测与失败分类、定格抽帧、视频口播抽音轨、暂存目录原子提交、封面/报告/说明。媒体探测结果（真实宽高、方向、完整源时长）通过显式的 `media` Map 传给草稿与素材库生成器；应用层预检不猜尺寸，也不把画布尺寸当源素材尺寸。剪映运行状态在实际登记前重新检测，检测失败按「无法确认」保守处理；索引在导出期间被外部改动时停止自动登记并保留新草稿。
+- `electron/jianying/`：剪映 11.6 专用格式。`schema.js` 生成 `draft_info.json`，`meta.js` 生成 meta/索引条目，`platform.js` 探测应用、版本、草稿库与设备指纹（仅完全一致的 11.6.0 视为已适配；运行检测失败抛错而不是当作未运行），`register.js` 安全写 `root_meta_info.json`，`clock.js` 统一毫秒时钟到索引微秒的转换，`media-info.js` 归一化 ffprobe 信息、读图片头尺寸并分类探测失败，`frame.js` 把计划时间与原始帧 PTS 统一换算到容器呈现起点（播放时间）后选取定格帧，并能跨越 VFR 长静止区间找相邻帧，`validate.js` 校验计划/草稿/索引，`paths.js` 处理命名与路径边界。剪映私有格式不得进入项目数据或共享协作字段。
 
 ## 验证
 

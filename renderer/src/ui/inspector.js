@@ -11,7 +11,7 @@ import { setShotNote } from '../app/actions.js';
 import { removeUsage, addRefsToShot, autoAssignRoles } from '../app/asset-actions.js';
 import { usageList } from '../core/asset-model.js';
 import { ROLES, shotMembers } from '../core/shots.js';
-import { spanOf } from '../core/timeline.js';
+import { shotSpan } from '../core/timeline.js';
 import { fmtTc, fmtLen } from '../core/text.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
 import { shotCoverage } from '../core/coverage.js';
@@ -42,7 +42,7 @@ const ASSET_TIPS =
    - sync：「对着口播看画面」，放在「素材与片段」标题右边（预览的是这些素材怎么配口播）
    - listen：「听这段口播」，放在原文旁边（听的是这几句话） */
 function voiceParts(members) {
-  const span = spanOf(
+  const span = shotSpan(
     timeline(),
     members.map(r => r.id),
   );

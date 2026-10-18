@@ -66,7 +66,11 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
   const path = deps.path || nodePath;
   const detect = deps.detect || (() => platform.detect());
   const isRunning = deps.isRunning || (() => platform.isRunning());
-  const runExport = deps.runExport || ((request, hooks) => exporter.runJianyingExport(request, hooks, deps));
+  /* 默认导出必须把实时运行检测交给任务：request.running 只是请求开始时的旧快照，
+     复制素材的几十秒里用户可能已经打开剪映，登记时要按实时状态判断。
+     其他依赖照旧传下去，测试仍可注入媒体工具/时钟。 */
+  const runExport =
+    deps.runExport || ((request, hooks) => exporter.runJianyingExport(request, hooks, { ...deps, isRunning }));
   const registerDraft = deps.registerDraft || register.registerDraft;
   const detectTtl = Number.isFinite(deps.detectTtl) ? deps.detectTtl : 3000;
   const dataDir = () => {
@@ -95,13 +99,17 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
     detectCache = { at: Date.now(), value };
     return value;
   };
-  const runningNow = () => {
+  /* 实时运行状态：判断不了就当剪映在运行（只生成草稿、不写索引）；
+     known=false 表示检测本身失败了，需要给用户「无法确认」的说明而不是断言在运行。 */
+  const runningState = () => {
+    if (typeof isRunning !== 'function') return { running: false, known: true };
     try {
-      return typeof isRunning === 'function' ? !!isRunning() : false;
+      return { running: !!isRunning(), known: true };
     } catch {
-      return true; // 判断不了就当剪映在运行：只生成、不写索引
+      return { running: true, known: false };
     }
   };
+  const runningNow = () => runningState().running;
 
   /* 探测本机剪映与草稿库 */
   handle(CHANNELS.DETECT, () => {
@@ -115,8 +123,10 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
     if (!checked.ok) return { ok: false, error: checked.error };
     if (job) return { ok: false, error: '正在导出另一个剪映草稿，等它做完再试' };
     const detected = detectNow();
-    if (detected?.version && detected.supported === false)
-      return { ok: false, error: `本机剪映版本 ${detected.version} 不在已验证范围（11.6.x）` };
+    /* 版本未验证（含已安装但版本未知）一律不生成、不登记：只有探测到 supported=true
+       才继续，真正的登记还会再核对 canRegister / 索引状态。文案与 platform 共用一处。 */
+    if (detected?.supported === false)
+      return { ok: false, error: platform.unsupportedVersionMessage(detected.version) };
     const jobId = req.jobId;
     const controller = new AbortController();
     job = { jobId, projectId: req.projectId, controller, senderId: e?.sender?.id ?? 0 };
@@ -176,16 +186,29 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
     if (!isString(draftDir) || !paths.isAbsolutePath(draftDir) || paths.hasTraversal(draftDir))
       return { ok: false, registered: false, error: '草稿路径无效' };
     const detected = detectNow();
+    /* 登记会写剪映草稿库索引：版本未验证时和导出入口一样拒绝，不能绕过导出直接登记。 */
+    if (detected?.supported === false)
+      return { ok: false, registered: false, error: platform.unsupportedVersionMessage(detected.version) };
     if (!paths.isAbsolutePath(detected?.draftRoot)) return { ok: false, registered: false, error: '没找到剪映草稿库' };
     if (!paths.insideDir(detected.draftRoot, draftDir))
       return { ok: false, registered: false, error: '这个目录不在剪映草稿库里' };
-    if (runningNow())
-      return { ok: false, registered: false, needsQuit: true, error: '剪映正在运行，退出后再加入草稿库' };
+    const running = runningState();
+    if (running.running)
+      return {
+        ok: false,
+        registered: false,
+        needsQuit: true,
+        error: running.known
+          ? '剪映正在运行，退出后再加入草稿库'
+          : '无法确认剪映是否已经退出，为安全起见没有加入草稿库',
+      };
     try {
       return registerDraft({
         draftRoot: detected.draftRoot,
         draftDir,
         backupDir: backupDir(),
+        /* 兜底再查一次：两次检查之间剪映可能刚被打开，register.js 会在写索引前调用 */
+        isRunning: runningNow,
         fs,
         path,
       });

@@ -61,7 +61,7 @@ export function lineCoverage(registry, members, tl, { missing = new Set() } = {}
       return [layout.start + it.start, layout.start + it.start + Math.max(0, len), missing.has(it.asset?.path)];
     })
     .sort((a, b) => a[0] - b[0]);
-  return members.map(row => {
+  const lines = members.map(row => {
     const t = tl.times.get(row.id);
     const need = t ? Math.max(0, t.end - t.start) : 0;
     const t0 = t?.start ?? 0,
@@ -128,6 +128,27 @@ export function lineCoverage(registry, members, tl, { missing = new Set() } = {}
     }
     return { row, need, got, state, gaps: effectiveGaps, missingGaps, segments, hasPicture: layout.items.length > 0 };
   });
+  // 镜头后面的句间停顿算这个镜头：照实记下停顿里哪段有画面、哪段空着，挂在最后一句上
+  const last = lines.findLast(line => tl.times.get(line.row.id)?.end === layout.speechEnd);
+  if (last && layout.end > layout.speechEnd + 1e-6) last.tail = tailSegments(spans, layout.speechEnd, layout.end);
+  return lines;
+}
+function tailSegments(spans, from, to) {
+  const cuts = [...new Set([from, to, ...spans.flatMap(([a, b]) => [a, b]).filter(x => x > from && x < to)])].sort(
+    (a, b) => a - b,
+  );
+  const out = [];
+  for (let i = 0; i < cuts.length - 1; i++) {
+    const a = cuts[i],
+      b = cuts[i + 1],
+      mid = (a + b) / 2;
+    const on = spans.filter(([s, e]) => s <= mid && mid < e);
+    const status = on.some(([, , lost]) => !lost) ? 'covered' : on.length ? 'missing' : 'gap';
+    const prev = out.at(-1);
+    if (prev?.status === status) prev.end = b;
+    else out.push({ start: a, end: b, status, kind: 'pause' });
+  }
+  return out;
 }
 
 /* 统一的项目覆盖结果。UI 只负责显示；停顿衔接、真实缺口和失联判定只在这里做。 */
@@ -161,7 +182,12 @@ export function buildPictureCoverage(rows, registry, tl, { missing = new Set(), 
       previous = null;
       continue;
     }
-    if (previous && time.start > previous.time.end) {
+    if (previous?.line.tail && time.start > previous.time.end) {
+      for (const pause of previous.line.tail) {
+        pauses.push(pause);
+        append(pause);
+      }
+    } else if (previous && time.start > previous.time.end) {
       const left = previous.line.segments.at(-1)?.status,
         right = line.segments[0]?.status;
       const joined = (left === 'covered' || left === 'missing') && (right === 'covered' || right === 'missing');

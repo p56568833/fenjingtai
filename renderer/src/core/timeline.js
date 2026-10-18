@@ -95,6 +95,35 @@ export function spanOf(timeline, ids) {
   return end > start ? { start, end } : null;
 }
 
+/* 一个镜头在成片里占的时间：从第一句开口，到下一个镜头开口。
+   镜头之间的句间停顿算前一个镜头（下一句开口才切画面），导出到剪映时镜头首尾相接、没有空隙；
+   最后一个镜头到最后一句说完。speechEnd = 这个镜头最后一句说完的时间 */
+const startsOf = new WeakMap();
+function sortedStarts(timeline) {
+  let list = startsOf.get(timeline);
+  if (!list) {
+    list = [...timeline.times].map(([id, t]) => ({ id, start: t.start })).sort((a, b) => a.start - b.start);
+    startsOf.set(timeline, list);
+  }
+  return list;
+}
+export function shotSpan(timeline, ids) {
+  const span = spanOf(timeline, ids);
+  if (!span) return null;
+  const list = sortedStarts(timeline);
+  let lo = 0,
+    hi = list.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (list[mid].start < span.end - 1e-6) lo = mid + 1;
+    else hi = mid;
+  }
+  const own = new Set(ids);
+  while (lo < list.length && own.has(list[lo].id)) lo++;
+  const next = list[lo]?.start;
+  return { start: span.start, end: next > span.end ? next : span.end, speechEnd: span.end };
+}
+
 /* 来源说明（界面提示用） */
 export const SOURCE_TEXT = {
   srt: '剪映字幕实测',

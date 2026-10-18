@@ -94,7 +94,9 @@ export function captureExportSnapshot() {
   return { ok: true, snapshot };
 }
 
-/* ── 本机预检：文件是否还在、多大；只有这两件事，不改项目 ── */
+/* ── 本机预检：文件是否还在、多大；只有这两件事，不改项目。
+   真实宽高 / 旋转方向 / 完整源时长由主进程的媒体探测提供，经导出任务的 media 边界写进草稿；
+   渲染层不猜素材尺寸，也不把画布尺寸当成源素材尺寸。 ── */
 function localPathOf(value) {
   return typeof value === 'string' && LOCAL_PATH.test(value) ? value : '';
 }
@@ -374,6 +376,7 @@ function finishJob(job, raw) {
     freezeCount: Number.isFinite(raw?.freezeCount) ? raw.freezeCount : 0,
     registered: !!raw?.registered,
     needsQuit: !!raw?.needsQuit,
+    runningUnknown: !!raw?.runningUnknown,
     reportPath: String(raw?.reportPath || ''),
     notes: Array.isArray(raw?.notes) ? raw.notes : [],
     issues: Array.isArray(raw?.issues) ? raw.issues : [],

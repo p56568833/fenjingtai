@@ -901,6 +901,51 @@ const clamp01 = value => {
   const n = Number(value);
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
 };
+const positiveInt = value => {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
+/* 真实媒体元数据：media 由导出任务按 planId 传入（Map 或普通对象）。
+   每项至少 { width, height, rotation, durationUs, hasVideo, hasAudio }；
+   width/height 是源画面尺寸，带 90/270 度旋转时这里换算成显示方向；
+   也可以直接带 probe 归一化后的 displayWidth/displayHeight（优先采用）。
+   没有真实值就保持 0：绝不回退画布尺寸，否则剪映会把素材按画布撑满/变形。 */
+function mediaEntryOf(media, planId) {
+  if (!media || typeof planId !== 'string' || !planId) return null;
+  if (typeof media.get === 'function') {
+    try {
+      return media.get(planId) || null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof media === 'object') {
+    const entry = media[planId];
+    return entry && typeof entry === 'object' ? entry : null;
+  }
+  return null;
+}
+
+function mediaSizeOf(entry) {
+  if (!entry || typeof entry !== 'object') return { width: 0, height: 0 };
+  let width = positiveInt(entry.width);
+  let height = positiveInt(entry.height);
+  const rotation = Number(entry.rotation);
+  if (width && height && Number.isFinite(rotation) && Math.abs(Math.round(rotation)) % 180 === 90)
+    [width, height] = [height, width];
+  const displayWidth = positiveInt(entry.displayWidth);
+  const displayHeight = positiveInt(entry.displayHeight);
+  if (displayWidth && displayHeight) return { width: displayWidth, height: displayHeight };
+  return { width, height };
+}
+
+/* 视频是否带声音：以真实探测为准；没有探测结果时写 false，不再一律当成有声音 */
+const hasAudioOf = (entry, asset) => {
+  if (entry && typeof entry.hasAudio === 'boolean') return entry.hasAudio;
+  if (asset && typeof asset.hasAudio === 'boolean') return asset.hasAudio;
+  return false;
+};
 
 function gcd(a, b) {
   let x = Math.abs(a);
@@ -938,8 +983,10 @@ function buildPlatform({ fingerprint, appVersion = '', osVersion = '' } = {}) {
   return platform;
 }
 
-/* draft_info.json：通用导出计划 → 剪映 11.6 的 materials / tracks 结构 */
-function buildDraftInfo({ plan, draft, resources, fingerprint, appVersion, osVersion, nowUs, idFor }) {
+/* draft_info.json：通用导出计划 → 剪映 11.6 的 materials / tracks 结构。
+   media：真实媒体元数据（Map 或 { planId: {...} }）；素材宽高/时长/有无音轨都尽量用它，
+   没有就写 0 / 计划里的真实值，绝不回退画布尺寸。 */
+function buildDraftInfo({ plan, draft, resources, fingerprint, appVersion, osVersion, nowUs, idFor, media }) {
   const canvas = {
     width: Math.max(2, toInt(plan?.canvas?.width, 1920)),
     height: Math.max(2, toInt(plan?.canvas?.height, 1080)),
@@ -994,28 +1041,39 @@ function buildDraftInfo({ plan, draft, resources, fingerprint, appVersion, osVer
     const asset = assets.get(planId);
     if (!asset) throw new Error(`导出计划引用了不存在的素材：${planId}`);
     if (asset.material) return asset.material;
+    const entry = mediaEntryOf(media, planId);
     const file = resourceOf(planId);
     const name = String(file).split('/').pop();
     const extent = sourceExtent.get(planId) || 0;
+    const probedDurationUs = positiveInt(entry?.durationUs);
     let item;
     if (asset.kind === 'audio') {
       item = push('audios', AUDIO_MATERIAL, {
         name,
         path: file,
-        duration: Math.max(1, toInt(asset.durationUs) || extent),
+        duration: Math.max(1, toInt(asset.durationUs) || probedDurationUs || extent),
         category_name: 'local',
         type: 'extract_music',
       });
     } else {
       const isPhoto = asset.kind === 'image' || asset.type === 'freeze' || asset.type === 'photo';
+      const isFreeze = asset.type === 'freeze';
+      const size = mediaSizeOf(entry);
+      /* 旋转视频用显示方向尺寸（displayWidth/displayHeight），和剪映里看到的画面方向一致；
+         真机上素材仍可能叠加自己的旋转显示，最终呈现待真机确认后再调整。 */
+      /* 定格图是导出时才生成的 PNG：只能信真实输出尺寸（media）。旧计划里的定格宽高是画布尺寸，
+         按契约不能再用；图片/视频可以回退计划里的真实探测值，未知就写 0。 */
+      const width = isFreeze ? size.width : size.width || positiveInt(asset.width);
+      const height = isFreeze ? size.height : size.height || positiveInt(asset.height);
       item = push('videos', VIDEO_MATERIAL, {
         type: isPhoto ? 'photo' : 'video',
         material_name: name,
         path: file,
-        width: Number(asset.width) > 0 ? Math.round(Number(asset.width)) : canvas.width,
-        height: Number(asset.height) > 0 ? Math.round(Number(asset.height)) : canvas.height,
-        has_audio: !isPhoto,
-        duration: isPhoto ? PHOTO_DURATION_US : Math.max(1, toInt(asset.durationUs) || extent),
+        width,
+        height,
+        has_audio: isPhoto ? false : hasAudioOf(entry, asset),
+        /* 视频用完整源时长（不是本次使用区间），进剪映后还能在源范围内延长裁剪 */
+        duration: isPhoto ? PHOTO_DURATION_US : Math.max(1, probedDurationUs || toInt(asset.durationUs) || extent),
       });
     }
     asset.material = item;

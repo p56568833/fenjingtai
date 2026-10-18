@@ -6,7 +6,7 @@ import { shotLineCoverage } from '../app/line-coverage.js';
 import { mainFilled } from '../core/shot-tracks.js';
 import { layoutShot, circled } from '../core/shot-layout.js';
 import { shotCoverage } from '../core/coverage.js';
-import { spanOf } from '../core/timeline.js';
+import { shotSpan } from '../core/timeline.js';
 import { fmtTime } from '../core/text.js';
 import { shots, shotMembers, spanText, usageSpan, ROLES, ROLE_ORDER } from '../core/shots.js';
 import { usageList, usagePath, assetName as baseName, kindOf, KIND_LABEL, clipText } from '../core/asset-model.js';
@@ -33,7 +33,7 @@ export function sharedScenes(rows) {
 const s1 = x => (Math.round(x * 10) / 10).toFixed(1);
 export function shotTotalText(members) {
   const tl = timeline();
-  const span = spanOf(
+  const span = shotSpan(
     tl,
     members.map(m => m.id),
   );

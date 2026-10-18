@@ -1,21 +1,13 @@
 /* root_meta_info.json 索引的安全写入：先读、备份、校验、只追加本次条目、写临时文件后原子替换；
    写入前再读一次检测外部变更；索引不可解析、结构不认识、剪映正在运行或已存在同目录条目时一律停手。
-   不改动其他草稿条目和未知字段（只改 all_draft_store 数组本身）。 */
+   不改动其他草稿条目和未知字段（只改 all_draft_store 数组本身）。
+   时间单位统一为毫秒：索引条目由 entryFromDraftDir 用 clock.toUs 转一次微秒，备份文件名用毫秒日期。 */
 const nodeFs = require('node:fs');
 const nodePath = require('node:path');
 const paths = require('./paths');
 const validate = require('./validate');
 const meta = require('./meta');
-
-const stampOf = now => {
-  const ts = typeof now === 'function' ? now() : Number(now);
-  const date = new Date(Number.isFinite(ts) && ts > 0 ? ts : Date.now());
-  const pad = n => String(n).padStart(2, '0');
-  return (
-    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-` +
-    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}-${Math.random().toString(36).slice(2, 8)}`
-  );
-};
+const clock = require('./clock');
 
 function readIndex({ indexFile, fs = nodeFs, path = nodePath } = {}) {
   let raw;
@@ -79,7 +71,9 @@ function entryFromDraftDir({ draftRoot, draftDir, now = Date.now, fs = nodeFs, p
   if (!doc || typeof doc.id !== 'string' || !doc.id || !Number.isInteger(doc.duration))
     return { ok: false, error: '草稿文件不完整，无法补登记' };
   const name = typeof doc.name === 'string' && doc.name ? doc.name : path.basename(draftDir);
-  const nowUs = typeof now === 'function' ? now() : now;
+  /* 毫秒进来、微秒出去：唯一一次 ×1000，调用方不要再自己换算 */
+  const nowMs = clock.readMs(now);
+  const nowUs = clock.toUs(nowMs);
   const draft = { id: doc.id, name, dir: draftDir, root: draftRoot };
   return {
     ok: true,
@@ -92,13 +86,13 @@ function entryFromDraftDir({ draftRoot, draftDir, now = Date.now, fs = nodeFs, p
   };
 }
 
-/* 原子写索引：备份原文件 → 写同目录临时文件 → 再读一次确认没被外部改动 → 替换 */
+/* 原子写索引：备份原文件 → 写同目录临时文件 → 再读一次确认没被外部改动 → 替换。
+   备份文件名用当前（或注入的）毫秒时钟对应本地日期，不能是 1970。 */
 function writeIndexAtomic({ indexFile, raw, nextRaw, backupDir, now = Date.now, fs = nodeFs, path = nodePath } = {}) {
   let backupPath;
   const backupRoot = backupDir || path.dirname(indexFile);
-  const backupName = backupDir
-    ? `root_meta_info-${stampOf(now)}.json`
-    : `root_meta_info.fenjingtai-backup-${stampOf(now)}.json`;
+  const stamp = clock.stampDate(clock.readMs(now));
+  const backupName = backupDir ? `root_meta_info-${stamp}.json` : `root_meta_info.fenjingtai-backup-${stamp}.json`;
   try {
     fs.mkdirSync(backupRoot, { recursive: true });
     backupPath = path.join(backupRoot, backupName);
@@ -145,13 +139,16 @@ function writeIndexAtomic({ indexFile, raw, nextRaw, backupDir, now = Date.now, 
   return { ok: true, backupPath };
 }
 
-/* 把一个已生成的草稿目录登记进剪映草稿库；返回 { ok, registered, error?, backupPath?, already? } */
+/* 把一个已生成的草稿目录登记进剪映草稿库；返回 { ok, registered, error?, backupPath?, already? }
+   now 是毫秒（默认 Date.now），原样交给 entryFromDraftDir 和 writeIndexAtomic，由它们各自按毫秒处理。
+   isRunning 可选：写索引前再查一次实时运行状态；剪映在运行或检测抛错都保守拒绝写（只留草稿）。 */
 function registerDraft({
   draftRoot,
   draftDir,
   backupDir = '',
   running = false,
   now = Date.now,
+  isRunning,
   fs = nodeFs,
   path = nodePath,
 } = {}) {
@@ -165,12 +162,11 @@ function registerDraft({
   } catch {}
   if (!stat?.isDirectory()) return { ok: false, registered: false, error: '草稿目录不存在' };
 
-  const nowUs = typeof now === 'function' ? now() : now;
   const indexFile = paths.indexFileFor(draftRoot);
   const index = readIndex({ indexFile, fs, path });
   if (!index.ok) return { ok: false, registered: false, error: index.error };
 
-  const built = entryFromDraftDir({ draftRoot, draftDir, now: nowUs, fs, path });
+  const built = entryFromDraftDir({ draftRoot, draftDir, now, fs, path });
   if (!built.ok) return { ok: false, registered: false, error: built.error };
   const entry = built.entry;
 
@@ -184,13 +180,30 @@ function registerDraft({
       error: '草稿库索引里已经有指向这个目录的条目，未做修改',
     };
 
+  /* 写索引前的最后一次实时检查：调用方可能已经查过，这里兜底，避免「复制期间剪映被打开」漏写索引 */
+  if (typeof isRunning === 'function') {
+    let runningNow;
+    try {
+      runningNow = !!isRunning();
+    } catch {
+      return {
+        ok: false,
+        registered: false,
+        needsQuit: true,
+        error: '无法确认剪映是否已经退出，为安全起见没有改动草稿库索引',
+      };
+    }
+    if (runningNow)
+      return { ok: false, registered: false, needsQuit: true, error: '剪映正在运行，退出剪映后再加入草稿库' };
+  }
+
   const next = { ...index.doc, all_draft_store: [entry, ...index.doc.all_draft_store] };
   const written = writeIndexAtomic({
     indexFile,
     raw: index.raw,
     nextRaw: JSON.stringify(next),
     backupDir,
-    now: nowUs,
+    now,
     fs,
     path,
   });

@@ -105,7 +105,7 @@ export async function runTimelineOverviewTests(t) {
     lines[1].assetUsages[0].clip.out = 103;
     lines[2].assetUsages = [];
     renderOverview();
-    t('后一句确实没有画面时仍显示灰色', !paintedAt(2160.4) && !paintedAt(2161.5));
+    t('后一句没有画面：停顿属于前一个镜头照常有画面，后一句本身显示灰色', paintedAt(2160.4) && !paintedAt(2161.5));
     lines.forEach((r, i) => {
       r.groupId = 'coverage-short';
       r.time = { start: [0, 5, 15][i], end: [5, 15, 20][i], st: 'ok' };

@@ -8,6 +8,7 @@ import { rowById } from '../app/project-queries.js';
 import * as editExport from '../app/edit-export.js';
 import { usageList } from '../core/asset-model.js';
 import { fmtTc, fmtLen, safeFileName } from '../core/text.js';
+import { targetStatusOf, isVersionSupported } from '../core/jianying-target.js';
 import { toast, esc } from '../ui/base/dom.js';
 import { registerModal } from '../ui/base/modal.js';
 import { closePop } from '../ui/base/popover.js';
@@ -239,7 +240,7 @@ async function tryQuickStart(token) {
   if (token !== viewToken) return;
   renderTarget();
   const appFound = detection.ok || !!detection.version || !!detection.appPath;
-  if (!appFound || !detection.supported || (prefs.mode !== 'folder' && !detection.ok)) {
+  if (!appFound || !isVersionSupported(detection) || (prefs.mode !== 'folder' && !detection.ok)) {
     setPane('config');
     renderSummary();
     renderAssetsLine();
@@ -331,37 +332,11 @@ function formName() {
 
 function renderTarget() {
   const el = $('#jyTarget');
-  if (!detection) {
-    el.dataset.level = 'pending';
-    el.innerHTML = '<b>正在检测本机剪映…</b>';
-    return;
-  }
-  const issues = (detection.issues || []).filter(issue => issue?.message).map(issue => esc(issue.message));
+  const status = targetStatusOf(detection);
+  el.dataset.level = status.level;
+  const issues = (detection?.issues || []).filter(issue => issue?.message).map(issue => esc(issue.message));
   const tail = issues.length ? `<small>${issues.join('；')}</small>` : '';
-  if (detection.unavailable) {
-    el.dataset.level = 'warn';
-    el.innerHTML = `<b>暂不可用</b><span>${esc(detection.error || '这个版本还不支持导出到剪映')}</span>${tail}`;
-    return;
-  }
-  const appFound = detection.ok || !!detection.version || !!detection.appPath;
-  if (!appFound) {
-    el.dataset.level = 'warn';
-    el.innerHTML = `<b>没找到 Mac 版剪映专业版</b><span>${esc(detection.error || '请先安装剪映再试')}</span>${tail}`;
-    return;
-  }
-  const version = detection.version ? `剪映 ${detection.version}` : 'Mac 版剪映专业版';
-  if (!detection.supported) {
-    el.dataset.level = 'warn';
-    el.innerHTML = `<b>${esc(version)} · 未验证版本</b><span>首版只验证过 11.6，这个版本暂不生成，避免做出来的草稿打不开</span>${tail}`;
-    return;
-  }
-  if (!detection.ok) {
-    el.dataset.level = 'warn';
-    el.innerHTML = `<b>${esc(version)} · 剪映草稿库暂时不可用</b><span>可以改用「保存草稿文件夹」生成草稿</span>${tail}`;
-    return;
-  }
-  el.dataset.level = 'ok';
-  el.innerHTML = `<b>${esc(version)} · 已适配</b><span>${detection.running ? '剪映正在运行' : '草稿会出现在剪映「本地草稿」'}</span>${tail}`;
+  el.innerHTML = `<b>${esc(status.title)}</b>${status.text ? `<span>${esc(status.text)}</span>` : ''}${tail}`;
 }
 
 function renderDestRow() {
@@ -495,7 +470,7 @@ function goBlocker() {
   if (detection.unavailable) return detection.error || '这个版本还不支持导出到剪映';
   const appFound = detection.ok || !!detection.version || !!detection.appPath;
   if (!appFound) return '没找到 Mac 版剪映专业版';
-  if (!detection.supported) return '当前剪映版本未验证';
+  if (!isVersionSupported(detection)) return '当前剪映版本未验证（仅验证 11.6.0）';
   if (currentMode() === 'library' && !detection.ok) return '剪映草稿库暂时不可用，改用「保存草稿文件夹」';
   if (!prepared?.ok) return prepared?.error || configError || '导出计划还没准备好';
   if (configIssues.some(isBlocking)) return '有阻塞问题，先处理后再导出';
@@ -743,6 +718,7 @@ function joinText(entry) {
   const result = entry.result;
   if (entry.mode === 'folder') return '已保存到文件夹，没有加入剪映；放进剪映草稿目录后才能打开';
   if (result.registered) return '已加入剪映草稿列表，打开剪映就能看到';
+  if (result.runningUnknown) return '无法确认剪映是否在运行，暂时没有加入列表；退出剪映后可再点「加入剪映草稿」';
   if (result.needsQuit) return '剪映正在运行，暂时没有加入列表；退出剪映后可再点「加入剪映草稿」';
   return '没有加入剪映草稿列表';
 }
@@ -823,6 +799,8 @@ function renderDone(entry) {
   else if (failed) hint.textContent = '项目没有被修改。调整设置或处理问题后可以再生成一次。';
   else if (entry.mode === 'folder')
     hint.textContent = '这是独立草稿文件夹：交付或手动放进剪映草稿目录后即可打开；移动位置后素材可能需要重新定位。';
+  else if (result.runningUnknown)
+    hint.textContent = '这次没能确认剪映是否在运行，为安全起见没有改动草稿列表。退出剪映后点「加入剪映草稿」。';
   else if (result.needsQuit)
     hint.textContent = '剪映运行期间不会改动草稿列表。退出剪映后点「加入剪映草稿」，再打开剪映就能看到。';
   else hint.textContent = '这是新草稿，不会覆盖你已经在剪映里改过的其他草稿。';

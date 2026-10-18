@@ -1,15 +1,15 @@
 {
   "name": "fenjingtai",
   "productName": "分镜台",
-  "version": "2.0.9",
+  "version": "2.1.0",
   "description": "口播稿逐句分镜标注工具",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node scripts/production-test.mjs && node scripts/collab-test.mjs && node scripts/main-test.mjs && node scripts/crash-test.mjs && node scripts/jianying-plan-test.mjs && node scripts/jianying-files-test.mjs && node scripts/test.mjs",
+    "test": "node scripts/production-test.mjs && node scripts/collab-test.mjs && node scripts/main-test.mjs && node scripts/crash-test.mjs && node scripts/jianying-plan-test.mjs && node scripts/jianying-files-test.mjs && node scripts/jianying-freeze-test.mjs && node scripts/jianying-media-test.mjs && node scripts/jianying-index-ipc-test.mjs && node scripts/test.mjs",
     "test:ui": "node scripts/test.mjs",
     "test:theme": "node scripts/theme-test.mjs",
-    "test:data": "node scripts/production-test.mjs && node scripts/collab-test.mjs && node scripts/main-test.mjs && node scripts/crash-test.mjs && node scripts/jianying-plan-test.mjs && node scripts/jianying-files-test.mjs",
+    "test:data": "node scripts/production-test.mjs && node scripts/collab-test.mjs && node scripts/main-test.mjs && node scripts/crash-test.mjs && node scripts/jianying-plan-test.mjs && node scripts/jianying-files-test.mjs && node scripts/jianying-freeze-test.mjs && node scripts/jianying-media-test.mjs && node scripts/jianying-index-ipc-test.mjs",
     "test:collab": "node scripts/collab-e2e.mjs",
     "test:crash": "node scripts/crash-test.mjs && node scripts/crash-e2e.mjs",
     "lint": "node scripts/architecture-check.mjs && eslint .",

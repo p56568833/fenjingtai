@@ -185,8 +185,23 @@ test('样例 A：口播音轨、字幕、SRT、素材表、时间来源与统计
     ],
   );
   assert.deepEqual(
-    plan.derived.map(item => [item.type, item.sourcePath, item.atUs, item.width, item.height]),
-    [['freeze', '/media/c.mp4', 11966667, 1920, 1080]],
+    plan.derived.map(item => [
+      item.type,
+      item.sourcePath,
+      item.atUs,
+      item.sourceInUs,
+      item.sourceOutUs,
+      item.width,
+      item.height,
+    ]),
+    [['freeze', '/media/c.mp4', 11966667, 10000000, 12000000, 0, 0]],
+  );
+  assert.equal(plan.derived[0].sourceInUs, 10000000, '源入点取片段入点对应的源微秒');
+  assert.equal(plan.derived[0].sourceOutUs, 12000000, '源出点是排他边界');
+  assert.equal(
+    plan.derived[0].atUs,
+    plan.derived[0].sourceOutUs - 33333,
+    'atUs 只是旧计划兼容提示：源出点 - 1/项目帧率',
   );
   assert.equal(plan.derived[0].sourceAssetId, plan.tracks.video[2].assetId, '派生图引用源素材的 planId');
   assert.equal(plan.assets.find(item => item.planId === plan.tracks.video[2].assetId).sourceAssetId, 'vC');
@@ -229,7 +244,7 @@ test('样例 A：问题列表只有手动留白 info，没有阻塞或需确认'
   assert.equal(issue(plan, 'manual-gap').lineNo, 1);
 });
 
-test('样例 A：字幕可选关闭；画幅变化只影响派生输出规格', () => {
+test('样例 A：字幕可选关闭；画幅变化只影响画布，不定格输出尺寸', () => {
   const off = makePlan(sampleA());
   assert.deepEqual(off.tracks.text, []);
   assert.deepEqual(off.subtitles, []);
@@ -237,8 +252,30 @@ test('样例 A：字幕可选关闭；画幅变化只影响派生输出规格', 
 
   const portrait = makePlan(sampleA(), { width: 1080, height: 1920 });
   assert.deepEqual(portrait.canvas, { width: 1080, height: 1920 });
-  assert.deepEqual([portrait.derived[0].width, portrait.derived[0].height], [1080, 1920]);
+  // 语义变更：画布是草稿画布，不是定格 PNG 的输出尺寸；定格宽高由真实抽出的 PNG 决定，计划里写 0。
+  assert.deepEqual([portrait.derived[0].width, portrait.derived[0].height], [0, 0]);
   assert.equal(portrait.durationUs, 12000000);
+});
+
+test('素材 refs：同一视频在多句使用时合并定位，不重复', () => {
+  const rows = [
+    line('L1', 1, '第一句', { start: 0, end: 1, st: 'ok' }),
+    line('L2', 2, '第二句', { start: 1, end: 2, st: 'ok' }),
+  ];
+  rows[0].assetUsages = [{ assetId: 'V', role: 'main', clip: { in: 0, out: 2 } }];
+  rows[1].assetUsages = [{ assetId: 'V', role: 'main', clip: { in: 0, out: 2 } }];
+  const plan = makePlan(project({ rows, assets: [asset('V', '/m/v.mp4', 'video', { durationSec: 30 })] }));
+  const videos = plan.assets.filter(item => item.path === '/m/v.mp4');
+  assert.equal(videos.length, 1, '同一源视频只生成一个素材条目');
+  assert.deepEqual(videos[0].refs, [
+    { rowId: 'L1', lineNo: 1, assetId: 'V' },
+    { rowId: 'L2', lineNo: 2, assetId: 'V' },
+  ]);
+  assert.equal(new Set(videos[0].refs.map(item => `${item.rowId}|${item.lineNo}`)).size, 2, 'refs 不重复');
+  assert.ok(
+    plan.assets.filter(item => item.kind === 'audio').every(item => !item.refs),
+    '音频条目不需要 refs',
+  );
 });
 
 test('计划是纯函数：不修改项目快照，重复调用结果一致', () => {
@@ -696,7 +733,7 @@ test('画面整段排在镜头之后：不上轨并提示需确认', () => {
   assert.ok(hasIssue(plan, 'over-shot', 'confirm'));
 });
 
-test('片段超出文件时长：阻塞诊断并按文件里有的部分导出', () => {
+test('登记片段超出文件、但这次要播的部分文件里都有：只提示，不阻塞', () => {
   const { project: proj } = oneVideoShot({
     clip: { in: 0, out: 10 },
     at: { start: 0, end: 2, of: 'L1' },
@@ -704,10 +741,111 @@ test('片段超出文件时长：阻塞诊断并按文件里有的部分导出',
     probe: { durationSec: 5, exists: true },
   });
   const plan = makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: 5, exists: true } } });
-  assert.ok(hasIssue(plan, 'source-range', 'block'));
+  assert.ok(hasIssue(plan, 'source-range', 'info'));
+  assert.ok(!hasIssue(plan, 'source-range', 'block'));
   assert.deepEqual(
     videoSummary(plan).map(item => [item.start, item.dur]),
     [[0, 2000000]],
+  );
+});
+
+test('下载的片段比登记范围短（0.2–14.8 秒登记、文件 11 秒、只用 2.8 秒）：照常导出', () => {
+  const { project: proj } = oneVideoShot({
+    clip: { in: 0.2, out: 14.8 },
+    at: { start: 0, end: 2.8, of: 'L1' },
+    durationSec: 11.011,
+  });
+  const plan = makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: 11.011, exists: true } } });
+  assert.ok(!plan.issues.some(item => item.level === 'block'));
+  assert.ok(hasIssue(plan, 'source-range', 'info'));
+  assert.deepEqual(
+    videoSummary(plan).map(item => [item.start, item.dur, item.sourceStart]),
+    [[0, 2800000, 200000]],
+  );
+});
+
+test('项目记录的时长比文件长、这次要播的超过文件里剩下的：阻塞，并按文件里有的部分导出', () => {
+  const { project: proj } = oneVideoShot({
+    clip: { in: 0, out: 10 },
+    at: { start: 0, end: 8, of: 'L1' },
+    durationSec: 20,
+    shotEnd: 10,
+  });
+  const plan = makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: 5, exists: true } } });
+  assert.ok(hasIssue(plan, 'source-range', 'block'));
+  assert.equal(videoSummary(plan)[0].dur, 5000000);
+});
+
+/* 两个镜头之间隔着 1 秒句间停顿：L1 0–2 秒，L2 3–5 秒；停顿算进第一个镜头（0–3 秒） */
+function pauseShots(videoSec, at = null, extra = {}) {
+  const rows = [line('L1', 1, '第一句', { start: 0, end: 2, st: 'ok' }), line('L2', 2, '第二句', { start: 3, end: 5, st: 'ok' })];
+  rows[0].assetUsages = [{ assetId: 'V', role: 'main', ...(at ? { at } : {}), ...extra }];
+  rows[1].assetUsages = [{ assetId: 'I', role: 'main' }];
+  const proj = project({ rows, assets: [asset('V', '/m/v.mp4', 'video', { durationSec: videoSec }), asset('I', '/m/i.png', 'image')] });
+  return makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: videoSec, exists: true }, '/m/i.png': { exists: true } } });
+}
+
+test('镜头之间的句间停顿算进前一个镜头：画面播到下一句开口，镜头首尾相接', () => {
+  assert.deepEqual(
+    videoSummary(pauseShots(10)).map(item => [item.kind, item.start, item.dur, item.derived]),
+    [
+      ['video', 0, 3000000, false],
+      ['image', 3000000, 2000000, false],
+    ],
+  );
+});
+
+test('停顿算进镜头后片段不够长：和时间轴一样空着；标了定格补满才用定格补到下一句开口', () => {
+  assert.deepEqual(
+    videoSummary(pauseShots(2.5)).map(item => [item.kind, item.start, item.dur, item.derived]),
+    [
+      ['video', 0, 2500000, false],
+      ['image', 3000000, 2000000, false],
+    ],
+  );
+  assert.deepEqual(
+    videoSummary(pauseShots(2.5, null, { fitDone: true })).map(item => [item.kind, item.start, item.dur, item.derived]),
+    [
+      ['video', 0, 2500000, false],
+      ['image', 2500000, 500000, true],
+      ['image', 3000000, 2000000, false],
+    ],
+  );
+});
+
+test('镜头后面还排着放不下的画面：停顿里仍由能看见的最后一个画面延续', () => {
+  const rows = [line('L1', 1, '第一句', { start: 0, end: 2, st: 'ok' }), line('L2', 2, '第二句', { start: 3, end: 5, st: 'ok' })];
+  rows[0].assetUsages = [
+    { assetId: 'V', role: 'main', clip: { in: 0, out: 4 } }, // 4 秒片段排进 2 秒镜头，W 排到 4 秒处：镜头外
+    { assetId: 'W', role: 'main', clip: { in: 0, out: 4 } },
+  ];
+  rows[1].assetUsages = [{ assetId: 'I', role: 'main' }];
+  const proj = project({
+    rows,
+    assets: [
+      asset('V', '/m/v.mp4', 'video', { durationSec: 10 }),
+      asset('W', '/m/w.mp4', 'video', { durationSec: 10 }),
+      asset('I', '/m/i.png', 'image'),
+    ],
+  });
+  const plan = makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: 10, exists: true }, '/m/w.mp4': { durationSec: 10, exists: true } } });
+  assert.ok(hasIssue(plan, 'over-shot', 'confirm'));
+  assert.deepEqual(
+    videoSummary(plan).map(item => [item.path, item.start, item.dur]),
+    [
+      ['/m/v.mp4', 0, 3000000],
+      ['/m/i.png', 3000000, 2000000],
+    ],
+  );
+});
+
+test('手动排的画面没排到最后一句说完：结尾空白照样留空', () => {
+  assert.deepEqual(
+    videoSummary(pauseShots(10, { start: 0, end: 1, of: 'L1' })).map(item => [item.kind, item.start, item.dur]),
+    [
+      ['video', 0, 1000000],
+      ['image', 3000000, 2000000],
+    ],
   );
 });
 

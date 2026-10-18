@@ -7,7 +7,7 @@ import { on } from '../app/events.js';
 import { timeline, timeOf, rowById } from '../app/project-queries.js';
 import { setVoice, setVoiceDuration, clearVoice, relocateVoice, isVoiceFile } from '../app/voice.js';
 import { shotMembers } from '../core/shots.js';
-import { lineAt, spanOf } from '../core/timeline.js';
+import { lineAt, shotSpan } from '../core/timeline.js';
 import { fmtTime } from '../core/text.js';
 import { fileUrl } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
@@ -191,7 +191,7 @@ function playFromLine(id) {
 function playShot(id) {
   const r = rowById(id);
   if (!r) return;
-  const span = spanOf(
+  const span = shotSpan(
     timeline(),
     shotMembers(state.rows, r).map(x => x.id),
   );

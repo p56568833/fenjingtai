@@ -1,16 +1,12 @@
 /* 时间轨的视图模板：接收排布和选中状态，不读共享状态或操作页面。 */
 import { heldThrough } from '../core/playback-plan.js';
-import { circled } from '../core/shot-layout.js';
+import { circled, usableLength } from '../core/shot-layout.js';
 import { altItems } from '../core/shot-tracks.js';
 import { fileUrl } from '../core/asset-model.js';
 import { esc } from '../ui/base/dom.js';
 import { filmSource } from './filmstrip.js';
 const sec = x => (Math.round(x * 10) / 10).toFixed(1);
-export const clipLen = it => {
-  if (it.kind !== 'video') return null;
-  if (it.usage.clip) return it.usage.clip.out - it.usage.clip.in;
-  return Number.isFinite(it.asset.durationSec) ? it.asset.durationSec : null;
-};
+export const clipLen = usableLength;
 const ALT_ROW = 30; // 备选轨一层的高度（时间上重叠的备选往下叠一层）
 /* 色块上的名字：素材名开头的「第469-471句_」每块都一样，去掉只留后面能认出来的部分（悬停仍看全名） */
 /* 色块铺胶片要的信息：视频给地址、片段起点、这块里实际放了几秒片段（后面定格补足的那截不铺）；图片给图片地址 */

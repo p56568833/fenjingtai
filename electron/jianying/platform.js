@@ -4,12 +4,18 @@
 const nodeFs = require('node:fs');
 const nodeOs = require('node:os');
 const nodePath = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const paths = require('./paths');
 
 const BUNDLE_ID = 'com.lemon.lvpro'; // 剪映专业版；CapCut（com.lemon.lv）不是本适配器目标
 const RUNNING_MARK = 'VideoFusion-macOS.app/Contents/MacOS/VideoFusion-macOS'; // 11.6 实测进程名
-const VERSION_RE = /^11\.6\./; // 只声明对 11.6.x 的兼容性
+/* 只在本机 Mac 剪映专业版 11.6.0 上实测过，版本号必须与它完全一致才算验证：
+   11.6.1 / 11.6.99 / 11.7.0 等后续版本都没验证过；11.6.0.1 / 11.6.0-beta 也不做“规范化”当成 11.6.0。
+   未验证版本不生成草稿、不登记草稿库（见 unsupportedVersionMessage）。 */
+const VERIFIED_VERSION = '11.6.0';
+const isVerifiedVersion = version => String(version ?? '') === VERIFIED_VERSION;
+const unsupportedVersionMessage = version =>
+  `本机剪映版本 ${String(version || '').trim() || '未知'} 未验证：当前仅在 Mac 剪映专业版 11.6.0 上实测，其他版本不生成草稿、不登记草稿库`;
 const APP_NAMES = ['VideoFusion-macOS.app', '剪映专业版.app', '剪映.app'];
 
 /* 跑一条只读系统命令：失败返回空串（不把「找不到」当成错误） */
@@ -57,8 +63,20 @@ function readBundle({ run, path, appPath }) {
   return { appPath, version };
 }
 
-function isRunning({ run = runText } = {}) {
-  return !!run('/usr/bin/pgrep', ['-f', RUNNING_MARK]);
+/* 剪映是否正在运行。生产路径不能把「检测命令本身失败」当成「没在运行」：
+   pgrep 退出码 0 = 在运行、1 = 没在运行；其它退出码或起不了进程必须抛错，
+   让导出任务按「无法确认」保守处理（只生成草稿、不写索引）。注入的 run 保持测试语义。 */
+function isRunning({ run } = {}) {
+  if (typeof run === 'function') return !!run('/usr/bin/pgrep', ['-f', RUNNING_MARK]);
+  const result = spawnSync('/usr/bin/pgrep', ['-f', RUNNING_MARK], {
+    encoding: 'utf8',
+    timeout: 5000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (result.error) throw new Error(`无法确认剪映是否正在运行：${result.error.message}`);
+  if (result.status === 0) return true;
+  if (result.status === 1) return false;
+  throw new Error(`无法确认剪映是否正在运行（pgrep 退出码 ${result.status}）`);
 }
 
 function osProductVersion(run = runText) {
@@ -193,14 +211,14 @@ function detect(deps = {}) {
     if (app) break;
   }
   const version = app?.version || '';
-  const supported = VERSION_RE.test(version);
+  const supported = isVerifiedVersion(version);
   if (!app) {
-    issues.push({ level: 'warn', code: 'app-not-found', message: '没有找到剪映专业版（11.6）' });
+    issues.push({ level: 'warn', code: 'app-not-found', message: '没有找到剪映专业版（导出仅验证 11.6.0）' });
   } else if (!supported) {
     issues.push({
       level: 'warn',
       code: 'version-unsupported',
-      message: `本机剪映版本 ${version || '未知'} 不在已验证范围（11.6.x）内`,
+      message: unsupportedVersionMessage(version),
     });
   }
 
@@ -221,7 +239,8 @@ function detect(deps = {}) {
   const index = rootOk ? readIndexState({ fs, path, draftRoot }) : { ok: false, error: '草稿库不可用' };
   if (rootOk && !index.ok) issues.push({ level: 'info', code: 'index-unusable', message: index.error });
 
-  const running = rootOk ? isRunning({ run }) : false;
+  /* 没注入 run 时走 isRunning 的生产实现：检测失败抛错而不是静默当作没运行 */
+  const running = rootOk ? (deps.run ? isRunning({ run }) : isRunning()) : false;
   const osVersion = osProductVersion(run);
   const fingerprint = probeFingerprint({ fs, path, draftRoot, appVersion: version, osVersion });
   if (!fingerprint.ok)
@@ -247,7 +266,9 @@ function detect(deps = {}) {
 module.exports = {
   BUNDLE_ID,
   RUNNING_MARK,
-  VERSION_RE,
+  VERIFIED_VERSION,
+  isVerifiedVersion,
+  unsupportedVersionMessage,
   detect,
   isRunning,
   osProductVersion,

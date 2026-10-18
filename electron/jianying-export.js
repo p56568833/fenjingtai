@@ -15,6 +15,8 @@ const schema = require('./jianying/schema');
 const meta = require('./jianying/meta');
 const validate = require('./jianying/validate');
 const register = require('./jianying/register');
+const frameTools = require('./jianying/frame');
+const mediaInfo = require('./jianying/media-info');
 
 const { BLOCK, WARN, INFO } = validate;
 
@@ -34,6 +36,8 @@ const AUDIO_ESTIMATE = 8 * 1024 * 1024; // 抽出的音轨大小上限估计
 const COVER_ESTIMATE = 512 * 1024;
 const STALE_STAGING_MS = 6 * 60 * 60 * 1000;
 const CANCELED = 'canceled';
+/* ffprobe 报出的图片编解码名：用来识别「声明成视频、实际是图片」这类格式不符 */
+const IMAGE_CODECS = new Set(['png', 'mjpeg', 'jpegls', 'gif', 'webp', 'bmp', 'tiff', 'heic', 'heif', 'avif']);
 
 /* 没有可截帧素材时的兜底封面：16×16 白色 JPEG（222 字节，不依赖 ffmpeg） */
 const FALLBACK_COVER = Buffer.from(
@@ -46,7 +50,6 @@ const noteIssue = (issues, level, code, message) => issues.push({ level, code, m
 
 const canceledError = () => Object.assign(new Error('已取消'), { code: CANCELED, canceled: true });
 const exportError = (code, message) => Object.assign(new Error(message), { code });
-const canceledSignal = signal => !!signal?.aborted;
 
 function mapCopyError(error) {
   if (error?.code === 'ENOSPC' || error?.code === 'EDQUOT')
@@ -67,7 +70,7 @@ function ffprobeFor(ffmpeg) {
   return candidates.find(candidate => nodeFs.existsSync(candidate)) || '';
 }
 
-function createMediaTools({ find = findFfmpeg, spawnProcess = spawn } = {}) {
+function createMediaTools({ find = findFfmpeg, spawnProcess = spawn, probeTimeoutMs = 120000 } = {}) {
   let ffmpeg = null;
   let probed = false;
   const ffmpegBin = () => {
@@ -116,7 +119,7 @@ function createMediaTools({ find = findFfmpeg, spawnProcess = spawn } = {}) {
         try {
           child.kill('SIGKILL');
         } catch {}
-        finish({ code: -1, stdout, stderr: stderr + '\n媒体处理超时' });
+        finish({ code: -1, stdout, stderr: stderr + '\n媒体处理超时', timedOut: true });
       }, timeoutMs);
       if (signal?.aborted) {
         onAbort();
@@ -168,94 +171,114 @@ function createMediaTools({ find = findFfmpeg, spawnProcess = spawn } = {}) {
     };
   }
 
+  /* 容器缺总时长时，只解复用视频包推算完整源时长；失败返回 0，不阻塞导出但也绝不编造。 */
+  async function estimateDuration({ probe, file, signal }) {
+    if (!probe) return 0;
+    const result = await runCapture(
+      probe,
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time,duration_time', '-of', 'json', file],
+      signal,
+      probeTimeoutMs,
+    );
+    if (!result || result.canceled || result.timedOut || result.code !== 0) return 0;
+    try {
+      return mediaInfo.durationFromPackets(JSON.parse(result.stdout));
+    } catch {
+      return 0;
+    }
+  }
+
   return {
     available: () => !!ffmpegBin(),
-    /* 探测时长/分辨率；找不到 ffmpeg 或探测失败返回 null，不阻塞不需要转码的导出 */
+    /* 探测媒体：返回 { ok:true, durationUs, width, height, rotation, displayWidth, displayHeight,
+       frameRate, videoCodec, audioCodec, hasVideo, hasAudio } 或 { ok:false, code, error }。
+       失败原因区分工具缺失 / 超时 / 损坏 / 不支持 / 解析失败，交给上层决定是否阻塞。 */
     async probe({ path: file, signal } = {}) {
       const bin = ffmpegBin();
-      if (!bin || !file) return null;
-      const probe = ffprobeBin();
-      if (probe) {
+      if (!bin || !file)
+        return { ok: false, code: 'media-tool-missing', error: '这台电脑上没找到 ffmpeg，无法复核素材' };
+      if (ffprobeBin()) {
         const result = await runCapture(
-          probe,
+          ffprobeBin(),
           ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', file],
           signal,
+          probeTimeoutMs,
         );
         if (result.canceled) throw canceledError();
-        if (result.code === 0) {
-          try {
-            const data = JSON.parse(result.stdout);
-            const streams = Array.isArray(data.streams) ? data.streams : [];
-            const video = streams.find(stream => stream.codec_type === 'video');
-            const audio = streams.find(stream => stream.codec_type === 'audio');
-            const rotation = Number(
-              video?.side_data_list?.find(item => item.rotation !== undefined)?.rotation ?? video?.tags?.rotate ?? 0,
-            );
-            const duration = Number(data.format?.duration ?? video?.duration ?? 0);
-            return {
-              durationUs: Number.isFinite(duration) ? Math.round(duration * 1000000) : 0,
-              width: Number(video?.width) || 0,
-              height: Number(video?.height) || 0,
-              rotation: Number.isFinite(rotation) ? rotation : 0,
-              videoCodec: video?.codec_name || '',
-              audioCodec: audio?.codec_name || '',
-              hasVideo: !!video,
-              hasAudio: !!audio,
-            };
-          } catch {
-            return null;
+        if (result.timedOut)
+          return {
+            ok: false,
+            code: 'media-probe-timeout',
+            error: `探测素材超时（超过 ${Math.max(1, Math.round(probeTimeoutMs / 1000))} 秒）`,
+          };
+        if (result.code !== 0) {
+          const failure = mediaInfo.classifyProbeFailure({ stderr: result.stderr, exitCode: result.code });
+          return { ok: false, code: failure.code, error: failure.message };
+        }
+        let data;
+        try {
+          data = JSON.parse(result.stdout);
+        } catch {
+          return { ok: false, code: 'media-probe-failed', error: '素材探测结果无法解析，文件可能已损坏' };
+        }
+        const info = mediaInfo.normalizeProbe(data);
+        if (
+          info.ok &&
+          info.hasVideo &&
+          !(Number(info.durationUs) > 0) &&
+          !IMAGE_CODECS.has(String(info.videoCodec || '').toLowerCase())
+        ) {
+          const estimated = await estimateDuration({ probe: ffprobeBin(), file, signal });
+          if (estimated > 0) {
+            info.durationUs = estimated;
+            info.durationEstimated = true;
           }
         }
-        return null;
+        return info;
       }
-      const fallback = await runCapture(bin, ['-hide_banner', '-i', file], signal, 30000);
+      /* 没有 ffprobe 时退回 ffmpeg -i 文本解析；只用于降级探测 */
+      const fallback = await runCapture(bin, ['-hide_banner', '-i', file], signal, probeTimeoutMs);
       if (fallback.canceled) throw canceledError();
+      if (fallback.timedOut) return { ok: false, code: 'media-probe-timeout', error: '探测素材超时' };
       const parsed = parseFfmpegProbe(fallback.stderr);
-      return parsed.hasVideo || parsed.hasAudio || parsed.durationUs ? parsed : null;
+      if (!(parsed.hasVideo || parsed.hasAudio || parsed.durationUs)) {
+        const failure = mediaInfo.classifyProbeFailure({ stderr: fallback.stderr, exitCode: fallback.code });
+        return { ok: false, code: failure.code, error: failure.message };
+      }
+      return {
+        ok: true,
+        durationUs: parsed.durationUs,
+        width: parsed.width,
+        height: parsed.height,
+        rotation: 0,
+        displayWidth: parsed.width,
+        displayHeight: parsed.height,
+        frameRate: null,
+        videoCodec: parsed.videoCodec,
+        audioCodec: parsed.audioCodec,
+        hasVideo: parsed.hasVideo,
+        hasAudio: parsed.hasAudio,
+      };
     },
-    /* 抽一帧 PNG：-ss 放在 -i 之后是精确定位，定格要的就是出点前最后一帧。
-       源帧率低于项目帧率时，出点前 1/fps 可能落在最后一帧之后：依次往前退一点再试。 */
-    async extractFrame({ sourcePath, atUs = 0, outPath, signal } = {}) {
+    /* 抽定格帧：真实源帧定位由 frame.js 完成（源入点 / 排他出点 → 区间内最后一个可见源帧），
+       不按项目帧率推算，也不做 0.2 / 1 秒盲退。 */
+    async extractFrame({ sourcePath, sourceInUs, sourceOutUs, atUs = 0, outPath, signal } = {}) {
       const bin = ffmpegBin();
       if (!bin) throw exportError('media-tool-missing', '这台电脑上没找到 ffmpeg，无法生成定格画面');
       try {
         nodeFs.rmSync(outPath, { force: true });
       } catch {}
-      const base = Math.max(0, Number(atUs) / 1000000);
-      const attempts = [base, Math.max(0, base - 0.2), Math.max(0, base - 1)];
-      let lastError = '';
-      for (const attempt of attempts) {
-        try {
-          await run(
-            bin,
-            [
-              '-hide_banner',
-              '-loglevel',
-              'error',
-              '-y',
-              '-i',
-              sourcePath,
-              '-ss',
-              attempt.toFixed(6),
-              '-frames:v',
-              '1',
-              '-an',
-              '-update',
-              '1',
-              outPath,
-            ],
-            signal,
-          );
-        } catch (error) {
-          if (canceledSignal(signal)) throw canceledError();
-          lastError = String(error?.message || error);
-          continue;
-        }
-        try {
-          if (nodeFs.statSync(outPath).size > 0) return;
-        } catch {}
-      }
-      throw new Error(lastError || '没能从视频里截取画面（源视频可能更短或帧率更低）');
+      return frameTools.extractFreezeFrame({
+        ffmpeg: bin,
+        ffprobe: ffprobeBin(),
+        file: sourcePath,
+        inUs: sourceInUs,
+        outUs: sourceOutUs,
+        atUs,
+        outPath,
+        signal,
+        runCapture,
+      });
     },
     /* 从视频里抽音轨（口播源是 mp4/mov 时用；剪映 audios 素材不认视频容器） */
     async extractAudio({ sourcePath, outPath, signal } = {}) {
@@ -495,7 +518,7 @@ function explanationText({ result, issues, appVersion, mode, hasSrt = false }) {
   const lines = [
     '# 剪映导出说明',
     '',
-    `目标版本：Mac 剪映专业版 ${appVersion || '11.6'}（草稿格式 11.6）`,
+    `目标版本：Mac 剪映专业版 ${appVersion || '11.6.0'}（草稿格式 11.6.0）`,
     `草稿目录：${result.draftDir}`,
     `片段：${result.segmentCount} 段；素材：${result.assetCount} 个；定格画面：${result.freezeCount} 张`,
     `保存方式：${mode === 'library' ? '加入本机剪映草稿' : '保存草稿文件夹（未加入剪映草稿库）'}`,
@@ -618,27 +641,90 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
     }
     if (issues.some(item => item.level === BLOCK)) return fail('有素材不能读取，已停止导出（没有写入任何文件）');
 
-    /* 2) 媒体探测：有 ffmpeg 才做（时长复核 + 判断口播源是不是视频）；缺工具只拦需要转码的导出 */
+    /* 2) 媒体探测：所有必需素材都探测；探测失败 / 缺流 / 格式不符都定位到素材与原句。
+       缺 ffmpeg 是「工具缺失」，与「文件损坏 / 格式不支持 / 没有所需媒体流 / 超时」分开处理。 */
     const mediaAvailable = typeof media.available === 'function' ? !!media.available() : true;
-    const probeInfo = new Map();
+    const probeInfo = new Map(); // 路径 → 归一化探测信息
+    const probeFailures = new Map(); // 路径 → { code, error }
+    const assetLabel = asset => asset?.name || path.basename(asset?.path || '') || '素材';
+    const refOf = asset =>
+      Array.isArray(asset?.refs) ? asset.refs.find(item => item && (item.lineNo != null || item.rowId != null)) : null;
+    const locateAsset = planId => {
+      const asset = assets.get(planId);
+      const ref = refOf(asset);
+      return {
+        rowId: ref?.rowId ?? null,
+        lineNo: ref?.lineNo ?? null,
+        assetId: asset?.sourceAssetId || planId,
+      };
+    };
+    const addMediaIssue = (level, code, planId, message) => {
+      const asset = assets.get(planId);
+      const ref = refOf(asset);
+      const where = ref?.lineNo != null ? `（第 ${ref.lineNo} 句）` : '';
+      issues.push({ level, code, message: `${message}${where}`, ...locateAsset(planId) });
+    };
     if (mediaAvailable && typeof media.probe === 'function') {
       for (const planId of order) {
         const asset = assets.get(planId);
-        if (!asset || asset.derived || probeInfo.has(asset.path)) continue;
+        if (!asset || asset.derived || probeInfo.has(asset.path) || probeFailures.has(asset.path)) continue;
         let info = null;
         try {
           info = await media.probe({ path: asset.path, signal });
-        } catch {
+        } catch (error) {
           if (canceled()) return fail(canceledError(), { canceled: true });
+          info = { ok: false, code: 'media-probe-failed', error: String(error?.message || error) };
         }
-        probeInfo.set(asset.path, info || null);
-        if (!info) continue;
-        if (asset.kind === 'video' && info.hasVideo === false) {
-          noteIssue(issues, BLOCK, 'media-not-video', `素材里没有视频画面：${asset.name || path.basename(asset.path)}`);
+        if (info && info.ok !== false) probeInfo.set(asset.path, info);
+        else
+          probeFailures.set(asset.path, {
+            code: info?.code || 'media-probe-failed',
+            error: info?.error || '素材探测失败，无法确认它能放进草稿',
+          });
+      }
+      for (const planId of order) {
+        const asset = assets.get(planId);
+        if (!asset || asset.derived) continue;
+        const failed = probeFailures.get(asset.path);
+        const info = probeInfo.get(asset.path);
+        if (failed) {
+          addMediaIssue(
+            BLOCK,
+            failed.code,
+            planId,
+            `素材「${assetLabel(asset)}」无法作为必需的音视频素材使用：${failed.error}`,
+          );
           continue;
         }
+        if (!info) continue;
+        if (asset.kind === 'video') {
+          if (info.hasVideo === false)
+            addMediaIssue(
+              BLOCK,
+              'media-no-video-stream',
+              planId,
+              `素材「${assetLabel(asset)}」里没有视频画面，不能放到画面轨`,
+            );
+          else if (IMAGE_CODECS.has(String(info.videoCodec || '').toLowerCase()))
+            addMediaIssue(
+              BLOCK,
+              'media-unsupported',
+              planId,
+              `素材「${assetLabel(asset)}」实际是图片（${info.videoCodec}），不能当视频使用`,
+            );
+        } else if (asset.kind === 'image') {
+          if (info.hasVideo === false)
+            addMediaIssue(BLOCK, 'media-no-image-stream', planId, `素材「${assetLabel(asset)}」里没有可用的图片画面`);
+          else if (info.videoCodec && !IMAGE_CODECS.has(String(info.videoCodec).toLowerCase()))
+            addMediaIssue(
+              BLOCK,
+              'media-unsupported',
+              planId,
+              `素材「${assetLabel(asset)}」不是可用的图片格式（${info.videoCodec}）`,
+            );
+        }
         const known = Number(info.durationUs);
-        if (!(known > 0)) continue;
+        if (!(known > 0) || asset.kind !== 'video') continue;
         const wanted = Math.max(
           0,
           ...[...(plan.tracks?.video || []), ...(plan.tracks?.audio || [])]
@@ -646,15 +732,27 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
             .map(track => (Number(track.sourceStartUs) || 0) + (Number(track.sourceDurationUs) || 0)),
         );
         if (wanted > known + 100000)
-          noteIssue(
-            issues,
-            BLOCK,
-            'source-out-of-range',
-            `素材时长不够，导出区间超出文件：${path.basename(asset.path)}`,
-          );
+          addMediaIssue(BLOCK, 'source-out-of-range', planId, `素材时长不够，导出区间超出文件：${assetLabel(asset)}`);
       }
     } else if (!mediaAvailable) {
-      noteIssue(issues, INFO, 'media-tool-missing', '没找到 ffmpeg，已跳过素材复核（需要抽音轨或定格的导出会被拦下）');
+      noteIssue(
+        issues,
+        INFO,
+        'media-tool-missing',
+        '没找到 ffmpeg，已跳过音视频探测（需要抽音轨或定格的导出会被拦下）',
+      );
+      /* 图片尺寸只读文件头、不依赖 ffmpeg：损坏图片不能因为「没装工具」就静默当成功 */
+      for (const planId of order) {
+        const asset = assets.get(planId);
+        if (!asset || asset.derived || asset.kind !== 'image') continue;
+        if (!mediaInfo.imageSizeOf({ fs, file: asset.path }))
+          addMediaIssue(
+            BLOCK,
+            'media-probe-failed',
+            planId,
+            `图片「${assetLabel(asset)}」不是可用的图片文件（读不出图片尺寸），不能作为画面素材`,
+          );
+      }
     }
 
     /* 3) 口播源是视频时抽音轨：剪映的 audios 素材只接受音频容器 */
@@ -792,18 +890,30 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
       return fail('目标磁盘剩余空间不够');
     }
 
-    /* 剪映运行状态会影响登记，但不影响生成本次唯一草稿目录 */
-    const isRunningNow = () => {
+    /* 剪映运行状态在「实际登记前」重新检测；request.running 只是导出开始时的快照，不能用于决定写索引。
+       没有实时检测能力或检测抛错时按「不确定」保守处理：保留草稿、不改索引。 */
+    const runningState = () => {
       try {
-        return typeof deps.isRunning === 'function' ? !!deps.isRunning() : !!request?.running;
+        if (typeof deps.isRunning === 'function') {
+          const value = deps.isRunning();
+          if (typeof value === 'boolean') return { known: true, running: value };
+          return { known: false, running: true };
+        }
       } catch {
-        return true; // 判断不了就当它在运行：只生成、不写索引
+        return { known: false, running: true };
       }
+      return { known: false, running: true };
     };
+    /* 登记前要确认索引没有被外部改过：记录导出开始时的原文，登记前再比一次。
+       如果导出期间剪映草稿库发生变化，就停止自动登记、保留新草稿，让用户决定何时补登记。 */
+    let indexRawAtStart = null;
+    let draftIndexFile = '';
     if (mode === 'library') {
-      const index = register.readIndex({ indexFile: paths.indexFileFor(draftRoot), fs, path });
+      draftIndexFile = paths.indexFileFor(draftRoot);
+      const index = register.readIndex({ indexFile: draftIndexFile, fs, path });
       if (!index.ok)
         noteIssue(issues, INFO, 'index-unusable', `${index.error}；草稿仍会生成，稍后可点「加入剪映」重试`);
+      else indexRawAtStart = index.raw;
     }
 
     /* 暂存目录：目标父目录里的隐藏目录，资源与结构校验通过后才提交 */
@@ -852,7 +962,58 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
     }
     emit(PHASES.COPY, copiedBytes, totalBytes, '素材复制完成');
 
-    /* 定格帧 */
+    /* 导出用真实媒体元数据：主进程探测结果才是宽高 / 方向 / 完整源时长的权威来源。
+       应用层预检只负责存在性；这里绝不拿画布尺寸冒充源素材尺寸。 */
+    const mediaMeta = new Map();
+    for (const planId of order) {
+      const asset = assets.get(planId);
+      if (!asset || asset.derived) continue;
+      const info = probeInfo.get(asset.path);
+      const header = asset.kind === 'image' ? mediaInfo.imageSizeOf({ fs, file: asset.path }) : null;
+      /* width/height 是源画面尺寸；displayWidth/displayHeight 是旋转后的显示方向。
+         schema 优先用 display 尺寸，两者都传，避免旋转素材被二次交换。 */
+      const width = Math.round(Number(info?.width) || Number(header?.width) || Number(asset.width) || 0);
+      const height = Math.round(Number(info?.height) || Number(header?.height) || Number(asset.height) || 0);
+      const displayWidth = Math.round(Number(info?.displayWidth) || width || Number(asset.width) || 0);
+      const displayHeight = Math.round(Number(info?.displayHeight) || height || Number(asset.height) || 0);
+      const durationUs =
+        asset.kind === 'image'
+          ? schema.PHOTO_DURATION_US
+          : Math.round(Number(info?.durationUs) || Number(asset.durationUs) || 0) || null;
+      mediaMeta.set(planId, {
+        width,
+        height,
+        displayWidth,
+        displayHeight,
+        rotation: Number(info?.rotation) || 0,
+        durationUs,
+        hasVideo: info?.hasVideo === true,
+        hasAudio: info?.hasAudio === true,
+      });
+      if (asset.kind !== 'audio' && (!(width > 0) || !(height > 0)))
+        noteIssue(
+          issues,
+          WARN,
+          'media-meta-missing',
+          `没能确认素材「${assetLabel(asset)}」的实际尺寸，草稿里会少登记宽高（不会用画布尺寸代替）`,
+        );
+      if (asset.kind === 'video' && !durationUs)
+        noteIssue(
+          issues,
+          WARN,
+          'media-duration-unknown',
+          `没能确认「${assetLabel(asset)}」的完整源时长，进入剪映后可能无法在源范围内继续延长裁剪`,
+        );
+      else if (asset.kind === 'video' && info?.durationEstimated)
+        addMediaIssue(
+          INFO,
+          'media-duration-estimated',
+          planId,
+          `「${assetLabel(asset)}」的容器没写总时长，已按视频包时间戳推算为 ${(durationUs / 1e6).toFixed(1)} 秒；进入剪映后仍可在源范围内继续延长裁剪`,
+        );
+    }
+
+    /* 定格帧：按源入点 / 排他出点在真实源帧里定位，不按项目帧率推算 */
     emit(PHASES.FREEZE, 0, freezes.length, freezes.length ? '处理定格画面' : '没有需要生成的定格');
     for (let index = 0; index < freezes.length; index++) {
       if (canceled()) return fail(canceledError(), { canceled: true });
@@ -861,13 +1022,21 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
       try {
         await media.extractFrame({
           sourcePath: freeze.asset.sourcePath,
+          sourceInUs: freeze.asset.sourceInUs,
+          sourceOutUs: freeze.asset.sourceOutUs,
           atUs: freeze.asset.atUs,
           outPath,
           signal,
         });
       } catch (error) {
         if (canceled() || error?.code === CANCELED) return fail(canceledError(), { canceled: true });
-        noteIssue(issues, BLOCK, 'freeze-failed', `定格画面生成失败：${error?.message || error}`);
+        const reason =
+          error?.code === 'freeze-no-frame'
+            ? '选定的源区间里没有可用的画面（可能出点太靠近片头或源视频比预期短）'
+            : error?.code === 'media-no-video-stream'
+              ? '源素材里没有视频画面'
+              : String(error?.message || error);
+        noteIssue(issues, BLOCK, 'freeze-failed', `定格画面生成失败：${reason}`);
         return fail('定格画面生成失败，已停止导出（没有留下草稿）');
       }
       let stat = null;
@@ -875,6 +1044,40 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
         stat = fs.statSync(outPath);
       } catch {}
       if (!stat?.isFile() || stat.size <= 0) return fail('定格画面生成失败，已停止导出（没有留下草稿）');
+      const outputSize = mediaInfo.imageSizeOf({ fs, file: outPath });
+      const sourceMeta = mediaMeta.get(freeze.asset.sourceAssetId) || {};
+      const sourceInfo = probeInfo.get(freeze.asset.sourcePath);
+      const width = Math.round(
+        Number(outputSize?.width) ||
+          Number(sourceMeta.width) ||
+          Number(sourceInfo?.displayWidth) ||
+          Number(sourceInfo?.width) ||
+          0,
+      );
+      const height = Math.round(
+        Number(outputSize?.height) ||
+          Number(sourceMeta.height) ||
+          Number(sourceInfo?.displayHeight) ||
+          Number(sourceInfo?.height) ||
+          0,
+      );
+      mediaMeta.set(freeze.planId, {
+        width,
+        height,
+        displayWidth: width,
+        displayHeight: height,
+        rotation: 0,
+        durationUs: schema.PHOTO_DURATION_US,
+        hasVideo: false,
+        hasAudio: false,
+      });
+      if (!outputSize)
+        noteIssue(
+          issues,
+          INFO,
+          'freeze-size-fallback',
+          `定格图「${freeze.name}」的实际输出尺寸没能读出，草稿按源画面尺寸登记`,
+        );
       emit(PHASES.FREEZE, index + 1, freezes.length, `定格画面 ${index + 1}/${freezes.length}`);
     }
 
@@ -947,13 +1150,13 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
       osVersion: request?.osVersion,
       nowUs: nowMs * 1000,
       idFor,
+      media: mediaMeta,
     });
-    const canvasWidth = Math.max(1, Number(plan.canvas?.width) || 1920);
-    const canvasHeight = Math.max(1, Number(plan.canvas?.height) || 1080);
     const usedMaterials = order
       .filter(planId => assets.get(planId) && !assets.get(planId).derived)
       .map(planId => {
         const asset = assets.get(planId);
+        const metaEntry = mediaMeta.get(planId) || {};
         const extent = Math.max(
           0,
           ...[...(plan.tracks?.video || []), ...(plan.tracks?.audio || [])]
@@ -964,20 +1167,26 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
           name: path.basename(resourceFiles.get(planId)),
           path: resourceFiles.get(planId),
           kind: asset.kind,
-          width: Number(asset.width) > 0 ? Math.round(Number(asset.width)) : canvasWidth,
-          height: Number(asset.height) > 0 ? Math.round(Number(asset.height)) : canvasHeight,
-          durationUs: asset.kind === 'image' ? schema.PHOTO_DURATION_US : Number(asset.durationUs) || extent || 0,
+          width: Math.round(Number(metaEntry.displayWidth) || Number(metaEntry.width) || 0),
+          height: Math.round(Number(metaEntry.displayHeight) || Number(metaEntry.height) || 0),
+          durationUs:
+            asset.kind === 'image'
+              ? schema.PHOTO_DURATION_US
+              : Math.round(Number(metaEntry.durationUs) || Number(asset.durationUs) || extent || 0),
         };
       })
       .concat(
-        freezes.map(freeze => ({
-          name: freeze.name,
-          path: resourceFiles.get(freeze.planId),
-          kind: 'image',
-          width: Number(freeze.asset.width) || 0,
-          height: Number(freeze.asset.height) || 0,
-          durationUs: schema.PHOTO_DURATION_US,
-        })),
+        freezes.map(freeze => {
+          const metaEntry = mediaMeta.get(freeze.planId) || {};
+          return {
+            name: freeze.name,
+            path: resourceFiles.get(freeze.planId),
+            kind: 'image',
+            width: Math.round(Number(metaEntry.width) || 0),
+            height: Math.round(Number(metaEntry.height) || 0),
+            durationUs: schema.PHOTO_DURATION_US,
+          };
+        }),
       );
     const resourcesBytes = sumDirBytes({ fs, path, dir: stagingResources });
     const metaInfo = meta.buildDraftMetaInfo({
@@ -1039,29 +1248,52 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
     if (altCopies.length)
       notes.push(`${altCopies.length} 个备选素材已复制到 Resources/备选素材（不上时间线，可在剪映里手动添加）`);
     if (mode === 'library') {
-      if (isRunningNow()) {
+      const state = runningState();
+      if (!state.known) {
+        result.needsQuit = true;
+        result.runningUnknown = true;
+        notes.push('无法确认剪映是否正在运行，为安全起见这次没有改草稿库索引；退出剪映后再点「加入剪映」补登记');
+        noteIssue(issues, WARN, 'app-running-unknown', '无法确认剪映运行状态，这次没有改草稿库索引');
+      } else if (state.running) {
         result.needsQuit = true;
         notes.push('剪映正在运行：草稿已生成，退出剪映后回到分镜台点「加入剪映」补登记');
         noteIssue(issues, INFO, 'app-running', '剪映正在运行，这次没有改草稿库索引；退出后可补登记');
       } else {
-        let registeredResult = null;
-        try {
-          registeredResult = registerDraft({
-            draftRoot,
-            draftDir: finalDir,
-            backupDir: request?.backupDir || '',
-            now: () => nowMs * 1000,
-            fs,
-            path,
-          });
-        } catch (error) {
-          registeredResult = { ok: false, registered: false, error: String(error?.message || error) };
+        let indexChanged = false;
+        if (indexRawAtStart != null && draftIndexFile) {
+          let currentRaw = null;
+          try {
+            currentRaw = fs.readFileSync(draftIndexFile, 'utf8');
+          } catch {}
+          indexChanged = currentRaw !== indexRawAtStart;
         }
-        if (registeredResult?.ok && registeredResult.registered) result.registered = true;
-        else {
-          result.needsQuit = !!registeredResult?.needsQuit;
-          notes.push(`草稿已生成，但没加进剪映列表：${registeredResult?.error || '未知原因'}`);
-          noteIssue(issues, WARN, 'register-failed', registeredResult?.error || '没能加入剪映草稿列表');
+        if (indexChanged) {
+          notes.push('剪映草稿库索引在导出期间被改动，已停止登记并保留新草稿；确认草稿库稳定后可点「加入剪映」补登记');
+          noteIssue(issues, WARN, 'register-failed', '剪映草稿库索引在导出期间被外部改动，草稿已保留但未自动登记');
+        } else {
+          let registeredResult = null;
+          try {
+            registeredResult = registerDraft({
+              draftRoot,
+              draftDir: finalDir,
+              backupDir: request?.backupDir || '',
+              now: clock,
+              isRunning: typeof deps.isRunning === 'function' ? deps.isRunning : undefined,
+              fs,
+              path,
+            });
+          } catch (error) {
+            registeredResult = { ok: false, registered: false, error: String(error?.message || error) };
+          }
+          if (registeredResult?.ok && registeredResult.registered) result.registered = true;
+          else if (registeredResult?.needsQuit) {
+            result.needsQuit = true;
+            notes.push('登记时剪映正在运行或无法确认状态：草稿已生成，退出剪映后再点「加入剪映」补登记');
+            noteIssue(issues, INFO, 'app-running', '剪映正在运行，这次没有改草稿库索引；退出后可补登记');
+          } else {
+            notes.push(`草稿已生成，但没加进剪映列表：${registeredResult?.error || '未知原因'}`);
+            noteIssue(issues, WARN, 'register-failed', registeredResult?.error || '没能加入剪映草稿列表');
+          }
         }
       }
     }

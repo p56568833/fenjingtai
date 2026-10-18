@@ -7,7 +7,7 @@
 
 import { fmtTime } from './text.js';
 import { DEFAULT_TYPES, typeIndex } from './types.js';
-import { buildTimeline } from './timeline.js';
+import { buildTimeline, shotSpan } from './timeline.js';
 
 const NONE = { label: '未标注', short: '未标注', color: '#a3abba' };
 const ROLE_LABEL = { main: '主画面', overlay: '叠加', alt: '备选' };
@@ -131,10 +131,18 @@ export function planDocument(rows, speechRate = 4.5, registry = {}, { types, voi
       };
       chapter.shots.push(shot);
     }
-    shot.seconds += seconds;
     chapter.lines++;
-    chapter.seconds += seconds;
   }
+  // 镜头秒数 = 镜头在成片里占的时长：从第一句开口到下一个镜头开口（含句间停顿），章节按镜头加
+  for (const c of chapters)
+    for (const s of c.shots) {
+      const sp = shotSpan(
+        tl,
+        s.rows.map(x => x.id),
+      );
+      s.seconds = sp ? sp.end - sp.start : s.lines.reduce((t, l) => t + l.seconds, 0);
+      c.seconds += s.seconds;
+    }
   // 1.4 素材角色：PDF 只排要用的（主画面 / 叠加 / 未分配），备选不进；共用画面里写清出现在哪几句
   for (const c of chapters)
     for (const s of c.shots) {

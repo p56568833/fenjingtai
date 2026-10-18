@@ -6,6 +6,7 @@ import { viewState } from '../app/view-state.js';
 import { state } from '../app/state.js';
 import { on } from '../app/events.js';
 import { rowById, types, lineSeconds, timeOf } from '../app/project-queries.js';
+import { shotSeconds } from '../app/line-coverage.js';
 import { setType, markSentences, setNote } from '../app/actions.js';
 import { rememberCursor } from '../app/storage.js';
 import { shots } from '../core/shots.js';
@@ -89,7 +90,7 @@ function closeFocusMode() {
 const textOf = g => g.map(r => r.text).join('');
 function timeLabel(g) {
   const t = timeOf(g[0].id);
-  const secs = g.reduce((s, r) => s + lineSeconds(r), 0);
+  const secs = shotSeconds(g) ?? g.reduce((s, r) => s + lineSeconds(r), 0); // 镜头时长含句间停顿
   if (t && t.src !== 'rate') return `${t.src === 'srt' ? '' : '≈'}${fmtTime(t.start)} · ${secs.toFixed(1)} 秒`;
   return `约 ${secs.toFixed(1)} 秒`;
 }

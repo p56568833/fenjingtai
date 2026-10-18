@@ -1,13 +1,13 @@
 /* 播放与时间轨共用的画面排布和停顿规则，只接受项目与时间轴。 */
 import { shots } from './shots.js';
-import { spanOf } from './timeline.js';
+import { shotSpan } from './timeline.js';
 import { layoutShot, itemAt } from './shot-layout.js';
 export function buildPlaybackUnits(project, tl) {
   return shots(project.rows)
     .map(members => {
       const layout = layoutShot(project.assets || {}, members, tl);
       const span = layout ||
-        spanOf(
+        shotSpan(
           tl,
           members.map(r => r.id),
         ) || { start: 0, end: 0 };

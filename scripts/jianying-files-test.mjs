@@ -2,13 +2,14 @@
    全程用临时目录 + 注入的媒体工具/时钟/ID，不启动剪映、不读真实草稿库、不写用户目录。
    覆盖：schema 引用完整性、特殊字符路径、同名去重、定格抽帧、取消、磁盘不足、
         索引冲突/不可解析/剪映运行中、重复导出、素材只指最终路径、原子提交失败回滚、
-        IPC 参数校验/任务身份/取消/事件解绑、平台探测与设备指纹降级。
+        IPC 参数校验/任务身份/取消/事件解绑、平台探测与设备指纹降级、版本识别（仅 11.6.0 已适配）。
    用法：node scripts/jianying-files-test.mjs */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { targetStatusOf, isVerifiedVersion } from '../renderer/src/core/jianying-target.js';
 
 const require = createRequire(import.meta.url);
 const exporter = require('../electron/jianying-export.js');
@@ -49,7 +50,13 @@ function makePlan(root, { withFreeze = true, withText = true, durationUs = 12000
     return file;
   };
   const a = write('A 片段 #1.mp4', 6000);
-  const b = write('B 图片 "封面".png', 3000);
+  /* 图片必须带真实文件头：媒体元数据会按文件头核对图片是否可用（不依赖 ffmpeg） */
+  const b = path.join(src, 'B 图片 "封面".png');
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  fs.writeFileSync(b, Buffer.concat([png, Buffer.alloc(Math.max(0, 3000 - png.length))]));
   const c = write('C.mp4', 5000);
   const voice = write('口播 voice.wav', 4000);
   const plan = {
@@ -159,15 +166,20 @@ const VIDEO_FILE_RE = /\.(mp4|mov|m4v|mkv|webm|avi|flv|wmv|ts|mts|m2ts)$/i;
 function probeInfoFor(plan) {
   const map = new Map();
   for (const asset of plan.assets) {
-    if (asset.kind === 'image') continue;
-    const hasVideo = asset.kind === 'video' || VIDEO_FILE_RE.test(asset.path);
+    const isImage = asset.kind === 'image';
+    const hasVideo = asset.kind === 'video' || isImage || VIDEO_FILE_RE.test(asset.path);
     map.set(asset.path, {
+      ok: true,
       durationUs: Number(asset.durationUs) || 0,
-      width: 1280,
-      height: 720,
+      width: isImage ? Number(asset.width) || 1280 : 1280,
+      height: isImage ? Number(asset.height) || 720 : 720,
+      displayWidth: isImage ? Number(asset.width) || 1280 : 1280,
+      displayHeight: isImage ? Number(asset.height) || 720 : 720,
       hasVideo,
-      hasAudio: true,
+      hasAudio: !isImage,
       rotation: 0,
+      videoCodec: isImage ? 'png' : 'h264',
+      audioCodec: isImage ? '' : 'aac',
     });
   }
   return map;
@@ -222,7 +234,15 @@ const TEST_FINGERPRINT = {
   },
 };
 
-function makeRequest({ plan, options, draftRoot, running = false, fingerprint = TEST_FINGERPRINT, backupDir }) {
+function makeRequest({
+  plan,
+  options,
+  draftRoot,
+  running = false,
+  fingerprint = TEST_FINGERPRINT,
+  backupDir,
+  appVersion = '11.6.0',
+}) {
   return {
     plan,
     options,
@@ -230,7 +250,7 @@ function makeRequest({ plan, options, draftRoot, running = false, fingerprint = 
     draftRoot,
     running,
     fingerprint,
-    appVersion: '11.6.0',
+    appVersion,
     osVersion: '27.0.1',
     backupDir,
   };
@@ -252,6 +272,7 @@ async function runExport(plan, args = {}) {
     running: args.running,
     fingerprint: args.fingerprint,
     backupDir: args.backupDir,
+    appVersion: args.appVersion,
   });
   return exporter.runJianyingExport(
     request,
@@ -850,6 +871,25 @@ test('备选素材：勾选时随草稿复制但不进时间线，并在结果�
   assert.match(fs.readFileSync(path.join(result.draftDir, '导出说明.md'), 'utf8'), /备选素材/);
 });
 
+test('导出说明：目标版本写到 11.6.0（未传版本时默认也是 11.6.0）', async () => {
+  const root = tmpRoot('说明版本');
+  const dest = path.join(root, '输出');
+  fs.mkdirSync(dest);
+  const { plan } = makePlan(root, { withFreeze: false, withText: false });
+  const detected = await runExport(plan, { destDir: dest });
+  assert.equal(detected.ok, true, detected.error);
+  assert.match(
+    fs.readFileSync(path.join(detected.draftDir, '导出说明.md'), 'utf8'),
+    /目标版本：Mac 剪映专业版 11\.6\.0（草稿格式 11\.6\.0）/,
+  );
+  const fallback = await runExport(plan, { destDir: dest, appVersion: '' });
+  assert.equal(fallback.ok, true, fallback.error);
+  assert.match(
+    fs.readFileSync(path.join(fallback.draftDir, '导出说明.md'), 'utf8'),
+    /目标版本：Mac 剪映专业版 11\.6\.0（草稿格式 11\.6\.0）/,
+  );
+});
+
 /* ── 5. 取消：开始前与复制中 ── */
 test('取消：复制过程中停止，暂存目录清干净，索引不动', async () => {
   const root = tmpRoot('取消');
@@ -1281,6 +1321,71 @@ test('平台探测：版本不在 11.6 时标记不支持，找不到应用时�
   );
 });
 
+/* 版本识别：只有 Mac 剪映专业版 11.6.0 实测过，其他版本不生成、不登记。
+   同时断言真实 detect() 结果与界面可见文案（targetStatusOf）同源。 */
+test('版本识别：仅 11.6.0 已适配，11.6.1 / 11.6.99 / 11.7.0 不生成不登记', () => {
+  for (const version of ['11.6.0', '11.6.1', '11.6.99', '11.7.0']) {
+    const root = tmpRoot(`版本${version}`);
+    const fixture = makePlatformFixture(root, { version });
+    fs.writeFileSync(
+      path.join(fixture.library, 'root_meta_info.json'),
+      JSON.stringify({ all_draft_store: [], root_path: fixture.library }),
+    );
+    const detected = fixture.detect();
+    const verified = version === '11.6.0';
+    assert.equal(detected.version, version);
+    assert.equal(detected.supported, verified, `${version} supported`);
+    assert.equal(detected.canRegister, verified, `${version} canRegister`);
+    const unsupported = detected.issues.filter(item => item.code === 'version-unsupported');
+    assert.equal(unsupported.length, verified ? 0 : 1, `${version} version-unsupported issue`);
+    if (!verified) {
+      assert.match(unsupported[0].message, /11\.6\.0/);
+      assert.match(unsupported[0].message, /未验证/);
+      assert.match(unsupported[0].message, /不生成草稿、不登记草稿库/);
+    }
+    const status = targetStatusOf(detected);
+    assert.equal(status.level, verified ? 'ok' : 'warn', `${version} 界面状态`);
+    if (verified) {
+      assert.match(status.title, /已适配/);
+      assert.doesNotMatch(status.title, /未验证/);
+    } else {
+      assert.match(status.title, /未验证/);
+      assert.doesNotMatch(status.title, /已适配/);
+    }
+  }
+
+  // 不把其他字符串“规范化”成 11.6.0：空、带补丁位、带后缀都不算
+  for (const version of ['', '11.6.0.1', '11.6.0-beta', '11.6', ' 11.6.0 ']) {
+    assert.equal(isVerifiedVersion(version), false, `${JSON.stringify(version)} 不应视为 11.6.0`);
+  }
+  const unknownRoot = tmpRoot('版本未知');
+  const unknownFixture = makePlatformFixture(unknownRoot, { version: '' });
+  const unknown = unknownFixture.detect();
+  assert.equal(unknown.supported, false);
+  assert.equal(unknown.canRegister, false);
+  assert.equal(
+    unknown.issues.some(item => item.code === 'version-unsupported'),
+    true,
+  );
+  assert.equal(unknown.version, '');
+  assert.match(targetStatusOf(unknown).title, /未验证/);
+
+  // 主进程若误报 supported=true，界面也不能显示「已适配」
+  const stale = targetStatusOf({
+    ok: true,
+    appPath: '/Applications/VideoFusion-macOS.app',
+    version: '11.6.1',
+    supported: true,
+    issues: [],
+  });
+  assert.match(stale.title, /未验证/);
+  assert.doesNotMatch(stale.title, /已适配/);
+
+  // 11.6.0 已适配的前提是主进程 supported 为 true（探测失败/不可用仍按主进程结论）
+  const notSupported = targetStatusOf({ ok: true, version: '11.6.0', supported: false, issues: [] });
+  assert.match(notSupported.title, /未验证/);
+});
+
 /* ── 13. IPC 边界 ── */
 function makeIpcHarness({ root, overrides = {} } = {}) {
   const handlers = new Map();
@@ -1466,6 +1571,68 @@ test('IPC：补登记只接受草稿库内目录，剪映运行中拒绝；打�
   fs.writeFileSync(revealFile, 'x');
   assert.equal((await harness.invoke('jianying:reveal', revealFile)).ok, true);
   assert.equal(await harness.invoke('jianying:pick-folder', ''), path.join(root, '选中 文件夹'));
+});
+
+/* 未验证版本不能从 IPC 直接生成/登记；文案与 platform 的提示同一处，且 11.6.0 不因版本被拒。 */
+test('IPC：11.6.1 导出被拒并说明仅验证 11.6.0；11.6.0 不因版本被拒', async () => {
+  const root = tmpRoot('IPC版本拦截');
+  let exportCalls = 0;
+  const blockedHarness = makeIpcHarness({
+    root,
+    overrides: {
+      detect: () => ({
+        ok: true,
+        appPath: '/Applications/VideoFusion-macOS.app',
+        version: '11.6.1',
+        draftRoot: path.join(root, '剪映草稿库'),
+        running: false,
+        canRegister: false,
+        supported: false,
+        issues: [{ level: 'warn', code: 'version-unsupported', message: platform.unsupportedVersionMessage('11.6.1') }],
+      }),
+      runExport: async () => {
+        exportCalls++;
+        return { ok: true, mode: 'folder', draftDir: path.join(root, '输出'), issues: [], notes: [] };
+      },
+    },
+  });
+  const rejected = await blockedHarness.invoke('jianying:export', ipcRequest(root));
+  assert.equal(rejected.ok, false);
+  assert.equal(exportCalls, 0, '未验证版本不能进入导出任务');
+  assert.match(rejected.error, /11\.6\.0/);
+  assert.match(rejected.error, /未验证/);
+  assert.match(rejected.error, /不生成草稿、不登记草稿库/);
+  // 补登记同样不能绕过版本限制写索引
+  const libraryDraft = path.join(root, '剪映草稿库', '未验证版本草稿');
+  fs.mkdirSync(libraryDraft, { recursive: true });
+  const blockedRegister = await blockedHarness.invoke('jianying:register', { draftDir: libraryDraft });
+  assert.equal(blockedRegister.ok, false);
+  assert.equal(blockedRegister.registered, false);
+  assert.match(blockedRegister.error, /未验证/);
+
+  const passRoot = tmpRoot('IPC版本通过');
+  const passHarness = makeIpcHarness({
+    root: passRoot,
+    overrides: {
+      runExport: async request => ({
+        ok: true,
+        mode: 'folder',
+        draftDir: request.options.destDir,
+        draftName: '版本通过',
+        segmentCount: 1,
+        assetCount: 1,
+        freezeCount: 0,
+        registered: false,
+        needsQuit: false,
+        reportPath: '',
+        notes: [],
+        issues: [],
+      }),
+    },
+  });
+  const accepted = await passHarness.invoke('jianying:export', ipcRequest(passRoot));
+  assert.equal(accepted.ok, true, '11.6.0 不应因版本被拒');
+  assert.equal(typeof accepted.jobId, 'string');
 });
 
 /* ── 14. native 转发与 preload 窄接口/事件解绑 ── */

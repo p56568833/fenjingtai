@@ -17,7 +17,7 @@
    叠加、备选不在这里排。 */
 import { isRole, shots, applySpan, sortMainsBySentence, usageSpan } from './shots.js';
 import { usageList, kindOf } from './asset-model.js';
-import { spanOf } from './timeline.js';
+import { spanOf, shotSpan } from './timeline.js';
 
 export const MIN_LEN = 0.2; // 一个画面最短 0.2 秒
 export const round1 = x => Math.round(x * 10) / 10;
@@ -94,9 +94,12 @@ function perSentence(items, members, tl, base) {
 export function usableLength(it) {
   if (it.kind !== 'video') return null;
   const c = it.usage?.clip;
-  if (c && Number.isFinite(c.in) && Number.isFinite(c.out) && c.out > c.in) return c.out - c.in;
   const d = it.asset?.durationSec;
-  if (Number.isFinite(d) && d > 0) return d;
+  const known = Number.isFinite(d) && d > 0;
+  // 下载下来的文件可能比登记的片段短：按文件里真有的算，色块多长就真能播多长
+  if (c && Number.isFinite(c.in) && Number.isFinite(c.out) && c.out > c.in)
+    return known ? Math.max(0, Math.min(c.out, d) - Math.max(0, c.in)) : c.out - c.in;
+  if (known) return d;
   const m = String(it.asset?.path || '').match(/#t=([\d.]+),([\d.]+)/);
   return m && +m[2] > +m[1] ? +m[2] - +m[1] : null;
 }
@@ -202,12 +205,13 @@ function byTimes(items, owner, dur) {
    end 是画面真正放到哪（视频不超过可用长度），slotEnd 是排给它的时间到哪（够不够按它算） */
 export function layoutShot(registry, members, tl) {
   if (!members.length) return null;
-  const span = spanOf(
+  const span = shotSpan(
     tl,
     members.map(m => m.id),
   );
   if (!span) return null;
   const dur = span.end - span.start;
+  const speechDur = span.speechEnd - span.start;
   const owner = members[0].id;
   const items = pictureUsages(registry || {}, members).map((p, listIndex) => ({
     assetId: p.usage.assetId,
@@ -221,8 +225,11 @@ export function layoutShot(registry, members, tl) {
     over: false,
   }));
   const timed = items.some(it => validAt(it.usage.at, owner));
-  if (timed) byTimes(items, owner, dur);
-  else bySentence(items, members, tl, span.start);
+  if (timed) {
+    byTimes(items, owner, dur);
+    // 手动排到最后一句说完的画面（手动时间精确到 0.1 秒）：延续到镜头结尾（下一句开口），停顿里不留空白
+    if (dur > speechDur + 1e-6) for (const it of items) if (Math.abs(it.end - speechDur) <= 0.1 + 1e-6) it.end = dur;
+  } else bySentence(items, members, withTail(tl, members, span), span.start);
   // 视频只画、只播它真实可用的那么长：排给它的时间（slotEnd）比片段长，多出来的就是空白，不拉长素材。
   // 标了「剪辑里补足」（定格 / 放慢）的照排给它的时间放
   for (const it of items) {
@@ -235,14 +242,23 @@ export function layoutShot(registry, members, tl) {
     it.n = k + 1;
     it.over = it.end > dur + 0.05;
   });
-  return { start: span.start, end: span.end, dur, timed, owner, items };
+  return { start: span.start, end: span.end, speechEnd: span.speechEnd, dur, timed, owner, items };
+}
+
+/* 按句子排时，镜头后面的句间停顿归最后一句：最后一句的结束时间改成镜头结尾 */
+function withTail(tl, members, span) {
+  if (!(span.end > span.speechEnd)) return tl;
+  const last = members.findLast(m => tl.times.get(m.id)?.end === span.speechEnd);
+  if (!last) return tl;
+  const tail = { ...tl.times.get(last.id), end: span.end };
+  return { ...tl, times: { get: id => (id === last.id ? tail : tl.times.get(id)) } };
 }
 
 /* 手动时间属于哪几句：start / end 是相对镜头开头的秒数。
    占了某句一半以上就算配这句；哪句都没占到一半，就算占得最多的那句（落在句间停顿里的算最近的那句）。
    返回 members 下标 {from, to}（连续） */
 export function linesOfTime(members, tl, start, end) {
-  const span = spanOf(
+  const span = shotSpan(
     tl,
     members.map(m => m.id),
   );

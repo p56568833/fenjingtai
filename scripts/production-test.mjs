@@ -831,7 +831,7 @@ test('PDF 不排备选，共用画面写明出现在哪几句', () => {
 
 /* ── 1.3.2：自定义类型 / 时间轴 / 导出细节 ── */
 const { normalizeTypes, typeIndex, newTypeId } = await import('../renderer/src/core/types.js');
-const { buildTimeline, lineAt, spanOf } = await import('../renderer/src/core/timeline.js');
+const { buildTimeline, lineAt, spanOf, shotSpan } = await import('../renderer/src/core/timeline.js');
 const { buildCsv, buildAnnotatedMd, buildAssetListMd } = await import('../renderer/src/core/export-doc.js');
 const { safeFileName } = await import('../renderer/src/core/text.js');
 const { pruneTypingJunk } = await import('../renderer/src/core/asset-model.js');
@@ -946,6 +946,23 @@ test('CSV：共用画面写成人话、防公式注入；有口播音频时带�
   const list = buildAssetListMd({ title: 't', rows, voiceDuration: 10 });
   assert.ok(list.includes('按口播音频时长推算'));
 });
+test('素材清单 / 打印分镜表：画面秒数含句间停顿，到下一个画面开口（AI 找素材按这个长度找）', () => {
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '甲', type: 'real', groupId: 'gp', time: { start: 0, end: 2, st: 'ok' } },
+    { id: 2, kind: 'line', no: 2, text: '乙', type: 'real', groupId: 'gp', time: { start: 2.5, end: 4, st: 'ok' } },
+    { id: 3, kind: 'line', no: 3, text: '丙', type: 'real', time: { start: 5, end: 7, st: 'ok' } },
+  ];
+  const tl = buildTimeline(rows, {});
+  const list = buildAssetListMd({ title: 't', rows, timeline: tl });
+  assert.ok(list.includes('第 1、2 句 · 00:00.0 · 5.0s'), '第 1–2 句：0 秒开口到第 3 句 5 秒开口');
+  assert.ok(list.includes('第 3 句 · 00:05.0 · 2.0s'), '最后一个画面到最后一句说完');
+  assert.ok(list.includes('从第一句开口到下一个画面开口'));
+  const plan = planDocument(rows, 4.5, {}, { timeline: tl });
+  assert.deepEqual(
+    plan.shots.map(x => x.seconds),
+    [5, 2],
+  );
+});
 test('导出文件名：去掉 / : 等会被当成路径的字符', () => {
   assert.equal(safeFileName('A/B:测试?'), 'A-B-测试-');
   assert.equal(safeFileName('  '), '未命名项目');
@@ -980,7 +997,7 @@ test('PDF 按自定义类型排版：类型名、颜色，不需要配画面的�
 });
 
 /* ── 1.8：一个镜头多个主画面 + 手动出现时间 ── */
-const { layoutShot, itemAt, linesOfTime, syncSpansFromTimes } = await import('../renderer/src/core/shot-layout.js');
+const { layoutShot, itemAt, linesOfTime, syncSpansFromTimes, usableLength } = await import('../renderer/src/core/shot-layout.js');
 const L8 = () => {
   // 三句，每句 9 个字 → 语速 4.5 字/秒 时每句 2 秒，整段 6 秒
   const rows = [1, 2, 3].map(i => ({ id: i, kind: 'line', no: i, text: '一二三四五六七八九', type: 'real' }));
@@ -998,6 +1015,74 @@ const spans = lay => lay.items.map(it => [it.assetId, +it.start.toFixed(2), +(it
 const shown = lay => lay.items.map(it => [it.assetId, +it.start.toFixed(2), +it.end.toFixed(2)]);
 const setUs = (rows, us) =>
   rows.forEach(r => (r.assetUsages = us.map(u => ({ ...u, ...(u.at ? { at: { ...u.at } } : {}) }))));
+/* 字幕实测时间：第 1、2 句一个镜头（0–2、2.5–4），句间停顿 1 秒，第 3 句另一个镜头（5–7） */
+const PAUSE_ROWS = () => {
+  const rows = [
+    { id: 1, kind: 'line', no: 1, text: '甲', time: { start: 0, end: 2, st: 'ok' }, groupId: 'gp' },
+    { id: 2, kind: 'line', no: 2, text: '乙', time: { start: 2.5, end: 4, st: 'ok' }, groupId: 'gp' },
+    { id: 3, kind: 'line', no: 3, text: '丙', time: { start: 5, end: 7, st: 'ok' } },
+  ];
+  return { rows, tl: buildTimeline(rows, {}) };
+};
+test('镜头时间：镜头之间的句间停顿算前一个镜头，到下一句开口；最后一个镜头到最后一句说完', () => {
+  const { tl } = PAUSE_ROWS();
+  assert.deepEqual(shotSpan(tl, [1, 2]), { start: 0, end: 5, speechEnd: 4 });
+  assert.deepEqual(shotSpan(tl, [3]), { start: 5, end: 7, speechEnd: 7 });
+});
+test('镜头排布：停顿归最后一句，按句子排的最后一个画面盖到下一句开口；手动排到最后一句说完的也跟到镜头结尾', () => {
+  const { rows, tl } = PAUSE_ROWS();
+  const reg = { p: { id: 'p', kind: 'image', path: '/a/p.png' }, q: { id: 'q', kind: 'image', path: '/a/q.png' } };
+  setUs(rows.slice(0, 2), [{ assetId: 'p', role: 'main' }]);
+  let lay = layoutShot(reg, rows.slice(0, 2), tl);
+  assert.equal(lay.dur, 5);
+  assert.deepEqual(shown(lay), [['p', 0, 5]]);
+  setUs(rows.slice(0, 2), [
+    { assetId: 'p', role: 'main', at: { start: 0, end: 2, of: 1 } },
+    { assetId: 'q', role: 'main', at: { start: 2, end: 4, of: 1 } },
+  ]);
+  lay = layoutShot(reg, rows.slice(0, 2), tl);
+  assert.deepEqual(shown(lay), [
+    ['p', 0, 2],
+    ['q', 2, 5],
+  ]);
+  setUs(rows.slice(0, 2), [{ assetId: 'p', role: 'main', at: { start: 0, end: 3, of: 1 } }]);
+  assert.deepEqual(shown(layoutShot(reg, rows.slice(0, 2), tl)), [['p', 0, 3]], '手动排没到最后一句说完：结尾照样空着');
+});
+test('镜头排布：停顿算进镜头后视频片段不够长，时间轴上照实显示不够（不悄悄补）', () => {
+  const { rows, tl } = PAUSE_ROWS();
+  const reg = { v: { id: 'v', kind: 'video', path: '/a/v.mp4', durationSec: 30 } };
+  setUs(rows.slice(0, 2), [{ assetId: 'v', role: 'main', clip: { in: 0, out: 4 } }]);
+  const lay = layoutShot(reg, rows.slice(0, 2), tl);
+  assert.deepEqual(shown(lay), [['v', 0, 4]]);
+  assert.equal(lay.items[0].slotEnd, 5);
+  assert.equal(coverOf(lay.items[0], lay.dur).lack, 1);
+  const cov = buildPictureCoverage(rows, reg, tl);
+  assert.deepEqual(
+    cov.pauses.map(p => [p.start, p.end, p.status]),
+    [
+      [2, 2.5, 'covered'],
+      [4, 5, 'gap'],
+    ],
+    '全片时间条：镜头后的停顿里片段放完的那段照实标成空白',
+  );
+});
+test('镜头排布：下载的文件比登记片段短时按文件里真有的长度排，后面的画面接上来', () => {
+  const rows = L8(); // 整段 6 秒
+  const reg = {
+    s: { id: 's', kind: 'video', path: '/a/短.mp4', durationSec: 3 }, // 登记 0.2–4.0，文件只有 3 秒
+    v: { id: 'v', kind: 'video', path: '/a/长.mp4', durationSec: 30 },
+  };
+  setUs(rows, [
+    { assetId: 's', role: 'main', clip: { in: 0.2, out: 4 } },
+    { assetId: 'v', role: 'main', clip: { in: 0, out: 2 } },
+  ]);
+  assert.deepEqual(shown(layoutShot(reg, rows, tl8(rows))), [
+    ['s', 0, 2.8],
+    ['v', 2.8, 4.8],
+  ]);
+  assert.equal(+usableLength({ kind: 'video', usage: { clip: { in: 0.2, out: 14.8 } }, asset: { durationSec: 11.011 } }).toFixed(3), 10.811);
+  assert.equal(+usableLength({ kind: 'video', usage: { clip: { in: 0.2, out: 14.8 } }, asset: {} }).toFixed(3), 14.6, '还不知道文件时长：先按登记的算');
+});
 test('镜头排布：一个主画面铺满整段；两个都是整段时平分', () => {
   const rows = L8();
   setUs(rows, [{ assetId: 'a', role: 'main' }]);

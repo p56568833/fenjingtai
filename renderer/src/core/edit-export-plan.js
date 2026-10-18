@@ -139,6 +139,14 @@ function clipInfo(item) {
   return { in: cin, out: cout, valid, raw };
 }
 
+/* 素材引用：同一句 + 同一素材只记一条（同一句里画面出现多次不重复） */
+const sameRef = (a, b) => a.rowId === b.rowId && a.lineNo === b.lineNo && a.assetId === b.assetId;
+const refOf = (unit, item) => ({
+  rowId: unit?.members?.[0]?.id ?? null,
+  lineNo: unit?.members?.[0] ? pickLineNo(unit.members[0], 0) : null,
+  assetId: item?.assetId,
+});
+
 const issueExtra = extra => {
   const out = {};
   if (extra)
@@ -405,8 +413,18 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
   const textTrack = [];
   const subtitles = [];
 
+  /* refs：这个素材被哪些句子用到（rowId + 行号 + 素材 id），同一处多次出现只留一条。
+     主进程按素材定位导出问题时用它回填行号；音频/备选不经过这里，不需要 refs。 */
   const pushAsset = (key, kind, path, name, extra = {}) => {
-    if (assetByKey.has(key)) return assetByKey.get(key).planId;
+    const ref = extra.ref || null;
+    const existing = assetByKey.get(key);
+    if (existing) {
+      if (ref) {
+        if (!Array.isArray(existing.refs)) existing.refs = [];
+        if (!existing.refs.some(item => sameRef(item, ref))) existing.refs.push({ ...ref });
+      }
+      return existing.planId;
+    }
     const probe = probeFor(probes, path);
     const fileDur = positive(probe?.durationSec) ?? finite(extra.durationSec);
     const entry = {
@@ -418,6 +436,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
       height: finite(probe?.height),
       durationUs: fileDur != null && fileDur > 0 ? Math.round(fileDur * 1e6) : null,
       ...(extra.sourceAssetId ? { sourceAssetId: extra.sourceAssetId } : {}),
+      ...(ref ? { refs: [{ ...ref }] } : {}),
     };
     assets.push(entry);
     assetByKey.set(key, entry);
@@ -426,8 +445,11 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
 
   const sourceAssetFor = path => Object.values(registry).find(asset => asset?.path === path);
 
-  const makeFreeze = (asset, atUs, sourceAssetId) => {
-    const key = `${asset?.path || ''}|${atUs}|${opt.width}x${opt.height}`;
+  /* 定格派生：sourceInUs/sourceOutUs 是源文件微秒区间（出点排他），主进程按真实帧 PTS 定位；
+     atUs 只是给旧计划/旧实现的兼容提示，新定位逻辑不得用它。画布尺寸不在这里决定（输出为 0），
+     同一源文件 + 同一源区间只生成一张定格图。 */
+  const makeFreeze = (asset, { sourceInUs, sourceOutUs, atUs }, sourceAssetId) => {
+    const key = `${asset?.path || ''}|${sourceInUs}|${sourceOutUs}`;
     if (derivedByKey.has(key)) return derivedByKey.get(key).planId;
     const base = safeFileName(String(mediaName(asset, asset?.path || '')).replace(/\.[^.]+$/, ''), 'freeze');
     const entry = {
@@ -436,8 +458,10 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
       sourceAssetId: sourceAssetId || null,
       sourcePath: asset?.path || '',
       atUs,
-      width: opt.width,
-      height: opt.height,
+      sourceInUs,
+      sourceOutUs,
+      width: 0,
+      height: 0,
       outputName: `${base}-freeze-${derived.length + 1}.png`,
     };
     derived.push(entry);
@@ -458,6 +482,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
       assetId: pushAsset(`video|${asset.id}`, 'video', asset.path, mediaName(asset, asset.path), {
         durationSec: asset.durationSec,
         sourceAssetId: asset.id,
+        ref: refOf(unit, item),
       }),
       targetStartUs: startUs,
       targetDurationUs: endUs - startUs,
@@ -479,6 +504,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
       kind: 'image',
       assetId: pushAsset(`image|${item.assetId}`, 'image', item.asset.path, mediaName(item.asset, item.asset.path), {
         sourceAssetId: item.assetId,
+        ref: refOf(unit, item),
       }),
       targetStartUs: startUs,
       targetDurationUs: endUs - startUs,
@@ -511,6 +537,8 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
     const items = layout.items || [];
     const dur = layout.dur;
     let visibleEndRel = 0;
+    // 排在镜头之后的画面不上轨：镜头末尾 / 句间停顿由它前面最后一个能看见的画面延续（和预览一致）
+    const lastShown = items.findLastIndex(item => item.start < dur - EPS);
 
     items.forEach((item, index) => {
       if (!(item.end > item.start + EPS)) return;
@@ -561,8 +589,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
         if (next && next.start > item.end + EPS && heldThrough(unit, item, next, tl))
           extEndRel = Math.max(extEndRel, Math.min(next.start, dur, limitRel));
       }
-      if (index === items.length - 1 && item.end >= dur - TOL)
-        extEndRel = Math.min(Math.max(extEndRel, dur), limitRel, dur);
+      if (index === lastShown && item.end >= dur - TOL) extEndRel = Math.min(Math.max(extEndRel, dur), limitRel, dur);
       if (item.over)
         addIssue(
           'confirm',
@@ -607,21 +634,32 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
         sourceStartSec = 0;
         usableSec = clip.out;
       }
+      const need = extEndRel - startRel;
       if (fileDur != null) {
-        if (clip?.valid && clip.out > fileDur + TOL) {
-          addIssue(
-            'block',
-            'source-range',
-            `「${name}」的片段超出文件时长，导出只取文件里有的部分`,
-            locate(unit, item),
-          );
-          usableSec = Math.max(0, fileDur - sourceStartSec);
-        } else if (clip?.valid) {
-          if (sourceStartSec >= fileDur - EPS) {
-            addIssue('block', 'source-range', `「${name}」的片段入点超出文件时长，没有可用的画面`, locate(unit, item));
-            usableSec = 0;
-          } else usableSec = Math.min(usableSec ?? fileDur, Math.max(0, fileDur - sourceStartSec));
-        } else usableSec = Math.min(usableSec ?? fileDur, fileDur);
+        const fileLeft = Math.max(0, fileDur - sourceStartSec);
+        if (clip?.valid && sourceStartSec >= fileDur - EPS) {
+          addIssue('block', 'source-range', `「${name}」的片段入点超出文件时长，没有可用的画面`, locate(unit, item));
+          usableSec = 0;
+        } else if (clip?.valid && clip.out > fileDur + TOL) {
+          /* 登记的出点比文件长：只看这次实际要播的长度，文件里够就照常导出 */
+          const want = Math.min(usableSec ?? need, need);
+          if (want > fileLeft + TOL)
+            addIssue(
+              'block',
+              'source-range',
+              `「${name}」这里要播 ${want.toFixed(1)} 秒，文件从入点起只有 ${fileLeft.toFixed(1)} 秒，请调整片段出点`,
+              locate(unit, item),
+            );
+          else
+            addIssue(
+              'info',
+              'source-range',
+              `「${name}」登记的片段比文件长，这次用到的部分文件里都有，照常导出`,
+              locate(unit, item),
+            );
+          usableSec = fileLeft;
+        } else if (clip?.valid) usableSec = Math.min(usableSec ?? fileDur, fileLeft);
+        else usableSec = Math.min(usableSec ?? fileDur, fileDur);
       } else if (usableSec == null) {
         addIssueOnce(
           `${asset?.id || path}|unknown-duration`,
@@ -632,7 +670,6 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
         );
       }
 
-      const need = extEndRel - startRel;
       const playSec = usableSec == null ? need : clamp(usableSec, 0, need);
       const videoEnd = emitVideoSegment(unit, item, asset, sourceStartSec, startRel, playSec);
       const splitRel = startRel + playSec;
@@ -649,6 +686,8 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
           reportLostSegment(unit, item);
         } else if (splitUs >= startUs) {
           const sourceOutSec = sourceStartSec + playSec;
+          const sourceInUs = Math.max(0, clock.plainUs(sourceStartSec) ?? 0);
+          const sourceOutUs = sourceInUs + Math.max(0, clock.plainUs(playSec) ?? 0);
           const atSec = Math.max(sourceStartSec, sourceOutSec - 1 / clock.fps);
           const atUs = Math.max(0, clock.plainUs(atSec) ?? 0);
           const sourcePlanId =
@@ -656,8 +695,9 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
             pushAsset(`video|${asset.id}`, 'video', asset.path, name, {
               durationSec: asset.durationSec,
               sourceAssetId: asset.id,
+              ref: refOf(unit, item),
             });
-          const freezeId = makeFreeze(asset, atUs, sourcePlanId);
+          const freezeId = makeFreeze(asset, { sourceInUs, sourceOutUs, atUs }, sourcePlanId);
           videoTrack.push({
             id: id('clip'),
             kind: 'image',
