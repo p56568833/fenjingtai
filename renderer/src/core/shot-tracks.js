@@ -2,7 +2,7 @@
    · 正片轨 = 主画面，排布见 shot-layout.js；拖过以后按手动时间放，中间可以留空。
    · 备选轨 = 备选画面（图片 / 视频），不计时长、不播放，只是「先放在这儿」。位置不绑句子：
      usage.at 记着它在备选轨上的秒数（和主画面同一个格式）；没有位置的放在它配的那几句下面。
-   审核通过的视频：正片轨还有空就放上去，满了就放备选轨（placeApproved）。
+   审核通过的视频：它给的那几句在正片轨上还空着就放上去，已经有画面了就放备选轨（placeApproved）。
    备选拖上正片轨：落在某段画面上和它互换，落在空隙里插进去（后面的画面往后让）。 */
 import { usageList, kindOf } from './asset-model.js';
 import { usageSpan } from './shots.js';
@@ -72,22 +72,34 @@ export function mainGaps(layout) {
 }
 
 /* 审核通过的视频放哪：{ role: 'main' | 'alt', at?: {start, end} }。
-   len：这个视频能用几秒。keep(id)：正片轨上会被它挤掉的占位画面（照片等）返回 false，不算占位置。
-   · 按句子自动排（没拖过）：排进去的视频加起来还没填满口播 → 正片轨（接在后面）；
-   · 拖过（手动时间）：正片轨上有空当 → 放进第一个空当；
-   · 都满了 → 备选轨。 */
-export function placeApproved(registry, members, tl, len, keep = () => true) {
+   len：这个视频能用几秒；win：它给的那几句在镜头里的时间 {start, end}（相对镜头开头，见 forWindow）。
+   keep(id)：正片轨上会被它挤掉的占位画面（照片等）返回 false，不算占位置。
+   正片轨上那几句的时间还空着（别的画面占不到 FILL_GAP）→ 正片轨：按句子自动排时就配那几句，
+   拖过时间（手动排）时放在那几句开头；已经有画面了 → 备选轨（放在那几句下面）。 */
+export function placeApproved(registry, members, tl, len, keep = () => true, win = null) {
   const layout = layoutShot(registry, members, tl);
   if (!layout) return { role: 'main' };
   const items = layout.items.filter(it => keep(it.assetId));
-  if (!layout.timed) {
-    const used = items.reduce((t, it) => t + (usableLength(it) ?? it.end - it.start), 0);
-    return used + FILL_GAP < layout.dur ? { role: 'main' } : { role: 'alt' };
+  const w = win || { start: 0, end: layout.dur };
+  const taken = items.some(it => Math.min(it.end, w.end) - Math.max(it.start, w.start) > FILL_GAP);
+  if (taken) return { role: 'alt' };
+  if (!layout.timed) return { role: 'main' };
+  const start = round1(w.start);
+  return { role: 'main', at: { start, end: round1(Math.min(w.end, start + Math.max(MIN_LEN, len || 0))) } };
+}
+
+/* 镜头里 [start, end] 这段时间（相对镜头开头）有没有被正片轨上的画面盖满（空当不超过 FILL_GAP） */
+export function rangeFilled(layout, items, start, end) {
+  if (!layout || !(end > start)) return false;
+  let t = start;
+  for (const it of [...items].sort((a, b) => a.start - b.start)) {
+    const s = Math.max(it.start, start),
+      e = Math.min(it.end, layout.dur, end);
+    if (e <= s) continue;
+    if (s - t > FILL_GAP) return false;
+    t = Math.max(t, e);
   }
-  const gap = mainGaps({ ...layout, items });
-  if (!gap.length) return { role: 'alt' };
-  const g = gap[0];
-  return { role: 'main', at: { start: g.start, end: round1(Math.min(g.end, g.start + Math.max(MIN_LEN, len || 0))) } };
+  return end - t <= FILL_GAP;
 }
 
 /* 正片轨填满没有：排上去的画面盖住的秒数够不够口播（留 FILL_GAP 余量）。

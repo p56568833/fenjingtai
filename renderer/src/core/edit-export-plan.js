@@ -684,6 +684,14 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
           videoEnd.targetDurationUs = endUs - videoEnd.targetStartUs;
         } else if (!videoEnd && endUs - splitUs < clock.frameUs) {
           reportLostSegment(unit, item);
+        } else if (item.usage?.fitDone && !item.usage?.freeze) {
+          // 标了「剪辑里补足」：不自动定格，这段留空让你在剪映里自己补（标「定格补满」的才用定格图）
+          addIssue(
+            'info',
+            'edit-fill',
+            `第 ${pickLineNo(unit.members[0], 0)} 句「${name}」标了剪辑里补足，后 ${((endUs - splitUs) / 1e6).toFixed(1)} 秒导出留空，请在剪映里补`,
+            { ...locate(unit, item), assetId: item.assetId },
+          );
         } else if (splitUs >= startUs) {
           const sourceOutSec = sourceStartSec + playSec;
           const sourceInUs = Math.max(0, clock.plainUs(sourceStartSec) ?? 0);

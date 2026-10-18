@@ -49,9 +49,11 @@ function fitToggle(cov, ref) {
   if (!ref) return '';
   const on = !!cov.fixed;
   const tip = on
-    ? `原本差 ${s1(cov.lack)} 秒，已标为剪辑里补足；点击取消`
-    : '剪辑里已经补足了（放慢、定格等）：勾上后不再提示时长不够';
-  return `<span class="cover-fit${on ? ' on' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-fit-row="${ref.row}" data-fit-asset="${esc(ref.assetId)}" title="${esc(tip)}">剪辑已补足</span>`;
+    ? cov.freeze
+      ? `原本差 ${s1(cov.lack)} 秒，已定格补满（导出到剪映也是定格）；点击取消`
+      : `原本差 ${s1(cov.lack)} 秒，已标为剪辑里补足（导出到剪映这段留空）；点击取消`
+    : '你在剪辑里自己补（放慢等）：勾上后不再提示时长不够，导出到剪映时这段留空；要定格请在时间轴上点「定格补满」';
+  return `<span class="cover-fit${on ? ' on' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-fit-row="${ref.row}" data-fit-asset="${esc(ref.assetId)}" title="${esc(tip)}">${on && cov.freeze ? '已定格补满' : '剪辑已补足'}</span>`;
 }
 function coverHTML(cov, ref) {
   if (!cov) return '';

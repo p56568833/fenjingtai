@@ -65,7 +65,7 @@ export async function runAuditTests(t) {
     importCandidateData(
       {
         type: 'fenjingtai-candidates',
-        version: 2,
+        version: 4,
         project: '审查',
         batch: '回归',
         shots: [
@@ -75,10 +75,12 @@ export async function runAuditTests(t) {
             cands: [
               {
                 key: 'A',
+                for: '1',
                 title: '片段',
                 url: 'https://example.invalid/a.mp4',
                 in: 0,
                 out: 3,
+                best: { in: 0, out: 3 },
                 license: '测试',
                 why: '测试',
               },

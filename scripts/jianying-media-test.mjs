@@ -468,7 +468,7 @@ const ids = () => {
   return prefix => `${prefix}-${++n}`;
 };
 
-/* visuals: [{ assetId, file, name, kind, durationSec?, start, end, clip?, fitDone? }]
+/* visuals: [{ assetId, file, name, kind, durationSec?, start, end, clip?, freeze? }]
    at 是时间线上的绝对秒；line 覆盖整段。 */
 function makeProject({ visuals, voice = null, durationSec, title = '真实媒体测试', text = '第一句话。' }) {
   const rows = [
@@ -483,7 +483,7 @@ function makeProject({ visuals, voice = null, durationSec, title = '真实媒体
         assetId: visual.assetId,
         role: 'main',
         ...(visual.clip ? { clip: { in: visual.clip.in, out: visual.clip.out } } : {}),
-        ...(visual.fitDone ? { fitDone: true } : {}),
+        ...(visual.freeze ? { freeze: true } : {}),
         at: { start: visual.start, end: visual.end, of: 'L1' },
       })),
     },
@@ -1062,7 +1062,7 @@ test('导出：定格 PNG 真实输出尺寸，与相邻视频段尺寸一致且
         start: 0,
         end: 2,
         clip: { in: 0, out: 1 },
-        fitDone: true,
+        freeze: true,
       },
     ],
     durationSec: 2,
@@ -1306,7 +1306,7 @@ test('导出：工具缺失只阻塞真正依赖工具的操作，基础草稿�
         start: 0,
         end: 2,
         clip: { in: 0, out: 1 },
-        fitDone: true,
+        freeze: true,
       },
     ],
     durationSec: 2,
@@ -1408,7 +1408,7 @@ test('导出：容器起点 2s 的 5fps 素材，folder 导出的定格图是播
         start: 0,
         end: 3,
         clip: { in: 0, out: 0.51 },
-        fitDone: true,
+        freeze: true,
       },
     ],
     durationSec: 3,
@@ -1455,7 +1455,7 @@ test('导出：VFR 首帧后静止 5s，clip in=2/out=3 的真实 folder 导出�
         start: 0,
         end: 3,
         clip: { in: 2, out: 3 },
-        fitDone: true,
+        freeze: true,
       },
     ],
     durationSec: 3,
@@ -1505,7 +1505,7 @@ test('导出：越界到源文件结束之后仍报错，不留下草稿', async
         start: 0,
         end: 3,
         clip: { in: 16, out: 17 },
-        fitDone: true,
+        freeze: true,
       },
     ],
     durationSec: 3,

@@ -39,6 +39,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
   let shownKey = ''; // 当前上屏的是哪个镜头的哪个素材：变了才换画面
   let segStart = 0; // 当前素材在口播里开始出现的时间（视频从入点 + 这之后过去的时间播）
   let segEnd = 0; // 这段画面排到哪里；之后的自然停顿里视频接着播，直到下一个画面出现
+  let segItem = null; // 当前上屏的画面（片段放完后按它的标记提示：定格补满 / 剪辑里补足）
   let trackUnit = -1; // 镜头轨现在画的是哪个镜头
   let media = null;
 
@@ -116,10 +117,11 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     const stage = $('[data-pt="ptStage"]');
     videoEl?.pause();
     videoEl = null;
-    stage.classList.remove('pt-short');
+    stage.classList.remove('pt-short', 'pt-freeze', 'pt-fitdone');
     if (!u) return media.clear();
     segStart = u.start + (item ? item.start : 0);
     segEnd = u.start + (item ? Math.min(item.end, u.layout.dur) : 0);
+    segItem = item;
     const ti = types();
     const color = ti.color(r.type) || '#8a93a6';
     if (item) {
@@ -231,7 +233,11 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     if (Math.abs(v.currentTime - want) > (force ? 0.04 : 0.3)) v.currentTime = Math.max(0, want);
     if (clock.isPlaying() && !over && v.paused) v.play().catch(() => {});
     if ((!clock.isPlaying() || over) && !v.paused) v.pause();
-    $('[data-pt="ptStage"]').classList.toggle('pt-short', over && t < segEnd);
+    const tail = over && t < segEnd;
+    const stage = $('[data-pt="ptStage"]');
+    stage.classList.toggle('pt-freeze', tail && !!segItem?.usage?.freeze);
+    stage.classList.toggle('pt-fitdone', tail && !segItem?.usage?.freeze && !!segItem?.usage?.fitDone);
+    stage.classList.toggle('pt-short', tail && !segItem?.usage?.freeze && !segItem?.usage?.fitDone);
   }
 
   /* ── 时钟：有口播跟口播走，没有就自己走 ── */
@@ -341,7 +347,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     videoEl?.pause();
     videoEl = null;
     shownKey = '';
-    $('[data-pt="ptStage"]').classList.remove('pt-short');
+    $('[data-pt="ptStage"]').classList.remove('pt-short', 'pt-freeze', 'pt-fitdone');
     media.show('trim|' + it.assetId, preview, target, () => {});
   }
   function handleKey(e) {

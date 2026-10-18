@@ -1,34 +1,49 @@
 /* 审核通过后的画面挂载、撤回、本地片段替换与文件命名。 */
 
-import { shotMembers, setShotField, applyRole, applySpan, resolveMainConflicts } from './shots.js';
+import {
+  shotMembers,
+  setShotField,
+  applyRole,
+  applySpan,
+  resolveMainConflicts,
+  sortMainsBySentence,
+  usageSpan,
+} from './shots.js';
 import { ensureAsset, usageList, syncMirror, assetName, referencedAssetIds } from './asset-model.js';
 
 import { placeApproved } from './shot-tracks.js';
-import { parseLines, cleanBest, noteLine, remotePath, planOf, usableSeconds } from './candidate-values.js';
-export function orderPlanMains(members, registry, cands) {
-  const byId = new Map(cands.map(c => [c.id, c]));
-  const candOf = u => {
-    const c = byId.get(registry[u.assetId]?.source?.candidate);
-    return c && c.assetId === u.assetId ? c : null;
-  };
-  for (const m of members) {
-    const list = usageList(m);
-    const slots = list.map((u, i) => (u.role === 'main' && candOf(u) ? i : -1)).filter(i => i >= 0);
-    const sorted = slots
-      .map(i => list[i])
-      .sort((a, b) => planOf(candOf(a)) - planOf(candOf(b)) || (candOf(a).seq ?? 0) - (candOf(b).seq ?? 0));
-    slots.forEach((slot, k) => (list[slot] = sorted[k]));
-  }
+import { shotSpan } from './timeline.js';
+import { parseLines, cleanBest, noteLine, remotePath, usableSeconds, forRange, forWindow } from './candidate-values.js';
+
+/* 这个候选给的那几句在口播里占的时间（绝对秒数）：{ start, end, from, to, whole }，from / to 是 members 下标。不知道时间返回 null */
+export function candidateWindow(c, members, tl) {
+  if (!members.length || !tl) return null;
+  const r = forRange(c, members);
+  const span = shotSpan(
+    tl,
+    members.map(m => m.id),
+  );
+  const w = forWindow(members, tl.times, r.from, r.to, span?.end);
+  return w ? { ...w, ...r, shotStart: span?.start ?? w.start } : null;
 }
-export function attachCandidate(c, rows, registry, cands = [], { tl = null } = {}) {
+export function attachCandidate(c, rows, registry, { tl = null } = {}) {
   const row = rows.find(r => r.id === c.rowId);
   if (!row) return { error: '找不到这个画面（句子可能被删了）' };
   const members = shotMembers(rows, row);
   const asset = ensureAsset(registry, remotePath(c), { kind: 'video', name: c.title });
   asset.source = { candidate: c.id, url: c.url, page: c.page, license: c.license };
-  // 先判断放哪：只看别的候选视频占了多少（占位照片会让位，不算）
+  // 先判断放哪：只看它给的那几句上别的候选视频占了没有（占位照片会让位，不算）
+  const range = forRange(c, members);
+  const w = tl ? candidateWindow(c, members, tl) : null;
   const place = tl
-    ? placeApproved(registry, members, tl, usableSeconds(c), id => id !== asset.id && !!registry[id]?.source?.candidate)
+    ? placeApproved(
+        registry,
+        members,
+        tl,
+        usableSeconds(c),
+        id => id !== asset.id && !!registry[id]?.source?.candidate,
+        w ? { start: w.start - w.shotStart, end: w.end - w.shotStart } : null,
+      )
     : { role: 'main' };
   for (const m of members) {
     let u = usageList(m).find(x => x.assetId === asset.id);
@@ -43,12 +58,12 @@ export function attachCandidate(c, rows, registry, cands = [], { tl = null } = {
   }
   const main = place.role === 'main';
   applyRole(members, asset.id, place.role);
-  applySpan(members, asset.id, 0, members.length - 1);
+  applySpan(members, asset.id, range.from, range.to);
   if (place.at)
     for (const m of members)
       for (const u of usageList(m)) if (u.assetId === asset.id) u.at = { ...place.at, of: members[0].id };
   const demoted = main ? resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate) : [];
-  if (main) orderPlanMains(members, registry, [...cands.filter(x => x.id !== c.id), { ...c, assetId: asset.id }]);
+  if (main) sortMainsBySentence(members);
   const line = noteLine(c);
   if (!(row.note || '').includes(line))
     setShotField(rows, row, 'note', (row.note ? row.note.replace(/\s+$/, '') + '\n' : '') + line);
@@ -127,21 +142,16 @@ export function staleOnlineClips(cands, rows, registry) {
 }
 export function lineTag(c, rows) {
   const row = rows.find(r => r.id === c.rowId);
-  const nos = row
-    ? shotMembers(rows, row)
-        .map(m => m.no)
-        .filter(n => n > 0)
-    : [];
-  let from, to;
-  if (nos.length) {
-    from = Math.min(...nos);
-    to = Math.max(...nos);
-  } else {
-    const r = parseLines(c.lines);
-    if (!r || !(r.from > 0)) return '';
-    ({ from, to } = r);
+  const members = row ? shotMembers(rows, row) : [];
+  if (members.length) {
+    // 挂上了：按它现在在轨上配的那几句；还没挂：按清单里写的 for
+    const sp = c.assetId ? usageSpan(members, c.assetId) : null;
+    const r = sp && !sp.empty ? sp : forRange(c, members);
+    return tagOf(members[r.from]?.no, members[r.to]?.no);
   }
-  return from === to ? `第${from}句` : `第${from}-${to}句`;
+  const r = parseLines(c.forText || c.lines);
+  return r && r.from > 0 ? tagOf(r.from, r.to) : '';
 }
+export const tagOf = (from, to) => (!(from > 0) ? '' : from === to ? `第${from}句` : `第${from}-${to}句`);
 export const fileTitle = (c, rows) => [lineTag(c, rows), c.title].filter(Boolean).join('_');
 export const hasLineTag = p => /^第\d+(?:-\d+)?句_/.test(assetName(p));

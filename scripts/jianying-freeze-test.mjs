@@ -168,7 +168,7 @@ const assertNotFrameColor = (color, index, label, offset = 0) => {
   );
 };
 
-/* ── 用剪辑计划生成定格派生条目：0–3 秒镜头、片段比镜头短、fitDone 补定格 ── */
+/* ── 用剪辑计划生成定格派生条目：0–3 秒镜头、片段比镜头短、freeze 补定格 ── */
 function planForFreeze({ file, inUs, outUs, shotEndSec = 3 }) {
   const row = {
     id: 'L1',
@@ -181,7 +181,7 @@ function planForFreeze({ file, inUs, outUs, shotEndSec = 3 }) {
         assetId: 'V',
         role: 'main',
         clip: { in: inUs / 1e6, out: outUs / 1e6 },
-        fitDone: true,
+        freeze: true,
       },
     ],
   };
@@ -446,7 +446,7 @@ if (!hasTools) {
     const dir = tmpRoot('容器偏移');
 
     /* (a) 120×200 / 5fps / 1s，setpts 整体 +2s：容器起点=2s，播放时间仍是 0–0.8s。
-       计划 in=0 / out=0.51 / fitDone → 应取播放时间 0.4s（原始 PTS 2.4s）那帧，不能报「无候选」。 */
+       计划 in=0 / out=0.51 / freeze → 应取播放时间 0.4s（原始 PTS 2.4s）那帧，不能报「无候选」。 */
     const delayed = synthVideo({
       dir,
       name: 'delayed.mp4',

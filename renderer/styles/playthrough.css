@@ -59,6 +59,8 @@
   height: 100%;
   object-fit: contain;
 }
+.pt-stage.pt-freeze::after,
+.pt-stage.pt-fitdone::after,
 .pt-stage.pt-short::after {
   content: '画面片段已经放完，口播还在继续';
   position: absolute;
@@ -69,6 +71,17 @@
   border-radius: 6px;
   background: rgba(217, 130, 11, 0.9);
   color: #fff;
+}
+.pt-stage.pt-freeze::after {
+  content: '定格补满：片段放完，停在最后一帧';
+  background: rgba(18, 148, 95, 0.9);
+}
+/* 剪辑里补足：导出到剪映这段留空，预览里也不显示画面 */
+.pt-stage.pt-fitdone > .pt-media {
+  visibility: hidden;
+}
+.pt-stage.pt-fitdone::after {
+  content: '剪辑里补足：导出到剪映这段留空';
 }
 .pt-card {
   width: 70%;
@@ -264,6 +277,9 @@
   padding: 1px 7px;
   cursor: pointer;
 }
+.ptt-fitbtn + .ptt-fitbtn {
+  margin-left: 6px;
+}
 .ptt-fitbtn:hover {
   border-color: var(--ptt-warn);
 }
@@ -452,6 +468,11 @@
   overflow: hidden;
   z-index: 1;
 }
+/* 剪辑里补足：导出时留空，画成空着的虚线框，和定格的斜纹区分开 */
+.ptt-fit.edit {
+  background: rgba(0, 0, 0, 0.55);
+  border-left: 1px dashed var(--ptt-warn);
+}
 .ptt-fit i {
   font-style: normal;
   font-size: 11px;
@@ -571,6 +592,14 @@
 }
 .pt-box:has(.pt-track:not([hidden])) .pt-stage {
   max-height: 52vh;
+}
+/* 弹窗整体放进窗口：画面区随窗口高度缩小，不出现上下滚动条，关闭按钮一直在最上面 */
+.pt-box:not(.docked) {
+  overflow: hidden;
+}
+.pt-box:not(.docked) > .pt-stage {
+  flex-shrink: 1;
+  min-height: 160px;
 }
 /* 换画面不闪黑——新画面叠在旧画面上加载，出了第一帧再显示 */
 .pt-stage > .pt-media {

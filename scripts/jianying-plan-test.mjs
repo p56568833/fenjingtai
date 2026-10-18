@@ -80,7 +80,7 @@ function sampleA() {
   const usages = [
     { assetId: 'vA', role: 'main', clip: { in: 5, out: 8 }, at: { start: 0, end: 3, of: 'L1' } },
     { assetId: 'imgB', role: 'main', at: { start: 3, end: 5, of: 'L1' } },
-    { assetId: 'vC', role: 'main', clip: { in: 10, out: 12 }, at: { start: 6, end: 12, of: 'L1' }, fitDone: true },
+    { assetId: 'vC', role: 'main', clip: { in: 10, out: 12 }, at: { start: 6, end: 12, of: 'L1' }, freeze: true },
   ];
   for (const row of rows) {
     row.groupId = 'gA';
@@ -657,7 +657,7 @@ test('字幕里没找到某句（st=est）：计入 est 并说明不是逐句精
 
 /* ── 源片段与定格 ── */
 
-function oneVideoShot({ clip, at, fitDone = false, durationSec = 30, probe = null, shotEnd = 3 }) {
+function oneVideoShot({ clip, at, freeze = false, durationSec = 30, probe = null, shotEnd = 3 }) {
   const rows = [line('L1', 1, '一句', { start: 0, end: shotEnd, st: 'ok' })];
   rows[0].assetUsages = [
     {
@@ -665,7 +665,7 @@ function oneVideoShot({ clip, at, fitDone = false, durationSec = 30, probe = nul
       role: 'main',
       ...(clip ? { clip } : {}),
       ...(at ? { at } : {}),
-      ...(fitDone ? { fitDone: true } : {}),
+      ...(freeze ? { freeze: true } : {}),
     },
   ];
   const probes = probe ? { '/m/v.mp4': probe } : {};
@@ -687,7 +687,7 @@ test('源片段短于时间槽且启用定格补满：视频 + 末帧定格补�
   const { project: proj, probes } = oneVideoShot({
     clip: { in: 0, out: 1 },
     at: { start: 0, end: 3, of: 'L1' },
-    fitDone: true,
+    freeze: true,
   });
   const plan = makePlan(proj, {}, { probes });
   assert.deepEqual(
@@ -778,11 +778,21 @@ test('项目记录的时长比文件长、这次要播的超过文件里剩下�
 
 /* 两个镜头之间隔着 1 秒句间停顿：L1 0–2 秒，L2 3–5 秒；停顿算进第一个镜头（0–3 秒） */
 function pauseShots(videoSec, at = null, extra = {}) {
-  const rows = [line('L1', 1, '第一句', { start: 0, end: 2, st: 'ok' }), line('L2', 2, '第二句', { start: 3, end: 5, st: 'ok' })];
+  const rows = [
+    line('L1', 1, '第一句', { start: 0, end: 2, st: 'ok' }),
+    line('L2', 2, '第二句', { start: 3, end: 5, st: 'ok' }),
+  ];
   rows[0].assetUsages = [{ assetId: 'V', role: 'main', ...(at ? { at } : {}), ...extra }];
   rows[1].assetUsages = [{ assetId: 'I', role: 'main' }];
-  const proj = project({ rows, assets: [asset('V', '/m/v.mp4', 'video', { durationSec: videoSec }), asset('I', '/m/i.png', 'image')] });
-  return makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: videoSec, exists: true }, '/m/i.png': { exists: true } } });
+  const proj = project({
+    rows,
+    assets: [asset('V', '/m/v.mp4', 'video', { durationSec: videoSec }), asset('I', '/m/i.png', 'image')],
+  });
+  return makePlan(
+    proj,
+    {},
+    { probes: { '/m/v.mp4': { durationSec: videoSec, exists: true }, '/m/i.png': { exists: true } } },
+  );
 }
 
 test('镜头之间的句间停顿算进前一个镜头：画面播到下一句开口，镜头首尾相接', () => {
@@ -804,7 +814,7 @@ test('停顿算进镜头后片段不够长：和时间轴一样空着；标了�
     ],
   );
   assert.deepEqual(
-    videoSummary(pauseShots(2.5, null, { fitDone: true })).map(item => [item.kind, item.start, item.dur, item.derived]),
+    videoSummary(pauseShots(2.5, null, { freeze: true })).map(item => [item.kind, item.start, item.dur, item.derived]),
     [
       ['video', 0, 2500000, false],
       ['image', 2500000, 500000, true],
@@ -814,7 +824,10 @@ test('停顿算进镜头后片段不够长：和时间轴一样空着；标了�
 });
 
 test('镜头后面还排着放不下的画面：停顿里仍由能看见的最后一个画面延续', () => {
-  const rows = [line('L1', 1, '第一句', { start: 0, end: 2, st: 'ok' }), line('L2', 2, '第二句', { start: 3, end: 5, st: 'ok' })];
+  const rows = [
+    line('L1', 1, '第一句', { start: 0, end: 2, st: 'ok' }),
+    line('L2', 2, '第二句', { start: 3, end: 5, st: 'ok' }),
+  ];
   rows[0].assetUsages = [
     { assetId: 'V', role: 'main', clip: { in: 0, out: 4 } }, // 4 秒片段排进 2 秒镜头，W 排到 4 秒处：镜头外
     { assetId: 'W', role: 'main', clip: { in: 0, out: 4 } },
@@ -828,7 +841,11 @@ test('镜头后面还排着放不下的画面：停顿里仍由能看见的最�
       asset('I', '/m/i.png', 'image'),
     ],
   });
-  const plan = makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: 10, exists: true }, '/m/w.mp4': { durationSec: 10, exists: true } } });
+  const plan = makePlan(
+    proj,
+    {},
+    { probes: { '/m/v.mp4': { durationSec: 10, exists: true }, '/m/w.mp4': { durationSec: 10, exists: true } } },
+  );
   assert.ok(hasIssue(plan, 'over-shot', 'confirm'));
   assert.deepEqual(
     videoSummary(plan).map(item => [item.path, item.start, item.dur]),
@@ -837,6 +854,19 @@ test('镜头后面还排着放不下的画面：停顿里仍由能看见的最�
       ['/m/i.png', 3000000, 2000000],
     ],
   );
+});
+
+test('标了剪辑里补足（不是定格补满）：导出不自动定格，不够的那段留空并提示', () => {
+  const plan = pauseShots(2.5, null, { fitDone: true });
+  assert.deepEqual(
+    videoSummary(plan).map(item => [item.kind, item.start, item.dur, item.derived]),
+    [
+      ['video', 0, 2500000, false],
+      ['image', 3000000, 2000000, false],
+    ],
+  );
+  assert.equal(plan.derived.length, 0);
+  assert.ok(hasIssue(plan, 'edit-fill', 'info'));
 });
 
 test('手动排的画面没排到最后一句说完：结尾空白照样留空', () => {
@@ -863,7 +893,7 @@ test('定格抽帧位置 = 出点前一帧，且不小于入点', () => {
   const { project: proj } = oneVideoShot({
     clip: { in: 5, out: 5.02 },
     at: { start: 0, end: 1, of: 'L1' },
-    fitDone: true,
+    freeze: true,
   });
   const plan = makePlan(proj, {}, { probes: { '/m/v.mp4': { durationSec: 30, exists: true } } });
   assert.equal(plan.derived.length, 1);

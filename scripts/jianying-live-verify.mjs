@@ -10,7 +10,7 @@
      node scripts/jianying-live-verify.mjs --draft-name "修复验收-20261018-0220" \
        --out /tmp/jianying-live/export-baseline.json [--canvas 1920x1080] [--fps 30] [--no-subtitles] \
        [--project default|freeze|unknown|unknown2|known2]
-   --project freeze  = 5fps 源 out=0.51s + fitDone（定格选帧）
+   --project freeze  = 5fps 源 out=0.51s + freeze（定格选帧）
    --project unknown = ffprobe 无完整时长的源（单片段）
    --project unknown2 / known2 = 0–1s 片段 + 1–2s 空档 + 2–3s 图片，用于剪映里延长裁剪 A/B
 
@@ -19,9 +19,9 @@
      node scripts/jianying-live-verify.mjs --project vfr-gap --draft-name "修复验收2-..." \
        --out /tmp/jianying-verify2/export-delayed.json --no-subtitles
    --project delayed  = 120×200 / 5fps / 1s，setpts 整体推迟 2s（format start_time=2，原始帧 PTS 2–2.8）；
-                        镜头 3s，clip in=0/out=0.51 + fitDone，正确帧 = 播放时间 0.4s（原始 PTS 2.4）
+                        镜头 3s，clip in=0/out=0.51 + freeze，正确帧 = 播放时间 0.4s（原始 PTS 2.4）
    --project vfr-gap  = 120×200 / 30fps 输入 10s，首帧 PTS 0、其余帧 +5s（下一帧 5.033s，总长 15s）；
-                        镜头 3s，clip in=2/out=3 + fitDone，正确帧 = 第一帧（0–5.033s 一直可见）
+                        镜头 3s，clip in=2/out=3 + freeze，正确帧 = 第一帧（0–5.033s 一直可见）
    --project bounds   = 10s 视频内容 + 12.5s 容器；clip in=11/out=12，越出视频内容但不越容器，
                         应报 freeze-no-frame 且不产出定格图、不留下草稿
    新项目的素材在 /tmp/jianying-verify2/media，草稿名必须以「修复验收2-」开头且不能与已有草稿重名；
@@ -54,7 +54,7 @@ const roundStamp = () => {
   const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
 };
-/* default：12s 全量样例；freeze：5fps 源 out=0.51s + fitDone 选帧；unknown：ffprobe 无完整时长的源 */
+/* default：12s 全量样例；freeze：5fps 源 out=0.51s + freeze 选帧；unknown：ffprobe 无完整时长的源 */
 const project = argOf('--project', 'default');
 const VERIFY2_PROJECTS = new Set(['delayed', 'vfr-gap', 'bounds']);
 const verify2 = VERIFY2_PROJECTS.has(project);
@@ -357,7 +357,7 @@ const buildDefaultSnapshot = () => {
         role: 'main',
         clip: { in: 0, out: 1 },
         at: { start: 0, end: 2, of: 'L6' },
-        fitDone: true,
+        freeze: true,
       },
     ],
   };
@@ -404,7 +404,7 @@ const buildDefaultSnapshot = () => {
   };
 };
 
-/* 5fps 源、out=0.51s、1s 镜头 + fitDone：定格应取源 0.4s 帧（不是 0.6s） */
+/* 5fps 源、out=0.51s、1s 镜头 + freeze：定格应取源 0.4s 帧（不是 0.6s） */
 const buildFreezeSnapshot = () => ({
   id: 'live-freeze-project',
   projectId: 'live-freeze-project',
@@ -423,7 +423,7 @@ const buildFreezeSnapshot = () => ({
           role: 'main',
           clip: { in: 0, out: 0.51 },
           at: { start: 0, end: 1, of: 'F1' },
-          fitDone: true,
+          freeze: true,
         },
       ],
     },
@@ -439,7 +439,7 @@ const buildFreezeSnapshot = () => ({
 
 /* ── 修复验收2：A 延迟起点 ──
    120×200 / 5fps / 1s，容器整体推迟 2s：format start_time=2，帧原始 PTS 2/2.2/2.4/2.6/2.8。
-   镜头 3s，clip in=0/out=0.51 + fitDone；定格应取「播放时间 0.4s」= 原始 PTS 2.4（第 3 帧）。 */
+   镜头 3s，clip in=0/out=0.51 + freeze；定格应取「播放时间 0.4s」= 原始 PTS 2.4（第 3 帧）。 */
 const buildDelayedSnapshot = () => ({
   id: 'live-verify2-delayed',
   projectId: 'live-verify2-delayed',
@@ -458,7 +458,7 @@ const buildDelayedSnapshot = () => ({
           role: 'main',
           clip: { in: 0, out: 0.51 },
           at: { start: 0, end: 3, of: 'D1' },
-          fitDone: true,
+          freeze: true,
         },
       ],
     },
@@ -480,7 +480,7 @@ const buildDelayedSnapshot = () => ({
 
 /* ── 修复验收2：B VFR 长静止 ──
    120×200 / 30fps 输入 10s：首帧 PTS=0，其余帧 PTS+5s（下一帧 5.033333s，总长 15s）。
-   镜头 3s，clip in=2/out=3 + fitDone；播放时间 2–3s 落在第一帧 0–5.033s 的可见区间里，
+   镜头 3s，clip in=2/out=3 + freeze；播放时间 2–3s 落在第一帧 0–5.033s 的可见区间里，
    定格应取第一帧（PTS 0，蓝底左上白块），而不是间隔后的第 1 帧（橙底右下黑块）。 */
 const buildVfrGapSnapshot = () => ({
   id: 'live-verify2-vfr-gap',
@@ -500,7 +500,7 @@ const buildVfrGapSnapshot = () => ({
           role: 'main',
           clip: { in: 2, out: 3 },
           at: { start: 0, end: 3, of: 'V1' },
-          fitDone: true,
+          freeze: true,
         },
       ],
     },
@@ -541,7 +541,7 @@ const buildBoundsSnapshot = () => ({
           role: 'main',
           clip: { in: 11, out: 12 },
           at: { start: 0, end: 3, of: 'B1' },
-          fitDone: true,
+          freeze: true,
         },
       ],
     },

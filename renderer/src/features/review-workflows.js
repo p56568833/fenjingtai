@@ -1,7 +1,8 @@
 import * as native from '../platform/native.js';
 
 import { state } from '../app/state.js';
-import { renumber } from '../app/project-queries.js';
+import { renumber, timeline } from '../app/project-queries.js';
+import { memberSeconds } from '../core/timeline.js';
 
 import {
   importCandidateData,
@@ -106,7 +107,14 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
     const list = reworkList().map(s => ({ ...s, members: s.members.map(m => ({ ...m })) }));
     if (!list.length) return toast('没有待返工的画面', null, 'info');
     const title = state.title || '未命名项目';
-    const doc = buildReworkDoc({ title, shots: list, registry: state.assets || {}, batchName: batchOfCand });
+    const tl = timeline();
+    const doc = buildReworkDoc({
+      title,
+      shots: list,
+      registry: state.assets || {},
+      batchName: batchOfCand,
+      secondsOf: members => memberSeconds(tl, members),
+    });
     const file = `${dir.replace(/\/+$/, '')}/返工单·${safeFileName(title)}.json`;
     const r = await native.writeReworkDoc(file, JSON.stringify(doc, null, 2));
     if (!r?.ok) return toast('返工单没写进去：' + (r?.error || '未知原因'), null, 'error');
@@ -115,7 +123,7 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
     page.reworkDocAt = Date.now();
     renderVideoReview();
     await copyText(
-      `读一下「${file}」：这是分镜台的返工单，${list.length} 个画面（${doc.sentences}）。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单给我导入。顶层 reworkId 必须写 "${doc.id}"；shots[].lines 逐项照抄，分散句子分别写，禁止扩成首尾整段或添加返工单之外的画面。`,
+      `读一下「${file}」：这是分镜台的返工单，${list.length} 个画面（${doc.sentences}）。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单给我导入。顶层 reworkId 必须写 "${doc.id}"；shots[].lines 逐项照抄，分散句子分别写，禁止扩成首尾整段或添加返工单之外的画面；每段视频用 for 写明给哪几句，长度按返工单里每句的 seconds 找够。`,
       `返工单已生成（${list.length} 个画面），交给 AI 的话已复制`,
     );
   }

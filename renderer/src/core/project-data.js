@@ -61,7 +61,10 @@ export function normalizeProjectData(project) {
   data.types = normalizeTypes(data.types);
   data.timing = data.timing && Array.isArray(data.timing.cues) ? data.timing : null;
   data.voice = data.voice && typeof data.voice.path === 'string' ? data.voice : null;
-  data.candidates = Array.isArray(data.candidates) ? data.candidates : [];
+  // 2.1.0 起候选都记着给哪几句（forIds）；旧格式清单导入的候选不再保留，已通过挂上的素材留在表格里
+  data.candidates = Array.isArray(data.candidates)
+    ? data.candidates.filter(c => Array.isArray(c?.forIds) && c.forIds.length)
+    : [];
   data.reworkRequests = normalizeReworkRequests(data.reworkRequests);
   data.mediaDir = typeof data.mediaDir === 'string' ? data.mediaDir : '';
   const rate = Number(data.speechRate);

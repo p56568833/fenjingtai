@@ -1,7 +1,7 @@
 /* 当前项目的派生查询；不管理选区、搜索或项目加载。 */
 import { state } from './state.js';
 import { typeIndex } from '../core/types.js';
-import { buildTimeline } from '../core/timeline.js';
+import { buildTimeline, shotSpan } from '../core/timeline.js';
 import { speechUnits } from '../core/text.js';
 /* 查询版本由项目变化推进；时间轴只在文字、句子结构或计时信息改变时失效。 */
 let rev = 0;
@@ -67,10 +67,19 @@ export function timeline() {
   return tl;
 }
 export const timeOf = id => timeline().times.get(id) || null;
-/* 一句的时长（秒） */
+/* 一句的时长（秒）：只算说话的部分 */
 export function lineSeconds(r) {
   const t = r ? timeOf(r.id) : null;
   return t ? t.end - t.start : speechUnits(r?.text || '') / state.speechRate;
+}
+/* 一句在成片里占几秒：从这句开口到下一句开口，含后面的句间停顿（和镜头时长同一个算法）。
+   没导入口播时句子一句接一句排，停顿已经摊进语速里，就是说话那几秒。
+   返回 { total, speech, pause } */
+export function lineSlot(r) {
+  const speech = lineSeconds(r);
+  const sp = r ? shotSpan(timeline(), [r.id]) : null;
+  if (!sp) return { total: speech, speech, pause: 0 };
+  return { total: sp.end - sp.start, speech, pause: Math.max(0, sp.end - sp.speechEnd) };
 }
 
 export const projectRevision = () => rev;

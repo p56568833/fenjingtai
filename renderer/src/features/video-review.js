@@ -29,8 +29,8 @@ import {
 } from '../app/candidate-actions.js';
 import { flushWriteBack } from '../app/candidate-sync.js';
 import { isCandidateBusy, relinkSavedClips, initCandidateMedia } from '../app/candidate-media.js';
-import { saveAllApproved, downloadOriginal, retagLineFiles, ensureMediaDir, batchRun } from './review-files.js';
-import { forgetFrames, clearReviewFrames, mediaOf } from './review-frames.js';
+import { saveAllApproved, downloadOriginal, ensureMediaDir, batchRun } from './review-files.js';
+import { forgetFrames, clearReviewFrames, previewOf } from './review-frames.js';
 
 import { CANDIDATE_VERSION } from '../core/candidate-values.js';
 import {
@@ -274,7 +274,7 @@ function videoReviewKey(e) {
     const pv = previewingId();
     if (pv) {
       const c = state.candidates.find(x => x.id === pv);
-      if (c) togglePause(previewHost(), mediaOf(c));
+      if (c) togglePause(previewHost(), previewOf(c));
       return true;
     }
     // 有左边播放器（审核页）就播 / 停排好的画面；待返工页没有，才在卡片里播当前候选
@@ -282,7 +282,7 @@ function videoReviewKey(e) {
     const card = $(`#vrList [data-vr-id="${page.curCand}"]`);
     const c = state.candidates.find(x => x.id === page.curCand);
     pauseReviewPlayback();
-    if (!card || !c || !togglePause(card, mediaOf(c))) play(page.curCand);
+    if (!card || !c || !togglePause(card, previewOf(c))) play(page.curCand);
     return true;
   }
   return false;
@@ -359,14 +359,14 @@ export function initVideoReview() {
     const track = t.closest('[data-vr-track]');
     if (track) {
       const c = state.candidates.find(x => x.id === track.dataset.vrTrack);
-      if (c && player) seekTrack(player, mediaOf(c), track, e.clientX);
+      if (c && player) seekTrack(player, previewOf(c), track, e.clientX);
       return;
     }
     const pp = t.closest('[data-vr-pp]');
     if (pp) {
       const c = state.candidates.find(x => x.id === pp.dataset.vrPp);
       pauseReviewPlayback();
-      if (c && !(player && togglePause(player, mediaOf(c)))) play(c.id);
+      if (c && !(player && togglePause(player, previewOf(c)))) play(c.id);
       return;
     }
     if (t.closest('[data-vr-rw-off]')) return dismissCurrentRework();
@@ -479,6 +479,5 @@ export function initVideoReview() {
   registerCommand('video:close', closeVideoReview);
   registerCommand('video:key', videoReviewKey);
   registerCommand('video:import', (doc, path) => importCandidates(doc, path));
-  registerCommand('assets:retag', retagLineFiles);
   refreshVideoReviewButton();
 }

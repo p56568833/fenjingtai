@@ -62,6 +62,7 @@ export const extraOf = u => {
     ...(isRole(u?.role) ? { role: u.role } : {}),
     ...(u?.off ? { off: true } : {}),
     ...(u?.fitDone ? { fitDone: true } : {}),
+    ...(u?.freeze ? { freeze: true } : {}),
     ...(at ? { at } : {}),
     ...(rework ? { rework } : {}),
   };

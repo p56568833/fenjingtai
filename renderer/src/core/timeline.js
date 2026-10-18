@@ -124,6 +124,20 @@ export function shotSpan(timeline, ids) {
   return { start: span.start, end: next > span.end ? next : span.end, speechEnd: span.end };
 }
 
+/* 画面里每一句要占多少秒：从这句开口到下一句开口（含句间停顿），最后一句到画面结尾。不知道时间的是 null */
+export function memberSeconds(timeline, members) {
+  const span = shotSpan(
+    timeline,
+    members.map(m => m.id),
+  );
+  return members.map((m, i) => {
+    const a = timeline.times.get(m.id);
+    if (!a) return null;
+    const next = i < members.length - 1 ? timeline.times.get(members[i + 1].id)?.start : span?.end;
+    return Number.isFinite(next) && next > a.start ? next - a.start : null;
+  });
+}
+
 /* 来源说明（界面提示用） */
 export const SOURCE_TEXT = {
   srt: '剪映字幕实测',

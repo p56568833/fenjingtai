@@ -1,9 +1,10 @@
 /* 视频审核里的片段播放器：只显示建议片段这几秒的进度条、叠口播字幕、可同时放口播音频。
-   口播对齐：精选段的开头对齐到它在正片轨上的位置；还没放上去的按清单里的先后估（见 slotOf）。 */
+   口播对齐：精选段的开头对齐到它在正片轨上的位置；还没放上去的对齐到它给的那几句开口（见 slotOf）。 */
 import { state } from '../app/state.js';
 import { rowById, lines, timeOf, renumber, timeline } from '../app/project-queries.js';
 import { shotMembers } from '../core/shots.js';
-import { planOf, usableSeconds, cleanBest } from '../core/candidate-values.js';
+import { cleanBest, forRange } from '../core/candidate-values.js';
+import { candidateWindow } from '../core/candidate-placement.js';
 import { layoutShot } from '../core/shot-layout.js';
 import { esc } from '../ui/base/dom.js';
 import { voicePlayer } from './voice.js';
@@ -23,50 +24,39 @@ export const setVoiceOn = on => {
   } catch {}
 };
 
-/* 这个候选配的句子：方案里的视频都配整个画面 */
+/* 这个候选配的句子：清单里 for 写的那几句（一句，或整个画面） */
 export function targetLines(c) {
   const lead = rowById(c.rowId);
   if (!lead) return { members: [], target: [], whole: true };
   const members = shotMembers(state.rows, lead);
-  return { members, target: members, whole: true };
+  const r = forRange(c, members);
+  return { members, target: members.slice(r.from, r.to + 1), whole: r.whole };
 }
 
 /* 这个视频在口播里对应的那段（绝对秒数）。已经放在正片轨上的：就是它在轨上的位置；
-   还没放上去的：按清单里的先后估——画面开头 + 同一方案里排在前面、没被否掉的视频的可用长度，
-   最后一个配到画面末尾。不知道时间返回 null */
+   还没放上去的：它给的那几句——从第一句开口到最后一句后面那句开口。不知道时间返回 null */
 export function slotOf(c) {
   renumber();
   const { members } = targetLines(c);
-  const first = members[0] && timeOf(members[0].id);
-  if (!first) return null;
-  const last = timeOf(members[members.length - 1].id) || first;
+  if (!members.length) return null;
+  const tl = timeline();
   if (c.assetId) {
-    const layout = layoutShot(state.assets || {}, members, timeline());
+    const layout = layoutShot(state.assets || {}, members, tl);
     const it = layout?.items.find(x => x.assetId === c.assetId);
     if (it) return { start: layout.start + it.start, end: layout.start + Math.min(it.slotEnd ?? it.end, layout.dur) };
   }
-  const ids = new Set(members.map(m => m.id));
-  const seq = state.candidates
-    .filter(
-      x => ids.has(x.rowId) && planOf(x) === planOf(c) && (x === c || (x.decision !== 'no' && x.decision !== 're')),
-    )
-    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-  const k = seq.indexOf(c);
-  const start = Math.min(
-    last.end,
-    first.start + seq.slice(0, Math.max(0, k)).reduce((t, x) => t + usableSeconds(x), 0),
-  );
-  const end = k === seq.length - 1 ? last.end : Math.min(last.end, start + usableSeconds(c));
-  return { start, end };
+  const w = candidateWindow(c, members, tl);
+  return w ? { start: w.start, end: w.end } : null;
 }
 
-/* 片段在口播时间轴上的位置：start = 视频入点对应的口播秒数（精选段开头对齐到排到的位置），targetEnd = 排到的那段的结尾 */
+/* 片段在口播时间轴上的位置：start = 视频入点对应的口播秒数（精选段开头对齐到排到的位置，入点在精选段之前时可以是负数，
+   那几秒没有口播），targetEnd = 排到的那段的结尾 */
 function voWindow(c) {
   const dur = Math.max(0.1, c.out - c.in);
   const slot = slotOf(c);
   if (!slot) return { dur, start: 0, targetEnd: dur, ok: false };
   const bestIn = cleanBest(c.best, c.in, c.out)?.in ?? c.in;
-  return { dur, start: Math.max(0, slot.start - (bestIn - c.in)), targetEnd: slot.end, ok: true };
+  return { dur, start: slot.start - (bestIn - c.in), targetEnd: slot.end, ok: true };
 }
 function lineAt(t) {
   for (const r of lines()) {
@@ -152,8 +142,8 @@ function paintNow(card, c, w, v) {
 const atClip = (c, v) => v.currentTime >= c.in - 0.3 && v.currentTime <= c.out + 0.3;
 function syncVoice(c, w, v) {
   if (active?.v !== v || !active.usingVoice) return;
-  if (!atClip(c, v)) return voicePlayer.pause();
   const want = w.start + Math.max(0, v.currentTime - c.in);
+  if (!atClip(c, v) || want < 0) return voicePlayer.pause(); // 还在口播开头之前的余量里
   if (Math.abs(voicePlayer.currentTime() - want) > 0.35) voicePlayer.seek(want);
   if (!v.paused && !voicePlayer.isPlaying()) voicePlayer.playRange(want, w.start + w.dur);
 }
@@ -180,8 +170,8 @@ export function playClip(card, c, { onState, onEnd, from = null } = {}) {
   const startVoice = () => {
     if (active !== session) return;
     session.usingVoice = usingVoice();
-    if (session.usingVoice && atClip(c, v))
-      voicePlayer.playRange(w.start + Math.max(0, v.currentTime - c.in), w.start + w.dur);
+    const want = w.start + Math.max(0, v.currentTime - c.in);
+    if (session.usingVoice && atClip(c, v) && want >= 0) voicePlayer.playRange(want, w.start + w.dur);
   };
   v.ontimeupdate = () => {
     if (active !== session) return;
@@ -267,7 +257,7 @@ export function seekTrack(card, c, track, clientX) {
   const rect = track.getBoundingClientRect();
   const f = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
   v.currentTime = c.in + f * (c.out - c.in);
-  if (active.usingVoice) voicePlayer.seek(active.w.start + f * (c.out - c.in));
+  if (active.usingVoice) voicePlayer.seek(Math.max(0, active.w.start + f * (c.out - c.in)));
 }
 
 export function stopAllVideos() {

@@ -334,31 +334,41 @@ await atest('下载完整原片：跟随跳转，写临时文件再改名，命�
   assert.equal(path.basename(r.path), '福特_完整原片.mp4');
   assert.equal(fs.readFileSync(r.path, 'utf8'), 'hello');
 });
-test('审核结果写回 v3 候选清单：方案里的视频也能对上，通过的写明是不是正在用的方案', () => {
+test('审核结果写回 v4 候选清单：按 句号|编号 对上，通过的写明是不是正在正片里用', () => {
   const dir = tmp();
   const f = path.join(dir, '候选.json');
   fs.writeFileSync(
     f,
     JSON.stringify({
       type: 'fenjingtai-candidates',
-      version: 3,
-      shots: [{ lines: '5', plans: [{ cands: [{ key: 'A' }, { key: 'B' }] }, { cands: [{ key: 'C' }] }] }],
+      version: 4,
+      shots: [
+        {
+          lines: '5-6',
+          cands: [
+            { key: 'A', for: '5' },
+            { key: 'B', for: '5' },
+            { key: 'C', for: '5-6' },
+          ],
+        },
+      ],
     }),
   );
   const r = vt.writeReview(
     f,
     [
-      { key: 'A', lines: '5', decision: 'ok', note: '', inUse: true },
-      { key: 'B', lines: '5', decision: 're', note: '太暗', inUse: false },
-      { key: 'C', lines: '5', decision: 'ok', note: '' },
+      { key: 'A', lines: '5-6', decision: 'ok', note: '', inUse: true },
+      { key: 'B', lines: '5-6', decision: 're', note: '太暗', inUse: false },
+      { key: 'C', lines: '5-6', decision: 'ok', note: '' },
     ],
     { now: () => 'T' },
   );
   assert.deepEqual(r, { ok: true, updated: 3 });
-  const [p1, p2] = JSON.parse(fs.readFileSync(f, 'utf8')).shots[0].plans;
-  assert.deepEqual(p1.cands[0].review, { decision: 'ok', note: '', inUse: true, at: 'T' });
-  assert.deepEqual(p1.cands[1].review, { decision: 're', note: '太暗', at: 'T' }, '没通过的不写 inUse');
-  assert.deepEqual(p2.cands[0].review, { decision: 'ok', note: '', inUse: false, at: 'T' });
+  const [a, b, c] = JSON.parse(fs.readFileSync(f, 'utf8')).shots[0].cands;
+  assert.deepEqual(a.review, { decision: 'ok', note: '', inUse: true, at: 'T' });
+  assert.deepEqual(b.review, { decision: 're', note: '太暗', at: 'T' }, '没通过的不写 inUse');
+  assert.deepEqual(c.review, { decision: 'ok', note: '', inUse: false, at: 'T' }, '通过了但放在备选');
+  assert.equal(a.for, '5', '其他字段原样保留');
 });
 test('审核结果写回候选清单：只改 fenjingtai-candidates 文件，按 句号|编号 对上', () => {
   const dir = tmp();

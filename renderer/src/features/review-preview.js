@@ -5,7 +5,8 @@ import { state } from '../app/state.js';
 import { fmtTime } from '../core/text.js';
 import { esc } from '../ui/base/dom.js';
 import { playerHTML, playClip, stopClip } from './clip-player.js';
-import { mediaOf } from './review-frames.js';
+import { previewOf } from './review-frames.js';
+import { candName } from './review-model.js';
 
 /* 宿主提供候选预览位置和卡片位置，组件不查询整张页面。 */
 export function createReviewPreview({ host, card, selectedCandidate, pause: pauseReviewPlayback }) {
@@ -28,7 +29,7 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
     if (!host || !c) return false;
     if (shown !== id || !host.querySelector('.vr-stage')) {
       stopClip();
-      host.innerHTML = `<div class="vr-pv-head"><span class="vr-pv-badge">候选</span><span class="vr-pv-title">${esc(c.title || c.key || '（未命名）')} · ${fmtTime(c.in)}–${fmtTime(c.out)}</span><button class="vr-pv-close" data-vr-pv-close title="收起候选，回到排好的画面">回到画面时间</button></div>${playerHTML(c)}`;
+      host.innerHTML = `<div class="vr-pv-head"><span class="vr-pv-badge">候选</span><span class="vr-pv-title">${esc(candName(c))} · ${fmtTime(c.best?.in ?? c.in)}–${fmtTime(c.best?.out ?? c.out)}</span><button class="vr-pv-close" data-vr-pv-close title="收起候选，回到排好的画面">回到画面时间</button></div>${playerHTML(previewOf(c))}`;
     }
     shown = id;
     host.hidden = false;
@@ -38,7 +39,7 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
     wait.classList.remove('err');
     wait.textContent = '载入中…';
     pauseReviewPlayback(); // 排好的画面先停，免得两路口播一起响
-    const media = mediaOf(c);
+    const media = previewOf(c);
     playClip(host, media, {
       from: at == null ? null : media.in + at,
       onState: labelFor(id),

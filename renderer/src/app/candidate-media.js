@@ -10,7 +10,8 @@ import { writeBack } from './candidate-sync.js';
 import { invalidateProbe, probePaths, isMissing } from './asset-actions.js';
 import { swapToLocal, fileTitle, staleOnlineClips, hasLineTag, lineTag } from '../core/candidate-placement.js';
 import { assetName, syncMirror, referencedAssetIds } from '../core/asset-model.js';
-import { fetchClip } from './collab.js';
+import { fetchClip, collabSession } from './collab.js';
+import { retagPlan } from '../core/candidate-queries.js';
 import * as native from '../platform/native.js';
 
 const jobs = new Map();
@@ -245,10 +246,48 @@ const tidySavedClips = () => {
     .catch(() => 0)
     .then(() => (state.projectId === pid ? relinkSavedClips() : 0));
 };
+/* 素材换了句子（轨上拖动、改了配哪几句、改稿后句号变了）：文件名开头的「第N句」自动跟着改，不用手动点。
+   只改名不移动；改名涉及磁盘，不进撤销（撤销后位置变回去，会再自动改回来）。协作中不自动改，免得两边来回改名 */
+let retagTimer = 0,
+  retagging = false,
+  retagAgain = false;
+export function scheduleRetag(delay = 600) {
+  clearTimeout(retagTimer);
+  retagTimer = setTimeout(retagLineFiles, delay);
+}
+export async function retagLineFiles() {
+  if (retagging) {
+    retagAgain = true;
+    return 0;
+  }
+  if (collabSession()) return 0;
+  renumber();
+  const plan = retagPlan(state.rows, state.assets, state.candidates);
+  if (!plan.size) return 0;
+  retagging = true;
+  const moved = new Map();
+  try {
+    for (const [old, tag] of plan) {
+      const r = await native.retagLineFile(old, tag);
+      if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
+    }
+  } finally {
+    retagging = false;
+  }
+  applyMovedPaths(moved);
+  if (retagAgain) {
+    retagAgain = false;
+    scheduleRetag(0);
+  }
+  return moved.size;
+}
+
 let initialized = false;
 export function initCandidateMedia() {
   if (initialized) return;
   initialized = true;
   on('project-loaded', () => setTimeout(tidySavedClips, 0));
+  on('project-loaded', () => scheduleRetag());
+  on('project-committed', () => scheduleRetag());
   setTimeout(tidySavedClips, 0);
 }

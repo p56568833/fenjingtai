@@ -50,7 +50,7 @@ const deleteBatch = () => {
 
 const DOC = {
   type: 'fenjingtai-candidates',
-  version: 2,
+  version: 4,
   project: '视频审核测试',
   batch: '测试批次',
   shots: [
@@ -60,21 +60,25 @@ const DOC = {
       cands: [
         {
           key: 'A1',
+          for: '1-3',
           title: '福特肉类加工 1922',
           url: 'https://archive.org/download/fc-fc-485/fc-fc-485.mp4',
           page: 'https://archive.org/details/fc-fc-485',
           in: 101,
           out: 110,
+          best: { in: 101, out: 110 },
           license: '公有领域',
           why: '流水线上的牛肉',
           limitations: '没有人物面部',
         },
         {
           key: 'A2',
+          for: '1-3',
           title: '赶牛',
           url: 'https://upload.wikimedia.org/x/cattle.webm',
           in: 15,
           out: 30,
+          best: { in: 15, out: 30 },
           license: '版权未核实',
           why: '赶牛进场',
         },
@@ -86,10 +90,12 @@ const DOC = {
       cands: [
         {
           key: 'B1',
+          for: '4',
           title: '白喉抗毒素',
           url: 'https://x.org/d.mp4',
           in: 960,
           out: 1050,
+          best: { in: 960, out: 1050 },
           license: '公有领域',
           why: '实验室',
         },
@@ -99,7 +105,17 @@ const DOC = {
       lines: '99',
       label: '对不上',
       cands: [
-        { key: 'Z1', title: '对不上', url: 'https://x.org/z.mp4', in: 1, out: 2, license: '公有领域', why: '对不上' },
+        {
+          key: 'Z1',
+          for: '99',
+          title: '对不上',
+          url: 'https://x.org/z.mp4',
+          in: 1,
+          out: 2,
+          best: { in: 1, out: 2 },
+          license: '公有领域',
+          why: '对不上',
+        },
       ],
     },
   ],
@@ -161,17 +177,17 @@ export async function runVideoReviewTests(t) {
   t('先有一张照片当主画面', us(0)[0]?.role === 'main');
   t('没有候选时「视频审核」上不显示待审数', $('#vtBadge').hidden === true);
 
-  /* 不合格式（v2 规范）的清单整份拒收：弹窗逐条写错在哪，「复制给 AI」复制问题 + 规范 */
+  /* 不合格式（v4 规范）的清单整份拒收：弹窗逐条写错在哪，「复制给 AI」复制问题 + 规范 */
   const copied = [];
   window.fjtHooks.copyText = async text => copied.push(text);
   const badDoc = {
     ...DOC,
-    version: 1,
     shots: [
       {
         lines: '1-3',
         label: '坏',
-        plans: [{ cands: [{ key: 'X', title: '坏', url: 'ftp://nope', in: '1:41', out: 2, note: 1 }] }],
+        plans: [],
+        cands: [{ key: 'X', title: '坏', url: 'ftp://nope', in: '1:41', out: 2, note: 1 }],
       },
     ],
   };
@@ -181,16 +197,29 @@ export async function runVideoReviewTests(t) {
     '不合格式的候选清单整份拒收，弹窗逐条写出错在哪',
     state.candidates.length === 0 &&
       $('#modalMask').classList.contains('show') &&
-      ['version 必须是数字 3', 'url 必须是', 'in 必须是秒数', 'license 必须写', '不认识的字段「note」'].every(x =>
-        $('#mBody').textContent.includes(x),
+      ['v4 不再有 plans', 'for 必须写', 'url 必须是', 'in 必须是秒数', 'license 必须写', '不认识的字段「note」'].every(
+        x => $('#mBody').textContent.includes(x),
       ),
   );
   click('#mOk');
   await pause(30);
   t(
     '「复制给 AI」复制全部问题和格式规范',
-    copied.length === 1 && copied[0].includes('不认识的字段「note」') && copied[0].includes('分镜台候选清单格式 v3'),
+    copied.length === 1 && copied[0].includes('不认识的字段「note」') && copied[0].includes('分镜台候选清单格式 v4'),
   );
+  importLoadedFile({
+    name: '旧清单.json',
+    ext: 'json',
+    content: JSON.stringify({ ...DOC, version: 3 }),
+    path: '/tmp/旧清单.json',
+  });
+  await pause(30);
+  t(
+    '旧格式清单不再导入：说清楚要按 v4 重写',
+    state.candidates.length === 0 && $('#mBody').textContent.includes('这是旧格式 version 3，已经不再支持'),
+  );
+  click('#mCancel');
+  await pause(30);
   delete window.fjtHooks.copyText;
 
   /* 导入 */
@@ -345,7 +374,9 @@ export async function runVideoReviewTests(t) {
       !!$('#vrPreview video.vr-player') &&
       $('.vr-dock-wrap').classList.contains('previewing') &&
       $('#vrPreview .vr-pv-badge')?.textContent === '候选' &&
-      $('#vrPreview .vr-pv-title')?.textContent.includes(cand('A1').title),
+      $('#vrPreview .vr-pv-title')?.textContent.includes('第 1–3 句整段 · 候选 1') &&
+      $('#vrPreview .vr-pv-title')?.textContent.includes('01:41–01:50'),
+    $('#vrPreview .vr-pv-title')?.textContent,
   );
   click('#vrPreview [data-vr-pv-close]');
   await pause(20);
@@ -427,10 +458,12 @@ export async function runVideoReviewTests(t) {
         cands: [
           {
             key: 'DROP',
+            for: '4',
             title: '拖入候选',
             url: 'https://x.org/drop.mp4',
             in: 1,
             out: 3,
+            best: { in: 1, out: 3 },
             license: '公有领域',
             why: '拖入',
           },
@@ -783,6 +816,16 @@ export async function runVideoReviewTests(t) {
   storage.createProject('批次删除测试', parseAny('甲。乙。丙。丁。'));
   const deletePid = state.projectId;
   update('rows');
+  // 清单里第 1–3 句是一个共用画面：分镜表也先合成一个画面（画面范围要照抄分镜表）
+  viewState.multi = lines()
+    .slice(0, 3)
+    .map(r => r.id);
+  viewState.sel = viewState.multi[0];
+  viewState.multiMode = true;
+  update('selection');
+  click('#btnGroup');
+  click('#mOk');
+  viewState.multiMode = false;
   importLoadedFile({ ...file, path: '/tmp/删除批次-7.json', content: JSON.stringify({ ...DOC, batch: '重复批次' }) });
   await pause(30);
   const oldBatch = state.candidates[0].batchId;
@@ -809,7 +852,7 @@ export async function runVideoReviewTests(t) {
   t(
     '批次删除先确认名称和候选数量，说明已挂素材及本地文件保留',
     $('#modalMask').classList.contains('show') &&
-      $('#mBody').textContent.includes('第1、4句') &&
+      $('#mBody').textContent.includes('第1–4句') &&
       $('#mBody').textContent.includes('3 个候选') &&
       $('#mBody').textContent.includes('已下载文件') &&
       $('#mOk').classList.contains('danger'),
@@ -834,9 +877,11 @@ export async function runVideoReviewTests(t) {
   t(
     '删旧名单后自动切到剩余名单，句子名称和待审数量更新',
     curBatchHead()?.dataset.vrBatch === newBatch &&
-      curBatchHead().textContent.includes('第1、4句') &&
+      curBatchHead().textContent.includes('第1–4句') &&
       !$('#vrNav .vr-bname') &&
-      $('#vtBadge').textContent === '3',
+      // 第 1–3 句已经被旧名单通过的视频盖满：新名单里给这几句的两个收成「未采用」，只剩第 4 句待审
+      $('#vtBadge').textContent === '1',
+    `${curBatchHead()?.textContent} / ${$('#vtBadge').textContent}`,
   );
   await flushWriteBack();
   t(
@@ -860,7 +905,7 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t(
     '重新载入项目后删除已保存，剩余名单仍按实际句子命名',
-    state.candidates.length === 3 && curBatchHead()?.textContent.includes('第1、4句'),
+    state.candidates.length === 3 && curBatchHead()?.textContent.includes('第1–4句'),
   );
   deleteBatch();
   click('#mOk');
@@ -880,7 +925,7 @@ export async function runVideoReviewTests(t) {
   });
   update('rows');
   deleteBatch();
-  t('旧版本无批次编号的候选也能删除，确认显示实际句子', $('#mBody').textContent.includes('第1、4句'));
+  t('旧版本无批次编号的候选也能删除，确认显示实际句子', $('#mBody').textContent.includes('第1–4句'));
   click('#mOk');
   t('旧版本批次删除后候选为空', state.candidates.length === 0);
   undo();
@@ -892,8 +937,8 @@ export async function runVideoReviewTests(t) {
   t('确认期间切了项目，不会删除新项目候选', JSON.stringify(state.candidates) === otherCandidates);
   storage.deleteProject(deletePid);
 
-  /* 两条轨：通过的先上正片轨，排满了放备选轨；备选能拖上正片轨（互换 / 插进空隙），正片能拖下来（原位置留空），
-     备选在备选轨上能自由挪；清单里的方案不再分 Tab，表格里也没有方案切换 */
+  /* 两条轨：通过的按 for 排到它那几句，那几句已经有画面就放备选轨；备选能拖上正片轨（互换 / 插进空隙），
+     正片能拖下来（原位置留空），备选在备选轨上能自由挪；整段和单句的候选列在一起 */
   storage.createProject('两条轨测试', parseAny('甲乙丙丁戊己庚辛壬癸。子丑寅卯辰巳午未申酉。'));
   const trackPid = state.projectId;
   const two = lines().map(r => r.id);
@@ -907,8 +952,9 @@ export async function runVideoReviewTests(t) {
   setType(two, 'real');
   lines().forEach((r, i) => (r.time = { start: i * 3, end: i * 3 + 3, st: 'ok' }));
   update('rows');
-  const v3c = (key, len) => ({
+  const v4c = (key, len, f) => ({
     key,
+    for: f,
     title: '视频 ' + key,
     url: `https://x.org/${key}.mp4`,
     in: 0,
@@ -919,32 +965,38 @@ export async function runVideoReviewTests(t) {
   });
   const trackDoc = {
     type: 'fenjingtai-candidates',
-    version: 3,
+    version: 4,
     project: '两条轨测试',
     batch: '两条轨',
-    shots: [
-      { lines: '1-2', label: '两句', plans: [{ cands: [v3c('P1a', 3), v3c('P1b', 3)] }, { cands: [v3c('P2', 6)] }] },
-    ],
+    shots: [{ lines: '1-2', label: '两句', cands: [v4c('P1a', 3, '1'), v4c('P1b', 3, '2'), v4c('P2', 6, '1-2')] }],
   };
   importLoadedFile({ name: '两条轨.json', ext: 'json', content: JSON.stringify(trackDoc), path: '/tmp/两条轨.json' });
   await pause(60);
   t(
-    '清单里有两个方案：审核页不分 Tab，三个视频列在一起',
-    !!card('P1a') && !!$(`#vrList .vr-plist [data-vr-id="${cand('P2').id}"]`),
+    '整段和单句的候选列在一起，按位置命名',
+    !!$(`#vrList .vr-plist [data-vr-id="${cand('P1a').id}"]`) &&
+      !!$(`#vrList .vr-plist [data-vr-id="${cand('P2').id}"]`) &&
+      $(`#vrList [data-vr-id="${cand('P2').id}"]`)?.textContent.includes('第 1–2 句整段 · 候选 1') &&
+      $(`#vrList [data-vr-id="${cand('P1b').id}"]`)?.textContent.includes('第 2 句 · 候选 1'),
+    [...document.querySelectorAll('#vrList .vr-plist [data-vr-id]')].map(x => x.textContent.slice(0, 30)).join(' | '),
   );
   setDecision(cand('P1a').id, 'ok');
   setDecision(cand('P1b').id, 'ok');
   await pause(30);
   const aid = key => cand(key).assetId;
   const roleOf = key => us(0).find(u => u.assetId === aid(key))?.role;
-  t('正片轨还有空：通过的视频都放上正片轨', roleOf('P1a') === 'main' && roleOf('P1b') === 'main');
+  t('各自那句空着：通过的视频都放上正片轨', roleOf('P1a') === 'main' && roleOf('P1b') === 'main');
+  t(
+    '单句的只配它那一句',
+    !us(1).find(u => u.assetId === aid('P1b'))?.off && us(0).find(u => u.assetId === aid('P1b'))?.off === true,
+  );
   t('排满后列表上写已排 6 / 口播 6 秒', $('#vrList .vr-pfill-head')?.textContent.includes('已排 6 / 口播 6 秒'));
   click($(`#vrList .vr-done.d-idle[data-vr-id="${cand('P2').id}"]`));
   await pause(30);
   setDecision(cand('P2').id, 'ok');
   await pause(60);
   t(
-    '正片轨排满再通过：放在备选轨，提示里说清楚',
+    '整段那几句已经有画面再通过：放在备选轨，提示里说清楚',
     roleOf('P2') === 'alt' &&
       !!$(`#review-pttAlt .ptt-block[data-ptt="${aid('P2')}"]`) &&
       $('#toastTxt')?.textContent.includes('备选轨'),
@@ -1195,26 +1247,23 @@ export async function runVideoReviewTests(t) {
   const replyShot = n => ({
     lines: String(n),
     label: '重找',
-    plans: [
+    cands: [
       {
-        cands: [
-          {
-            key: `reply-${n}`,
-            title: '新视频',
-            url: `https://example.com/reply-${n}.mp4`,
-            in: 0,
-            out: 12,
-            best: { in: 1, out: 11 },
-            license: '版权未核实',
-            why: '按批注重找',
-          },
-        ],
+        key: `reply-${n}`,
+        for: String(n),
+        title: '新视频',
+        url: `https://example.com/reply-${n}.mp4`,
+        in: 0,
+        out: 12,
+        best: { in: 1, out: 11 },
+        license: '版权未核实',
+        why: '按批注重找',
       },
     ],
   });
   const reply = {
     type: 'fenjingtai-candidates',
-    version: 3,
+    version: 4,
     project: state.title,
     batch: 'AI乱写第1-999句',
     reworkId: replyDoc.id,

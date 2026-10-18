@@ -6,7 +6,7 @@
        几个主画面配的是同一段句子（视频审核里同一个方案的视频都配整个画面）：按顺序一个接一个，视频占它可用片段那么长，
        图片和还不知道时长的视频平分剩下的时间；跨过末尾的截到末尾，整个排在末尾之后的标 over（排不下）。
        排完后视频一律截到它真实可用的长度（slotEnd 记下排给它的时间），后面没盖住的就是空白；
-       标了剪辑里补足（fitDone：定格 / 放慢）的不截。
+       标了剪辑里补足（fitDone：导出留空，剪辑里自己补）或定格补满（freeze：导出用最后一帧补）的不截。
        配的句子不一样、又有重叠时，重叠的那几句平分。
    · 手动：在「对着口播看画面」里拖过 / 填过秒数后，每个主画面带一个 at = {start, end, of}：
        start / end 是相对这个镜头开头的秒数，of 记下设置时镜头第一句的 id。
@@ -231,11 +231,12 @@ export function layoutShot(registry, members, tl) {
     if (dur > speechDur + 1e-6) for (const it of items) if (Math.abs(it.end - speechDur) <= 0.1 + 1e-6) it.end = dur;
   } else bySentence(items, members, withTail(tl, members, span), span.start);
   // 视频只画、只播它真实可用的那么长：排给它的时间（slotEnd）比片段长，多出来的就是空白，不拉长素材。
-  // 标了「剪辑里补足」（定格 / 放慢）的照排给它的时间放
+  // 标了「剪辑里补足」或「定格补满」的照排给它的时间放
   for (const it of items) {
     it.slotEnd = it.end;
     const len = usableLength(it);
-    if (len != null && !it.usage?.fitDone && it.end - it.start > len + 0.05) it.end = it.start + Math.max(MIN_LEN, len);
+    if (len != null && !it.usage?.fitDone && !it.usage?.freeze && it.end - it.start > len + 0.05)
+      it.end = it.start + Math.max(MIN_LEN, len);
   }
   items.sort((a, b) => a.start - b.start || a.listIndex - b.listIndex);
   items.forEach((it, k) => {

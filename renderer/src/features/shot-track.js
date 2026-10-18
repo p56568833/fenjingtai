@@ -9,7 +9,7 @@ import { shotMembers } from '../core/shots.js';
 import { itemAt, circled, MIN_LEN } from '../core/shot-layout.js';
 import { movePicture, trimPicture, rollPictures } from '../core/shot-edit.js';
 import { moveAlt, mainSlotAt, swapIntoMain, insertIntoMain, dropToAlt } from '../core/shot-tracks.js';
-import { setShotTimes, arrangeShot, clearShotTimes, setFitDone, removeUsage } from '../app/asset-actions.js';
+import { setShotTimes, arrangeShot, clearShotTimes, setFitDone, setFreeze, removeUsage } from '../app/asset-actions.js';
 import { decideCandidate } from '../app/candidate-actions.js';
 import { usageList } from '../core/asset-model.js';
 import { esc, toast } from '../ui/base/dom.js';
@@ -127,18 +127,29 @@ export function createShotTrack({
       const end = Math.min(it.end, dur);
       const slot = Math.min(it.slotEnd ?? it.end, dur);
       if (it.over) notes.push(`${circled(it.n)} 超出口播 ${sec(it.end - dur)} 秒，超出的部分不放`);
-      if (it.usage.fitDone && len != null) {
+      const lack = len != null ? end - it.start - len : 0;
+      if (it.usage.freeze && len != null) {
         notes.push(
-          len < end - it.start - 0.05
-            ? `${circled(it.n)} 片段 ${sec(len)} 秒，后 ${sec(end - it.start - len)} 秒在剪辑里定格 / 放慢补足`
+          lack > 0.05
+            ? `${circled(it.n)} 片段 ${sec(len)} 秒，后 ${sec(lack)} 秒定格补满（导出到剪映也是定格）`
+            : `${circled(it.n)} 已标定格补满：结尾可以拉过片段末尾`,
+        );
+        action =
+          '<button class="ptt-fitbtn" data-ptt-fit="unfreeze" title="不再定格：画面截回片段本身的长度">取消定格</button>';
+      } else if (it.usage.fitDone && len != null) {
+        notes.push(
+          lack > 0.05
+            ? `${circled(it.n)} 片段 ${sec(len)} 秒，后 ${sec(lack)} 秒标了剪辑里补足（导出到剪映这段留空）`
             : `${circled(it.n)} 已标剪辑里补足：结尾可以拉过片段末尾`,
         );
         action =
-          '<button class="ptt-fitbtn" data-ptt-fit="off" title="不再按定格 / 放慢补足：画面截回片段本身的长度">取消补足</button>';
+          '<button class="ptt-fitbtn" data-ptt-fit="freeze" title="放完停在最后一帧，导出到剪映也用定格补上">改成定格补满</button>' +
+          '<button class="ptt-fitbtn" data-ptt-fit="off" title="画面截回片段本身的长度，重新提示不够长">取消补足</button>';
       } else if (it.kind === 'video' && slot > end + 0.05) {
         notes.push(`${circled(it.n)} 片段只有 ${sec(end - it.start)} 秒，后面 ${sec(slot - end)} 秒没有画面`);
         action =
-          '<button class="ptt-fitbtn" data-ptt-fit="on" title="剪辑里用定格或放慢补足：画面拉到排给它的时间，不再提示不够长">定格 / 放慢补足</button>';
+          '<button class="ptt-fitbtn" data-ptt-fit="freeze" title="放完停在最后一帧，补到排给它的时间；导出到剪映也用定格补上">定格补满</button>' +
+          '<button class="ptt-fitbtn" data-ptt-fit="on" title="不再提示不够长；导出到剪映时这段留空，你在剪辑里自己补（放慢等）">剪辑里补足</button>';
       }
     }
     el.innerHTML = esc(notes.join(' · ')) + action;
@@ -150,7 +161,13 @@ export function createShotTrack({
   function freezePlan(it) {
     const u = unit;
     if (!u || !it || it.kind !== 'video') return { ok: false, why: '图片本来就是静止画面，不用定格' };
-    if (it.usage.fitDone) return { ok: true, off: true };
+    if (it.usage.freeze) return { ok: true, off: true };
+    // 标了剪辑里补足的：已经排到给它的时间，改成定格补满只换补法
+    const len = clipLen(it);
+    if (it.usage.fitDone && len != null) {
+      const lack = Math.min(it.end, u.end - u.start) - it.start - len;
+      return lack > 0.05 ? { ok: true, end: null, gain: lack } : { ok: false, why: '片段已经够长，不用定格' };
+    }
     const items = u.layout.items;
     const k = items.findIndex(x => x.assetId === it.assetId);
     const dur = u.end - u.start;
@@ -198,8 +215,8 @@ export function createShotTrack({
       closePop();
       if (act === 'freeze') {
         const f = freezePlan(it);
-        if (f.ok) setFitDone(row, id, true, f.end);
-      } else if (act === 'unfreeze') setFitDone(row, id, false);
+        if (f.ok) setFreeze(row, id, true, f.end);
+      } else if (act === 'unfreeze') setFreeze(row, id, false);
       else if (act === 'remove') removePicture(row, id);
     });
   }
@@ -650,7 +667,14 @@ export function createShotTrack({
     const fit = e.target.closest('[data-ptt-fit]');
     if (fit && pick) {
       const row = unitRow();
-      if (row) setFitDone(row, pick, fit.dataset.pttFit === 'on');
+      const act = fit.dataset.pttFit;
+      const it = unit?.layout?.items.find(x => x.assetId === pick);
+      if (!row) return;
+      if (act === 'freeze') {
+        const f = freezePlan(it);
+        if (f.ok) setFreeze(row, pick, true, f.end);
+      } else if (act === 'unfreeze') setFreeze(row, pick, false);
+      else setFitDone(row, pick, act === 'on');
     }
   });
 

@@ -33,7 +33,8 @@ export function coverageOf(item, shotDur) {
   const out = { need, usable, file, clip, whole: !clip, online };
   if (usable == null) return { ...out, verdict: 'unknown' };
   if (usable + COVER_EPS >= need) return { ...out, verdict: 'ok', spare: Math.max(0, usable - need) };
-  if (item.usage?.fitDone) return { ...out, verdict: 'ok', spare: 0, fixed: true, lack: need - usable };
+  if (item.usage?.fitDone || item.usage?.freeze)
+    return { ...out, verdict: 'ok', spare: 0, fixed: true, freeze: !!item.usage.freeze, lack: need - usable };
   return { ...out, verdict: 'short', lack: need - usable };
 }
 

@@ -2,14 +2,7 @@
 import { state } from '../app/state.js';
 import { renumber } from '../app/project-queries.js';
 import { on, emit } from '../app/events.js';
-import {
-  captureSaveTask,
-  saveCandidateSegment,
-  setMediaDirectory,
-  applyMovedPaths,
-  relinkSavedClips,
-} from '../app/candidate-media.js';
-import { retagPlan } from '../core/candidate-queries.js';
+import { captureSaveTask, saveCandidateSegment, setMediaDirectory, relinkSavedClips } from '../app/candidate-media.js';
 import { fileTitle } from '../core/candidate-placement.js';
 import { assetName } from '../core/asset-model.js';
 import { toast, confirmModal } from '../ui/base/dom.js';
@@ -60,42 +53,6 @@ async function saveSegment(id, { quiet = false } = {}) {
       'ok',
     );
   return r;
-}
-
-let retagging = false;
-export function retagLineFiles() {
-  if (retagging) return;
-  const { rows, assets, candidates } = state;
-  const plan = retagPlan(rows, assets, candidates);
-  if (!plan.size) return toast('素材文件名里的句号都是最新的', null, 'ok');
-  const [p0, t0] = [...plan.entries()][0];
-  const example = `${assetName(p0)} → ${assetName(p0).replace(/^第\d+(?:-\d+)?句_/, `${t0}_`)}`;
-  confirmModal(
-    '按现在的句号重命名素材文件',
-    `有 ${plan.size} 个本地素材文件名里的句号已经过时，将在原文件夹里改名，例如：\n${example}\n\n所有项目里用到这些文件的地方和候选清单会一起更新。打开旧项目时不会自动改回去。`,
-    '重命名',
-    async () => {
-      retagging = true;
-      const moved = new Map();
-      let failed = 0;
-      try {
-        for (const [old, tag] of plan) {
-          const r = await native('retagLineFile')(old, tag);
-          if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
-          else if (!r?.ok) failed++;
-        }
-      } finally {
-        retagging = false;
-      }
-      if (moved.size) applyMovedPaths(moved);
-      toast(
-        [`已重命名 ${moved.size} 个文件`, failed ? `${failed} 个找不到或改不了，没动` : ''].filter(Boolean).join('；'),
-        null,
-        failed ? 'warn' : 'ok',
-      );
-    },
-    { danger: false },
-  );
 }
 
 export async function saveAllApproved() {

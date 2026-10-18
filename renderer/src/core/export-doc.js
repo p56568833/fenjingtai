@@ -5,7 +5,7 @@ import { DEFAULT_TYPES, typeIndex } from './types.js';
 import { projectData } from './project-data.js';
 import { shots, roleLabel, spanText, isRole } from './shots.js';
 import { fmtTc } from './text.js';
-import { buildTimeline, shotSpan, SOURCE_TEXT } from './timeline.js';
+import { buildTimeline, shotSpan, memberSeconds, SOURCE_TEXT } from './timeline.js';
 import { usageList, clipText, assetName, kindOf } from './asset-model.js';
 
 const linesOf = rows => rows.filter(r => r.kind === 'line');
@@ -68,6 +68,7 @@ const embedUsages = (r, registry) =>
       ...(isRole(u.role) ? { role: u.role } : {}),
       ...(u.off ? { off: true } : {}),
       ...(u.fitDone ? { fitDone: true } : {}),
+      ...(u.freeze ? { freeze: true } : {}),
       ...(u.at ? { at: { ...u.at } } : {}),
       ...(u.rework ? { rework: { ...u.rework } } : {}),
     };
@@ -136,6 +137,11 @@ export function buildAssetListMd(ctx) {
     items.forEach((r, i) => {
       const when = tl.source !== 'rate' && r.start != null ? `${fmtTc(r.start)} · ` : '';
       out += `${i + 1}. 「${r.text}」${r.note ? ` —— ${r.note}` : '【缺画面描述】'} 【第 ${r.range} 句 · ${when}${r.secs.toFixed(1)}s】\n`;
+      // 共用画面：每句各要多少秒，找只配其中一句的视频时按这个长度找
+      if (r.members.length > 1) {
+        const each = memberSeconds(tl, r.members);
+        out += `   各句：${r.members.map((m, k) => `第 ${m.no} 句 ${each[k] == null ? '?' : each[k].toFixed(1) + 's'}`).join('｜')}\n`;
+      }
       // 素材清单只列要用的（主画面 / 叠加 / 未分配），备选只报个数，不让剪辑误以为每张都要放
       const all = usageList(r);
       const used = all.filter(u => u.role !== 'alt');

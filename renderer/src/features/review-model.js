@@ -4,11 +4,13 @@ import { buildReviewIndex } from '../core/review-index.js';
 import { state } from '../app/state.js';
 import { timeline, projectRevision } from '../app/project-queries.js';
 import { candidateBatches } from '../core/candidate-queries.js';
-import { shotMembers } from '../core/shots.js';
+import { shotMembers, usageSpan } from '../core/shots.js';
 import { reworkShots } from '../core/rework.js';
-import { planOf } from '../core/candidate-values.js';
+import { forRange, rangeLabel } from '../core/candidate-values.js';
+import { candidateWindow } from '../core/candidate-placement.js';
+import { usageList } from '../core/asset-model.js';
 import { layoutShot as layoutPictures } from '../core/shot-layout.js';
-import { mainFilled, mainGaps } from '../core/shot-tracks.js';
+import { mainGaps, rangeFilled } from '../core/shot-tracks.js';
 import { fmtDay } from '../core/review-format.js';
 
 export const page = {
@@ -22,7 +24,7 @@ export const page = {
 /* 刚审过的候选先展开留在原处（来得及写意见、撤回），换画面后收成一行 */
 export const touched = new Set();
 
-/* 未采用：正片轨已经用通过的视频排满了，别的还没审的视频不再算待审（想用还能自己点通过）。
+/* 未采用：它给的那几句在正片轨上已经被通过的视频盖满了，不再算待审（想用还能自己点通过）。
    候选多的时候 isPending 会被调很多次：候选、审核结果、句子都没变就用上次算的 */
 let cached = null;
 let cacheKey = null;
@@ -47,8 +49,17 @@ function idleIds() {
   const out = new Set();
   const tl = timeline();
   for (const { members, cands } of index.groups.values()) {
-    if (cands.some(c => !c.decision) && mainFilled(state.assets || {}, members, tl, fromReview))
-      for (const c of cands) if (!c.decision) out.add(c.id);
+    if (!cands.some(c => !c.decision)) continue;
+    const layout = layoutPictures(state.assets || {}, members, tl);
+    if (!layout) continue;
+    const items = layout.items.filter(it => fromReview(it.assetId));
+    if (!items.length) continue;
+    // 它给的那几句在正片轨上已经被通过的视频盖满了
+    for (const c of cands) {
+      if (c.decision) continue;
+      const w = candidateWindow(c, members, tl);
+      if (w && rangeFilled(layout, items, w.start - layout.start, w.end - layout.start)) out.add(c.id);
+    }
   }
   index.idle = out;
   return out;
@@ -101,9 +112,46 @@ export const rangeText = lead => {
   return members.length > 1 ? `第 ${members[0].no}–${members[members.length - 1].no} 句` : `第 ${members[0].no} 句`;
 };
 
-/* 一个画面的候选按清单里的先后排（清单里同一方案的视频挨在一起） */
-export const orderedCandidates = g =>
-  [...(g?.cands || [])].sort((a, b) => planOf(a) - planOf(b) || (a.seq ?? 0) - (b.seq ?? 0));
+/* 候选现在的位置：{ members, from, to }（members 下标）。通过并挂上的按它现在在轨上配的那几句（拖动后跟着变），
+   其余按清单里 for 写的那几句 */
+function posOf(c) {
+  const members = reviewIndex().byRow.get(c.rowId)?.members || [];
+  if (c.decision === 'ok' && c.assetId && members.length) {
+    const sp = usageSpan(members, c.assetId);
+    if (!sp.empty) return { members, from: sp.from, to: sp.to };
+  }
+  return { members, ...forRange(c, members) };
+}
+const onAlt = c =>
+  c.decision === 'ok' &&
+  !!c.assetId &&
+  usageList(reviewIndex().byRow.get(c.rowId)?.members?.[0]).find(u => u.assetId === c.assetId)?.role === 'alt';
+
+/* 候选的名字 = 位置 + 同一位置的第几个：「第 2 句 · 候选 1」「第 1–4 句整段 · 候选 2」；通过后放在备选轨的加「备选轨」。
+   AI 写的标题只当说明小字显示 */
+export function candName(c) {
+  const p = posOf(c);
+  if (!p.members.length) return c.title || c.key || '（未命名）';
+  const key = x => {
+    const q = posOf(x);
+    return `${q.from}-${q.to}`;
+  };
+  const mine = key(c);
+  const same = orderedCandidates(reviewIndex().byRow.get(c.rowId)).filter(x => key(x) === mine);
+  const n = Math.max(1, same.indexOf(c) + 1);
+  return `${rangeLabel(p.members, p.from, p.to)} · 候选 ${n}${onAlt(c) ? ' · 备选轨' : ''}`;
+}
+
+/* 一个画面的候选按清单里写的位置排：整段的在前，其余按句子先后；同一位置按清单里的先后 */
+export const orderedCandidates = g => {
+  const members = g?.members || reviewIndex().byRow.get(g?.cands?.[0]?.rowId)?.members || [];
+  const at = c => forRange(c, members);
+  return [...(g?.cands || [])].sort((a, b) => {
+    const x = at(a),
+      y = at(b);
+    return (y.whole ? 1 : 0) - (x.whole ? 1 : 0) || x.from - y.from || x.to - y.to || (a.seq ?? 0) - (b.seq ?? 0);
+  });
+};
 /* 正片轨排了多少：{ got（盖住的秒数）, dur（口播秒数）, full }；不知道时间返回 null */
 export function trackFill(g) {
   const members = g?.lead ? shotMembers(state.rows, g.lead) : [];

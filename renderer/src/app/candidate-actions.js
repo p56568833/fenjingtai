@@ -1,7 +1,6 @@
 /* 视频审核的数据操作：页面不直接修改候选、素材或返工标记。 */
 import { state } from './state.js';
 import { rowById, renumber, timeline } from './project-queries.js';
-import { shotSeconds } from './line-coverage.js';
 import { changeProject, editProjectFields } from './project-change.js';
 import { forgetPurged } from './undo.js';
 import { writeBack, flushWriteBack, syncedFiles } from './candidate-sync.js';
@@ -62,7 +61,7 @@ export function importCandidateData(doc, srcFile) {
   renumber();
   const rework = reworkShots(state.rows, state.candidates);
   const plan = planImport(doc, srcFile, state.rows, state.candidates, {
-    shotSeconds,
+    tl: timeline(),
     reworkRequests: state.reworkRequests,
     reworkRowIds: rework.flatMap(s => s.members.map(m => m.id)),
   });
@@ -91,8 +90,6 @@ export function importCandidateData(doc, srcFile) {
         resetIds.push(old.id);
       }
       Object.assign(old, next);
-      delete old.for; // v2 留下的「配哪几句」不再用：方案里的视频都配整个画面
-      delete old.coverage;
       if (!old.decision) Object.assign(old, batch);
     }
     for (const c of plan.added) Object.assign(c, batch);
@@ -130,14 +127,14 @@ export function decideCandidate(id, decision) {
     }
     if (next === 'ok') {
       renumber();
-      const r = attachCandidate(c, state.rows, state.assets, state.candidates, { tl: timeline() });
+      const r = attachCandidate(c, state.rows, state.assets, { tl: timeline() });
       if (r.error) return r;
       c.assetId = r.assetId;
       if (r.current) {
         const old = resolveOnApprove(state.rows, rowById(c.rowId), r.assetId);
         const names = [...new Set([...r.demoted, ...old])].map(x => state.assets[x]?.name || '素材');
         msg = `已放上正片轨（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
-      } else msg = '已通过；正片轨已经排满，先放在备选轨，拖上去就能换上';
+      } else msg = '已通过；这几句在正片轨上已经有画面，先放在备选轨，拖上去就能换上';
     }
     invalidateCandidate(c);
     c.decision = next;

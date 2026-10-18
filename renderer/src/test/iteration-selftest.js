@@ -119,6 +119,23 @@ export async function runIterationTests(t) {
     '按音频长度推算的每句时长不显示约等于号',
     $$('.dur .tc').every(el => !el.textContent.includes('≈')),
   );
+  {
+    // 有实测时间时：每句时长 = 从这句开口到下一句开口（含停顿），悬停写明说话 / 停顿各几秒
+    const ls = lines();
+    const saved = ls.map(r => r.time);
+    ls.forEach((r, i) => (r.time = { start: i * 3, end: i * 3 + 2, st: 'ok' }));
+    update('rows');
+    const cell = $(`.row[data-id="${ls[0].id}"] .dur .tc`);
+    t(
+      '导入口播后每句时长含到下一句开口的停顿',
+      cell?.textContent === '3.0s' && cell.title.includes('说话 2.0 秒 + 停顿 1.0 秒'),
+      `${cell?.textContent} ${cell?.title}`,
+    );
+    const lastCell = $(`.row[data-id="${ls[ls.length - 1].id}"] .dur .tc`);
+    t('最后一句只算说话那几秒', lastCell?.textContent === '2.0s', lastCell?.textContent);
+    ls.forEach((r, i) => (saved[i] ? (r.time = saved[i]) : delete r.time));
+    update('rows');
+  }
   runCommand('inspector:open', lines()[1].id);
   await pause(20);
   t('画面面板显示这句对应的口播时间', !!$('.voice-block') && $('.voice-block').textContent.includes('按口播音频推算'));

@@ -145,7 +145,10 @@ export function mergeToPrev(id) {
     else delete prev.time;
     if (!prev.type) prev.type = cur.type;
     // 挂在被并掉那句上的视频候选改挂到合并后的句子，审核页的撤回、改名还能找到它
-    for (const c of state.candidates || []) if (c.rowId === cur.id) c.rowId = prev.id;
+    for (const c of state.candidates || []) {
+      if (c.rowId === cur.id) c.rowId = prev.id;
+      if (c.forIds?.includes(cur.id)) c.forIds = [...new Set(c.forIds.map(id => (id === cur.id ? prev.id : id)))];
+    }
     state.rows.splice(i, 1);
     viewState.multi = null;
     viewState.sel = prev.id;

@@ -997,7 +997,8 @@ test('PDF 按自定义类型排版：类型名、颜色，不需要配画面的�
 });
 
 /* ── 1.8：一个镜头多个主画面 + 手动出现时间 ── */
-const { layoutShot, itemAt, linesOfTime, syncSpansFromTimes, usableLength } = await import('../renderer/src/core/shot-layout.js');
+const { layoutShot, itemAt, linesOfTime, syncSpansFromTimes, usableLength } =
+  await import('../renderer/src/core/shot-layout.js');
 const L8 = () => {
   // 三句，每句 9 个字 → 语速 4.5 字/秒 时每句 2 秒，整段 6 秒
   const rows = [1, 2, 3].map(i => ({ id: i, kind: 'line', no: i, text: '一二三四五六七八九', type: 'real' }));
@@ -1056,6 +1057,11 @@ test('镜头排布：停顿算进镜头后视频片段不够长，时间轴上�
   assert.deepEqual(shown(lay), [['v', 0, 4]]);
   assert.equal(lay.items[0].slotEnd, 5);
   assert.equal(coverOf(lay.items[0], lay.dur).lack, 1);
+  setUs(rows.slice(0, 2), [{ assetId: 'v', role: 'main', clip: { in: 0, out: 4 }, freeze: true }]);
+  const frozen = layoutShot(reg, rows.slice(0, 2), tl);
+  assert.deepEqual(shown(frozen), [['v', 0, 5]], '定格补满：照排给它的时间放');
+  assert.equal(coverOf(frozen.items[0], frozen.dur).freeze, true);
+  setUs(rows.slice(0, 2), [{ assetId: 'v', role: 'main', clip: { in: 0, out: 4 } }]);
   const cov = buildPictureCoverage(rows, reg, tl);
   assert.deepEqual(
     cov.pauses.map(p => [p.start, p.end, p.status]),
@@ -1080,8 +1086,17 @@ test('镜头排布：下载的文件比登记片段短时按文件里真有的�
     ['s', 0, 2.8],
     ['v', 2.8, 4.8],
   ]);
-  assert.equal(+usableLength({ kind: 'video', usage: { clip: { in: 0.2, out: 14.8 } }, asset: { durationSec: 11.011 } }).toFixed(3), 10.811);
-  assert.equal(+usableLength({ kind: 'video', usage: { clip: { in: 0.2, out: 14.8 } }, asset: {} }).toFixed(3), 14.6, '还不知道文件时长：先按登记的算');
+  assert.equal(
+    +usableLength({ kind: 'video', usage: { clip: { in: 0.2, out: 14.8 } }, asset: { durationSec: 11.011 } }).toFixed(
+      3,
+    ),
+    10.811,
+  );
+  assert.equal(
+    +usableLength({ kind: 'video', usage: { clip: { in: 0.2, out: 14.8 } }, asset: {} }).toFixed(3),
+    14.6,
+    '还不知道文件时长：先按登记的算',
+  );
 });
 test('镜头排布：一个主画面铺满整段；两个都是整段时平分', () => {
   const rows = L8();
@@ -1335,6 +1350,23 @@ test('视频片段文件名带句号：按画面现在的句子范围，找不�
   assert.equal(hasLineTag('/a/第125-127句_x_0m01s-0m05s.mp4'), true);
   assert.equal(hasLineTag('/a/x_0m01s-0m05s.mp4'), false);
 });
+test('素材文件名里的句号按它现在配的那几句：共用画面里只配一句的就是那一句，整段是整个画面', async () => {
+  const { retagPlan } = await import('../renderer/src/core/candidate-queries.js');
+  const rows = [1, 2, 3].map(n => ({ id: n, kind: 'line', text: '句' + n, groupId: 'g', assetUsages: [] }));
+  const use = (id, on) =>
+    rows.forEach((r, i) => r.assetUsages.push({ assetId: id, role: 'main', ...(on.includes(i) ? {} : { off: true }) }));
+  use('one', [1]);
+  use('whole', [0, 1, 2]);
+  const reg = {
+    one: { id: 'one', path: '/m/第1-3句_甲_0m01s-0m05s.mp4' },
+    whole: { id: 'whole', path: '/m/第1-3句_乙.mp4' },
+  };
+  assert.deepEqual([...retagPlan(rows, reg, [])], [['/m/第1-3句_甲_0m01s-0m05s.mp4', '第2句']], '整段的不用改');
+  // 拖到第 3 句：再算一次就改成第 3 句
+  rows[1].assetUsages[0].off = true;
+  delete rows[2].assetUsages[0].off;
+  assert.deepEqual([...retagPlan(rows, reg, [])], [['/m/第1-3句_甲_0m01s-0m05s.mp4', '第3句']]);
+});
 test('视频审核通过一律当主画面：占位照片让位，已通过的视频不被顶掉', () => {
   const rows = [
     { id: 1, kind: 'line', no: 1, text: '甲', groupId: 'g', assetUsages: [{ assetId: 'p', role: 'main' }] },
@@ -1352,7 +1384,7 @@ test('视频审核通过一律当主画面：占位照片让位，已通过的�
   assert.equal(role('p'), 'alt', '占位照片让位成备选');
   assert.deepEqual(b.demoted, [], '第二次通过不再降级任何素材');
 });
-test('两条轨：通过的先排正片轨、排满放备选轨；互换、插入、拖下来和备选位置', async () => {
+test('两条轨：通过的按 for 排到它那几句，那几句已有画面放备选轨；互换、插入、拖下来和备选位置', async () => {
   const { buildTimeline } = await import('../renderer/src/core/timeline.js');
   const T = await import('../renderer/src/core/shot-tracks.js');
   const { layoutShot } = await import('../renderer/src/core/shot-layout.js');
@@ -1368,12 +1400,10 @@ test('两条轨：通过的先排正片轨、排满放备选轨；互换、插�
   }));
   const tl = buildTimeline(rows);
   const reg = {};
-  const cands = [];
-  const mk = (id, plan, seq, url, best) => ({
+  const mk = (id, forIds, url, best) => ({
     id,
     rowId: 1,
-    plan,
-    seq,
+    forIds,
     url,
     title: id,
     in: best.in - 1,
@@ -1383,31 +1413,41 @@ test('两条轨：通过的先排正片轨、排满放备选轨；互换、插�
     page: '',
   });
   const approve = c => {
-    const r = attachCandidate(c, rows, reg, cands, { tl });
+    const r = attachCandidate(c, rows, reg, { tl });
     c.assetId = r.assetId;
     c.decision = 'ok';
-    cands.push(c);
     return r;
   };
-  const b = mk('b', 1, 1, 'https://x/b.mp4', { in: 10, out: 13 });
-  const a = mk('a', 1, 0, 'https://x/a.mp4', { in: 1, out: 4 });
-  const c = mk('c', 2, 0, 'https://x/c.mp4', { in: 1, out: 7 });
-  assert.equal(approve(b).role, 'main', '正片轨空着：通过的放上正片轨');
-  assert.equal(approve(a).role, 'main', '还没排满：接着放上正片轨');
+  const b = mk('b', [2], 'https://x/b.mp4', { in: 10, out: 12 });
+  const a = mk('a', [1], 'https://x/a.mp4', { in: 1, out: 3 });
+  const c = mk('c', [1], 'https://x/c.mp4', { in: 1, out: 3 });
+  const w = mk('w', [1, 2, 3], 'https://x/w.mp4', { in: 1, out: 7 });
+  assert.equal(approve(b).role, 'main', '第 2 句空着：放上正片轨');
+  assert.equal(approve(a).role, 'main', '第 1 句空着：也放上正片轨');
   const mains = () => rows[0].assetUsages.filter(u => u.role === 'main').map(u => reg[u.assetId].source.candidate);
-  assert.deepEqual(mains(), ['a', 'b'], '自动排时按清单里的先后排，不按通过的先后');
-  assert.ok(
-    rows.every(m => m.assetUsages.every(u => !u.off)),
-    '通过的视频都配整个画面',
+  assert.deepEqual(mains(), ['a', 'b'], '主画面按句子先后排，不按通过的先后');
+  const on = id => rows.map(m => !m.assetUsages.find(u => u.assetId === id).off);
+  assert.deepEqual(on(b.assetId), [false, true, false], '只配第 2 句');
+  assert.deepEqual(
+    layoutShot(reg, rows, tl).items.map(x => [reg[x.assetId].source.candidate, x.start, x.end]),
+    [
+      ['a', 0, 2],
+      ['b', 2, 4],
+    ],
+    '各自排在它那句，第 3 句空着',
   );
-  assert.equal(T.mainFilled(reg, rows, tl), true, '3 + 3 秒排满 6 秒口播');
+  assert.equal(T.mainFilled(reg, rows, tl), false, '第 3 句还没有画面');
   const r = approve(c);
-  assert.equal(r.role, 'alt', '正片轨排满：放到备选轨');
+  assert.equal(r.role, 'alt', '第 1 句已经有画面：放到备选轨');
   assert.equal(r.current, false);
+  assert.equal(approve(w).role, 'alt', '整段的：前两句已经有画面，放到备选轨');
   const alts = T.altItems(reg, rows, tl);
   assert.deepEqual(
     alts.map(x => [x.assetId, x.start, x.end, x.row]),
-    [[c.assetId, 0, 6, 0]],
+    [
+      [c.assetId, 0, 2, 0],
+      [w.assetId, 0, 6, 1],
+    ],
     '没拖过的备选放在它配的那几句下面，按可用长度',
   );
   const items = layoutShot(reg, rows, tl).items;
@@ -1415,28 +1455,35 @@ test('两条轨：通过的先排正片轨、排满放备选轨；互换、插�
   assert.deepEqual(
     swap.mains.map(e => [e.assetId, e.start, e.end]),
     [
-      [c.assetId, 0, 3],
-      [b.assetId, 3, 6],
+      [c.assetId, 0, 2],
+      [b.assetId, 2, 4],
     ],
   );
   assert.deepEqual(
     swap.alts.map(e => [e.assetId, e.start, e.end]),
-    [[a.assetId, 0, 3]],
+    [[a.assetId, 0, 2]],
     '互换：备选占那段的位置和长度，换下来的放到备选原来的位置',
   );
   const down = T.dropToAlt(items, 0, 2, 6);
   assert.deepEqual(
     down.mains.map(e => [e.assetId, e.start, e.end]),
-    [[b.assetId, 3, 6]],
+    [[b.assetId, 2, 4]],
     '拖下来：别的画面原地不动',
   );
-  assert.deepEqual(T.mainGaps({ dur: 6, items: down.mains }), [{ start: 0, end: 3 }], '原来的位置留空');
-  const ins = T.insertIntoMain(down.mains, { ...alts[0], end: 2 }, 2, 6);
+  assert.deepEqual(
+    T.mainGaps({ dur: 6, items: down.mains }),
+    [
+      { start: 0, end: 2 },
+      { start: 4, end: 6 },
+    ],
+    '原来的位置留空',
+  );
+  const ins = T.insertIntoMain(down.mains, alts[1], 2, 6);
   assert.deepEqual(
     ins.mains.map(e => [e.assetId, e.start, e.end]),
     [
-      [c.assetId, 2, 8],
-      [b.assetId, 8, 11],
+      [w.assetId, 2, 8],
+      [b.assetId, 8, 10],
     ],
     '插进空隙：后面撞上的画面整体往后让',
   );
@@ -1453,17 +1500,24 @@ test('两条轨：通过的先排正片轨、排满放备选轨；互换、插�
     T.altItems(reg, rows, tl).map(x => [x.assetId, x.row]),
     [
       [c.assetId, 0],
-      [b.assetId, 1],
+      [w.assetId, 1],
+      [b.assetId, 0],
     ],
     '时间上重叠的备选往下叠一层',
   );
   applyRole(rows, b.assetId, 'main');
   assert.equal(rows[0].assetUsages.find(u => u.assetId === b.assetId).at, undefined);
-  // 拖过时间的镜头：通过的视频放进第一个空当
+  // 拖过时间的镜头：通过的视频放在它那几句开头；那几句已经被占了就放备选
   for (const m of rows) for (const u of m.assetUsages) if (u.assetId === a.assetId) u.at = { start: 0, end: 2, of: 1 };
   for (const m of rows) for (const u of m.assetUsages) if (u.assetId === b.assetId) u.at = { start: 4, end: 6, of: 1 };
-  const place = T.placeApproved(reg, rows, tl, 5, id => id !== c.assetId);
-  assert.deepEqual(place, { role: 'main', at: { start: 2, end: 4 } }, '手动排过：放进空当，最长到空当末尾');
+  const keep = id => id !== c.assetId && id !== w.assetId;
+  assert.deepEqual(
+    T.placeApproved(reg, rows, tl, 5, keep, { start: 2, end: 4 }),
+    { role: 'main', at: { start: 2, end: 4 } },
+    '手动排过：放在那几句开头，最长到那几句末尾',
+  );
+  assert.deepEqual(T.placeApproved(reg, rows, tl, 5, keep, { start: 0, end: 2 }), { role: 'alt' });
+  assert.equal(T.rangeFilled(layoutShot(reg, rows, tl), layoutShot(reg, rows, tl).items, 0, 2), true);
 });
 /* ── 1.10：项目 JSON 往返 / 候选更新失效 / 交稿检查两种目标 ── */
 const { buildProjectJson } = await import('../renderer/src/core/export-doc.js');
@@ -1479,20 +1533,23 @@ const {
   footageTakenBy,
 } = await import('../renderer/src/core/candidates.js');
 const { CANDIDATE_SPEC, CANDIDATE_EXAMPLE } = await import('../renderer/src/core/candidate-spec.js');
-/* 合规范（v2）的最小候选清单 */
-const v2 = shots => ({ type: CANDIDATE_TYPE, version: 2, project: '测试', batch: '测试批', shots });
-const v2cand = c => ({ title: '标题', license: '版权未核实', why: '测试', ...c });
-const v3 = shots => ({ type: CANDIDATE_TYPE, version: 3, project: '测试', batch: '测试批', shots });
-const v3cand = c => ({
-  title: '标题',
-  license: '版权未核实',
-  why: '测试',
-  url: `https://x/${c.key}.mp4`,
-  in: 0,
-  out: 12,
-  best: { in: 1, out: 11 },
-  ...c,
+/* 合规范（v4）的最小候选清单：没写 for 的视频默认给整个画面 */
+const v4 = shots => ({
+  type: CANDIDATE_TYPE,
+  version: 4,
+  project: '测试',
+  batch: '测试批',
+  shots: shots.map(s =>
+    s && Array.isArray(s.cands)
+      ? { ...s, cands: s.cands.map(c => (c && typeof c === 'object' && !('for' in c) ? { ...c, for: s.lines } : c)) }
+      : s,
+  ),
 });
+const v4cand = c => {
+  const x = { title: '标题', license: '版权未核实', why: '测试', url: `https://x/${c.key}.mp4`, in: 0, out: 12, ...c };
+  if (!('best' in c)) x.best = { in: x.in, out: x.out };
+  return x;
+};
 const { unlinkedShots } = await import('../renderer/src/core/shots.js');
 test('1.10 项目 JSON 导入：id 合法就原样保留，手动秒数和候选都不失效', () => {
   const src = [
@@ -1550,6 +1607,8 @@ test('1.10 项目 JSON 带上视频候选和保存位置，导回来审核结果
       id: 'vc-1',
       key: 'A',
       lines: '1',
+      forText: '1',
+      forIds: [12],
       rowId: 12,
       url: 'https://x/a.mp4',
       in: 1,
@@ -1567,6 +1626,7 @@ test('1.10 项目 JSON 带上视频候选和保存位置，导回来审核结果
       id: 'vc-2',
       key: 'B',
       lines: '1',
+      forIds: [12],
       rowId: 12,
       url: 'https://x/b.mp4',
       in: 1,
@@ -1574,8 +1634,10 @@ test('1.10 项目 JSON 带上视频候选和保存位置，导回来审核结果
       decision: 'no',
       note: '太远',
     },
-    { id: 'vc-3', key: 'C', lines: '9', rowId: 99, url: 'https://x/c.mp4', in: 1, out: 5 },
-    { id: 'vc-4', key: 'D', lines: '1', rowId: 12, url: 'ftp://x/d.mp4', in: 1, out: 5 },
+    { id: 'vc-3', key: 'C', lines: '9', forIds: [99], rowId: 99, url: 'https://x/c.mp4', in: 1, out: 5 },
+    { id: 'vc-4', key: 'D', lines: '1', forIds: [12], rowId: 12, url: 'ftp://x/d.mp4', in: 1, out: 5 },
+    // 旧格式（v3 以前）导入的候选没有 forIds：不再保留
+    { id: 'vc-5', key: 'E', lines: '1', rowId: 12, url: 'https://x/e.mp4', in: 1, out: 5, plan: 2 },
   ];
   const json = JSON.parse(
     buildProjectJson({ title: 't', rows: [], assets: {}, speechRate: 4.5, candidates: cands, mediaDir: '/m' }),
@@ -1587,8 +1649,10 @@ test('1.10 项目 JSON 带上视频候选和保存位置，导回来审核结果
     rowIds: new Set([2]),
     assets: { v: { id: 'v' } },
   });
-  assert.equal(back.length, 2, '对不上句子、链接不合法的丢掉');
+  assert.equal(back.length, 2, '对不上句子、链接不合法、旧格式没有 forIds 的丢掉');
   assert.equal(back[0].rowId, 2, 'rowId 按导入时的 id 映射改写');
+  assert.deepEqual(back[0].forIds, [2], 'forIds 也按 id 映射改写');
+  assert.equal(back[0].forText, '1');
   assert.equal(back[0].decision, 'ok');
   assert.equal(back[0].savedPath, '/m/a.mp4');
   assert.equal(back[0].batchName, '第一章');
@@ -1604,6 +1668,8 @@ test('1.10 同一份清单里的候选换了链接或片段：回到待审，旧
     id: 'vc-1',
     key: 'A',
     lines: '1',
+    forText: '1',
+    forIds: [1],
     srcFile: '/c.json',
     rowId: 1,
     url: 'https://x/a.mp4',
@@ -1613,7 +1679,7 @@ test('1.10 同一份清单里的候选换了链接或片段：回到待审，旧
     assetId: 'v',
     savedPath: '/m/a.mp4',
   };
-  const doc = v2([{ lines: '1', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: 2, out: 6 })] }]);
+  const doc = v4([{ lines: '1', label: '甲', cands: [v4cand({ key: 'A', url: 'https://x/a.mp4', in: 2, out: 6 })] }]);
   const plan = planImport(doc, '/c.json', rows, [old]);
   assert.equal(plan.updated.length, 1);
   const { next, changed } = plan.updated[0];
@@ -1622,8 +1688,8 @@ test('1.10 同一份清单里的候选换了链接或片段：回到待审，旧
   assert.equal(next.assetId, undefined);
   assert.equal(next.savedPath, undefined);
   const same = planImport(
-    v2([
-      { lines: '1', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, why: '新理由' })] },
+    v4([
+      { lines: '1', label: '甲', cands: [v4cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, why: '新理由' })] },
     ]),
     '/c.json',
     rows,
@@ -1632,6 +1698,16 @@ test('1.10 同一份清单里的候选换了链接或片段：回到待审，旧
   assert.equal(same.updated[0].changed, false);
   assert.equal(same.updated[0].next.decision, 'ok', '只改了说明文字：审核结果保留');
   assert.equal(same.updated[0].next.savedPath, '/m/a.mp4');
+  // 改了给哪几句：也算新版本，回到待审
+  const pair = [1, 2].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n, groupId: 'g' }));
+  const moved = planImport(
+    v4([{ lines: '1-2', label: '甲', cands: [v4cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, for: '2' })] }]),
+    '/c.json',
+    pair,
+    [{ ...old, lines: '1-2' }],
+  );
+  assert.equal(moved.updated[0].changed, true);
+  assert.deepEqual(moved.updated[0].next.forIds, [2]);
 });
 test('1.10 交稿检查：方案检查不管素材；勾上素材交付后列出没关联素材、文件失联的镜头', () => {
   const rows = lines('甲。乙。丙。');
@@ -1656,24 +1732,17 @@ test('1.10 交稿检查：方案检查不管素材；勾上素材交付后列出
     [['还没关联素材'], ['素材文件失联'], ['还没关联素材']],
   );
 });
-test('候选清单的「要的画面」「缺了什么」和方案位置导入后保留，项目 JSON 往返不丢；v2 一律当方案一', () => {
-  const rows = [{ id: 1, kind: 'line', no: 1, text: '甲' }];
+test('候选清单的「要的画面」「缺了什么」「给哪几句」导入后保留，项目 JSON 往返不丢', () => {
+  const rows = [1, 2].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n, groupId: 'g' }));
   const plan = planImport(
-    v2([
+    v4([
       {
-        lines: '1',
+        lines: '1-2',
         label: '总部',
         need: '两家总部航拍',
         cands: [
-          v2cand({
-            key: 'A',
-            url: 'https://x/a.mp4',
-            in: 1,
-            out: 5,
-            coverage: 'partial',
-            limitations: '只拍到一家',
-          }),
-          v2cand({ key: 'B', url: 'https://x/b.mp4', in: 1, out: 5 }),
+          v4cand({ key: 'A', in: 1, out: 5, limitations: '只拍到一家', for: '2' }),
+          v4cand({ key: 'B', in: 1, out: 5, short: '只找到 4 秒' }),
         ],
       },
     ]),
@@ -1685,21 +1754,20 @@ test('候选清单的「要的画面」「缺了什么」和方案位置导入�
   assert.equal(a.need, '两家总部航拍');
   assert.equal(a.limits, '只拍到一家');
   assert.equal(b.limits, '');
-  assert.equal(a.coverage, undefined, 'coverage 不再记');
-  assert.deepEqual([a.plan, a.seq, b.plan, b.seq], [1, 0, 1, 1], 'v2 的候选都在方案一，按清单先后');
-  const back = sanitizeProjectCandidates(JSON.parse(JSON.stringify([b])), { rowIds: new Set([1]) });
+  assert.deepEqual([a.forText, a.forIds, a.seq], ['2', [2], 0], '只给第 2 句');
+  assert.deepEqual([b.forText, b.forIds, b.seq, b.short], ['1-2', [1, 2], 1, '只找到 4 秒'], '整段');
+  const back = sanitizeProjectCandidates(JSON.parse(JSON.stringify([a, b])), { rowIds: new Set([1, 2]) });
   assert.equal(back[0].need, '两家总部航拍');
-  assert.deepEqual([back[0].plan, back[0].seq, back[0].short], [1, 1, '']);
-  // 旧项目里的候选没有 plan / seq：算方案一
-  const old = sanitizeProjectCandidates(
-    [{ id: 'o', rowId: 1, url: 'https://x/o.mp4', in: 1, out: 2, coverage: 'partial', limits: '缺' }],
-    {
-      rowIds: new Set([1]),
-    },
+  assert.deepEqual(
+    back.map(x => [x.forText, x.forIds, x.seq, x.short]),
+    [
+      ['2', [2], 0, ''],
+      ['1-2', [1, 2], 1, '只找到 4 秒'],
+    ],
   );
-  assert.deepEqual([old[0].plan, old[0].seq, old[0].limits, old[0].coverage], [1, 0, '缺', undefined]);
+  assert.equal(back[0].plan, undefined, '不再有方案');
 });
-test('候选清单格式 v3 是硬性规定：规范里的示例本身合格，「候选清单格式.md」和软件里的规范一字不差', () => {
+test('候选清单格式 v4 是硬性规定：规范里的示例本身合格，「候选清单格式.md」和软件里的规范一字不差', () => {
   assert.deepEqual(validateCandidateDoc(CANDIDATE_EXAMPLE), []);
   const md = fs.readFileSync(path.join(ROOT, '候选清单格式.md'), 'utf8');
   assert.equal(md, CANDIDATE_SPEC, '改了 core/candidate-spec.js 后要重新生成 候选清单格式.md');
@@ -1712,29 +1780,34 @@ test('候选清单格式 v3 是硬性规定：规范里的示例本身合格，�
 });
 test('不合格式的候选清单整份拒收，并写出每一处错在哪', () => {
   const rows = [{ id: 1, kind: 'line', no: 1, text: '甲' }];
+  // 旧格式（v1–v3）直接拒收，说清楚要按 v4 重写
+  for (const version of [1, 2, 3]) {
+    const old = planImport({ type: CANDIDATE_TYPE, version, project: 'p', batch: 'b', shots: [] }, '/o.json', rows, []);
+    assert.equal(old.added, undefined);
+    assert.match(old.errors.join('\n'), new RegExp(`这是旧格式 version ${version}，已经不再支持：请按 v4 规范重写`));
+  }
   const bad = {
     type: CANDIDATE_TYPE,
-    version: 1,
+    version: 4,
     title: '旧写法',
     shots: [
       {
         lines: '1–2',
-        plans: [
+        plans: [],
+        cands: [
+          { key: 'A', title: 'a', url: 'https://x/page', in: '1:41', out: 2, coverageStatus: 'partial' },
+          { key: 'A', title: 'b', url: 'ftp://x/b.mp4', in: 5, out: 3, license: '', why: '理由', for: '9' },
           {
-            cands: [
-              { key: 'A', title: 'a', url: 'https://x/page', in: '1:41', out: 2, coverageStatus: 'partial' },
-              { key: 'A', title: 'b', url: 'ftp://x/b.mp4', in: 5, out: 3, license: '', why: '理由', for: '9' },
-              {
-                key: 'C',
-                title: 'c',
-                url: 'https://x/c.mp4',
-                in: 1,
-                out: 4,
-                license: '公有',
-                why: '理由',
-                coverage: 'partial',
-              },
-            ],
+            key: 'C',
+            for: '1',
+            title: 'c',
+            url: 'https://x/c.mp4',
+            in: 1,
+            out: 4,
+            license: '公有',
+            why: '理由',
+            coverage: 'partial',
+            short: 3,
           },
         ],
       },
@@ -1745,109 +1818,93 @@ test('不合格式的候选清单整份拒收，并写出每一处错在哪', ()
   assert.equal(plan.added, undefined, '一个候选都不导入');
   const all = plan.errors.join('\n');
   for (const want of [
-    'version 必须是数字 3（这是旧格式 version 1',
     'project 必须写',
     'batch 必须写',
     '不认识的字段「title」',
     'lines 必须是文字句号',
     'label 必须写',
+    'v4 不再有 plans',
     'in 必须是秒数',
     '不认识的字段「coverageStatus」',
     'key "A" 在这个画面里重复了',
+    'for 必须写这段视频给哪几句',
     'url 必须是能直接播放的视频文件地址',
     'out 必须大于 in',
     'license 必须写',
     'best 必须写',
-    '不认识的字段「for」',
     '不认识的字段「coverage」',
+    'short 必须是文字',
   ])
     assert.ok(all.includes(want), '缺少提示：' + want);
-  // v3 的方案层
-  const v3errs = shots => validateCandidateDoc(v3(shots)).join('\n');
-  assert.match(v3errs([{ lines: '1', label: '甲', cands: [v3cand({ key: 'A' })] }]), /要写在 plans 的方案里/);
-  assert.match(v3errs([{ lines: '1', label: '甲', plans: [] }]), /plans 必须是数组，至少一个方案/);
-  assert.match(v3errs([{ lines: '1', label: '甲', plans: [{ cands: [] }] }]), /方案1.*cands 必须是数组，至少一个视频/);
+  const errs4 = shots => validateCandidateDoc(v4(shots)).join('\n');
+  assert.match(errs4([{ lines: '1', label: '甲', cands: [] }]), /cands 必须是数组，至少一个视频/);
+  // for 必须在 lines 之内、连续
   assert.match(
-    v3errs([{ lines: '1', label: '甲', plans: [{ cands: [v3cand({ key: 'A' })], name: 'x', short: 3 }] }]),
-    /不认识的字段「name」[\s\S]*short 必须是文字/,
+    errs4([{ lines: '1-2', label: '甲', cands: [v4cand({ key: 'A', for: '3' })] }]),
+    /for "3" 必须在这个画面的 lines "1-2" 范围内/,
   );
-  assert.match(
-    v3errs([
-      {
-        lines: '1',
-        label: '甲',
-        plans: [{ cands: [v3cand({ key: 'A' })] }, { cands: [v3cand({ key: 'A', url: 'https://x/z.mp4' })] }],
-      },
-    ]),
-    /key "A" 在这个画面里重复了（所有方案加起来不能重复）/,
-  );
+  assert.match(errs4([{ lines: '1-3', label: '甲', cands: [v4cand({ key: 'A', for: '3-2' })] }]), /范围内/);
+  assert.match(errs4([{ lines: '1-2', label: '甲', cands: [v4cand({ key: 'A', for: 2 })] }]), /for 必须写/);
+  assert.equal(errs4([{ lines: '1-3', label: '甲', cands: [v4cand({ key: 'A', for: '2-3' })] }]), '');
   // 下载范围比 best 每边最多宽 5 秒
   assert.match(
-    v3errs([
-      {
-        lines: '1',
-        label: '甲',
-        plans: [{ cands: [v3cand({ key: 'A', in: 0, out: 30, best: { in: 10, out: 20 } })] }],
-      },
-    ]),
+    errs4([{ lines: '1', label: '甲', cands: [v4cand({ key: 'A', in: 0, out: 30, best: { in: 10, out: 20 } })] }]),
     /宽太多：每边最多宽 5 秒/,
   );
   assert.equal(
-    v3errs([
-      {
-        lines: '1',
-        label: '甲',
-        plans: [{ cands: [v3cand({ key: 'A', in: 5, out: 25, best: { in: 10, out: 20 } })] }],
-      },
-    ]),
+    errs4([{ lines: '1', label: '甲', cands: [v4cand({ key: 'A', in: 5, out: 25, best: { in: 10, out: 20 } })] }]),
     '',
     '每边宽 5 秒刚好可以',
   );
-  // 同一个方案里同一段画面用两次不行；同一个画面的不同方案之间可以
+  // 同一个画面里：给同一句的几段互为候选，可以是同一段画面；配给不重叠的两处句子不行（成片里出现两遍）
   const same = { url: 'https://x/same.mp4', in: 0, out: 12, best: { in: 1, out: 11 } };
-  assert.match(
-    v3errs([
-      { lines: '1', label: '甲', plans: [{ cands: [v3cand({ key: 'A', ...same }), v3cand({ key: 'B', ...same })] }] },
-    ]),
-    /方案1 里 key "A".*同一个方案里不能用两次/,
-  );
   assert.equal(
-    v3errs([
+    errs4([
       {
-        lines: '1',
+        lines: '1-2',
         label: '甲',
-        plans: [{ cands: [v3cand({ key: 'A', ...same })] }, { cands: [v3cand({ key: 'B', ...same })] }],
+        cands: [v4cand({ key: 'A', ...same, for: '1' }), v4cand({ key: 'B', ...same, for: '1-2' })],
       },
     ]),
     '',
   );
-  const ok = v2([
+  assert.match(
+    errs4([
+      {
+        lines: '1-2',
+        label: '甲',
+        cands: [v4cand({ key: 'A', ...same, for: '1' }), v4cand({ key: 'B', ...same, for: '2' })],
+      },
+    ]),
+    /key "A"（第 1 句.*key "B"（第 2 句.*成片里会出现两遍/,
+  );
+  const ok = v4([
     {
       lines: '1',
       label: '甲',
       extra: { 备注: '随便写' },
       cands: [
-        v2cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, for: '1', extra: { checked: true } }),
-        v2cand({ key: 'B', url: 'https://x/b.mp4', in: 1, out: 5, review: { decision: 'ok', note: '' } }),
+        v4cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, for: '1', extra: { checked: true } }),
+        v4cand({ key: 'B', url: 'https://x/b.mp4', in: 1, out: 5, review: { decision: 'ok', note: '' } }),
       ],
     },
   ]);
   ok.extra = { anything: [1, 2] };
   ok.reviewedAt = '2026-10-09T03:22:44.412Z';
   assert.deepEqual(validateCandidateDoc(ok), [], 'extra 随便写；分镜台写回的 review / reviewedAt 不算错');
-  const outOfRange = v2([
-    { lines: '1-2', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, for: '3' })] },
+  const outOfRange = v4([
+    { lines: '1-2', label: '甲', cands: [v4cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5, for: '3' })] },
   ]);
   assert.ok(validateCandidateDoc(outOfRange).some(e => e.includes('必须在这个画面的 lines "1-2" 范围内')));
   assert.ok(
     validateCandidateDoc(
-      v2([{ lines: '1', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: '1', out: 5 })] }]),
+      v4([{ lines: '1', label: '甲', cands: [v4cand({ key: 'A', url: 'https://x/a.mp4', in: '1', out: 5 })] }]),
     ).length,
     '秒数带引号也不行',
   );
 });
 test('候选的 url 只能是视频：图片、网页、视频网站页面拒收，视频直链和无扩展名的 CDN 地址放行', () => {
-  const doc = url => v2([{ lines: '1', label: '甲', cands: [v2cand({ key: 'A', url, in: 1, out: 5 })] }]);
+  const doc = url => v4([{ lines: '1', label: '甲', cands: [v4cand({ key: 'A', url, in: 1, out: 5 })] }]);
   const errs = url => validateCandidateDoc(doc(url)).join('\n');
   assert.match(errs('https://x/pic.jpg'), /图片地址（\.jpg）.*不要找图片/);
   assert.match(errs('https://x/a/photo.WEBP?w=800'), /图片地址/);
@@ -1866,8 +1923,8 @@ test('候选的 url 只能是视频：图片、网页、视频网站页面拒收
     assert.equal(errs(ok), '', ok);
 });
 test('1.11.2 同一段画面不能配给两处不同的句子：清单内、和项目已有候选、通过时都拦', () => {
-  const cand = (key, url, a, b, extra = {}) => v2cand({ key, url, in: a, out: b, ...extra });
-  const errs = shots => validateCandidateDoc(v2(shots)).filter(e => e.startsWith('重复画面'));
+  const cand = (key, url, a, b, extra = {}) => v4cand({ key, url, in: a, out: b, ...extra });
+  const errs = shots => validateCandidateDoc(v4(shots)).filter(e => e.startsWith('重复画面'));
   // 不同句子、同一个视频、重叠的一段 → 拒收；地址只差 # 和临时令牌也算同一个文件
   assert.equal(
     errs([
@@ -1892,7 +1949,7 @@ test('1.11.2 同一段画面不能配给两处不同的句子：清单内、和�
     ]),
     [],
   );
-  // v2 同一画面里的几个候选当初是互为备选（v3 同一方案里的重复另有检查）；已否掉 / 要换的不算用上
+  // 同一画面里给同一几句的候选互为候选，可以是同一段；已否掉 / 要换的不算用上
   assert.deepEqual(
     errs([
       {
@@ -1911,7 +1968,7 @@ test('1.11.2 同一段画面不能配给两处不同的句子：清单内、和�
   );
   // 和项目里别的批次比：已通过 / 待审、配在别的句子上的 → 整份拒收；否掉的不算；重新导入同一份文件不和自己比
   const rows = [1, 2, 3].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n }));
-  const doc = v2([{ lines: '2', label: '乙', cands: [cand('B', 'https://x/v.mp4', 12, 18)] }]);
+  const doc = v4([{ lines: '2', label: '乙', cands: [cand('B', 'https://x/v.mp4', 12, 18)] }]);
   const old = {
     id: 'o',
     rowId: 1,
@@ -2128,16 +2185,21 @@ test('待返工：返工单写句号、要换掉的素材和理由、补充要�
   ];
   setAssetRework(rows, rows[0], 'x', { note: '要彩色', at: 1 });
   setRework(rows, rows[0], { note: '再补一个近景', at: 2 });
-  const cands = [{ id: 'a', rowId: 1, decision: 're', note: '太暗', title: 'A', url: 'https://a', in: 1, out: 2 }];
+  const cands = [
+    { id: 'a', rowId: 1, decision: 're', note: '太暗', title: 'A', url: 'https://a', in: 1, out: 2, forText: '7' },
+  ];
   const doc = buildReworkDoc({
     title: 'T',
     shots: reworkShots(rows, cands),
     registry: { x: { name: '旧.mp4', path: '/m/旧.mp4' } },
     batchName: () => '第 1 批',
+    secondsOf: members => members.map(() => 3.04),
   });
   assert.equal(doc.type, 'fenjingtai-rework');
   const s = doc.shots[0];
   assert.equal(s.lines, '7');
+  assert.deepEqual(s.each, [{ line: '7', text: '甲', seconds: 3 }], '每句多长（含停顿），AI 按这个长度找');
+  assert.match(doc.reply, /用 for 写明给这个画面里的哪几句/);
   assert.equal(s.request, '再补一个近景');
   assert.deepEqual(s.replace, [{ name: '旧.mp4', note: '要彩色' }]);
   assert.deepEqual(s.current, [{ name: '旧.mp4', role: '主画面', path: '/m/旧.mp4' }]);
@@ -2147,7 +2209,7 @@ test('待返工：返工单写句号、要换掉的素材和理由、补充要�
     in: 1,
     out: 2,
     decision: '换一个',
-    plan: '方案一',
+    for: '7',
     note: '太暗',
     batch: '第 1 批',
   });
@@ -2224,7 +2286,7 @@ test('剪辑已补足：差几秒的视频标上后算够，每句的画面也�
   assert.equal(lineCoverage(registry, rows(false), tl)[0].state, 'part');
   assert.equal(lineCoverage(registry, rows(true), tl)[0].state, 'ok');
 });
-test('v3 画面范围照抄分镜表；每个方案都要填满口播，填不满只能单独交一个并写明理由', () => {
+test('v4 画面范围照抄分镜表；每段视频要够它 for 那几句的长度（含停顿），不够只能写明理由', () => {
   const rows = [438, 439, 440, 441].map((n, i) => ({
     id: i + 1,
     kind: 'line',
@@ -2232,80 +2294,73 @@ test('v3 画面范围照抄分镜表；每个方案都要填满口播，填不�
     text: '句' + n,
     ...(n < 441 ? { groupId: 'g' } : {}),
   }));
-  const shotSeconds = ms => (ms.length === 3 ? 21.8 : 5);
-  const imp = (shots, existing = []) => planImport(v3(shots), '/a.json', rows, existing, { shotSeconds });
-  const shot = (...plans) => ({ lines: '438-440', label: '甲', plans });
-  const clip = (key, len, extra = {}) => v3cand({ key, in: 0, out: len + 2, best: { in: 1, out: 1 + len }, ...extra });
+  // 438：0–6 说完、7 秒下一句开口；439：7–14；440：15–21；441：22–26。画面 438–440 到 22 秒（441 开口）
+  const tl = {
+    times: new Map([
+      [1, { start: 0, end: 6 }],
+      [2, { start: 7, end: 14 }],
+      [3, { start: 15, end: 21 }],
+      [4, { start: 22, end: 26 }],
+    ]),
+  };
+  const imp = (shots, existing = []) => planImport(v4(shots), '/a.json', rows, existing, { tl });
+  const shot = (...cands) => ({ lines: '438-440', label: '甲', cands });
+  const clip = (key, len, extra = {}) => v4cand({ key, in: 0, out: len + 2, best: { in: 1, out: 1 + len }, ...extra });
   // 范围和分镜表对不上：整份拒收，并说出表里的范围
-  const off = imp([{ lines: '438-439', label: '甲', plans: [{ cands: [clip('a', 22)] }] }]);
+  const off = imp([{ lines: '438-439', label: '甲', cands: [clip('a', 22)] }]);
   assert.match(off.error, /和分镜表对不上/);
   assert.match(off.errors[0], /第 438 句所在的画面是「第 438–440 句」/);
   assert.match(
-    imp([{ lines: '440-441', label: '乙', plans: [{ cands: [clip('a', 22)] }] }]).errors[0],
+    imp([{ lines: '440-441', label: '乙', cands: [clip('a', 22)] }]).errors[0],
     /第 440 句所在的画面是「第 438–440 句」/,
   );
-  assert.match(
-    imp([{ lines: '441-442', label: '乙', plans: [{ cands: [clip('a', 22)] }] }]).errors[0],
-    /「第 441 句（单句）」/,
-  );
-  // 一个视频就够长 / 几个接起来够长：可以；差不到 0.5 秒也算满
-  assert.equal(imp([shot({ cands: [clip('a', 22)] })]).error, undefined);
-  assert.equal(imp([shot({ cands: [clip('a', 9.6), clip('b', 12)] })]).error, undefined);
-  assert.equal(imp([shot({ cands: [clip('a', 21.4)] })]).error, undefined);
-  const added = imp([shot({ cands: [clip('a', 9.6), clip('b', 12)] }, { cands: [clip('c', 22)] })]).added;
+  assert.match(imp([{ lines: '441-442', label: '乙', cands: [clip('a', 22)] }]).errors[0], /「第 441 句（单句）」/);
+  // 整段 22 秒、单句各 7 / 8 / 7 秒（都含停顿）；差不到 0.5 秒也算够
+  assert.equal(imp([shot(clip('a', 22))]).error, undefined);
+  assert.equal(imp([shot(clip('a', 21.6))]).error, undefined);
+  assert.equal(imp([shot(clip('a', 7, { for: '438' }), clip('b', 8, { for: '439' }))]).error, undefined);
+  assert.equal(imp([shot(clip('a', 15, { for: '439-440' }))]).error, undefined);
+  assert.equal(imp([{ lines: '441', label: '乙', cands: [clip('a', 4)] }]).error, undefined, '最后一句到它说完');
+  const added = imp([shot(clip('w', 22), clip('a', 7, { for: '438' }), clip('b', 7, { for: '438' }))]).added;
   assert.deepEqual(
-    added.map(c => [c.key, c.plan, c.seq]),
+    added.map(c => [c.key, c.forText, c.forIds, c.seq]),
     [
-      ['a', 1, 0],
-      ['b', 1, 1],
-      ['c', 2, 0],
+      ['w', '438-440', [1, 2, 3], 0],
+      ['a', '438', [1], 1],
+      ['b', '438', [1], 2],
     ],
+    '同一句可以给好几个，整段和单句可以一起给',
   );
-  // 填不满、没写理由：拒收并说还差几秒
-  const bad = imp([shot({ cands: [clip('a', 6.1)] })]);
-  assert.match(bad.error, /填不满/);
-  assert.match(bad.errors[0], /方案一：视频加起来 6\.1 秒，口播 21\.8 秒，还差 15\.7 秒.*short/);
-  // 写了理由、而且只有这一个方案：可以
-  const ok = imp([shot({ short: '只找到 6 秒的公开视频', cands: [clip('a', 6.1)] })]);
+  // 不够长、没写理由：拒收并说清楚给哪句、还差几秒（只按说话的那几秒找会差一截停顿）
+  const bad = imp([shot(clip('a', 6, { for: '438' }))]);
+  assert.match(bad.error, /不够它那几句的长度/);
+  assert.match(bad.errors[0], /key "a"（for "438"）：best 只有 6 秒，第 438 句要 7 秒（含句间停顿），还差 1 秒.*short/);
+  assert.match(imp([shot(clip('a', 20))]).errors[0], /第 438–440 句整段要 22 秒/);
+  // 写了理由：可以
+  const ok = imp([shot(clip('a', 6, { for: '438', short: '只找到 6 秒的公开视频' }))]);
   assert.equal(ok.error, undefined);
   assert.equal(ok.added[0].short, '只找到 6 秒的公开视频');
-  // 有能填满的方案时，不够长的方案不能交（写了理由也不行）
-  assert.match(
-    imp([shot({ cands: [clip('a', 22)] }, { short: '偷懒', cands: [clip('b', 5)] })]).errors[0],
-    /方案二：.*已经有能填满的方案/,
-  );
-  // 都填不满：只能交一个
-  assert.match(
-    imp([shot({ short: '甲', cands: [clip('a', 5)] }, { short: '乙', cands: [clip('b', 6)] })]).errors[0],
-    /只能交一个不够长的方案/,
-  );
-  // 要换的不算进长度：AI 在它后面补了新的就够；没补、这个画面又没改过的，重新导入不追究
+  // 没改过的候选重新导入不追究长度
   const existing = [
-    { id: 'x', srcFile: '/a.json', lines: '438-440', key: 'a', url: 'https://x/a.mp4', in: 0, out: 14, decision: 're' },
-    { id: 'y', srcFile: '/a.json', lines: '438-440', key: 'b', url: 'https://x/b.mp4', in: 0, out: 14, decision: '' },
+    {
+      id: 'x',
+      srcFile: '/a.json',
+      lines: '438-440',
+      key: 'a',
+      forText: '438',
+      url: 'https://x/a.mp4',
+      in: 0,
+      out: 5,
+      decision: '',
+    },
   ];
-  const a12 = clip('a', 12, { review: { decision: 're', note: '' } });
-  assert.equal(imp([shot({ cands: [a12, clip('b', 12)] })], existing).error, undefined, '画面没改过：不追究');
-  assert.match(
-    imp([shot({ cands: [a12, clip('a2', 3), clip('b', 12)] })], existing).errors[0],
-    /方案一：视频加起来 15 秒/,
-    '补的新视频太短：要换的那个不算，还是填不满',
-  );
-  assert.equal(imp([shot({ cands: [a12, clip('a2', 10), clip('b', 12)] })], existing).error, undefined);
-  // 不传口播时间不查长度；v2 清单不查范围、不查长度
-  assert.equal(planImport(v3([shot({ cands: [clip('a', 3)] })]), '/a.json', rows, []).error, undefined);
   assert.equal(
-    planImport(
-      v2([
-        { lines: '438-439', label: '甲', cands: [v2cand({ key: 'cpap', url: 'https://x/c.mp4', in: 195, out: 201 })] },
-      ]),
-      '/a.json',
-      rows,
-      [],
-      { shotSeconds },
-    ).error,
+    imp([shot(v4cand({ key: 'a', for: '438', in: 0, out: 5 }))], existing).error,
     undefined,
+    '没改过：不追究',
   );
+  // 不传口播时间不查长度
+  assert.equal(planImport(v4([shot(clip('a', 3))]), '/a.json', rows, []).error, undefined);
 });
 test('没盖住的几秒对应句子里哪几个字：按朗读量摊开，标点跟前一个字，开头 / 中间 / 结尾都能标', async () => {
   const { charRangesForTimes } = await import('../renderer/src/core/text.js');
@@ -2392,12 +2447,13 @@ test('1.11.2 每句有没有画面：按排布算，视频只盖住可用片段�
   for (const r of rows) r.type = 'a';
   assert.equal(blankShots(rows, reg, tl).length, 0);
 });
-test('候选清单 best（精选段）：v3 必填；必须在 in–out 内；通过时设成可用片段，保存后换算成文件里的秒数', () => {
+test('候选清单 best（精选段）：必填；必须在 in–out 内；通过时设成可用片段，保存后换算成文件里的秒数', () => {
   const doc = JSON.parse(JSON.stringify(CANDIDATE_EXAMPLE));
   doc.shots[0].lines = '1-2';
+  doc.shots[0].cands.forEach((c, i) => (c.for = ['1-2', '1', '2'][i]));
   assert.deepEqual(validateCandidateDoc(doc), []);
   const bad = JSON.parse(JSON.stringify(doc));
-  const b0 = bad.shots[0].plans[0].cands[0];
+  const b0 = bad.shots[0].cands[1];
   b0.best = { in: 5, out: 17 };
   assert.match(validateCandidateDoc(bad).join('\n'), /best（5–17）必须在 in–out（8–20）范围内/);
   b0.best = { in: '11', out: 17 };
@@ -2413,20 +2469,13 @@ test('候选清单 best（精选段）：v3 必填；必须在 in–out 内；�
 
   const rows = [1, 2].map(n => ({ id: n, kind: 'line', no: n, text: '句' + n, groupId: 'g' }));
   const plan = planImport(doc, '/e.json', rows, []);
-  const [c1] = plan.added;
+  const c1 = plan.added[1];
   assert.deepEqual(c1.best, { in: 9.5, out: 18.5 });
-  const legacy = planImport(
-    v2([{ lines: '1', label: '甲', cands: [v2cand({ key: 'A', url: 'https://x/a.mp4', in: 1, out: 5 })] }]),
-    '/l.json',
-    rows,
-    [],
-  );
-  assert.equal(legacy.added[0].best, null, 'v2 没写 best = 整段');
   // 只改 best：不回到待审
   const doc2 = JSON.parse(JSON.stringify(doc));
-  doc2.shots[0].plans[0].cands[0].best = { in: 9, out: 15 };
+  doc2.shots[0].cands[1].best = { in: 9, out: 15 };
   const old = { ...c1, decision: 'ok', assetId: 'x', savedPath: '/s.mp4' };
-  const up = planImport(doc2, '/e.json', rows, [old]).updated[0];
+  const up = planImport(doc2, '/e.json', rows, [old]).updated.find(x => x.old === old);
   assert.equal(up.changed, false);
   assert.equal(up.next.decision, 'ok');
   assert.deepEqual(up.next.best, { in: 9, out: 15 });
@@ -2465,7 +2514,7 @@ test('项目交换完整保留业务数据，排除光标、界面状态和协�
     mediaDir: '/m',
     timing: { name: '字幕', cues: [] },
     voice: { path: '/m/voice.wav', duration: 12 },
-    candidates: [{ id: 'c1', rowId: 7, note: '审核意见' }],
+    candidates: [{ id: 'c1', rowId: 7, forIds: [7], note: '审核意见' }],
     collab: { secret: '不能导出', role: 'host' },
     cursorId: 7,
     view: 'review',
@@ -2476,6 +2525,11 @@ test('项目交换完整保留业务数据，排除光标、界面状态和协�
   for (const key of ['title', 'rows', 'assets', 'speechRate', 'mediaDir', 'timing', 'voice', 'candidates'])
     assert.deepEqual(restored[key], source[key]);
   for (const key of ['collab', 'cursorId', 'view', 'sel']) assert.equal(Object.hasOwn(exported, key), false);
+  assert.deepEqual(
+    normalizeProjectData({ candidates: [{ id: 'old', rowId: 7, plan: 1 }, ...source.candidates] }).candidates,
+    source.candidates,
+    '旧格式导入的候选（没有 forIds）载入时不再保留',
+  );
 });
 
 test('老项目加载补默认值，移除可选数据时保存不会留下旧字段', () => {
@@ -2537,7 +2591,7 @@ test('失败恢复保留被删除或替换的原对象、数组顺序和素材�
 });
 
 test('候选清单错误百分号编码返回格式提示，合法编码可正常导入', () => {
-  const doc = url => v2([{ lines: '1', label: '画面', cands: [v2cand({ key: 'A', url, in: 0, out: 3 })] }]);
+  const doc = url => v4([{ lines: '1', label: '画面', cands: [v4cand({ key: 'A', url, in: 0, out: 3 })] }]);
   for (const url of ['https://x/100%.mp4', 'https://x/a%ZZ.mp4', 'https://x/a%FF.mp4']) {
     assert.ok(validateCandidateDoc(doc(url)).some(error => error.includes('百分号编码')));
     assert.ok(planImport(doc(url), '/c.json', lines('正文。'), []).error);
@@ -2690,8 +2744,8 @@ test('返工素材导入：拒收未知标记、范围外画面、整段扩写�
       ],
     },
   };
-  const shot = n => ({ lines: String(n), label: '返工', plans: [{ cands: [v3cand({ key: `n-${n}` })] }] });
-  const doc = { ...v3([shot(1), shot(625)]), reworkId: 'rw-test' };
+  const shot = n => ({ lines: String(n), label: '返工', cands: [v4cand({ key: `n-${n}`, for: String(n) })] });
+  const doc = { ...v4([shot(1), shot(625)]), reworkId: 'rw-test' };
   const load = d => planImport(d, '/reply.json', rows, [], { reworkRequests, reworkRowIds: [11, 33] });
   const plan = load(doc);
   assert.equal(plan.error, undefined);
@@ -2703,7 +2757,7 @@ test('返工素材导入：拒收未知标记、范围外画面、整段扩写�
   assert.ok(load({ ...doc, shots: [shot('1-625')] }).error);
   assert.match(load({ ...doc, reworkId: undefined }).error, /缺少返工单标记/);
   assert.ok(validateCandidateDoc({ ...doc, shots: [shot(1), shot(1)] }).some(e => e.includes('只能写一次')));
-  assert.equal(load(v3([shot(2)])).error, undefined, '不属于待返工任务的普通素材照常导入');
+  assert.equal(load(v4([shot(2)])).error, undefined, '不属于待返工任务的普通素材照常导入');
   const existing = plan.added.map(c => ({ ...c, srcFile: '/reply.json', decision: 'ok' }));
   assert.equal(
     planImport(doc, '/reply.json', rows, existing, { reworkRequests }).updated.length,
@@ -2719,7 +2773,7 @@ test('返工范围跟随句子身份：改稿后的句号可变，目标画面�
   ];
   const reworkRequests = { 'rw-test': { targets: [{ rowIds: [11], note: '近景' }] } };
   const doc = n => ({
-    ...v3([{ lines: String(n), label: '返工', plans: [{ cands: [v3cand({ key: 'n' })] }] }]),
+    ...v4([{ lines: String(n), label: '返工', cands: [v4cand({ key: 'n' })] }]),
     reworkId: 'rw-test',
   });
   assert.ok(planImport(doc(1), '', rows, [], { reworkRequests }).error);
@@ -2729,7 +2783,7 @@ test('返工范围跟随句子身份：改稿后的句号可变，目标画面�
   assert.ok(planImport(doc(3), '', [], [], { reworkRequests }).error);
   assert.ok(
     planImport(
-      { ...doc(3), version: 2, shots: [{ lines: '3', label: '旧', cands: [v3cand({ key: 'n' })] }] },
+      { ...doc(3), version: 3, shots: [{ lines: '3', label: '旧', plans: [{ cands: [v4cand({ key: 'n' })] }] }] },
       '',
       rows,
       [],

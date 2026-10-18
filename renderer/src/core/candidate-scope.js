@@ -1,5 +1,6 @@
 /* 审核名称和返工范围只认实际句子，不采用 AI 写的批名或历史批号。 */
 import { shotMembers } from './shots.js';
+import { CANDIDATE_VERSION } from './candidate-values.js';
 
 export function sentenceScope(numbers) {
   const nos = [...new Set(numbers.filter(n => Number.isSafeInteger(n) && n > 0))].sort((a, b) => a - b);
@@ -52,7 +53,8 @@ export function reworkScopeErrors(doc, rows, requests) {
   if (!doc.reworkId) return [];
   const request = requests[doc.reworkId];
   if (!request) return ['reworkId 找不到对应的返工单，请使用本项目生成的返工单标记'];
-  if (doc.version !== 3) return ['返工素材必须使用候选清单格式 v3，逐个画面写 shots[].lines'];
+  if (doc.version !== CANDIDATE_VERSION)
+    return [`返工素材必须使用候选清单格式 v${CANDIDATE_VERSION}，逐个画面写 shots[].lines`];
   const byNo = new Map(rows.filter(r => r.kind === 'line').map(r => [r.no, r]));
   const errors = [];
   for (const s of doc.shots) {

@@ -22,7 +22,7 @@ const key = (k, opts = {}) =>
 
 const DOC = {
   type: 'fenjingtai-candidates',
-  version: 2,
+  version: 4,
   project: '1.10 自测',
   batch: '1.10 自测',
   shots: [
@@ -30,8 +30,28 @@ const DOC = {
       lines: '1',
       label: '甲',
       cands: [
-        { key: 'A', title: '甲', url: 'https://x.org/a.mp4', in: 1, out: 5, license: '公有领域', why: '甲' },
-        { key: 'B', title: '乙', url: 'https://x.org/b.mp4', in: 1, out: 5, license: '公有领域', why: '乙' },
+        {
+          key: 'A',
+          for: '1',
+          title: '甲',
+          url: 'https://x.org/a.mp4',
+          in: 1,
+          out: 5,
+          best: { in: 1, out: 5 },
+          license: '公有领域',
+          why: '甲',
+        },
+        {
+          key: 'B',
+          for: '1',
+          title: '乙',
+          url: 'https://x.org/b.mp4',
+          in: 1,
+          out: 5,
+          best: { in: 1, out: 5 },
+          license: '公有领域',
+          why: '乙',
+        },
       ],
     },
   ],

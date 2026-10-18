@@ -96,7 +96,7 @@ export function trimPicture(items, index, edge, value, dur) {
     entry.end = round1(oldEnd);
   } else {
     // 结尾最远拉到原片末尾，不凭空拉长；标了剪辑里补足（定格 / 放慢）的可以拉过去，片段本身不变
-    const free = !video || it.usage?.fitDone;
+    const free = !video || it.usage?.fitDone || it.usage?.freeze;
     const max = Math.min(hi, free ? Infinity : Math.max(oldEnd, it.start + src.to - src.cin));
     if (ceil1(it.start + MIN_LEN) > floor1(max)) return null;
     entry.end = round1(clamp(round1(value), ceil1(it.start + MIN_LEN), floor1(max)));
@@ -124,7 +124,7 @@ export function rollPictures(items, index, value, dur) {
   const lo = Math.max(a.start + MIN_LEN, b.kind === 'video' ? b.start - (sb.cin - sb.from) : 0);
   const hi = Math.min(
     Math.min(b.end, dur) - MIN_LEN,
-    a.kind === 'video' && !a.usage?.fitDone ? Math.max(a.end, a.start + sa.to - sa.cin) : dur,
+    a.kind === 'video' && !a.usage?.fitDone && !a.usage?.freeze ? Math.max(a.end, a.start + sa.to - sa.cin) : dur,
     b.kind === 'video' ? b.start + sb.usable - MIN_LEN : dur,
   );
   if (ceil1(lo) > floor1(hi)) return null;

@@ -412,7 +412,7 @@ function retagLineFile(oldPath, tag) {
 
 /* ── 候选清单回写 ──
    results: [{ key, lines, decision, note, savedPath, inUse }]；按 key（同时核对 lines）找到候选，写进它的 review 字段。
-   v3 的候选在 shots[].plans[].cands 里，v2 的在 shots[].cands 里，两种都认。
+   候选在 shots[].cands 里（v4）；旧清单写在 shots[].plans[].cands 里的也照样写回，不改动其他内容。
    只改 type 为 fenjingtai-candidates 的 .json 文件，其他文件一律拒绝 */
 function writeReview(file, results, { now = () => new Date().toISOString(), write } = {}) {
   if (typeof file !== 'string' || !path.isAbsolute(file) || !/\.json$/i.test(file))

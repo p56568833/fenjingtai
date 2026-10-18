@@ -679,6 +679,8 @@ button.jy-issue:hover {
 }
 .jy-result {
   display: grid;
+  /* 路径是 nowrap 的：列宽不锁死时网格会被撑到路径全长，弹窗出现横向滚动条、左半边内容被推出视口 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
   padding: 10px 12px;
   margin-bottom: 10px;
@@ -688,6 +690,8 @@ button.jy-issue:hover {
 }
 .jy-res-row {
   display: flex;
+  /* 网格项默认按内容最小宽度撑开；这里允许压缩，超长路径交给下面的 code 省略号 */
+  min-width: 0;
   gap: 10px;
   font-size: 12.5px;
   line-height: 1.5;

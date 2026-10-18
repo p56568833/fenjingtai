@@ -25,14 +25,26 @@ import { createReplica, receiveOps, rebaseSnapshot, LOG_MAX } from '../core/coll
 
 const doc = url => ({
   type: 'fenjingtai-candidates',
-  version: 2,
+  version: 4,
   project: '保存竞态回归',
   batch: '测试',
   shots: [
     {
       lines: '1',
       label: '测试画面',
-      cands: [{ key: 'race', title: '测试片段', url, in: 2, out: 5, license: '公有领域', why: '测试画面' }],
+      cands: [
+        {
+          key: 'race',
+          for: '1',
+          title: '测试片段',
+          url,
+          in: 2,
+          out: 5,
+          best: { in: 2, out: 5 },
+          license: '公有领域',
+          why: '测试画面',
+        },
+      ],
     },
   ],
 });
@@ -572,8 +584,28 @@ export async function runArchitectureTests(t) {
             lines: '1',
             label: '测试画面',
             cands: [
-              { key: 'keep', title: '留下', url: urlA, in: 0, out: 2, license: '公有领域', why: '测试' },
-              { key: 'drop', title: '不要', url: urlB, in: 0, out: 2, license: '公有领域', why: '测试' },
+              {
+                key: 'keep',
+                for: '1',
+                title: '留下',
+                url: urlA,
+                in: 0,
+                out: 2,
+                best: { in: 0, out: 2 },
+                license: '公有领域',
+                why: '测试',
+              },
+              {
+                key: 'drop',
+                for: '1',
+                title: '不要',
+                url: urlB,
+                in: 0,
+                out: 2,
+                best: { in: 0, out: 2 },
+                license: '公有领域',
+                why: '测试',
+              },
             ],
           },
         ],

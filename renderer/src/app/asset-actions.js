@@ -176,17 +176,37 @@ export function arrangeShot(row, { mains = [], alts = [] } = {}, label = '调整
   });
 }
 
-/* 视频差几秒但剪辑里已经补足（放慢、定格…）：标上之后够不够、每句的画面、全片时间条都按盖满算。
-   end：手动排的画面顺便把结尾拉到这里（双击「定格补满」补到下一个画面），和标记算一步撤销 */
-export function setFitDone(row, assetId, on, end = null) {
+/* 视频差几秒、你在剪辑里自己补（放慢等）：标上之后不再提示不够长，够不够、每句的画面、全片时间条都按盖满算；
+   导出到剪映时不够的那段留空，不自动补。取消时连「定格补满」一起去掉 */
+export function setFitDone(row, assetId, on) {
   const members = shotMembers(state.rows, row);
   const hits = members.flatMap(m => usageList(m).filter(u => u.assetId === assetId));
-  if (!hits.length || hits.every(u => !!u.fitDone === !!on)) return false;
-  return changeProject(on ? (end != null ? '定格补满画面' : '标记剪辑已补足时长') : '取消剪辑已补足', change => {
+  if (!hits.length || hits.every(u => (on ? !!u.fitDone : !u.fitDone && !u.freeze))) return false;
+  return changeProject(on ? '标记剪辑里补足' : '取消补足', change => {
     for (const u of hits) {
       if (on) u.fitDone = true;
-      else delete u.fitDone;
-      if (on && end != null && u.at && end > u.at.start) u.at = { ...u.at, end: round1(end) };
+      else {
+        delete u.fitDone;
+        delete u.freeze;
+      }
+    }
+
+    return true;
+  });
+}
+/* 定格补满：片段放完停在最后一帧，补到排给它的时间；导出到剪映时用最后一帧的定格图补上。
+   end：手动排的画面顺便把结尾拉到这里（补到下一个画面），和标记算一步撤销 */
+export function setFreeze(row, assetId, on, end = null) {
+  const members = shotMembers(state.rows, row);
+  const hits = members.flatMap(m => usageList(m).filter(u => u.assetId === assetId));
+  if (!hits.length || hits.every(u => !!u.freeze === !!on)) return false;
+  return changeProject(on ? '定格补满画面' : '取消定格', change => {
+    for (const u of hits) {
+      if (on) {
+        u.freeze = true;
+        delete u.fitDone;
+        if (end != null && u.at && end > u.at.start) u.at = { ...u.at, end: round1(end) };
+      } else delete u.freeze;
     }
 
     return true;

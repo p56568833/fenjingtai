@@ -3,6 +3,7 @@
 import { state } from '../app/state.js';
 import { fileUrl } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
+import { cleanBest } from '../core/candidate-values.js';
 import {
   loadMetadata,
   seekVideoFrame,
@@ -15,7 +16,7 @@ const frames = new Map();
 const queue = [];
 const active = new Map();
 let running = 0;
-const CELLS = 9; // 从片段开头到结尾均匀抽 9 帧，审核页排成 3×3
+const CELLS = 9; // 从精选段开头到结尾均匀抽 9 帧，审核页排成 3×3
 export const stripHTML = () => `<div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(CELLS)}</div>`;
 const stripOf = job => (job.host.isConnected ? job.host.querySelector(`[data-vr-id="${job.c.id}"] .vr-strip`) : null);
 /* 渲染后把截图放进卡片：截过的直接放，没截的排队去截 */
@@ -71,7 +72,7 @@ function pump() {
 }
 async function grab(job, signal) {
   const orig = job.c;
-  let c = mediaOf(orig);
+  let c = previewOf(orig); // 截图和播放一样，只截真正要用的那几秒
   const cells = [];
   const cached = { signature: job.signature, cells };
   const valid = () =>
@@ -94,14 +95,14 @@ async function grab(job, signal) {
       await load(c.url);
     } catch (error) {
       if (!c.local || !valid()) throw error;
-      c = orig;
+      c = previewOf({ ...orig, savedPath: '' });
       await load(c.url);
     }
     if (Number.isFinite(v.duration) && c.in >= v.duration - 0.05)
       throw Object.assign(new Error('入出点超出视频长度'), { outOfRange: v.duration });
     for (let i = 0; i < CELLS && valid(); i++) {
       const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / CELLS;
-      cells.push({ cell: await frameAt(v, t, fmtTime(t - c.in + orig.in), signal, t - c.in) });
+      cells.push({ cell: await frameAt(v, t, fmtTime(t + (c.local ? orig.in : 0)), signal, t - c.in) });
       if (!valid()) break;
       stripOf(job)?.replaceChildren(
         ...cells.map(x => x.cell),
@@ -163,5 +164,14 @@ function loadingCell(text = '载入中…') {
 }
 /* 播放 / 截图用的片段：已经保存到本地的直接用本地文件（秒开、不用联网），本地片段从 0 秒开始；
    没保存的用在线地址的建议入出点 */
+/* 预览播放只放真正要用的那几秒（精选段），前后的下载余量不放：入出点换成精选段 */
+export const previewOf = c => {
+  const m = mediaOf(c);
+  const b = cleanBest(c?.best, c?.in, c?.out);
+  if (!b) return m;
+  const off = m.local ? c.in : 0;
+  const span = { in: b.in - off, out: b.out - off };
+  return { ...m, ...span, best: span };
+};
 export const mediaOf = c =>
   c?.savedPath ? { ...c, url: fileUrl(c.savedPath), in: 0, out: Math.max(0.1, c.out - c.in), local: true } : c;

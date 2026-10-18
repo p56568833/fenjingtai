@@ -1,6 +1,6 @@
-import { shotMembers } from './shots.js';
+import { shotMembers, usageSpan } from './shots.js';
 import { usageList, assetName } from './asset-model.js';
-import { lineTag, hasLineTag } from './candidate-placement.js';
+import { lineTag, hasLineTag, tagOf } from './candidate-placement.js';
 import { candidateScope } from './candidate-scope.js';
 
 export function candidateBatches(candidates, rows = []) {
@@ -26,16 +26,11 @@ export function candidateBatches(candidates, rows = []) {
     });
 }
 
+/* 文件名里的句号要改成什么：旧路径 → 「第N句」/「第N-M句」。
+   按素材现在配的那几句（共用画面里只配其中一句的就是那一句；整段就是整个画面），素材没挂在表格里的按候选算 */
 export function retagPlan(rows, assets, candidates) {
   let no = 0;
   rows = rows.map(r => (r.kind === 'line' ? { ...r, no: ++no } : r));
-  const tagOf = members => {
-    const nos = members.map(m => m.no).filter(n => n > 0);
-    if (!nos.length) return '';
-    const from = Math.min(...nos),
-      to = Math.max(...nos);
-    return from === to ? `第${from}句` : `第${from}-${to}句`;
-  };
   const first = new Map(); // assetId → 句号
   const seen = new Set();
   for (const r of rows) {
@@ -45,7 +40,12 @@ export function retagPlan(rows, assets, candidates) {
     if (seen.has(key)) continue;
     seen.add(key);
     for (const m of members)
-      for (const u of usageList(m)) if (!first.has(u.assetId)) first.set(u.assetId, tagOf(members));
+      for (const u of usageList(m)) {
+        if (first.has(u.assetId)) continue;
+        const sp = usageSpan(members, u.assetId);
+        const [a, b] = sp.empty ? [0, members.length - 1] : [sp.from, sp.to];
+        first.set(u.assetId, tagOf(members[a].no, members[b].no));
+      }
   }
   const plan = new Map(); // 旧路径 → 句号
   const local = p => typeof p === 'string' && p.startsWith('/') && hasLineTag(p);

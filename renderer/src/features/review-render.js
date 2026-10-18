@@ -27,6 +27,7 @@ import {
   trackFill,
   isIdle,
   rangeText,
+  candName,
 } from './review-model.js';
 import { secText } from '../core/review-format.js';
 
@@ -132,12 +133,12 @@ export function createReviewRenderer({
     const fill = trackFill(g);
     // 右边：这个画面的全部视频，只有选中的那个展开成完整卡片，其余收成一行：待审 / 未采用 / 审过的，点一行就展开它
     const rowOf = (c, cls, tag, tip) =>
-      `<div class="vr-done d-${cls}" data-vr-id="${c.id}" title="${tip}"><span class="vr-tag d-${cls}">${tag}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span><span class="vr-spacer"></span><span class="vr-done-note">${secText(usableSeconds(c))} 秒</span></div>`;
+      `<div class="vr-done d-${cls}" data-vr-id="${c.id}" title="${tip}"><span class="vr-tag d-${cls}">${tag}</span><span class="vr-done-title">${esc(candName(c))}</span><span class="vr-done-sub">${esc(c.title || '')}</span><span class="vr-spacer"></span><span class="vr-done-note">${secText(usableSeconds(c))} 秒</span></div>`;
     const itemHTML = c =>
       c.id === page.curCand
         ? cardHTML(c)
         : isIdle(c)
-          ? rowOf(c, 'idle', '未采用', '正片轨已经排满，点开还能审')
+          ? rowOf(c, 'idle', '未采用', '它给的那几句在正片轨上已经有通过的画面，点开还能审')
           : isPending(c)
             ? rowOf(c, 'wait', '待审', '点开看画面、审核')
             : doneHTML(c);

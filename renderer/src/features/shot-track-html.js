@@ -52,10 +52,11 @@ export function shotTrackHTML({ unit: u, assets, tl, ti, pick, toneOf }) {
     .map((it, k) => {
       const end = Math.min(it.end, dur);
       const len = clipLen(it);
-      // 标了剪辑里补足的视频才会比片段长：片段之后那截画成补足的样子（定格 / 放慢）
+      // 标了定格补满 / 剪辑里补足的视频才会比片段长：片段之后那截画成对应的样子
       const short = len != null && len < end - it.start - 0.05;
+      const freeze = !!it.usage.freeze;
       const fit = short
-        ? `<span class="ptt-fit" style="left:${((len / Math.max(0.01, end - it.start)) * 100).toFixed(1)}%" title="片段放完后定格补足 ${sec(end - it.start - len)} 秒"><i>定格</i></span>`
+        ? `<span class="ptt-fit${freeze ? '' : ' edit'}" style="left:${((len / Math.max(0.01, end - it.start)) * 100).toFixed(1)}%" title="${freeze ? `片段放完后定格补满 ${sec(end - it.start - len)} 秒，导出到剪映也是定格` : `剪辑里补足 ${sec(end - it.start - len)} 秒：导出到剪映这段留空`}"><i>${freeze ? '定格' : '剪辑里补'}</i></span>`
         : '';
       const cls = [
         'ptt-block',
@@ -66,7 +67,7 @@ export function shotTrackHTML({ unit: u, assets, tl, ti, pick, toneOf }) {
       ]
         .filter(Boolean)
         .join(' ');
-      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后 ${sec(end - it.start - len)} 秒在剪辑里定格 / 放慢补足` : ''}\n拖到下面的备选轨：先撤下来\n双击：定格补满 / 删除`;
+      const title = `${circled(it.n)} ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒${it.over ? '（超出口播）' : ''}${short ? `\n片段只有 ${sec(len)} 秒，后 ${sec(end - it.start - len)} 秒${it.usage.freeze ? '定格补满' : '标了剪辑里补足（导出留空）'}` : ''}\n拖到下面的备选轨：先撤下来\n双击：定格补满 / 删除`;
       return `<div class="${cls}" data-ptt="${esc(it.assetId)}"${filmAttrs(it, Math.max(0, end - it.start))} style="left:${pct(it.start)};width:${pct(Math.max(0, end - it.start))}" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头；Shift 拖相接边调整切换点"></span><span class="ptt-label">${circled(it.n)} ${esc(shortName(it.asset.name))}</span>${fit}<span class="ptt-grip r" title="拖动裁剪结尾；Shift 拖相接边调整切换点"></span></div>`;
     })
     .join('');

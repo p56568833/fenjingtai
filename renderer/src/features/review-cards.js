@@ -7,7 +7,8 @@ import { DECISION } from '../core/candidate-values.js';
 import { esc } from '../ui/base/dom.js';
 import { glide, pop, SPRING } from '../ui/base/motion.js';
 import { playerHTML, targetLines, playClip, slotOf } from './clip-player.js';
-import { stripHTML, mediaOf } from './review-frames.js';
+import { stripHTML, previewOf } from './review-frames.js';
+import { candName } from './review-model.js';
 
 import { pauseReviewPlayback } from './review-playback.js';
 
@@ -69,12 +70,13 @@ export function createReviewCards({ root, preview, page }) {
         ? `<span class="vr-saved" title="${esc(c.savedPath)}">已保存：${esc(assetName(c.savedPath))}</span><button class="vr-mini" data-vr-reveal="${c.id}">在访达中显示</button>`
         : '';
     return `<article class="vr-cand ${d ? 'd-' + d : ''}${c.id === page.curCand ? ' focus' : ''}" data-vr-id="${c.id}">
-    <div class="vr-head"><strong>${esc(c.title || c.key || '（未命名）')}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
-    <div class="vr-meta">建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）${c.best ? ` · <b class="vr-best" title="通过后自动设成可用片段；保存的文件仍是建议的整段，前后留着余量">精选 ${fmtTime(c.best.in)}–${fmtTime(c.best.out)}（${fmtLen(c.best.out - c.best.in)}）</b>` : ''} · ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
+    <div class="vr-head"><strong>${esc(candName(c))}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
+    <div class="vr-meta"><span class="vr-src-title">${esc(c.title || '')}</span> · 建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）${c.best ? ` · <b class="vr-best" title="通过后自动设成可用片段；保存的文件仍是建议的整段，前后留着余量">精选 ${fmtTime(c.best.in)}–${fmtTime(c.best.out)}（${fmtLen(c.best.out - c.best.in)}）</b>` : ''} · ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
     ${c.limits ? `<p class="vr-cov-note">缺：${esc(c.limits)}</p>` : ''}
+    ${c.short ? `<p class="vr-cov-note">不够长：${esc(c.short)}</p>` : ''}
     ${stripHTML()}
-    ${page.mode === 'rework' ? playerHTML(c) : '' /* 审核页的候选在左边播放器里播；待返工页没有左边播放器，在卡片里播 */}
+    ${page.mode === 'rework' ? playerHTML(previewOf(c)) : '' /* 审核页的候选在左边播放器里播；待返工页没有左边播放器，在卡片里播 */}
     <div class="vr-row">
       <button class="vr-btn play" data-vr-play="${c.id}">▶ 播放这段</button>
       <button class="vr-btn ok${d === 'ok' ? ' on' : ''}" data-vr-d="ok" data-vr-for="${c.id}">通过 <kbd>1</kbd></button>
@@ -96,7 +98,7 @@ export function createReviewCards({ root, preview, page }) {
       d === 'ok'
         ? `<div class="vr-done-thumbs"><div class="vr-cell ld">${c.savedPath ? '载入中…' : '保存后显示画面'}</div></div>`
         : '';
-    return `<div class="vr-done d-${d}${thumbs ? ' has-thumbs' : ''}" data-vr-id="${c.id}" title="点开查看画面（审核结果不变）">${thumbs}<span class="vr-tag d-${d}">${DECISION[d]}</span><span class="vr-done-title">${esc(c.title || c.key || '（未命名）')}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
+    return `<div class="vr-done d-${d}${thumbs ? ' has-thumbs' : ''}" data-vr-id="${c.id}" title="点开查看画面（审核结果不变）">${thumbs}<span class="vr-tag d-${d}">${DECISION[d]}</span><span class="vr-done-title">${esc(candName(c))}</span><span class="vr-done-sub">${esc(c.title || '')}</span>${c.note ? `<span class="vr-done-note">「${esc(c.note)}」</span>` : ''}<span class="vr-spacer"></span>${save}<button class="vr-mini" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button></div>`;
   }
 
   /* 播放这个候选：审核页在左边播放器里播（候选预览），待返工页在卡片里播。at：从片段里的第几秒开始（点截图） */
@@ -107,7 +109,7 @@ export function createReviewCards({ root, preview, page }) {
     if (!c || !card) return;
     const btn = card.querySelector('[data-vr-play]');
     pauseReviewPlayback(); // 下面嵌着的「对着口播看画面」先停，免得两路口播一起响
-    const media = mediaOf(c);
+    const media = previewOf(c);
     playClip(card, media, { from: at == null ? null : media.in + at, onState: text => (btn.textContent = text) });
   }
 

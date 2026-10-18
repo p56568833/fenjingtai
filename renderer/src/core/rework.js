@@ -9,7 +9,7 @@
    这个画面里有候选被通过：要求都算解决，标了不满意的旧素材挪到备选，从这一页消失。 */
 import { shotMembers, applyRole } from './shots.js';
 import { usageList } from './asset-model.js';
-import { planOf, planName } from './candidate-values.js';
+import { CANDIDATE_VERSION } from './candidate-values.js';
 import { sentenceScope } from './candidate-scope.js';
 
 const REJECT = new Set(['no', 're']);
@@ -124,11 +124,20 @@ export function resolveOnApprove(rows, row, approvedAssetId) {
   return demoted;
 }
 
+/* 画面里每一句：{ line, text, seconds }（seconds 含句间停顿，for 写这一句时 best 要够这么长） */
+const eachLine = (members, secs) =>
+  members.map((m, i) => ({
+    line: String(m.no),
+    text: m.text,
+    ...(Number.isFinite(secs?.[i]) ? { seconds: Math.round(secs[i] * 10) / 10 } : {}),
+  }));
+
 const rangeOf = members =>
   members.length > 1 ? `${members[0].no}-${members[members.length - 1].no}` : String(members[0]?.no ?? '');
 
-/* 返工单：交给找素材的 AI 读。只写它需要的：句子、画面描述、你的要求、要换掉的素材和理由、现在挂着的素材、否掉的候选和理由 */
-export function buildReworkDoc({ title, shots, registry = {}, batchName = () => '' }) {
+/* 返工单：交给找素材的 AI 读。只写它需要的：句子（每句多长）、画面描述、你的要求、要换掉的素材和理由、现在挂着的素材、否掉的候选和理由。
+   secondsOf(members)：每句要多少秒（含句间停顿），界面按时间轴传进来；不传就不写秒数 */
+export function buildReworkDoc({ title, shots, registry = {}, batchName = () => '', secondsOf = () => null }) {
   const DEC = { no: '不要', re: '换一个' };
   const ROLE = { main: '主画面', overlay: '叠加', alt: '备选' };
   const nameOf = id => registry[id]?.name || registry[id]?.path || '';
@@ -139,11 +148,11 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
     project: title,
     createdAt: new Date().toISOString(),
     sentences: sentenceScope(shots.flatMap(s => s.members.map(m => m.no))).text,
-    reply:
-      '按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v3 写一份新的候选清单。顶层 reworkId 原样填写本返工单的 id；shots[].lines 逐项照抄这里的 lines，分散的画面分别写，禁止用首尾句号扩成整段，禁止添加返工单以外的画面；可以先回复其中一部分。每个方案都要填满口播。rejected 里标了方案的「换一个」，就在那个方案里接替它的位置；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。',
+    reply: `按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单。顶层 reworkId 原样填写本返工单的 id；shots[].lines 逐项照抄这里的 lines，分散的画面分别写，禁止用首尾句号扩成整段，禁止添加返工单以外的画面；可以先回复其中一部分。每段视频用 for 写明给这个画面里的哪几句（一句，或整个画面），best 要够那几句的长度。rejected 里「换一个」的，给同一个 for 再找一段新 key 的视频；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。`,
     shots: shots.map(s => ({
       lines: rangeOf(s.members),
       text: s.members.map(m => m.text).join(''),
+      each: eachLine(s.members, secondsOf(s.members)),
       visualNote: s.lead.note || '',
       need: s.cands.find(c => c.need)?.need || '',
       request: s.request?.note || '',
@@ -170,7 +179,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
         in: c.in,
         out: c.out,
         decision: DEC[c.decision],
-        plan: planName(planOf(c)),
+        for: c.forText || '',
         note: c.note || '',
         batch: batchName(c),
       })),

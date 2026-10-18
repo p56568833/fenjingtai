@@ -583,6 +583,7 @@ export async function runSelfTest() {
   await suite('1.10 可靠性与交互', './release-110-selftest.js', 'runRelease110Tests');
   await suite('架构与保存竞态', './architecture-selftest.js', 'runArchitectureTests');
   await suite('审查报告回归', './audit-selftest.js', 'runAuditTests');
+  await suite('导出到剪映', './jianying-export-selftest.js', 'runJianyingExportTests');
   const failed = R.filter(x => !x.ok);
   return { total: R.length, failed: failed.length, cases: R };
 }
