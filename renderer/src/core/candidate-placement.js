@@ -41,7 +41,11 @@ export function attachCandidate(c, rows, registry, { tl = null } = {}) {
         members,
         tl,
         usableSeconds(c),
-        id => id !== asset.id && !!registry[id]?.source?.candidate,
+        // 标了不满意、要换掉的旧视频会让位（通过后挪到备选），不算占着
+        id =>
+          id !== asset.id &&
+          !!registry[id]?.source?.candidate &&
+          !members.some(m => usageList(m).some(u => u.assetId === id && u.rework)),
         w ? { start: w.start - w.shotStart, end: w.end - w.shotStart } : null,
       )
     : { role: 'main' };

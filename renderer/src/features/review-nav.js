@@ -4,7 +4,7 @@ import { reworkShots } from '../core/rework.js';
 import { esc } from '../ui/base/dom.js';
 import { glide } from '../ui/base/motion.js';
 import { fmtDay, batchDetail } from '../core/review-format.js';
-import { page, pendingCount, isPending, batchLabel, rangeText, sectionOf } from './review-model.js';
+import { page, pendingCount, isPending, batchLabel, rangeText, sectionOf, reworkLabel } from './review-model.js';
 
 /* 左栏：当前批次标题打开切换菜单，进度独立显示；下面是这一批的全部画面（按章节） */
 /* 待审 / 待返工切换的白色滑块：和顶栏「审核 / 表格」一样滑过去。
@@ -86,7 +86,7 @@ export function reworkNavHTML(list) {
         : s.request
           ? '<span class="vr-nav-done re">要补</span>'
           : `<span class="vr-nav-done re">否掉 ${s.rejected.length}</span>`;
-      return `${head}<button class="vr-nav-shot${s.lead.id === page.curRework ? ' on' : ''}" data-vr-rw="${s.lead.id}"><span>${rangeText(s.lead)}${label ? `<small>${esc(label)}</small>` : ''}</span>${status}</button>`;
+      return `${head}<button class="vr-nav-shot${s.key === page.curRework ? ' on' : ''}" data-vr-rw="${esc(s.key)}"><span>${reworkLabel(s)}${label ? `<small>${esc(label)}</small>` : ''}</span>${status}</button>`;
     })
     .join('');
   return `${tabsHTML()}<div class="vr-picker"><div class="vr-bh vr-rw-card">

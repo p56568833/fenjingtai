@@ -4,7 +4,6 @@ import { rowById, renumber, timeline } from './project-queries.js';
 import { changeProject, editProjectFields } from './project-change.js';
 import { forgetPurged } from './undo.js';
 import { writeBack, flushWriteBack, syncedFiles } from './candidate-sync.js';
-import { shotMembers } from '../core/shots.js';
 import { assetName } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
 import { planImport, footageTakenBy } from '../core/candidates.js';
@@ -12,6 +11,7 @@ import { attachCandidate, detachCandidate } from '../core/candidate-placement.js
 import { DECISION } from '../core/candidate-values.js';
 import { reworkShots, resolveOnApprove, setRework, setAssetRework, dismissRework } from '../core/rework.js';
 
+/* shots：groupReworkItems 的结果（一个画面一条，和返工单里的 shots 一一对应）。forIds：要补的那几句，回复的 for 只能落在这里 */
 export function registerReworkRequest(doc, shots) {
   return changeProject('生成返工单', () => {
     state.reworkRequests = {
@@ -20,8 +20,9 @@ export function registerReworkRequest(doc, shots) {
         at: Date.parse(doc.createdAt),
         targets: shots.map((s, i) => ({
           rowIds: s.members.map(m => m.id),
+          forIds: s.target.map(m => m.id),
           note: [
-            s.request?.note,
+            ...s.requests,
             ...doc.shots[i].replace.map(x => `${x.name}：${x.note}`),
             ...doc.shots[i].rejected.map(x => `${x.title}（${x.decision}）：${x.note}`),
           ]
@@ -201,10 +202,11 @@ export function saveRework(row, assetId, rework, label) {
     return row;
   });
 }
-export function setReworkNote(row, text, session) {
-  if (!row || rowById(row.id) !== row) return;
-  const members = shotMembers(state.rows, row);
-  const existing = members.filter(m => m.rework);
+/* 待返工页的补充要求：写在这一项的那几句上（共用画面里的别的句子不动） */
+export function setReworkNote(target, text, session) {
+  const members = target.filter(m => rowById(m.id) === m);
+  if (!members.length) return;
+  const existing = members.filter(m => m.rework && !m.rework.assetId);
   const rows = existing.length
     ? existing.map(m => ({ id: m.id, values: { rework: { ...m.rework, note: text } } }))
     : text.trim()
@@ -213,9 +215,9 @@ export function setReworkNote(row, text, session) {
   const changed = editProjectFields(session?.snapped ? null : '编辑返工要求', { rows });
   if (changed && session) session.snapped = true;
 }
-export function dismissShotRework(row) {
-  if (!row || rowById(row.id) !== row) return;
+export function dismissShotRework(item) {
+  if (!item?.target?.length || rowById(item.lead.id) !== item.lead) return;
   changeProject('不用返工了', change => {
-    dismissRework(state.rows, row);
+    dismissRework(state.rows, item);
   });
 }

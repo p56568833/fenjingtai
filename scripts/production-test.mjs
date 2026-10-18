@@ -21,6 +21,7 @@ import {
   setAssetRework,
   dismissRework,
   buildReworkDoc,
+  groupReworkItems,
 } from '../renderer/src/core/rework.js';
 import {
   groupRows,
@@ -2139,7 +2140,7 @@ test('待返工：否掉了又没通过的画面、对素材点了不满意、�
     list[0].rejected.map(x => x.id),
     ['a'],
   );
-  dismissRework(rows, rows[1], 20);
+  dismissRework(rows, list[0], 20);
   assert.equal(reworkShots(rows, cands).length, 0, '不用返工了之前否掉的不再算');
   cands.push(c('f', 1, 'no', 30));
   assert.equal(reworkShots(rows, cands).length, 1, '之后又否掉新的：重新出现');
@@ -2179,6 +2180,76 @@ test('待返工：否掉了又没通过的画面、对素材点了不满意、�
     '不用换了：离开',
   );
 });
+test('待返工按句子：共用画面里只对第 1 句的素材不满意，就只列第 1 句；那一句有通过的才解决', () => {
+  const row = (id, no) => ({ id, kind: 'line', no, text: '句' + no, groupId: 'g', assetUsages: [] });
+  const rows = [row(1, 1), row(2, 2), row(3, 3), row(4, 4)];
+  // 每个素材只配一句：s1 配第 1 句、s2 配第 2 句
+  rows.forEach((r, i) => {
+    r.assetUsages.push({ assetId: 's1', role: 'main', ...(i === 0 ? {} : { off: true }) });
+    r.assetUsages.push({ assetId: 's2', role: 'main', ...(i === 1 ? {} : { off: true }) });
+  });
+  setAssetRework(rows, rows[0], 's1', { note: '太暗', at: 5 });
+  const cand = (id, forIds, decision) => ({ id, rowId: 1, forIds, decision, decidedAt: 10, url: 'https://x/' + id });
+  const cands = [cand('p2', [2], ''), cand('n3', [3], 'no')];
+  const list = reworkShots(rows, cands);
+  assert.deepEqual(
+    list.map(s => [s.key, s.target.map(m => m.no)]),
+    [
+      ['1:0-0', [1]],
+      ['1:2-2', [3]],
+    ],
+    '第 1 句（不满意）和第 3 句（否掉）各一项，第 2、4 句不带进来',
+  );
+  assert.deepEqual(
+    list[0].replaces.map(x => x.assetId),
+    ['s1'],
+  );
+  assert.deepEqual(list[0].cands, [], '第 2 句的待审候选不列在第 1 句里');
+  // 返工单按画面合成一条，for 列出要补的句子，each 只写这几句
+  const groups = groupReworkItems(list);
+  const registry = { s1: { name: 'S1' }, s2: { name: 'S2' } };
+  const doc = buildReworkDoc({ title: 'T', shots: groups, registry, secondsOf: ms => ms.map((_, i) => i + 1) });
+  assert.equal(doc.sentences, '第1、3句');
+  assert.deepEqual(doc.shots[0].for, ['1', '3']);
+  assert.deepEqual(
+    doc.shots[0].each.map(x => [x.line, x.seconds]),
+    [
+      ['1', 1],
+      ['3', 3],
+    ],
+  );
+  assert.deepEqual(
+    doc.shots[0].current.map(x => x.name),
+    ['S1'],
+    '只列这几句上挂着的素材：第 1 句的 S1，不写配第 2 句的 S2',
+  );
+  // 第 2 句通过了新视频：不解决第 1 句；第 1 句通过了才解决，旧的挪到备选
+  rows.forEach((r, i) => r.assetUsages.push({ assetId: 'n2', role: 'main', ...(i === 1 ? {} : { off: true }) }));
+  assert.deepEqual(resolveOnApprove(rows, rows[0], 'n2'), []);
+  assert.equal(rows[0].assetUsages[0].rework?.note, '太暗');
+  rows.forEach((r, i) => r.assetUsages.push({ assetId: 'n1', role: 'main', ...(i === 0 ? {} : { off: true }) }));
+  assert.deepEqual(resolveOnApprove(rows, rows[0], 'n1'), ['s1']);
+  assert.ok(!rows[0].assetUsages[0].rework && rows[0].assetUsages[0].role === 'alt');
+  // 「不用返工了」只管这一项的那几句
+  const left = reworkShots(rows, cands);
+  assert.deepEqual(
+    left.map(s => s.key),
+    ['1:2-2'],
+  );
+  dismissRework(rows, left[0], 20);
+  assert.deepEqual(reworkShots(rows, cands), []);
+  assert.deepEqual(
+    rows.map(r => r.reworkOff ?? null),
+    [null, null, 20, null],
+  );
+  // 补充要求写在第 2–3 句上：连着的几句算一项
+  rows[1].rework = { note: '要近景', at: 30 };
+  rows[2].rework = { note: '要近景', at: 30 };
+  assert.deepEqual(
+    reworkShots(rows, cands).map(s => [s.key, s.request?.note]),
+    [['1:1-2', '要近景']],
+  );
+});
 test('待返工：返工单写句号、要换掉的素材和理由、补充要求、否掉的候选；项目 JSON 往返保留标记', () => {
   const rows = [
     { id: 1, kind: 'line', no: 7, text: '甲', note: '外景', assetUsages: [{ assetId: 'x', role: 'main' }] },
@@ -2190,7 +2261,7 @@ test('待返工：返工单写句号、要换掉的素材和理由、补充要�
   ];
   const doc = buildReworkDoc({
     title: 'T',
-    shots: reworkShots(rows, cands),
+    shots: groupReworkItems(reworkShots(rows, cands)),
     registry: { x: { name: '旧.mp4', path: '/m/旧.mp4' } },
     batchName: () => '第 1 批',
     secondsOf: members => members.map(() => 3.04),
@@ -2199,7 +2270,8 @@ test('待返工：返工单写句号、要换掉的素材和理由、补充要�
   const s = doc.shots[0];
   assert.equal(s.lines, '7');
   assert.deepEqual(s.each, [{ line: '7', text: '甲', seconds: 3 }], '每句多长（含停顿），AI 按这个长度找');
-  assert.match(doc.reply, /用 for 写明给这个画面里的哪几句/);
+  assert.match(doc.reply, /for 只能写这个画面 for 里列出的句子/);
+  assert.deepEqual(s.for, ['7']);
   assert.equal(s.request, '再补一个近景');
   assert.deepEqual(s.replace, [{ name: '旧.mp4', note: '要彩色' }]);
   assert.deepEqual(s.current, [{ name: '旧.mp4', role: '主画面', path: '/m/旧.mp4' }]);
@@ -2719,7 +2791,7 @@ test('返工单：首尾分散画面逐项列出，带可校验的对应标记�
     { id: 625, no: 625, kind: 'line', text: '结尾' },
   ];
   rows.forEach(r => setRework(rows, r, { note: '要近景', at: 1 }));
-  const doc = buildReworkDoc({ title: '测试', shots: reworkShots(rows, []) });
+  const doc = buildReworkDoc({ title: '测试', shots: groupReworkItems(reworkShots(rows, [])) });
   assert.ok(doc.id.startsWith('rw-'));
   assert.equal(doc.sentences, '第1、625句');
   assert.deepEqual(
@@ -2766,6 +2838,19 @@ test('返工素材导入：拒收未知标记、范围外画面、整段扩写�
   );
 });
 
+test('返工回复只能给返工单要补的那几句：共用画面里别的句子拒收', () => {
+  const rows = [1, 2, 3].map(n => ({ id: n * 11, no: n, kind: 'line', groupId: 'g' }));
+  const reworkRequests = { 'rw-t': { at: 1, targets: [{ rowIds: [11, 22, 33], forIds: [11], note: '' }] } };
+  const reply = f => ({
+    ...v4([{ lines: '1-3', label: '返工', cands: [v4cand({ key: 'k' + f, for: f })] }]),
+    reworkId: 'rw-t',
+  });
+  assert.equal(planImport(reply('1'), '', rows, [], { reworkRequests }).error, undefined);
+  const bad = planImport(reply('2'), '', rows, [], { reworkRequests });
+  assert.match(bad.errors[0], /for "2" 不在返工单要补的句子里。这个画面只要补第1句/);
+  assert.ok(planImport(reply('1-3'), '', rows, [], { reworkRequests }).error, '扩成整段也不行');
+  assert.deepEqual(normalizeReworkRequests(reworkRequests, new Map([[11, 1]]))['rw-t'].targets[0].forIds, [1]);
+});
 test('返工范围跟随句子身份：改稿后的句号可变，目标画面拆并或删除则拒收', () => {
   const rows = [
     { id: 11, no: 3, kind: 'line' },

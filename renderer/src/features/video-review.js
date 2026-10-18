@@ -254,7 +254,7 @@ function videoReviewKey(e) {
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
     e.preventDefault();
     if (page.mode === 'rework') {
-      const ids = reworkList().map(x => x.lead.id);
+      const ids = reworkList().map(x => x.key);
       const i = ids.indexOf(page.curRework);
       const j = Math.max(0, Math.min(ids.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
       if (ids[j] != null) selectRework(ids[j]);
@@ -309,7 +309,7 @@ export function initVideoReview() {
     const tab = e.target.closest('[data-vr-tab]');
     if (tab) return setMode(tab.dataset.vrTab);
     const rw = e.target.closest('[data-vr-rw]');
-    if (rw) return selectRework(+rw.dataset.vrRw);
+    if (rw) return selectRework(rw.dataset.vrRw);
     if (e.target.closest('#vrReworkDoc')) return writeReworkDoc();
     if (e.target.closest('#vrImport')) return runCommand('import:file');
     if (e.target.closest('#vrCopySpec')) return copyCandidateSpec();

@@ -43,7 +43,13 @@ export function normalizeReworkRequests(value, idMap = new Map()) {
     if (!id.startsWith('rw-') || !Array.isArray(request?.targets)) continue;
     const targets = request.targets
       .filter(t => Array.isArray(t?.rowIds) && t.rowIds.length && t.rowIds.every(n => Number.isSafeInteger(n) && n > 0))
-      .map(t => ({ rowIds: t.rowIds.map(n => idMap.get(n) ?? n), note: typeof t.note === 'string' ? t.note : '' }));
+      .map(t => ({
+        rowIds: t.rowIds.map(n => idMap.get(n) ?? n),
+        ...(Array.isArray(t.forIds) && t.forIds.every(n => Number.isSafeInteger(n) && n > 0)
+          ? { forIds: t.forIds.map(n => idMap.get(n) ?? n) }
+          : {}),
+        note: typeof t.note === 'string' ? t.note : '',
+      }));
     if (targets.length) out[id] = { at: Number(request.at) || 0, targets };
   }
   return out;
@@ -60,14 +66,30 @@ export function reworkScopeErrors(doc, rows, requests) {
   for (const s of doc.shots) {
     const row = byNo.get(Number(s.lines.split('-')[0]));
     const members = row ? shotMembers(rows, row) : [];
-    if (
-      !request.targets.some(
-        t => t.rowIds.length === members.length && t.rowIds.every(id => members.some(m => m.id === id)),
-      )
-    )
+    const target = request.targets.find(
+      t => t.rowIds.length === members.length && t.rowIds.every(id => members.some(m => m.id === id)),
+    );
+    if (!target) {
       errors.push(
         `lines "${s.lines}" 不在这张返工单里，或画面范围已改变。只能逐项回复返工单中的画面，不能用首尾句号扩成整段；改稿后请重新生成返工单`,
       );
+      continue;
+    }
+    // 返工单写了要补哪几句：回复的视频只能给那几句
+    if (!target.forIds) continue;
+    const want = members.filter(m => target.forIds.includes(m.id));
+    const wantText = sentenceScope(want.map(m => m.no)).text;
+    for (const c of s.cands || []) {
+      const f = String(c?.for || '').match(/^(\d+)(?:-(\d+))?$/);
+      if (!f) continue; // 写法不对的在格式检查里报
+      const from = +f[1],
+        to = +(f[2] || f[1]);
+      const hit = members.filter(m => m.no >= from && m.no <= to);
+      if (!hit.length || hit.some(m => !target.forIds.includes(m.id)))
+        errors.push(
+          `lines "${s.lines}" 的 key "${c.key}"：for "${c.for}" 不在返工单要补的句子里。这个画面只要补${wantText}，同一画面的别的句子不用找`,
+        );
+    }
   }
   return errors;
 }

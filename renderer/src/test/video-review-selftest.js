@@ -1221,8 +1221,8 @@ export async function runVideoReviewTests(t) {
   /* 分散句子的返工单：真实生成入口、导入约束、原批注展示、切项目持久化。 */
   storage.createProject('分散返工测试', parseAny('甲。乙。丙。丁。戊。'), {}, { mediaDir: '/tmp/返工测试' });
   const reworkPid = state.projectId;
-  setReworkNote(lines()[0], '开头换成近景');
-  setReworkNote(lines()[4], '结尾画面太暗');
+  setReworkNote([lines()[0]], '开头换成近景');
+  setReworkNote([lines()[4]], '结尾画面太暗');
   let replyDoc = null;
   let writeOk = false;
   window.fjtHooks.writeReworkDoc = async (_file, content) => {

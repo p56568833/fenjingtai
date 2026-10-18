@@ -9,7 +9,17 @@ import { slideIn } from '../ui/base/anim.js';
 
 import { runCommand } from '../ui/base/commands.js';
 
-import { page, touched, batches, leadOf, isPending, curShots, curGroup, orderedCandidates } from './review-model.js';
+import {
+  page,
+  touched,
+  batches,
+  leadOf,
+  isPending,
+  curShots,
+  curGroup,
+  orderedCandidates,
+  reworkList,
+} from './review-model.js';
 
 /* 导航拥有批次、画面切换和审后跳转；宿主提供重画、停止播放和节点查询。 */
 export function createReviewNavigation({ render: renderVideoReview, stop: stopAll, query: $ }) {
@@ -114,8 +124,12 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
   }
   function openRework(rowId = null) {
     if (rowId != null) {
+      // 从表格进来：选这句所在的那一项（这句自己的优先，没有就选同一画面的第一项）
       const row = rowById(rowId);
-      if (row) page.curRework = shotMembers(state.rows, row)[0].id;
+      const lead = row ? shotMembers(state.rows, row)[0] : null;
+      const items = reworkList().filter(s => s.lead === lead);
+      const own = items.find(s => s.target.includes(row)) || items[0];
+      if (own) page.curRework = own.key;
     }
     page.mode = 'rework';
     touched.clear();

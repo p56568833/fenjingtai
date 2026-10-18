@@ -15,7 +15,7 @@ import { fmtDay } from '../core/review-format.js';
 
 export const page = {
   mode: 'review', // 'review' 待审（按批次） | 'rework' 待返工（所有批次没过关的画面）
-  curRework: null, // 待返工页里选中的画面（第一句的 id）
+  curRework: null, // 待返工页里选中的那一项（reworkShots 的 key：画面第一句 id + 句子范围）
   reworkDocAt: 0, // 这次打开软件后最近一次生成返工单的时间
   curBatch: null, // 正在看的批次
   curShot: null, // 右边显示的画面（画面第一句的 id）
@@ -165,7 +165,14 @@ export const openOf = g => orderedCandidates(g).filter(c => isPending(c) || touc
 
 /* ── 待返工：所有批次里没过关（否掉了、一个都没通过）或者你写了要求的画面，按稿子顺序列在一页 ── */
 export const reworkList = () => reworkShots(state.rows, state.candidates);
-export const curReworkItem = () => reworkList().find(s => s.lead.id === page.curRework) || null;
+export const curReworkItem = () => reworkList().find(s => s.key === page.curRework) || null;
+/* 待返工这一项叫什么：就是加进来的那几句（第 1 句 / 第 2–3 句）；整个画面的按画面范围 */
+export const reworkLabel = s =>
+  s.target.length === s.members.length
+    ? rangeText(s.lead)
+    : s.target.length === 1
+      ? `第 ${s.target[0].no} 句`
+      : `第 ${s.target[0].no}–${s.target.at(-1).no} 句`;
 export const batchOfCand = c => {
   const b = batches().find(x => x.id === (c.batchId || 'legacy'));
   return b ? `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}` : '';

@@ -19,8 +19,8 @@ import { CANDIDATE_VERSION } from '../core/candidate-values.js';
 import { toast, confirmModal } from '../ui/base/dom.js';
 
 import { CANDIDATE_SPEC } from '../core/candidate-spec.js';
-import { buildReworkDoc } from '../core/rework.js';
-import { page, rangeText, curReworkItem, reworkList, batchOfCand } from './review-model.js';
+import { buildReworkDoc, groupReworkItems } from '../core/rework.js';
+import { page, reworkLabel, curReworkItem, reworkList, batchOfCand } from './review-model.js';
 
 import { safeFileName } from '../core/text.js';
 
@@ -89,13 +89,13 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
    同一个输入框连续打字算一步撤销，换了输入框（重渲染 / 换画面）就是新的一步 */
   function setReworkNote(text, session) {
     const s = curReworkItem();
-    if (s) updateReworkNote(s.lead, text, session);
+    if (s) updateReworkNote(s.target, text, session);
   }
   function dismissCurrentRework() {
     const s = curReworkItem();
     if (!s) return;
-    dismissShotRework(s.lead);
-    toast(`${rangeText(s.lead)} 不用返工了 · ⌘Z 可撤销`, null, 'ok');
+    dismissShotRework(s);
+    toast(`${reworkLabel(s)} 不用返工了 · ⌘Z 可撤销`, null, 'ok');
   }
   /* 待返工页 → 返工单：写到片段保存位置，再把交给 AI 的那句话复制好 */
   async function writeReworkDoc() {
@@ -104,7 +104,7 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
     const dir = await ensureMediaDir();
     if (!dir || state.projectId !== pid) return;
     renumber();
-    const list = reworkList().map(s => ({ ...s, members: s.members.map(m => ({ ...m })) }));
+    const list = groupReworkItems(reworkList());
     if (!list.length) return toast('没有待返工的画面', null, 'info');
     const title = state.title || '未命名项目';
     const tl = timeline();
@@ -123,8 +123,8 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
     page.reworkDocAt = Date.now();
     renderVideoReview();
     await copyText(
-      `读一下「${file}」：这是分镜台的返工单，${list.length} 个画面（${doc.sentences}）。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单给我导入。顶层 reworkId 必须写 "${doc.id}"；shots[].lines 逐项照抄，分散句子分别写，禁止扩成首尾整段或添加返工单之外的画面；每段视频用 for 写明给哪几句，长度按返工单里每句的 seconds 找够。`,
-      `返工单已生成（${list.length} 个画面），交给 AI 的话已复制`,
+      `读一下「${file}」：这是分镜台的返工单，要补 ${doc.sentences}（${list.length} 个画面）。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单给我导入。顶层 reworkId 必须写 "${doc.id}"；shots[].lines 逐项照抄，分散句子分别写，禁止扩成首尾整段或添加返工单之外的画面；每段视频的 for 只写返工单里这个画面 for 列出的句子，长度按每句的 seconds 找够。`,
+      `返工单已生成（${doc.sentences}），交给 AI 的话已复制`,
     );
   }
   return { importCandidates, copyCandidateSpec, setReworkNote, dismissCurrentRework, writeReworkDoc };
