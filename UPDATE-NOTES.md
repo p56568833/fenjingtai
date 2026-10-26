@@ -7,6 +7,12 @@
 • 候选清单新格式：每段视频注明对应哪几句，可单句也可整段
 • 审核卡片按位置命名，如「第 2 句 · 候选 1」，一眼看清对应哪句
 
+![导出面板可选画幅、帧率、字幕和备选素材，未验证的剪映版本会明确提示并停止导出](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.1.0/docs/images/v2.1.0-jianying-settings.png)
+
+![画面时间轴的视频显示缩略图胶片，预览时能直接查看每段画面的内容](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.1.0/docs/images/v2.1.0-filmstrip.png)
+
+![单句与整段候选同时列出，试看第一句的候选时只播放对应的精选片段](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.1.0/docs/images/v2.1.0-sentence-review.png)
+
 【支持】
 • 支持 Mac 剪映专业版 11.6.0 草稿，可直接打开继续剪
 • 导出时保留素材裁剪、定格补满和口播音频
@@ -27,6 +33,8 @@
 • 旧格式候选清单不再导入，按新格式重写后即可导入
 • 待返工按句子列出，只对哪句不满意就只显示哪一句
 • 返工单写明要补哪几句，回复的素材只能给这几句
+
+![通过第一句的候选后自动排入对应位置，第二句仍可独立审核](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.1.0/docs/images/v2.1.0-sentence-approved.png)
 
 【修复】
 • 修复审核页右栏文件名过长时整栏左右错位的问题
