@@ -679,7 +679,10 @@ test('更新：从 UPDATE-NOTES.md 取出某一版的说明，节与节之间以
   assert.equal(extractNotes(md, '9.9.9'), '');
   const real = fs.readFileSync(new URL('../UPDATE-NOTES.md', import.meta.url), 'utf8');
   const { version } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.ok(extractNotes(real, version), `UPDATE-NOTES.md 里要有「# 分镜台 ${version}」这一节（软件里显示的更新说明）`);
+  assert.ok(
+    real.split(/\r?\n/).some(line => line.trim() === `# 分镜台 ${version}`),
+    `UPDATE-NOTES.md 里要有「# 分镜台 ${version}」这一节（软件里显示的更新说明）`,
+  );
 });
 test('更新说明格式：只用【新增】【支持】【优化】【修复】，按顺序，每条「• 」开头一句话', () => {
   const ok = '# 分镜台 2.0.0\n\n【新增】\n• 一条\n• 两条\n\n【修复】\n• 修了一处\n\n---\n';
@@ -725,11 +728,14 @@ test('更新说明格式：只用【新增】【支持】【优化】【修复�
     '截图链接固定到本版，不能指向旧标签',
   );
   assert.match(checkNotes(ok, '9.9.9')[0], /没有「# 分镜台 9\.9\.9」/);
-  // 当前版本的真实说明必须合格（以前发过的旧版本不查）
+  assert.ok(checkNotes('# 分镜台 2.0.0\n\n---\n', '2.0.0').length, '正式打包仍拒绝空的更新说明');
+  // Release 后预先递增的开发版本可暂留空；有实际条目后严格校验，打包始终拒绝空节。
   const real = fs.readFileSync(new URL('../UPDATE-NOTES.md', import.meta.url), 'utf8');
   const { version } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  const errs = checkNotes(real, version);
-  assert.deepEqual(errs, [], `UPDATE-NOTES.md 里「# 分镜台 ${version}」这一节不合格式：\n- ${errs.join('\n- ')}`);
+  if (extractNotes(real, version)) {
+    const errs = checkNotes(real, version);
+    assert.deepEqual(errs, [], `UPDATE-NOTES.md 里「# 分镜台 ${version}」这一节不合格式：\n- ${errs.join('\n- ')}`);
+  }
 });
 test('更新：只能原地更新装在可写位置的正式版；从安装盘、被系统隔离运行、开发版都给出原因', () => {
   const exe = '/Applications/分镜台.app/Contents/MacOS/分镜台';
