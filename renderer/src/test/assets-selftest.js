@@ -100,7 +100,8 @@ export async function runAssetTests(t) {
   if (hasVideo) {
     addFilesToShot(rowOf(R(3).id), [{ name: '样片.mp4', path: goodMp4 }]);
     openPreview({ row: rowOf(R(3).id), usageIndex: 0 });
-    await pause(900);
+    // 云端机器首次启动解码器可能超过 900ms，等真实时长就绪后再判断。
+    for (let n = 0; n < 100 && $('#pvDur')?.textContent === '--:--'; n++) await pause(50);
     t(
       '视频加载出总时长（黑屏不算成功）',
       $('#pvDur') && $('#pvDur').textContent !== '--:--',
