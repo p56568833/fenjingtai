@@ -5,7 +5,7 @@
 import * as native from '../platform/native.js';
 import { toast, esc } from '../ui/base/dom.js';
 import { registerCommand } from '../ui/base/commands.js';
-import { noteImage } from '../core/update-notes.js';
+import { textOnlyNotes } from '../core/update-notes.js';
 
 const $ = s => document.querySelector(s);
 let info = null; // 最近一次检查到的新版本
@@ -22,31 +22,26 @@ function parseNotes(text) {
   let cur = null;
   let group = null;
   const start = version => {
-    cur = { version, groups: [], paras: [], images: [] };
+    cur = { version, groups: [], paras: [] };
     group = null;
     versions.push(cur);
   };
   start(null);
-  for (const raw of String(text || '').split(/\r?\n/)) {
+  for (const raw of textOnlyNotes(text).split(/\r?\n/)) {
     const line = raw.trim();
     const ver = line.match(/^【分镜台 (.+)】$/);
     if (ver) {
-      if (!cur.groups.length && !cur.paras.length && !cur.images.length) versions.pop();
+      if (!cur.groups.length && !cur.paras.length) versions.pop();
       start(ver[1]);
       continue;
     }
     if (!line) continue; // 空行只是排版用，分组一直延续到下一个分组标题
-    const image = noteImage(line);
-    if (image) {
-      (group ? group.images : cur.images).push(image);
-      continue;
-    }
     const head = line
       .replace(/^\*\*(.+)\*\*$/, '$1')
       .replace(/^【(.+)】$/, '$1')
       .replace(/[：:]$/, '');
     if (KINDS[head]) {
-      group = { title: head, kind: KINDS[head], items: [], images: [] };
+      group = { title: head, kind: KINDS[head], items: [] };
       cur.groups.push(group);
       continue;
     }
@@ -56,15 +51,8 @@ function parseNotes(text) {
     else if (group) group.items.push(line);
     else cur.paras.push(line);
   }
-  return versions.filter(v => v.groups.length || v.paras.length || v.images.length);
+  return versions.filter(v => v.groups.length || v.paras.length);
 }
-const imagesHTML = images =>
-  images
-    .map(
-      image =>
-        `<figure class="upd-image"><button class="upd-image-open" data-upd-image="${esc(image.src)}" aria-label="查看大图：${esc(image.alt)}"><img src="${esc(image.src)}" alt="${esc(image.alt)}" loading="lazy" referrerpolicy="no-referrer" /><span class="upd-image-fallback" hidden>图片暂时无法加载，点击查看</span></button><figcaption>${esc(image.alt)}</figcaption></figure>`,
-    )
-    .join('');
 function notesHTML(text) {
   const versions = parseNotes(text);
   if (!versions.length) return '<p class="upd-empty">这一版没有写更新说明。</p>';
@@ -73,14 +61,13 @@ function notesHTML(text) {
       v =>
         `<section class="upd-version">${versions.length > 1 && v.version ? `<h4 class="upd-ver">分镜台 ${esc(v.version)}</h4>` : ''}` +
         v.groups
-          .filter(g => g.items.length || g.images.length)
+          .filter(g => g.items.length)
           .map(
             g =>
-              `<div class="upd-group upd-${g.kind}"><span class="upd-tag">${esc(g.title)}</span><ul>${g.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul>${imagesHTML(g.images)}</div>`,
+              `<div class="upd-group upd-${g.kind}"><span class="upd-tag">${esc(g.title)}</span><ul>${g.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>`,
           )
           .join('') +
         v.paras.map(t => `<p class="upd-para">${esc(t)}</p>`).join('') +
-        imagesHTML(v.images) +
         '</section>',
     )
     .join('');
@@ -135,13 +122,6 @@ function renderUpdate(progress = null) {
     (n > 1 ? `<span class="upd-chip">包含 ${n} 个版本的改动</span>` : '') +
     (info.size ? `<span class="upd-chip">${mb(info.size)}</span>` : '');
   $('#updNotes').innerHTML = notesHTML(info.notes);
-  $('.update-modal').classList.toggle('has-images', !!$('#updNotes img'));
-  for (const image of $('#updNotes').querySelectorAll('img')) {
-    image.addEventListener('error', () => {
-      image.hidden = true;
-      image.nextElementSibling.hidden = false;
-    });
-  }
   const reason = $('#updReason');
   reason.hidden = info.canInstall;
   reason.textContent = info.reason || '';
@@ -233,10 +213,6 @@ export function initUpdate() {
     else closeUpdate();
   };
   $('#updPage').onclick = () => info && native.openAsset(info.page);
-  $('#updNotes').addEventListener('click', e => {
-    const image = e.target.closest('[data-upd-image]');
-    if (image) native.openAsset(image.dataset.updImage);
-  });
   $('#updateMask').addEventListener('click', e => {
     if (e.target.id === 'updateMask' && phase !== 'downloading') closeUpdate();
   });

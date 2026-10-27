@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { noteImage } from '../renderer/src/core/update-notes.js';
+import { textOnlyNotes } from '../renderer/src/core/update-notes.js';
 
 const { REPO, MANIFEST_NAME } = createRequire(import.meta.url)('../electron/updater.js');
 
@@ -30,15 +30,6 @@ export function extractNotes(markdown, version) {
    不合格式时返回每一处问题（打包和 npm run test:data 都会拦下） */
 export const NOTE_GROUPS = ['新增', '支持', '优化', '修复'];
 export const NOTE_MAX_ITEM = 40; // 每条最多几个字
-function imageIdentity(src) {
-  const url = new URL(src);
-  const prefix = `/${REPO}/`;
-  if (url.hostname === 'raw.githubusercontent.com' && url.pathname.startsWith(prefix)) {
-    const [tag, ...parts] = url.pathname.slice(prefix.length).split('/');
-    return { key: parts.join('/'), tag };
-  }
-  return { key: src, tag: null };
-}
 export function checkNotes(markdown, version) {
   const notes = extractNotes(markdown, version);
   if (!notes) return [`UPDATE-NOTES.md 里没有「# 分镜台 ${version}」这一节（软件里显示的更新说明）`];
@@ -47,23 +38,11 @@ export function checkNotes(markdown, version) {
   let group = null;
   let total = 0;
   const counts = {};
-  const history = notesHistory(markdown, Infinity);
-  const olderImages = new Set(
-    history.slice(history.findIndex(entry => entry.version === version) + 1).flatMap(entry =>
-      entry.notes.split(/\r?\n/).flatMap(line => {
-        const image = noteImage(line);
-        return image ? [imageIdentity(image.src).key] : [];
-      }),
-    ),
-  );
   for (const raw of notes.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
-    const image = noteImage(line);
-    if (image) {
-      const { key, tag } = imageIdentity(image.src);
-      if (tag && tag !== `v${version}`) errors.push(`「${image.alt}」的图片须使用本版标签 v${version}`);
-      if (olderImages.has(key)) errors.push(`「${image.alt}」复用了旧版截图，本版只为重要的新变化配新图`);
+    if (/^!\[/.test(line)) {
+      errors.push('更新说明只写文字，不附图片');
       continue;
     }
     const head = line.match(/^【(.+)】$/);
@@ -117,8 +96,8 @@ export function buildManifest({ version, notes = '', files, history = [] }) {
   const v = String(version).trim().replace(/^v/i, '');
   return {
     version: v,
-    notes,
-    history,
+    notes: textOnlyNotes(notes),
+    history: history.map(entry => ({ ...entry, notes: textOnlyNotes(entry.notes) })),
     page: `https://github.com/${REPO}/releases/tag/v${v}`,
     assets: files.map(f => ({
       name: f.name,

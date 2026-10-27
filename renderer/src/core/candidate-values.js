@@ -1,6 +1,6 @@
 /* 候选记录共用的格式、时间与标识规则，不处理导入或素材挂载。 */
 import { fmtTime, parseTime } from './text.js';
-import { assetName } from './asset-model.js';
+import { assetName, fileUrl } from './asset-model.js';
 export const CANDIDATE_TYPE = 'fenjingtai-candidates';
 export const DECISION = { ok: '通过', no: '不要', re: '换一个' };
 export const CANDIDATE_VERSION = 4; // v4：每段视频写明给画面里的哪几句（for）；旧格式一律不再导入
@@ -31,6 +31,27 @@ export function cleanBest(b, tin, tout) {
 export const noteLine = c =>
   `视频：${c.title || assetName(c.url)}｜${fmtTime(c.in)}–${fmtTime(c.out)}｜${c.license || '版权未注明'}｜${c.page || c.url}`;
 export const remotePath = c => `${c.url.split('#')[0]}#t=${c.in},${c.out}`;
+/* 候选也可以是这台电脑上的视频文件（自己截好的片段，自己审）：完整路径或 file:// 地址，只认视频扩展名。
+   返回规整后的完整路径，不是本机视频就返回空串；协作的人那边没有这个文件，看不到这段 */
+const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv)$/i;
+export function localVideoPath(u) {
+  let s = String(u ?? '').trim();
+  if (/^file:\/\//i.test(s)) {
+    try {
+      s = decodeURIComponent(new URL(s).pathname);
+    } catch {
+      return '';
+    }
+  }
+  if (!s.startsWith('/') || s.includes('#') || s.split('/').includes('..')) return '';
+  return LOCAL_VIDEO_RE.test(s) ? s : '';
+}
+export const isCandidateSource = u => /^https?:\/\//i.test(String(u ?? '').trim()) || !!localVideoPath(u);
+/* <video> 能播放的地址：本机文件转成 file://，在线地址去掉 # 片段 */
+export const playableUrl = u => {
+  const p = localVideoPath(u);
+  return p ? fileUrl(p) : String(u ?? '').split('#')[0];
+};
 export function usableSeconds(c) {
   const b = cleanBest(c.best, c.in, c.out);
   return b ? b.out - b.in : Math.max(0, c.out - c.in);

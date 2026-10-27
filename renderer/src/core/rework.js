@@ -243,7 +243,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
     project: title,
     createdAt: new Date().toISOString(),
     sentences: sentenceScope(shots.flatMap(s => s.target.map(m => m.no))).text,
-    reply: `按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单。顶层 reworkId 原样填写本返工单的 id；shots[].lines 逐项照抄这里的 lines，分散的画面分别写，禁止用首尾句号扩成整段，禁止添加返工单以外的画面；可以先回复其中一部分。每段视频的 for 只能写这个画面 for 里列出的句子（要补的就是那几句，同一画面的别的句子不用找），best 要够那几句的长度（看 each 里每句的 seconds）。rejected 里「换一个」的，给同一个 for 再找一段新 key 的视频；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。`,
+    reply: `按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单。顶层 reworkId 原样填写本返工单的 id；shots[].lines 逐项照抄这里的 lines，分散的画面分别写，禁止用首尾句号扩成整段，禁止添加返工单以外的画面；可以先回复其中一部分。每段视频的 for 只能写这个画面 for 里列出的句子（要补的就是那几句，同一画面的别的句子不用找），best 要够那几句的长度（看 each 里每句的 seconds）。for 是连续几句的（如整个共用画面），先找一段连续长镜头盖住这几句，实在找不到才按句分开补。真实素材先在 YouTube、B 站找并截好存本机，通用素材先去 Pexels、Mixkit 等素材网站找，尽量不要水印、台标和硬字幕。rejected 里「换一个」的，给同一个 for 再找一段新 key 的视频；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。`,
     shots: shots.map(s => ({
       lines: rangeOf(s.members),
       for: s.forTexts,

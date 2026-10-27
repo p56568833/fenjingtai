@@ -1923,6 +1923,26 @@ test('候选的 url 只能是视频：图片、网页、视频网站页面拒收
   ])
     assert.equal(errs(ok), '', ok);
 });
+test('候选的 url 也可以是这台电脑上的视频文件：完整路径或 file:// 放行，导入后规整成路径，重开项目还在', () => {
+  const doc = url => v4([{ lines: '1', label: '甲', cands: [v4cand({ key: 'A', url, in: 0, out: 5 })] }]);
+  const errs = url => validateCandidateDoc(doc(url)).join('\n');
+  assert.equal(errs('/Users/me/素材/第1句 网吧.mp4'), '');
+  assert.equal(errs('file:///Users/me/%E7%B4%A0%E6%9D%90/a.MOV'), '');
+  for (const bad of [
+    '/Users/me/a.jpg',
+    'Users/me/a.mp4',
+    '/Users/me/../etc/a.mp4',
+    '/Users/me/a#b.mp4',
+    'file:///etc/passwd',
+  ])
+    assert.match(errs(bad), /url 必须是/, bad);
+  const rows = [{ id: 1, kind: 'line', no: 1, text: '甲' }];
+  const plan = planImport(doc('file:///Users/me/%E7%B4%A0%E6%9D%90/a.mp4'), '/c.json', rows, []);
+  assert.equal(plan.added.length, 1);
+  assert.equal(plan.added[0].url, '/Users/me/素材/a.mp4', 'file:// 地址规整成完整路径，保存片段时 ffmpeg 直接读');
+  const back = sanitizeProjectCandidates(JSON.parse(JSON.stringify(plan.added)), { rowIds: new Set([1]) });
+  assert.equal(back.length, 1, '本机文件的候选重开项目不能被当成坏数据丢掉');
+});
 test('1.11.2 同一段画面不能配给两处不同的句子：清单内、和项目已有候选、通过时都拦', () => {
   const cand = (key, url, a, b, extra = {}) => v4cand({ key, url, in: a, out: b, ...extra });
   const errs = shots => validateCandidateDoc(v4(shots)).filter(e => e.startsWith('重复画面'));

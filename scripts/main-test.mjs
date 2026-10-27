@@ -203,6 +203,34 @@ test('视频片段文件名：中文安全、带入出点，重名不覆盖', ()
     '9',
   ]);
   assert.equal(args.at(-1), '/o.mp4');
+  assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'http,https,tls,tcp,crypto,httpproxy');
+  const local = vt.segmentArgs('/m/a.mp4', 1, 2, '/o.mp4', false, true);
+  assert.equal(local[local.indexOf('-protocol_whitelist') + 1], 'file', '本机文件只允许读文件本身');
+});
+await atest('本机视频文件也能截取：只认存在的视频文件，不走代理', async () => {
+  const dir = tmp();
+  const src = path.join(dir, '第12句 网吧.mp4');
+  fs.writeFileSync(src, Buffer.alloc(4096));
+  let seen = null;
+  const run = async (bin, args, opts) => {
+    seen = { args, opts };
+    fs.writeFileSync(args.at(-1), Buffer.alloc(2048));
+    return { ok: true };
+  };
+  const r = await vt.saveSegment(
+    { url: src, start: 0, end: 5, dir, name: '网吧' },
+    { ffmpeg: '/bin/ffmpeg', run, proxy: 'http://127.0.0.1:7890' },
+  );
+  assert.ok(r.ok, r.error);
+  assert.equal(seen.args[seen.args.indexOf('-i') + 1], src);
+  assert.equal(seen.args[seen.args.indexOf('-protocol_whitelist') + 1], 'file');
+  assert.equal(seen.opts.env, undefined, '读本机文件不设代理');
+  for (const url of [path.join(dir, 'missing.mp4'), path.join(dir, 'a.txt'), dir])
+    assert.equal(
+      (await vt.saveSegment({ url, start: 0, end: 5, dir, name: 'x' }, { ffmpeg: '/bin/ffmpeg', run })).ok,
+      false,
+      url,
+    );
 });
 test('截取进度：从 ffmpeg -progress 输出里读出已处理秒数，参数里带 -progress pipe:1', () => {
   assert.equal(vt.progressSeconds('frame=10\nout_time_us=2500000\nout_time=00:00:02.500000\nprogress=continue\n'), 2.5);
@@ -703,30 +731,19 @@ test('更新说明格式：只用【新增】【支持】【优化】【修复�
   bad('【新增】\n\n【修复】\n• 一条', /没有条目/, '空分组不写');
   bad('【新增】\n• ' + '字'.repeat(41), /每条不超过/, '每条有字数上限');
   assert.deepEqual(checkNotes('# 分镜台 2.0.0\n【新增】\n' + '• 一条\n'.repeat(12), '2.0.0'), [], '条数不设上限');
-  assert.deepEqual(
-    checkNotes('# 分镜台 2.0.0\n【新增】\n• 一条\n![配对码加入](https://example.com/pairing.png)', '2.0.0'),
-    [],
-    '可在分类内附功能图片，不计为更新条目',
-  );
-  bad('【新增】\n• 一条\n![图片](javascript:alert(1))', /以「• 」开头/, '图片不能使用脚本地址');
-  const oldImage = 'docs/images/v2-shared-selection.png';
-  const releaseNotes = imagePath =>
-    `# 分镜台 2.0.5\n【优化】\n• 新变化\n![本版功能](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.0.5/${imagePath})\n\n---\n\n# 分镜台 2.0.4\n【修复】\n• 旧变化\n![旧版功能](https://raw.githubusercontent.com/p56568833/fenjingtai/v2.0.4/${oldImage})`;
-  assert.ok(
-    checkNotes(releaseNotes(oldImage), '2.0.5').some(e => /复用了旧版截图/.test(e)),
-    '换标签也不能沿用旧功能截图',
-  );
-  assert.deepEqual(
-    checkNotes(releaseNotes('docs/images/v2.0.5-sentence-selection.png'), '2.0.5'),
-    [],
-    '新功能使用本版独立截图',
-  );
-  assert.ok(
-    checkNotes(releaseNotes('docs/images/v2.0.5-sentence-selection.png').replace('/v2.0.5/', '/v2.0.4/'), '2.0.5').some(
-      e => /须使用本版标签/.test(e),
-    ),
-    '截图链接固定到本版，不能指向旧标签',
-  );
+  bad('【新增】\n• 一条\n![配对码加入](https://example.com/pairing.png)', /只写文字/, '新版本更新说明不再附图');
+  bad('【新增】\n• 一条\n![图片](javascript:alert(1))', /只写文字/, '任何地址的图片都拒绝');
+  const historicalNotes = '# 分镜台 2.0.4\n【修复】\n• 旧变化\n![旧版功能](https://example.com/old.png)';
+  const historicalBody = extractNotes(historicalNotes, '2.0.4');
+  assert.match(historicalBody, /!\[旧版功能\]/, '已发布的历史说明保留原样');
+  const manifest = buildManifest({
+    version: '2.0.5',
+    notes: '【优化】\n• 新变化\n![功能](https://example.com/new.png)\n• 其余改动',
+    history: notesHistory(historicalNotes),
+    files: [],
+  });
+  assert.equal(manifest.notes, '【优化】\n• 新变化\n• 其余改动', '更新清单只带文字，保留图片前后的条目');
+  assert.equal(manifest.history[0].notes, '【修复】\n• 旧变化', '跨版本更新的历史清单也只带文字');
   assert.match(checkNotes(ok, '9.9.9')[0], /没有「# 分镜台 9\.9\.9」/);
   assert.ok(checkNotes('# 分镜台 2.0.0\n\n---\n', '2.0.0').length, '正式打包仍拒绝空的更新说明');
   // Release 后预先递增的开发版本可暂留空；有实际条目后严格校验，打包始终拒绝空节。

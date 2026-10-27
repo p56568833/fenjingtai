@@ -119,7 +119,7 @@ export function buildAssetListMd(ctx) {
   const tl = timelineOf(ctx);
   const shotList = shots(rows);
   const lines = linesOf(rows);
-  let out = `# 素材清单 · ${title}\n\n每个画面后面的秒数 = 这个画面在成片里要占的时长：从第一句开口到下一个画面开口（含句间停顿），找素材按这个长度找够。\n`;
+  let out = `# 素材清单 · ${title}\n\n每个画面后面的秒数 = 这个画面在成片里要占的时长：从第一句开口到下一个画面开口（含句间停顿），找素材按这个长度找够。共用画面先找一段连续镜头盖住整段，找不到才按「各句」分开找。\n`;
   for (const t of ti.list.filter(x => x.visual)) {
     const items = shotList
       .filter(g => g[0].type === t.id)

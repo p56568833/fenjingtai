@@ -63,7 +63,7 @@ function locateFfmpeg(extra) {
 }
 /* 截取参数：-ss 放在 -i 前面，ffmpeg 只按需读取那一段（mp4 / webm 都支持按范围请求），
    再重新编码保证从入点那一帧开始，而不是跳到前一个关键帧 */
-function segmentArgs(url, start, end, out, seekAfterInput = false) {
+function segmentArgs(url, start, end, out, seekAfterInput = false, localFile = false) {
   const dur = Math.max(0.1, Number(end) - Number(start));
   return [
     '-hide_banner',
@@ -73,10 +73,11 @@ function segmentArgs(url, start, end, out, seekAfterInput = false) {
     '-progress',
     'pipe:1', // 机器可读的进度（out_time_us=…）写到 stdout，界面据此显示百分比
     '-y',
-    // 只允许走网络协议：支持在线播放列表，但其中的分段也不能引用本机文件
+    // 在线视频只允许走网络协议：支持在线播放列表，但其中的分段也不能引用本机文件
     // httpproxy：走系统代理时 https 要先经代理建隧道（见 proxyFromRule）
+    // 本机视频文件（候选清单里写的完整路径）只允许读文件本身
     '-protocol_whitelist',
-    'http,https,tls,tcp,crypto,httpproxy',
+    localFile ? 'file' : 'http,https,tls,tcp,crypto,httpproxy',
     ...(seekAfterInput
       ? ['-i', url, '-ss', String(Math.max(0, Number(start)))]
       : ['-ss', String(Math.max(0, Number(start))), '-i', url]),
@@ -188,11 +189,21 @@ const isPlaylist = u => {
     return false;
   }
 };
+/* 候选清单里写的本机视频文件：完整路径，只认视频扩展名、必须是存在的普通文件 */
+function localVideoFile(p) {
+  if (typeof p !== 'string' || !path.isAbsolute(p) || !/\.(mp4|m4v|mov|webm|mkv)$/i.test(p)) return '';
+  try {
+    return fs.statSync(p).isFile() ? p : '';
+  } catch {
+    return '';
+  }
+}
 async function saveSegment(
   { url, start, end, dir, name },
   { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress, proxy = null } = {},
 ) {
-  if (!isHttpUrl(url)) return { ok: false, error: '只支持在线视频链接' };
+  const local = localVideoFile(url);
+  if (!isHttpUrl(url) && !local) return { ok: false, error: '只支持在线视频链接或这台电脑上的视频文件' };
   if (!(Number(end) > Number(start))) return { ok: false, error: '出点必须晚于入点' };
   if (!dir || !path.isAbsolute(dir) || !fs.existsSync(dir)) return { ok: false, error: '保存位置不存在，请重新选择' };
   if (!ffmpeg)
@@ -210,10 +221,14 @@ async function saveSegment(
   const tmp = tmpBeside(out) + '.mp4';
   const dur = Math.max(0.1, Number(end) - Number(start));
   const attempt = async seekAfterInput => {
-    const result = await run(ffmpeg, segmentArgs(url.split('#')[0], start, end, tmp, seekAfterInput), {
-      onProgress: sec => onProgress?.(Math.max(0, Math.min(1, sec / dur))),
-      ...(proxy ? { env: { ...process.env, http_proxy: proxy, https_proxy: proxy } } : {}),
-    });
+    const result = await run(
+      ffmpeg,
+      segmentArgs(local || url.split('#')[0], start, end, tmp, seekAfterInput, !!local),
+      {
+        onProgress: sec => onProgress?.(Math.max(0, Math.min(1, sec / dur))),
+        ...(proxy && !local ? { env: { ...process.env, http_proxy: proxy, https_proxy: proxy } } : {}),
+      },
+    );
     if (!result.ok) return result;
     let size = 0;
     try {

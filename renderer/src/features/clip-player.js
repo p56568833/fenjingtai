@@ -3,7 +3,7 @@
 import { state } from '../app/state.js';
 import { rowById, lines, timeOf, renumber, timeline } from '../app/project-queries.js';
 import { shotMembers } from '../core/shots.js';
-import { cleanBest, forRange } from '../core/candidate-values.js';
+import { cleanBest, forRange, playableUrl } from '../core/candidate-values.js';
 import { candidateWindow } from '../core/candidate-placement.js';
 import { layoutShot } from '../core/shot-layout.js';
 import { esc } from '../ui/base/dom.js';
@@ -158,7 +158,7 @@ export function playClip(card, c, { onState, onEnd, from = null } = {}) {
   v.hidden = false;
   v.preload = 'auto';
   if (!v.getAttribute('src')) {
-    v.src = c.url.split('#')[0];
+    v.src = playableUrl(c.url);
     v.load();
   }
   const w = voWindow(c);

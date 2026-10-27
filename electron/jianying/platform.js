@@ -9,13 +9,14 @@ const paths = require('./paths');
 
 const BUNDLE_ID = 'com.lemon.lvpro'; // 剪映专业版；CapCut（com.lemon.lv）不是本适配器目标
 const RUNNING_MARK = 'VideoFusion-macOS.app/Contents/MacOS/VideoFusion-macOS'; // 11.6 实测进程名
-/* 只在本机 Mac 剪映专业版 11.6.0 上实测过，版本号必须与它完全一致才算验证：
-   11.6.1 / 11.6.99 / 11.7.0 等后续版本都没验证过；11.6.0.1 / 11.6.0-beta 也不做“规范化”当成 11.6.0。
+/* 只认在本机 Mac 剪映专业版上实测过的版本，版本号必须与名单完全一致才算验证：
+   11.6.0（2026-10-18）与 11.6.13345（构建号 11.7.0-beta5，2026-10-26）实测过；
+   11.6.1 / 11.6.99 / 11.7.0 等其他版本都没验证过；11.6.0.1 / 11.6.0-beta 也不做“规范化”当成已验证版本。
    未验证版本不生成草稿、不登记草稿库（见 unsupportedVersionMessage）。 */
-const VERIFIED_VERSION = '11.6.0';
-const isVerifiedVersion = version => String(version ?? '') === VERIFIED_VERSION;
+const VERIFIED_VERSIONS = Object.freeze(['11.6.0', '11.6.13345']);
+const isVerifiedVersion = version => VERIFIED_VERSIONS.includes(String(version ?? ''));
 const unsupportedVersionMessage = version =>
-  `本机剪映版本 ${String(version || '').trim() || '未知'} 未验证：当前仅在 Mac 剪映专业版 11.6.0 上实测，其他版本不生成草稿、不登记草稿库`;
+  `本机剪映版本 ${String(version || '').trim() || '未知'} 未验证：当前仅在 Mac 剪映专业版 ${VERIFIED_VERSIONS.join(' / ')} 上实测，其他版本不生成草稿、不登记草稿库`;
 const APP_NAMES = ['VideoFusion-macOS.app', '剪映专业版.app', '剪映.app'];
 
 /* 跑一条只读系统命令：失败返回空串（不把「找不到」当成错误） */
@@ -213,7 +214,7 @@ function detect(deps = {}) {
   const version = app?.version || '';
   const supported = isVerifiedVersion(version);
   if (!app) {
-    issues.push({ level: 'warn', code: 'app-not-found', message: '没有找到剪映专业版（导出仅验证 11.6.0）' });
+    issues.push({ level: 'warn', code: 'app-not-found', message: `没有找到剪映专业版（导出仅验证 ${VERIFIED_VERSIONS.join(' / ')}）` });
   } else if (!supported) {
     issues.push({
       level: 'warn',
@@ -266,7 +267,7 @@ function detect(deps = {}) {
 module.exports = {
   BUNDLE_ID,
   RUNNING_MARK,
-  VERIFIED_VERSION,
+  VERIFIED_VERSIONS,
   isVerifiedVersion,
   unsupportedVersionMessage,
   detect,

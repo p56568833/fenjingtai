@@ -8,7 +8,7 @@ import { rowById } from '../app/project-queries.js';
 import * as editExport from '../app/edit-export.js';
 import { usageList } from '../core/asset-model.js';
 import { fmtTc, fmtLen, safeFileName } from '../core/text.js';
-import { targetStatusOf, isVersionSupported } from '../core/jianying-target.js';
+import { targetStatusOf, isVersionSupported, VERIFIED_VERSIONS } from '../core/jianying-target.js';
 import { toast, esc } from '../ui/base/dom.js';
 import { registerModal } from '../ui/base/modal.js';
 import { closePop } from '../ui/base/popover.js';
@@ -470,7 +470,7 @@ function goBlocker() {
   if (detection.unavailable) return detection.error || '这个版本还不支持导出到剪映';
   const appFound = detection.ok || !!detection.version || !!detection.appPath;
   if (!appFound) return '没找到 Mac 版剪映专业版';
-  if (!isVersionSupported(detection)) return '当前剪映版本未验证（仅验证 11.6.0）';
+  if (!isVersionSupported(detection)) return `当前剪映版本未验证（仅验证 ${VERIFIED_VERSIONS.join(' / ')}）`;
   if (currentMode() === 'library' && !detection.ok) return '剪映草稿库暂时不可用，改用「保存草稿文件夹」';
   if (!prepared?.ok) return prepared?.error || configError || '导出计划还没准备好';
   if (configIssues.some(isBlocking)) return '有阻塞问题，先处理后再导出';

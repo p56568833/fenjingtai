@@ -205,7 +205,6 @@ export async function runRelease110Tests(t) {
 
     /* 应用内更新：有新版本 → 顶栏按钮 → 看更新说明 → 下载 → 重启并更新 */
     const installs = [];
-    const openedImages = [];
     window.fjtHooks = {
       ...window.fjtHooks,
       checkUpdate: async () => ({
@@ -220,7 +219,6 @@ export async function runRelease110Tests(t) {
       }),
       downloadUpdate: async () => ({ ok: true, version: '9.9.9', verified: true }),
       installUpdate: async () => (installs.push(1), { ok: true }),
-      openAsset: async url => openedImages.push(url),
     };
     runCommand('update:check');
     await pause(40);
@@ -233,17 +231,12 @@ export async function runRelease110Tests(t) {
         $('#updateMask').classList.contains('show') &&
         $('#updNotes').textContent.includes('第二行'),
     );
-    const updateImage = $('#updNotes img');
     t(
-      '更新窗口按分类展示图片和说明，拒绝脚本图片地址',
-      $('#updNotes').querySelectorAll('img').length === 1 &&
-        updateImage?.getAttribute('src') === 'https://example.com/pairing.png' &&
-        $('#updNotes figcaption')?.textContent === '配对码加入',
+      '更新窗口只显示文字，旧配图和图片链接都不展示',
+      !$('#updNotes').querySelector('img, figure, [data-upd-image]') &&
+        $('#updNotes').textContent.includes('第二行') &&
+        !/pairing\.png|配对码加入|危险图片|javascript:/.test($('#updNotes').textContent),
     );
-    updateImage?.dispatchEvent(new Event('error'));
-    t('更新配图加载失败保留说明和查看入口', updateImage?.hidden && !$('#updNotes .upd-image-fallback').hidden);
-    $('#updNotes .upd-image-open').click();
-    t('更新配图可以点击查看大图', openedImages[0] === 'https://example.com/pairing.png');
     $('#updGo').click();
     await pause(40);
     t(

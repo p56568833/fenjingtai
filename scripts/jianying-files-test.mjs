@@ -2,14 +2,14 @@
    全程用临时目录 + 注入的媒体工具/时钟/ID，不启动剪映、不读真实草稿库、不写用户目录。
    覆盖：schema 引用完整性、特殊字符路径、同名去重、定格抽帧、取消、磁盘不足、
         索引冲突/不可解析/剪映运行中、重复导出、素材只指最终路径、原子提交失败回滚、
-        IPC 参数校验/任务身份/取消/事件解绑、平台探测与设备指纹降级、版本识别（仅 11.6.0 已适配）。
+        IPC 参数校验/任务身份/取消/事件解绑、平台探测与设备指纹降级、版本识别（仅 11.6.0 / 11.6.13345 已适配）。
    用法：node scripts/jianying-files-test.mjs */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { targetStatusOf, isVerifiedVersion } from '../renderer/src/core/jianying-target.js';
+import { targetStatusOf, isVerifiedVersion, VERIFIED_VERSIONS } from '../renderer/src/core/jianying-target.js';
 
 const require = createRequire(import.meta.url);
 const exporter = require('../electron/jianying-export.js');
@@ -1321,10 +1321,12 @@ test('平台探测：版本不在 11.6 时标记不支持，找不到应用时�
   );
 });
 
-/* 版本识别：只有 Mac 剪映专业版 11.6.0 实测过，其他版本不生成、不登记。
-   同时断言真实 detect() 结果与界面可见文案（targetStatusOf）同源。 */
-test('版本识别：仅 11.6.0 已适配，11.6.1 / 11.6.99 / 11.7.0 不生成不登记', () => {
-  for (const version of ['11.6.0', '11.6.1', '11.6.99', '11.7.0']) {
+/* 版本识别：只有 Mac 剪映专业版 11.6.0 / 11.6.13345 实测过，其他版本不生成、不登记。
+   同时断言真实 detect() 结果与界面可见文案（targetStatusOf）同源，主进程与界面的名单一致。 */
+test('版本识别：仅 11.6.0 / 11.6.13345 已适配，11.6.1 / 11.6.99 / 11.7.0 不生成不登记', () => {
+  assert.deepEqual([...platform.VERIFIED_VERSIONS], ['11.6.0', '11.6.13345'], '主进程实测名单');
+  assert.deepEqual([...VERIFIED_VERSIONS], [...platform.VERIFIED_VERSIONS], '界面与主进程名单一致');
+  for (const version of ['11.6.0', '11.6.13345', '11.6.1', '11.6.99', '11.7.0']) {
     const root = tmpRoot(`版本${version}`);
     const fixture = makePlatformFixture(root, { version });
     fs.writeFileSync(
@@ -1332,14 +1334,14 @@ test('版本识别：仅 11.6.0 已适配，11.6.1 / 11.6.99 / 11.7.0 不生成�
       JSON.stringify({ all_draft_store: [], root_path: fixture.library }),
     );
     const detected = fixture.detect();
-    const verified = version === '11.6.0';
+    const verified = version === '11.6.0' || version === '11.6.13345';
     assert.equal(detected.version, version);
     assert.equal(detected.supported, verified, `${version} supported`);
     assert.equal(detected.canRegister, verified, `${version} canRegister`);
     const unsupported = detected.issues.filter(item => item.code === 'version-unsupported');
     assert.equal(unsupported.length, verified ? 0 : 1, `${version} version-unsupported issue`);
     if (!verified) {
-      assert.match(unsupported[0].message, /11\.6\.0/);
+      assert.match(unsupported[0].message, /11\.6\.0 \/ 11\.6\.13345/);
       assert.match(unsupported[0].message, /未验证/);
       assert.match(unsupported[0].message, /不生成草稿、不登记草稿库/);
     }
@@ -1354,9 +1356,10 @@ test('版本识别：仅 11.6.0 已适配，11.6.1 / 11.6.99 / 11.7.0 不生成�
     }
   }
 
-  // 不把其他字符串“规范化”成 11.6.0：空、带补丁位、带后缀都不算
-  for (const version of ['', '11.6.0.1', '11.6.0-beta', '11.6', ' 11.6.0 ']) {
-    assert.equal(isVerifiedVersion(version), false, `${JSON.stringify(version)} 不应视为 11.6.0`);
+  // 不把其他字符串“规范化”成已验证版本：空、带补丁位、带后缀、构建号都不算
+  for (const version of ['', '11.6.0.1', '11.6.0-beta', '11.6', ' 11.6.0 ', '11.6.13345.1', ' 11.6.13345', '11.7.0-beta5']) {
+    assert.equal(isVerifiedVersion(version), false, `${JSON.stringify(version)} 不应视为已验证版本`);
+    assert.equal(platform.isVerifiedVersion(version), false, `主进程：${JSON.stringify(version)} 不应视为已验证版本`);
   }
   const unknownRoot = tmpRoot('版本未知');
   const unknownFixture = makePlatformFixture(unknownRoot, { version: '' });

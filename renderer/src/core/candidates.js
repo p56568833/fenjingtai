@@ -9,6 +9,8 @@ import {
   usableSeconds,
   candidateChanged,
   forWindow,
+  localVideoPath,
+  isCandidateSource,
 } from './candidate-values.js';
 export * from './candidate-values.js';
 export * from './candidate-placement.js';
@@ -211,9 +213,13 @@ export function validateCandidateDoc(doc) {
           add(cw, `for "${c.for}" 必须在这个画面的 lines "${s.lines}" 范围内（连续的几句）`);
       }
       if (!filled(c.title)) add(cw, 'title 必须写中文标题');
-      if (typeof c.url !== 'string' || !URL_RE.test(c.url))
-        add(cw, 'url 必须是能直接播放的视频文件地址（http / https）');
-      else if (videoUrlIssue(c.url)) add(cw, videoUrlIssue(c.url));
+      const local = localVideoPath(c.url); // 这台电脑上的视频文件（自己截好的片段，自己审）
+      if (!local && (typeof c.url !== 'string' || !URL_RE.test(c.url)))
+        add(
+          cw,
+          'url 必须是能直接播放的视频文件地址（http / https），或这台电脑上视频文件的完整路径（如 "/Users/me/素材/第12句.mp4"）',
+        );
+      else if (!local && videoUrlIssue(c.url)) add(cw, videoUrlIssue(c.url));
       if (c.page != null && (typeof c.page !== 'string' || !URL_RE.test(c.page)))
         add(cw, 'page 必须是网页地址（http / https）');
       if (!isNum(c.in) || c.in < 0) add(cw, 'in 必须是秒数（数字，≥ 0），不要写 "1:41" 或带引号');
@@ -322,10 +328,10 @@ export function planImport(doc, srcFile, rows, existing = [], { tl, reworkReques
     const row = range && byNo.get(range.from);
     const members = row ? shotMembers(rows, row) : [];
     s.cands.forEach((raw, seq) => {
-      const url = String(raw.url || '').trim();
+      const url = localVideoPath(raw.url) || String(raw.url || '').trim();
       const tin = parseClock(raw.in),
         tout = parseClock(raw.out);
-      if (!row || !/^https?:\/\//i.test(url) || !(tout > tin)) {
+      if (!row || !isCandidateSource(url) || !(tout > tin)) {
         skipped.push(`${s.lines || '?'} ${raw.key || ''}`.trim());
         return;
       }
@@ -456,7 +462,7 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
     const url = String(raw.url || '').trim();
     const tin = parseClock(raw.in),
       tout = parseClock(raw.out);
-    if (!/^https?:\/\//i.test(url) || !(tout > tin)) continue;
+    if (!isCandidateSource(url) || !(tout > tin)) continue;
     const rowId = idMap.has(raw.rowId) ? idMap.get(raw.rowId) : raw.rowId;
     if (!rowIds.has(rowId)) continue;
     // v4 起每个候选都记着给哪几句；没有的是旧格式导入的候选，不再保留（已通过挂上的素材留在表格里）

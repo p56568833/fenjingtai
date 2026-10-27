@@ -3,7 +3,7 @@
 import { state } from '../app/state.js';
 import { fileUrl } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
-import { cleanBest } from '../core/candidate-values.js';
+import { cleanBest, playableUrl } from '../core/candidate-values.js';
 import {
   loadMetadata,
   seekVideoFrame,
@@ -87,7 +87,7 @@ async function grab(job, signal) {
   v.preload = 'auto';
   const load = async source => {
     const ready = loadMetadata(v, 30000, { signal });
-    v.src = source.split('#')[0];
+    v.src = playableUrl(source);
     await ready;
   };
   try {
