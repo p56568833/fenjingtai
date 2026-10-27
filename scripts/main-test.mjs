@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { shouldIgnore } from './package-filter.mjs';
 import { buildManifest, checkNotes, extractNotes, notesHistory } from './release-manifest.mjs';
 
@@ -887,6 +888,93 @@ test('更新：解压后核对是不是分镜台、版本对不对；不对就�
     fs.readdirSync(parent).filter(f => f !== path.basename(good.stage)),
     [],
     '失败的都清掉了',
+  );
+});
+test('增量更新：运行时指纹一致才给 1 MB 增量包，否则只给完整安装包', () => {
+  const patch = { runtime: '44.4.5-abc', size: 600000, sha256: 'C'.repeat(64), asarSha256: 'd'.repeat(64) };
+  const m = buildManifest({
+    version: '2.1.3',
+    notes: '一',
+    files: [{ name: 'FenJingTai-mac-arm64.zip', size: 120e6, sha256: 'a'.repeat(64) }],
+    patch,
+  });
+  assert.equal(m.patch.name, up.PATCH_NAME);
+  assert.equal(m.patch.url, `https://github.com/${up.REPO}/releases/download/v2.1.3/${up.PATCH_NAME}`);
+  const same = up.pickManifest(m, { current: '2.1.2', arch: 'arm64', runtime: '44.4.5-abc' });
+  assert.deepEqual(same.patch, {
+    url: m.patch.url,
+    size: 600000,
+    sha256: 'c'.repeat(64),
+    asarSha256: 'd'.repeat(64),
+  });
+  assert.equal(same.size, 120e6, '完整安装包照样留着，增量失败时退回');
+  assert.equal(up.pickManifest(m, { current: '2.1.2', arch: 'arm64', runtime: '45.0.0-xyz' }).patch, undefined);
+  assert.equal(up.pickManifest(m, { current: '2.1.2', arch: 'arm64' }).patch, undefined, '老版本没有指纹');
+  const bad = { ...m, patch: { ...m.patch, asarSha256: 'x' } };
+  assert.equal(up.pickManifest(bad, { current: '2.1.2', arch: 'arm64', runtime: '44.4.5-abc' }).patch, undefined);
+  assert.equal(buildManifest({ version: '2.1.3', files: [] }).patch, undefined, '不发增量时清单里没有 patch');
+});
+await atest('增量更新：app.asar 文件头哈希和 Electron 写进 Info.plist 的一致', async () => {
+  const { createPackageWithOptions, getRawHeader } = require('@electron/asar');
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, 'src', 'electron'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src', 'package.json'), '{"name":"x","version":"9.9.9"}');
+  fs.writeFileSync(path.join(dir, 'src', 'electron', 'main.js'), 'console.log(1)');
+  const asar = path.join(dir, 'app.asar');
+  await createPackageWithOptions(path.join(dir, 'src'), asar, { dot: true });
+  const expected = createHash('sha256').update(getRawHeader(asar).headerString).digest('hex');
+  assert.equal(up.asarHeaderHash(fs.readFileSync(asar)), expected);
+  assert.throws(() => up.asarHeaderHash(Buffer.from('not an asar file at all')), /不是有效/);
+});
+test('增量更新：复制当前应用、换上新 app.asar、改版本号和校验值、重新签名；校验不过就清掉', () => {
+  const parent = tmp();
+  const current = path.join(tmp(), '分镜台.app');
+  const asar = Buffer.alloc(64);
+  asar.writeUInt32LE(4, 0);
+  const header = '{"files":{}}';
+  asar.writeUInt32LE(header.length, 12);
+  asar.write(header, 16);
+  const gz = path.join(tmp(), up.PATCH_NAME);
+  fs.writeFileSync(gz, zlib.gzipSync(asar));
+  const asarSha256 = createHash('sha256').update(asar).digest('hex');
+  const calls = [];
+  const plist = {};
+  const run = (cmd, args) => {
+    calls.push([path.basename(cmd), ...args]);
+    if (cmd === '/bin/cp') fs.mkdirSync(path.join(args.at(-1), 'Contents', 'Resources'), { recursive: true });
+    if (cmd.endsWith('plutil') && args[0] === '-replace') plist[args[1]] = args.at(-2);
+    if (cmd.endsWith('plutil') && args[0] === '-extract')
+      return args[1] === 'CFBundleIdentifier' ? up.BUNDLE_ID : plist[args[1]] || '';
+    return '';
+  };
+  const r = up.preparePatch(gz, { parent, app: current, version: '2.1.3', asarSha256, run });
+  assert.ok(r.ok, r.error);
+  assert.ok(path.basename(r.stage).startsWith('.分镜台-更新-') && r.app === path.join(r.stage, '分镜台.app'));
+  assert.deepEqual(fs.readFileSync(path.join(r.app, 'Contents', 'Resources', 'app.asar')), asar);
+  assert.equal(plist.CFBundleShortVersionString, '2.1.3');
+  assert.equal(
+    JSON.parse(plist.ElectronAsarIntegrity)['Resources/app.asar'].hash,
+    createHash('sha256').update(header).digest('hex'),
+  );
+  const sign = calls.findIndex(c => c[0] === 'codesign' && c.includes('--sign'));
+  const verify = calls.findIndex(c => c[0] === 'codesign' && c.includes('--verify'));
+  assert.ok(sign >= 0 && verify > sign, '先重新签名再核对');
+  const wrong = up.preparePatch(gz, { parent, app: current, version: '2.1.3', asarSha256: 'f'.repeat(64), run });
+  assert.match(wrong.error, /校验没通过/);
+  assert.deepEqual(
+    fs.readdirSync(parent).filter(f => f !== path.basename(r.stage)),
+    [],
+    '失败的都清掉了',
+  );
+  assert.equal(
+    up.readRuntime(current, () => '44.4.5-abc\n'),
+    '44.4.5-abc',
+  );
+  assert.equal(
+    up.readRuntime(current, () => {
+      throw new Error('没有这一项');
+    }),
+    '',
   );
 });
 test('更新：换新版的脚本先等应用退出，换不上就把旧版放回去，最后重新打开', () => {

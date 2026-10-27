@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { installAppIcon } from './app-icon.mjs';
 import { applyAppPlist } from './app-plist.mjs';
+import { stampRuntime } from './app-runtime.mjs';
 import { fileURLToPath } from 'node:url';
 
 if (process.platform !== 'darwin') throw new Error('只能在 macOS 上安装');
@@ -52,6 +53,7 @@ try {
     },
   };
   run('/usr/bin/plutil', ['-replace', 'ElectronAsarIntegrity', '-json', JSON.stringify(integrity), plist]);
+  stampRuntime(app); // 运行时指纹：软件内更新据此判断能不能只下增量包
   run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app]);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
   console.log(`已构建 ${version} 并校验签名`);

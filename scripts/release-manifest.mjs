@@ -1,14 +1,18 @@
 /* 发版清单 latest.json：和 zip / dmg 一起上传到 GitHub Release。软件内更新先读它——
    github.com/<仓库>/releases/latest/download/latest.json 是普通文件下载，不占 GitHub API
    「每个公网 IP 每小时 60 次」的匿名额度。package.mjs 打完包自动生成，也单独导出方便测试。
-   格式：{ version, notes, history: [{ version, notes }], page, assets: [{ name, size, sha256, url }] } */
+   格式：{ version, notes, history: [{ version, notes }], page, assets: [{ name, size, sha256, url }],
+          patch: { runtime, name, size, sha256, asarSha256, url } }
+   patch 是只含应用代码的增量包，运行时指纹（Info.plist 的 FenJingTaiRuntime）相同的已装版本只下它；
+   老版本不认识 patch，照旧下载 assets 里的完整安装包 */
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { textOnlyNotes } from '../renderer/src/core/update-notes.js';
 
-const { REPO, MANIFEST_NAME } = createRequire(import.meta.url)('../electron/updater.js');
+const { REPO, MANIFEST_NAME, PATCH_NAME } = createRequire(import.meta.url)('../electron/updater.js');
+export { PATCH_NAME };
 
 /* UPDATE-NOTES.md 按「# 分镜台 x.y.z」分节、节之间用 --- 隔开；取出某一版的正文，找不到返回空串 */
 export function extractNotes(markdown, version) {
@@ -92,8 +96,9 @@ export function notesHistory(markdown, limit = 15) {
 }
 
 /* files: [{ name, size, sha256 }]；下载地址指向 tag v<版本号>（发版约定 tag = v + package.json 版本号） */
-export function buildManifest({ version, notes = '', files, history = [] }) {
+export function buildManifest({ version, notes = '', files, history = [], patch = null }) {
   const v = String(version).trim().replace(/^v/i, '');
+  const download = name => `https://github.com/${REPO}/releases/download/v${v}/${name}`;
   return {
     version: v,
     notes: textOnlyNotes(notes),
@@ -103,18 +108,36 @@ export function buildManifest({ version, notes = '', files, history = [] }) {
       name: f.name,
       size: f.size,
       sha256: f.sha256,
-      url: `https://github.com/${REPO}/releases/download/v${v}/${f.name}`,
+      url: download(f.name),
     })),
+    ...(patch
+      ? {
+          patch: {
+            runtime: patch.runtime,
+            name: PATCH_NAME,
+            size: patch.size,
+            sha256: patch.sha256,
+            asarSha256: patch.asarSha256,
+            url: download(PATCH_NAME),
+          },
+        }
+      : {}),
   };
 }
 
-export function writeManifest(dir, { version, notes, zips, history = [] }) {
-  const files = zips.map(p => ({
-    name: path.basename(p),
-    size: statSync(p).size,
-    sha256: createHash('sha256').update(readFileSync(p)).digest('hex'),
-  }));
+const fileSha = p => createHash('sha256').update(readFileSync(p)).digest('hex');
+
+/* patch：{ file, runtime, asarSha256 } 或 null（这一版不发增量包） */
+export function writeManifest(dir, { version, notes, zips, history = [], patch = null }) {
+  const files = zips.map(p => ({ name: path.basename(p), size: statSync(p).size, sha256: fileSha(p) }));
+  const patchInfo = patch && {
+    runtime: patch.runtime,
+    size: statSync(patch.file).size,
+    sha256: fileSha(patch.file),
+    asarSha256: patch.asarSha256,
+  };
   const out = path.join(dir, MANIFEST_NAME);
-  writeFileSync(out, JSON.stringify(buildManifest({ version, notes, files, history }), null, 2) + '\n');
+  const manifest = buildManifest({ version, notes, files, history, patch: patchInfo });
+  writeFileSync(out, JSON.stringify(manifest, null, 2) + '\n');
   return out;
 }

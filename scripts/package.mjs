@@ -1,19 +1,32 @@
 #!/usr/bin/env node
 /* 一键打发布包：@electron/packager 出 Apple Silicon(arm64) + Intel(x64) 两个 分镜台.app，
    ad-hoc 签名（macOS 要求至少 ad-hoc 才能启动），每个架构产出一个 .dmg（带「拖到 Applications」
-   快捷方式）和一个 .zip（给脚本/curl 和软件内更新下载），再生成一份 latest.json（软件内更新先读它，
-   不占 GitHub API 匿名额度），统一落在临时 .noindex 目录，文件名用 ASCII 方便直链。
+   快捷方式）和一个 .zip（给脚本/curl 和软件内更新下载）；再出一个只含应用代码的增量包
+   FenJingTai-app.asar.gz（约 1 MB，Electron 本体没变的老用户软件内更新只下它），最后生成 latest.json
+   （软件内更新先读它，不占 GitHub API 匿名额度），统一落在临时 .noindex 目录，文件名用 ASCII 方便直链。
    用法：npm run package */
 import { packager } from '@electron/packager';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import { installAppIcon } from './app-icon.mjs';
 import { applyAppPlist } from './app-plist.mjs';
+import { stampRuntime } from './app-runtime.mjs';
 import { shouldIgnore } from './package-filter.mjs';
-import { checkNotes, extractNotes, notesHistory, writeManifest } from './release-manifest.mjs';
+import { checkNotes, extractNotes, notesHistory, PATCH_NAME, writeManifest } from './release-manifest.mjs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,6 +85,7 @@ async function buildOne(arch) {
     'public.app-category.video',
     plist,
   ]);
+  const runtime = stampRuntime(APP); // 运行时指纹：要在 Info.plist 全部改完之后、签名之前
   // 图标和 Info.plist 都动过了，原有签名已失效；重新 ad-hoc 签一遍，arm64 没签名根本起不来
   sh('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', APP]);
   utimesSync(APP, new Date(), new Date()); // 摸一下 mtime，让 Finder 刷新图标缓存
@@ -90,23 +104,46 @@ async function buildOne(arch) {
   const dmgPath = path.join(RELEASE_DIR, `${stem}.dmg`);
   sh('/usr/bin/hdiutil', ['create', '-volname', '分镜台', '-srcfolder', stage, '-ov', '-format', 'UDZO', dmgPath]);
   rmSync(stage, { recursive: true, force: true });
+  const asar = path.join(BUILD_ROOT, `app-${arch}.asar`);
+  copyFileSync(path.join(APP, 'Contents/Resources/app.asar'), asar);
   rmSync(out[0], { recursive: true, force: true });
 
   const size = n => (statSync(n).size / 1048576).toFixed(1) + ' MB';
   console.log(`[${arch}] 完成：\n  ${zipPath}（${size(zipPath)}）\n  ${dmgPath}（${size(dmgPath)}）`);
-  return zipPath;
+  return { zipPath, runtime, asar };
+}
+
+/* 增量包：两个芯片的 app.asar 和运行时指纹应当一模一样（应用代码不含原生模块），一样才发；
+   不一样就不发增量，所有人照旧下载完整安装包 */
+function buildPatch(builds) {
+  const sha = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+  const [first, ...rest] = builds;
+  const asarSha256 = sha(first.asar);
+  if (rest.some(b => b.runtime !== first.runtime || sha(b.asar) !== asarSha256)) {
+    console.warn('[增量] 两个芯片的应用代码或运行时不一致，这一版不发增量包');
+    return null;
+  }
+  const file = path.join(RELEASE_DIR, PATCH_NAME);
+  writeFileSync(file, gzipSync(readFileSync(first.asar), { level: 9 }));
+  console.log(`[增量] ${file}（${(statSync(file).size / 1048576).toFixed(2)} MB，运行时 ${first.runtime}）`);
+  return { file, runtime: first.runtime, asarSha256 };
 }
 
 try {
-  const zips = [];
-  for (const arch of ['arm64', 'x64']) zips.push(await buildOne(arch));
+  const builds = [];
+  for (const arch of ['arm64', 'x64']) builds.push(await buildOne(arch));
+  const zips = builds.map(b => b.zipPath);
+  const patch = buildPatch(builds);
+  for (const b of builds) rmSync(b.asar, { force: true });
   const { version } = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const notesMd = readFileSync(path.join(ROOT, 'UPDATE-NOTES.md'), 'utf8');
   const notes = extractNotes(notesMd, version);
-  const manifest = writeManifest(RELEASE_DIR, { version, notes, zips, history: notesHistory(notesMd) });
+  const manifest = writeManifest(RELEASE_DIR, { version, notes, zips, patch, history: notesHistory(notesMd) });
   console.log(`[清单] ${manifest}（软件内更新先读它，不占 GitHub API 次数）`);
   console.log(`\n全部完成，发布物在 ${RELEASE_DIR}（arm64 = M 系列芯片，x64 = Intel 芯片）`);
-  console.log(`发布：GitHub Release 的 tag 写 v${version}，把目录里的 2 个 zip、2 个 dmg 和 latest.json 全部上传。`);
+  console.log(
+    `发布：GitHub Release 的 tag 写 v${version}，把目录里的 2 个 zip、2 个 dmg、${patch ? `${PATCH_NAME}、` : ''}latest.json 全部上传。`,
+  );
   console.log('上传后请删除整个临时构建目录。');
 } catch (error) {
   rmSync(BUILD_ROOT, { recursive: true, force: true });

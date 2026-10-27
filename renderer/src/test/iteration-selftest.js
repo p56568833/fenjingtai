@@ -47,10 +47,15 @@ export async function runIterationTests(t) {
   t('新类型出现在筛选条', $$('.chip-filter[data-f="t1"]').length === 1);
   t('类型列快捷键提示跟着变', $('#typeKeys').textContent === '1-6');
   document.activeElement?.blur?.();
+  const mapFilter = $('.chip-filter[data-f="t1"]');
   select(lines()[0].id);
   key(document.body, '6');
   await pause(20);
   t('第 6 个类型按 6 标注', lines()[0].type === 't1', `type=${lines()[0].type}`);
+  t(
+    '统计变化时筛选标签原地更新（按钮不被换掉，点击不会丢）',
+    $('.chip-filter[data-f="t1"]') === mapFilter && !mapFilter.classList.contains('empty'),
+  );
   const chip = $(`.row[data-id="${lines()[0].id}"] .tchip`);
   t(
     '类型标签用自定义短名和颜色，全名在悬停提示里',

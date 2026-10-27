@@ -1,6 +1,7 @@
 /* 应用内更新的通道：检查、下载校验、取消、退出时换上新版 */
 const { app, net } = require('electron');
-const fs = require('node:fs');
+// Electron 里 fs 会把 .asar 当成文件夹；换应用、写 app.asar、删临时文件夹都要按普通文件处理
+const fs = process.versions.electron ? require('original-fs') : require('node:fs');
 const path = require('node:path');
 const updater = require('./updater');
 
@@ -26,15 +27,19 @@ function registerUpdateIpc({ handle, isSelftest }) {
     const current = app.getVersion();
     // 开发版 / 自测不在启动时自动联网检查（手动「检查更新…」照常可以看）
     if (auto && (!app.isPackaged || isSelftest)) return { ok: true, available: false, skipped: true, current };
-    const r = await updater.checkForUpdate({ current, arch: process.arch, fetchImpl: net.fetch });
-    if (r.ok && r.available) update.info = r;
     const where = whereInstalled();
+    const runtime = where.ok ? updater.readRuntime(where.app) : '';
+    const r = await updater.checkForUpdate({ current, arch: process.arch, runtime, fetchImpl: net.fetch });
+    if (r.ok && r.available) update.info = r;
     return {
       ...r,
+      // 能走增量时显示增量包的大小（约 1 MB），不再显示完整安装包的大小
+      size: r.patch?.size || r.size,
+      delta: !!r.patch,
       current,
-      canInstall: where.ok && !!r.url,
+      canInstall: where.ok && !!(r.url || r.patch),
       reason: where.ok
-        ? r.available && !r.url
+        ? r.available && !r.url && !r.patch
           ? '这一版没有适合这台电脑的更新包，请到下载页面下载'
           : ''
         : where.reason,
@@ -43,7 +48,7 @@ function registerUpdateIpc({ handle, isSelftest }) {
   });
   handle('update:download', async e => {
     const info = update.info;
-    if (!info?.url) return { ok: false, error: '没有可下载的更新包' };
+    if (!info?.url && !info?.patch) return { ok: false, error: '没有可下载的更新包' };
     const where = whereInstalled();
     if (!where.ok) return { ok: false, error: where.reason };
     if (update.ctl) return { ok: false, error: '正在下载更新' };
@@ -51,21 +56,49 @@ function registerUpdateIpc({ handle, isSelftest }) {
     const ctl = new AbortController();
     update.ctl = ctl;
     const dir = fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台更新-'));
+    const onProgress = (got, total) => sendUpdate(e, { phase: 'download', got, total });
     try {
-      const d = await updater.downloadUpdate(info, path.join(dir, updater.assetName(process.arch)), {
-        fetchImpl: net.fetch,
-        signal: ctl.signal,
-        onProgress: (got, total) => sendUpdate(e, { phase: 'download', got, total }),
-      });
-      if (!d.ok) return d;
-      sendUpdate(e, { phase: 'verify' });
-      const p = updater.prepareUpdate(d.path, { parent: where.parent, version: info.version });
-      if (!p.ok) return p;
+      let p = null;
+      let verified = false;
+      // ① 增量：只下应用代码（约 1 MB），套在当前应用上；任何一步不成就退回完整安装包
+      if (info.patch) {
+        const d = await updater.downloadUpdate(info.patch, path.join(dir, updater.PATCH_NAME), {
+          fetchImpl: net.fetch,
+          signal: ctl.signal,
+          onProgress,
+        });
+        if (d.canceled) return d;
+        if (d.ok) {
+          sendUpdate(e, { phase: 'verify' });
+          const r = updater.preparePatch(d.path, {
+            parent: where.parent,
+            app: where.app,
+            version: info.version,
+            asarSha256: info.patch.asarSha256,
+          });
+          if (r.ok) [p, verified] = [r, true];
+          else console.warn('[更新] 增量包没用上，改下载完整安装包：', r.error);
+        } else console.warn('[更新] 增量包下载失败，改下载完整安装包：', d.error);
+      }
+      // ② 完整安装包
+      if (!p) {
+        if (!info.url) return { ok: false, error: '没有可下载的更新包' };
+        const d = await updater.downloadUpdate(info, path.join(dir, updater.assetName(process.arch)), {
+          fetchImpl: net.fetch,
+          signal: ctl.signal,
+          onProgress,
+        });
+        if (!d.ok) return d;
+        sendUpdate(e, { phase: 'verify' });
+        p = updater.prepareUpdate(d.path, { parent: where.parent, version: info.version });
+        if (!p.ok) return p;
+        verified = d.verified;
+      }
       // 之前下好的旧一版（下好后又发了新版）：换掉，临时文件夹一起清掉
       if (update.prepared && update.prepared.stage !== p.stage)
         fs.rmSync(update.prepared.stage, { recursive: true, force: true });
       update.prepared = { ...p, target: where.app, version: info.version };
-      return { ok: true, version: info.version, verified: d.verified };
+      return { ok: true, version: info.version, verified };
     } finally {
       update.ctl = null;
       fs.rmSync(dir, { recursive: true, force: true });
