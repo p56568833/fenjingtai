@@ -123,11 +123,15 @@ function takePatch() {
   };
 }
 
+/* 防抖最多推迟 2 秒：改动一直不停（比如协作对方连续改）也会按时落盘，不会一直「保存中」 */
+const SAVE_MAX_WAIT = 2000;
+let pendingSince = 0;
 function schedule(now = false) {
   const version = ++revision;
   saveHook('saving');
   clearTimeout(saveTimer);
-  if (now) doSave(version);
+  pendingSince ||= Date.now();
+  if (now || Date.now() - pendingSince >= SAVE_MAX_WAIT) doSave(version);
   else saveTimer = setTimeout(() => doSave(version), 400);
 }
 
@@ -158,6 +162,7 @@ export const collabOf = id => library?.projects?.[id]?.collab || null;
 /* 写盘；失败（磁盘满 / 权限）时 5 秒后自动重试，不等下一次改动才再试 */
 async function doSave(version) {
   clearTimeout(retryTimer);
+  pendingSince = 0;
   if (!hasPending()) {
     if (version === revision) saveHook('saved');
     return;

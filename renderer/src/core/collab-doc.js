@@ -175,7 +175,12 @@ export function localRow(shared, ctx) {
     });
   return out;
 }
-export function sharedAsset(a, ctx) {
+const ownAsset = a => Object.fromEntries(Object.entries(a).filter(([k]) => !ASSET_SKIP.has(k)));
+/* 本机路径换过的素材（保存到本地的片段、从对方取来 / 重新定位的文件）名字换算不回去：
+   base 那条换算到本机后和现在一样，就原样用 base 的，不然两边会为素材名来回改个没完 */
+const mappedAsset = (a, ctx) => !!(localSaved(ctx, a.id) || ctx.reverse[a.path]);
+export function sharedAsset(a, ctx, baseAsset = null) {
+  if (baseAsset && stable(ownAsset(localAsset(baseAsset, ctx))) === stable(ownAsset(a))) return clone(baseAsset);
   const out = {};
   for (const [k, v] of Object.entries(a)) if (!ASSET_SKIP.has(k) && v !== undefined) out[k] = clone(v);
   const c = localSaved(ctx, a.id);
@@ -289,9 +294,10 @@ export function diffProject(base, project, ctx, site = '') {
   }
   const assets = project.assets || {};
   for (const [id, a] of Object.entries(assets)) {
-    const s = sharedAsset(a, ctx),
+    const prevStr = base.assets[id];
+    const s = sharedAsset(a, ctx, prevStr !== undefined && mappedAsset(a, ctx) ? JSON.parse(prevStr) : null),
       str = stable(s);
-    if (base.assets[id] !== str) {
+    if (prevStr !== str) {
       ops.push({ t: 'a', id, v: s });
       base.assets[id] = str;
     }

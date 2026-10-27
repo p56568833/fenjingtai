@@ -326,6 +326,46 @@ test('重新定位失联文件只算本机：访客找回的路径不传给主�
   assert.equal(fingerprint(guest.p, guest.rep.pathMap), fingerprint(host.p));
 });
 
+test('主机保存过的片段，访客从主机取到本机后：两边不会为素材名来回改个没完', () => {
+  const project = sample();
+  const c = {
+    id: 'c1',
+    key: 'k1',
+    rowId: 3,
+    forIds: [3],
+    title: '网吧大厅开黑',
+    url: '/Users/host/素材/B站补充/第3句_网吧实拍.mp4',
+    in: 0,
+    out: 9.5,
+    decision: 'ok',
+  };
+  project.candidates = [c];
+  c.assetId = attachCandidate(c, project.rows, project.assets).assetId;
+  const { host, guest, settle } = pair(project);
+  const hc = host.p.candidates[0];
+  hc.savedPath = '/Users/host/素材/第3句_网吧大厅开黑_0m00s-0m10s.mp4';
+  swapToLocal(hc, hc.savedPath, host.p.rows, host.p.assets);
+  settle();
+  // 访客从主机取到这段，存成自己电脑上的文件（应用层记一条本机路径映射）
+  const shared = guest.p.assets[c.assetId].path;
+  assert.equal(shared, remotePath(c));
+  const local = '/Users/guest/下载/第3句_网吧实拍.mp4';
+  guest.rep.pathMap[shared] = local;
+  Object.assign(guest.p.assets[c.assetId], { path: local, name: '第3句_网吧实拍.mp4' });
+  settle();
+  assert.equal(localChanges(host.rep, host.p), null, '主机没有多余改动');
+  assert.equal(localChanges(guest.rep, guest.p), null, '访客没有多余改动');
+  assert.equal(host.p.assets[c.assetId].path, hc.savedPath);
+  assert.equal(guest.p.assets[c.assetId].path, local);
+  // 之后主机真改了素材，访客照常收到，本机路径不变
+  host.p.assets[c.assetId].note = '用前 5 秒';
+  settle();
+  assert.equal(guest.p.assets[c.assetId].note, '用前 5 秒');
+  assert.equal(guest.p.assets[c.assetId].path, local);
+  assert.equal(localChanges(host.rep, host.p), null);
+  assert.equal(localChanges(guest.rep, guest.p), null);
+});
+
 test('口播音频：访客把它定位到自己电脑上，主机的口播路径不变；主机改了时长访客照常收到', () => {
   const project = sample();
   project.voice = { path: '/Users/host/口播.wav', name: '口播.wav', duration: 60 };
