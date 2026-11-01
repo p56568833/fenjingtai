@@ -1,7 +1,6 @@
 import { viewState } from '../app/view-state.js';
 /* 选区操作条：勾选 / Shift / ⌘ 选了句子时从表格底部浮出来（已选 N 句 · 共用一个画面 · 解除共用 · 取消）。
-   多选句子不需要单独的模式按钮：悬停行首就有勾选框，Shift 点选连续、⌘ 点选跳选。
-   viewState.multiMode（逐句点选模式）仍保留给原文视图的键盘勾选和自测用，界面上不再露出开关。 */
+   悬停行首就有勾选框，Shift 点选连续、⌘ 点选跳选。 */
 import { state } from '../app/state.js';
 import { update } from '../app/project-events.js';
 import { rowById, types } from '../app/project-queries.js';
@@ -14,16 +13,7 @@ import { roll } from './base/motion.js';
 
 const $ = s => document.querySelector(s);
 
-export function setMultiMode(on) {
-  viewState.multiMode = on;
-  viewState.sel = null;
-  viewState.multi = null;
-  closePop();
-  update('selection');
-}
-
 function clearSelection() {
-  if (viewState.multiMode) return setMultiMode(false);
   if (!viewState.multi) return;
   viewState.multi = null;
   closePop();
@@ -34,7 +24,7 @@ export function renderToolbar() {
   const ids = currentSelection().filter(id => rowById(id)?.kind === 'line');
   const ticked = checkedIds().length;
   const groups = new Set(ids.map(id => rowById(id).groupId).filter(Boolean));
-  const show = ids.length > 1 || ticked > 0 || viewState.multiMode;
+  const show = ids.length > 1 || ticked > 0;
   const count = $('#selCount');
   const wasShown = !count.hidden;
   count.hidden = !show;

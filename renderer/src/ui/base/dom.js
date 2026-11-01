@@ -85,8 +85,8 @@ export function initModal() {
 
 /* 把某句（或它所在的共用画面）带进视口 */
 export function revealRow(id, block = 'nearest') {
-  const el = document.querySelector(`.row[data-id="${id}"],.as[data-id="${id}"]`);
-  (el?.closest('.shared-scene,.shared-passage') || el)?.scrollIntoView({ block });
+  const el = document.querySelector(`.row[data-id="${id}"]`);
+  (el?.closest('.shared-scene') || el)?.scrollIntoView({ block });
   return el;
 }
 

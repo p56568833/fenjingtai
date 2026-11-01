@@ -62,7 +62,6 @@ const caretOffset = el => {
 };
 
 export async function runSelfTest() {
-  viewState.autoAdvance = false;
   viewState.view = 'table';
   // 沙箱数据目录可能残留上个会话的空项目（比如 ux-check 删过项目）：没有句子就补一份示例
   if (!rows().length) {
@@ -398,120 +397,6 @@ export async function runSelfTest() {
   viewState.sel = rows()[0]?.id ?? null;
   update('rows');
 
-  /* ── 14. 勾选视图：先选句、再标类型；段落封顶续分 ── */
-  viewState.view = 'check';
-  update('rows');
-  await sleep(30);
-  t('勾选视图渲染（一句一 span）', $$('.as').length === rows().length, `${$$('.as').length}/${rows().length}`);
-  // 段落：demo 老数据没有 para 标记，靠 5 句 / 120 字封顶也要分出多段，不能一章一大块
-  const secCount = state.rows.filter(r => r.kind === 'section').length;
-  t('长内容强制分段', $$('.ck-p').length >= secCount + 2, `${$$('.ck-p').length} 段 / ${secCount} 章`);
-
-  // 注意：undo() 会把 state.rows 换成一批新对象，断言前必须按 id 重新取行，不能握旧引用
-  const blankId = rows().find(r => !r.type)?.id;
-  if (blankId) {
-    const rowOf = id => rows().find(r => r.id === id);
-    const sp = $(`.as[data-id="${blankId}"]`);
-    sp.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    t(
-      '单击＝选中（不标类型）',
-      viewState.sel === blankId && rowOf(blankId).type === null && sp.classList.contains('cur'),
-    );
-    key(document.body, '1');
-    await sleep(30);
-    t('按 1 标成 A roll', rowOf(blankId).type === 'a' && sp.classList.contains('st-a'), `type=${rowOf(blankId).type}`);
-    t('标完光标留在原句（不自动跳下一句）', viewState.sel === blankId);
-    undo();
-    await sleep(20);
-
-    viewState.sel = blankId;
-    viewState.multi = null;
-    update('selection');
-    key(document.body, '2');
-    await sleep(30);
-    t('按 2 标成 B·真实素材', rowOf(blankId).type === 'real', `type=${rowOf(blankId).type}`);
-    undo();
-    await sleep(20);
-
-    viewState.sel = blankId;
-    viewState.multi = null;
-    update('selection');
-    const spFresh = $(`.as[data-id="${blankId}"]`); // undo 会重建 DOM，旧引用已脱离
-    spFresh.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    await sleep(30);
-    const fxCard = document.querySelector('.popover.hovercard [data-ck-t="fx"]');
-    if (fxCard) {
-      fxCard.click();
-      await sleep(30);
-    }
-    t('点标注卡标类型', rowOf(blankId).type === 'fx', `type=${rowOf(blankId).type}`);
-    undo();
-  } else t('勾选视图：选句标注', false, '示例稿里没有未标句');
-
-  // 拖选几句 → 批量标
-  const idA = rows()[0].id,
-    idB = rows()[3].id;
-  $(`.as[data-id="${idA}"]`).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  $(`.as[data-id="${idB}"]`).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  await sleep(20);
-  t(
-    '拖选＝连选多句',
-    viewState.multi && viewState.multi.length === 4,
-    `multi=${viewState.multi && viewState.multi.length}`,
-  );
-  key(document.body, '3');
-  await sleep(30);
-  t(
-    '拖选后按键批量标注',
-    rows()
-      .slice(0, 4)
-      .every(r => r.type === 'stock'),
-    rows()
-      .slice(0, 4)
-      .map(r => r.type)
-      .join(','),
-  );
-  undo();
-
-  // 标注卡：选中即弹 → 点类型就地标；写批注
-  t('章节标题吸顶', getComputedStyle($('.ck-sec')).position === 'sticky');
-  const hovId = rows()[0].id;
-  const selSpan = () => $(`.as[data-id="${hovId}"]`);
-  selSpan().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  await sleep(30);
-  let card = document.querySelector('.popover.hovercard');
-  t('选中句子弹标注卡', !!card && !!card.querySelector('[data-ck-t="a"]') && !!card.querySelector('[data-ck-note]'));
-  if (card) {
-    card.querySelector('[data-ck-t="ai"]').click();
-    await sleep(30);
-    t('点标注卡标类型', rows().find(r => r.id === hovId).type === 'ai', rows().find(r => r.id === hovId).type);
-    undo();
-    await sleep(20);
-
-    // 批注：再选中 → 卡上点写批注 → 句子下方出编辑行 → Enter 保存为红字
-    selSpan().dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    await sleep(30);
-    card = document.querySelector('.popover.hovercard');
-    card.querySelector('[data-ck-note]').click();
-    await sleep(30);
-    const ed = $('.as-note-edit');
-    t('批注编辑器出现在句下', !!ed && ed.dataset.edit === String(hovId));
-    ed.textContent = '这段配城市夜景航拍';
-    key(ed, 'Enter');
-    await sleep(60);
-    const rHov = rows().find(r => r.id === hovId);
-    t('批注保存为红字行', rHov.note === '这段配城市夜景航拍' && !!$(`.as-note[data-note="${hovId}"]`), rHov.note);
-    undo();
-    await sleep(20);
-    t('批注可撤销', !rows().find(r => r.id === hovId).note);
-  }
-  selSpan().blur && selSpan().blur();
-  viewState.view = 'table';
-  update('rows');
-
   // PDF 分镜脚本：菜单入口、选项弹窗、快捷键隔离、排版结构
   {
     const { closePop } = await import('../ui/base/popover.js');
@@ -521,6 +406,21 @@ export async function runSelfTest() {
   await sleep(400); // 等前面用例残留的悬停卡定时器跑完，免得它把刚弹出的菜单关掉
   click($('#btnExport')); // 菜单同步弹出，立刻点，不给其它定时器插队的机会
   const pdfItem = document.querySelector('.popover .pop-item[data-x="pdf"]');
+  t(
+    '视图只提供审核与表格',
+    $$('#viewToggle button')
+      .map(b => b.dataset.v)
+      .join(',') === 'review,table',
+  );
+  t(
+    '导出菜单只提供交稿检查、剪映、PDF 和项目文件',
+    $$('.popover [data-x]')
+      .map(el => el.dataset.x)
+      .join(',') === 'review,jianying,pdf,json',
+  );
+  const exportBox = $('.popover').getBoundingClientRect();
+  t('导出菜单宽度受限且不横向溢出', exportBox.width <= 410 && $('.popover').scrollWidth <= $('.popover').clientWidth);
+  t('PDF 快捷键单独显示', pdfItem?.querySelector('.sub')?.textContent === '⇧⌘E');
   t('导出菜单有 PDF 分镜脚本', !!pdfItem);
   pdfItem && click(pdfItem);
   await sleep(30);
@@ -537,7 +437,7 @@ export async function runSelfTest() {
   t('Esc 关闭 PDF 弹窗', !$('#pdfMask').classList.contains('show'));
   key(document.body, 'E', { metaKey: true, shiftKey: true });
   await sleep(20);
-  t('⇧⌘E 导出 PDF，不进入专注标注', $('#pdfMask').classList.contains('show') && !viewState.focusMode);
+  t('⇧⌘E 导出 PDF', $('#pdfMask').classList.contains('show'));
   key(document.body, 'Escape');
   await sleep(20);
   {

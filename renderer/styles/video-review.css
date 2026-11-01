@@ -175,11 +175,11 @@
 }
 .vr-strip {
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 5px;
   margin: 6px 0 8px;
 }
-/* 审核页右边：九张截图排成 3×3，从片段开头到结尾；点一张就在左边从那里播 */
+/* 审核页右边：截图每行 3 张（短片段一行、长片段两行），从片段开头到结尾；点一张就在左边从那里播 */
 .vr-plans .vr-strip {
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
@@ -1280,7 +1280,7 @@ body:not(.dark) .pt-box.docked .pt-card-note {
   border-radius: 0 0 12px 12px;
   background: inherit;
 }
-/* 方案状态：已填满 / 待审 N / 不够长 / 还差几秒 / 未采用（颜色和句子的画面状态一致） */
+/* 方案状态：排满了是绿色；还没排满是正常的进行中，用灰色，不用红色吓人 */
 .vr-pst {
   padding: 1px 8px;
   border-radius: 999px;
@@ -1296,26 +1296,12 @@ body:not(.dark) .pt-box.docked .pt-card-note {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
-.vr-pst.part {
-  color: #b26a06;
-  background: color-mix(in srgb, #d9820b 14%, transparent);
-}
-.vr-pst.miss {
-  color: #c73338;
-  background: color-mix(in srgb, #e5484d 10%, transparent);
-}
 .vr-pst.has {
   color: var(--text-3);
   background: color-mix(in srgb, var(--text) 6%, transparent);
 }
 body.dark .vr-pst.ok {
   color: #3ecf8e;
-}
-body.dark .vr-pst.part {
-  color: #f0a43a;
-}
-body.dark .vr-pst.miss {
-  color: #ff7a7e;
 }
 .vr-pfill-head {
   display: flex;
@@ -1545,23 +1531,156 @@ body.dark .vr-tab-pill {
 .vr-rw-card .vr-bheader b {
   font-size: 14px;
 }
-.vr-rw-hint {
+/* 说明收成一个「?」，悬停看全文；空页面时右边照旧写全 */
+.vr-rw-help {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline-2);
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--text-3);
+  cursor: help;
+}
+.vr-rw-sum {
   margin: 6px 0 10px;
   font-size: 12px;
-  line-height: 1.6;
   color: var(--text-2);
 }
 .vr-rw-doc {
   width: 100%;
+  margin-top: 4px;
+}
+/* 左栏每一项的进度：待发出（橙）/ 已发出（灰）/ 有候选待审（主色） */
+.vr-nav-done.vr-rw-st {
+  font-weight: 600;
+}
+.vr-rw-st.s-todo {
+  color: #d9820b;
+}
+.vr-rw-st.s-sent {
+  color: var(--text-3);
+}
+.vr-rw-st.s-new {
+  color: var(--accent);
+}
+.vr-rw .vr-shot-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.vr-rw .vr-shot-head h4 {
+  flex: 1;
+  min-width: 0;
+}
+.vr-rw-state {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.vr-rw-state.s-todo {
+  background: color-mix(in srgb, #d9820b 14%, transparent);
+  color: #b26a06;
+}
+.vr-rw-state.s-sent {
+  background: var(--hairline);
+  color: var(--text-2);
+}
+.vr-rw-state.s-new {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
 }
 .vr-rw-req {
   margin: 4px 0 16px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, #d9820b 35%, var(--hairline-2));
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
   border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow-xs);
+}
+/* 当前画面：要换掉的素材，一块一个 */
+.vr-rw-nows {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.vr-rw-now {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, #d9820b 35%, var(--hairline-2));
+  border-radius: 10px;
   background: color-mix(in srgb, #d9820b 6%, var(--card));
 }
-.vr-rw-req label span {
+.vr-rw-now .asset-thumb.vr-rw-thumb {
+  width: 112px;
+  height: 63px;
+  border-radius: 6px;
+}
+.vr-rw-now-body {
+  flex: 1;
+  min-width: 0;
+}
+.vr-rw-now-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+.vr-rw-now-head .vr-tag {
+  margin-left: 0;
+}
+.vr-rw-now-head b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-rw-now-head small {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.vr-tag.d-out {
+  background: color-mix(in srgb, #d9820b 14%, transparent);
+  color: #b26a06;
+}
+.vr-rw-why {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.vr-rw-why span {
+  flex: none;
+}
+.vr-rw-why input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.vr-rw-tip {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.vr-rw-req label.vr-rw-ask span {
   font-size: 12px;
   font-weight: 400;
   color: var(--text-3);
@@ -1580,11 +1699,6 @@ body.dark .vr-tab-pill {
   line-height: 1.6;
   resize: vertical;
 }
-.vr-rw-replace {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--text-2);
-}
 .vr-rw-current {
   display: flex;
   flex-wrap: wrap;
@@ -1600,17 +1714,30 @@ body.dark .vr-tab-pill {
   background: var(--hairline);
   color: var(--text-2);
 }
-.vr-rw-asset.out {
-  text-decoration: line-through;
-  color: #d9820b;
+.vr-rw-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
 }
-.vr-rw-replace span {
-  margin-left: 6px;
+.vr-rw-foot .vr-mini.ghost {
+  margin-left: -10px;
+}
+.vr-rw-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 650;
   color: var(--text);
 }
-.vr-rw-tip {
-  margin: -2px 0 10px;
+.vr-rw-group:first-child {
+  margin-top: 0;
+}
+.vr-rw-group span {
   font-size: 12px;
+  font-weight: 500;
   color: var(--text-3);
 }
 .vr-meta .vr-best {

@@ -139,7 +139,7 @@ export function candName(c) {
   const mine = key(c);
   const same = orderedCandidates(reviewIndex().byRow.get(c.rowId)).filter(x => key(x) === mine);
   const n = Math.max(1, same.indexOf(c) + 1);
-  return `${rangeLabel(p.members, p.from, p.to)} · 候选 ${n}${onAlt(c) ? ' · 备选轨' : ''}`;
+  return `${rangeLabel(p.members, p.from, p.to)} · 候选 ${n}${onAlt(c) ? ' · 备选' : ''}`;
 }
 
 /* 一个画面的候选按清单里写的位置排：整段的在前，其余按句子先后；同一位置按清单里的先后 */
@@ -177,10 +177,27 @@ export const batchOfCand = c => {
   const b = batches().find(x => x.id === (c.batchId || 'legacy'));
   return b ? `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}` : '';
 };
-/* 待返工页里展开的候选：否掉的都展开（要能看画面、改判）；通过的收成一行 */
-/* 待返工页只列有问题的候选：否掉的、待审的，和你标了「不满意」的那个已通过视频；别的已通过视频不相干，不列 */
+/* 待返工页只列还要审或者没过关的候选：否掉的、待审的，和刚在这一页审过的；
+   已通过、正挂在画面上的（包括要换掉的那个）不列——它在「当前画面」里，这里不给「撤回」，免得一点就把画面撤空 */
 export const reworkShown = item => {
   const out = new Set((item?.replaces || []).map(x => x.assetId));
-  return item ? item.cands.filter(c => c.decision !== 'ok' || out.has(c.assetId)) : [];
+  return item ? item.cands.filter(c => c.decision !== 'ok' || (touched.has(c.id) && !out.has(c.assetId))) : [];
 };
-export const reworkOpen = item => reworkShown(item).filter(c => c.decision !== 'ok' || touched.has(c.id));
+export const reworkOpen = item => reworkShown(item).filter(c => !c.decision || touched.has(c.id));
+
+/* 这一项最近一次写进返工单的时间：返工单里要补的句子盖住了这一项的全部句子 */
+const sentAt = item =>
+  Math.max(
+    0,
+    ...Object.values(state.reworkRequests || {})
+      .filter(r => r.targets?.some(t => item.target.every(m => t.forIds?.includes(m.id))))
+      .map(r => r.at || 0),
+  );
+/* 这一项走到哪一步：有候选待审 → 已发出等候选 → 待发出（发出之后又加了要求、又否掉了候选，回到待发出） */
+export function reworkState(item) {
+  const waiting = item.cands.filter(isPending).length;
+  if (waiting) return { key: 'new', text: `${waiting} 个候选待审`, short: `${waiting} 待审` };
+  const at = sentAt(item);
+  if (at && at >= item.lastAt) return { key: 'sent', text: '已发出 · 等新候选', short: '已发出' };
+  return { key: 'todo', text: '待发出', short: '待发出' };
+}

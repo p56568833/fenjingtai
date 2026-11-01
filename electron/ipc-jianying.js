@@ -123,7 +123,7 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
     if (!checked.ok) return { ok: false, error: checked.error };
     if (job) return { ok: false, error: '正在导出另一个剪映草稿，等它做完再试' };
     const detected = detectNow();
-    /* 版本未验证（含已安装但版本未知）一律不生成、不登记：只有探测到 supported=true
+    /* 版本低于 11.6.0 或版本号认不出时一律不生成、不登记：只有探测到 supported=true
        才继续，真正的登记还会再核对 canRegister / 索引状态。文案与 platform 共用一处。 */
     if (detected?.supported === false)
       return { ok: false, error: platform.unsupportedVersionMessage(detected.version) };
@@ -186,7 +186,7 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
     if (!isString(draftDir) || !paths.isAbsolutePath(draftDir) || paths.hasTraversal(draftDir))
       return { ok: false, registered: false, error: '草稿路径无效' };
     const detected = detectNow();
-    /* 登记会写剪映草稿库索引：版本未验证时和导出入口一样拒绝，不能绕过导出直接登记。 */
+    /* 登记会写剪映草稿库索引：版本不支持时和导出入口一样拒绝，不能绕过导出直接登记。 */
     if (detected?.supported === false)
       return { ok: false, registered: false, error: platform.unsupportedVersionMessage(detected.version) };
     if (!paths.isAbsolutePath(detected?.draftRoot)) return { ok: false, registered: false, error: '没找到剪映草稿库' };

@@ -2,6 +2,7 @@
    项目身份、光标、协作连接信息属于外层；文件目录和语速不跟随普通编辑撤销。 */
 import { normalizeTypes } from './types.js';
 import { normalizeReworkRequests } from './candidate-scope.js';
+import { noteLine } from './candidate-values.js';
 
 export const PROJECT_FIELDS = Object.freeze({
   title: { initial: () => '', history: true, shared: 'meta' },
@@ -65,6 +66,15 @@ export function normalizeProjectData(project) {
   data.candidates = Array.isArray(data.candidates)
     ? data.candidates.filter(c => Array.isArray(c?.forIds) && c.forIds.length)
     : [];
+  // 2.1.4 以前通过候选会往画面描述里追加一行来源（「视频：标题｜时间段｜版权｜网址」）：摘掉，来源只记在素材上
+  const sourceLines = new Set(data.candidates.filter(c => c.decision === 'ok' && c.url).map(noteLine));
+  if (sourceLines.size)
+    for (const r of data.rows)
+      if (typeof r?.note === 'string' && r.note.includes('视频：'))
+        r.note = r.note
+          .split('\n')
+          .filter(l => !sourceLines.has(l))
+          .join('\n');
   data.reworkRequests = normalizeReworkRequests(data.reworkRequests);
   data.mediaDir = typeof data.mediaDir === 'string' ? data.mediaDir : '';
   const rate = Number(data.speechRate);

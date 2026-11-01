@@ -66,7 +66,7 @@ function settle() {
   for (const id of registry.keys()) if (isShown(id) && !stack.includes(id)) stack.push(id);
 }
 
-/* autoFocus：打开时自动把焦点放进弹窗（自己处理全部按键的全屏窗口——专注标注、预览、视频审核——关掉这项） */
+/* autoFocus：打开时自动把焦点放进弹窗（自己处理全部按键的全屏窗口——预览、视频审核——关掉这项） */
 export function registerModal(id, { close, enter, onKey, allowMenu = [], autoFocus = true } = {}) {
   const el = document.getElementById(id);
   if (!el) return;

@@ -6,7 +6,7 @@ import { state } from '../app/state.js';
 import { types } from '../app/project-queries.js';
 import { saveCurrentProject } from '../app/project-change.js';
 import { packPlan, toPacked, fromPacked } from '../core/pack.js';
-import { buildProjectJson } from '../core/export-doc.js';
+import { buildProjectJson } from '../core/project-json.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
 import { toast, esc } from '../ui/base/dom.js';

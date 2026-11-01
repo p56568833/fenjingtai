@@ -5,7 +5,7 @@ import { viewState } from './view-state.js';
 import { changeProject, commitProjectChange, editProjectFields } from './project-change.js';
 import { state } from './state.js';
 import { currentSelection, match } from './selection.js';
-import { rowById, rowIndex, types } from './project-queries.js';
+import { rowById, rowIndex } from './project-queries.js';
 import { notify } from './events.js';
 import { undo, discardIfUnchanged } from './undo.js';
 import {
@@ -38,7 +38,6 @@ export function rowIdOptions(projectId = state.projectId) {
 }
 const nextId = () => nextRowId(state.rows, rowIdOptions());
 const commit = () => commitProjectChange({ normalize: true });
-const tName = t => types().label(t);
 
 /* 从位置 i 开始找最近的句子（跳过章节行），先向后找不到再向前——删除后选中句留在原地 */
 function nearestLine(i) {
@@ -66,22 +65,7 @@ export function setType(ids, t) {
   });
 }
 
-/* ── 勾选视图：把句子勾成 A / B（null = 擦除）。类型没变的句子跳过，不产生空撤销步 ── */
-export function markSentences(ids, t) {
-  ids = expandShotIds(state.rows, ids);
-  const targets = ids.map(id => rowById(id)).filter(r => r && r.kind === 'line' && r.type !== t);
-  if (!targets.length) return;
-  const what = t ? `标成 ${tName(t)}` : '擦除标注';
-  return changeProject(targets.length > 1 ? `${what}（${targets.length} 句）` : what, change => {
-    targets.forEach(r => {
-      r.type = t;
-    });
-
-    change.emit('annotated', { ids, type: t });
-  });
-}
-
-/* ── 勾选视图批注：保存 / 修改一句话的画面批注（红字显示在句子下方）── */
+/* ── 保存 / 修改画面描述 ── */
 export function setNote(id, txt) {
   const r = rowById(id);
   if (!r || r.kind !== 'line' || (r.note || '') === txt) return;
@@ -323,7 +307,7 @@ export function deleteSectionAll(id) {
 /* ── 应用导入（覆盖当前项目内容；空项目直接进，有内容先确认）── */
 /* mode = 'update'：同稿修订（reconcileDraft 已保留对得上的句子 id）——视频候选只留还对得上句子的；
    mode = 'replace'：换成另一份稿子——旧的视频候选、剪映字幕对齐都和新句子无关，一起清掉（改稿前副本里还有）。
-   口播音频只记路径，保留；它和新稿不对应时可以在「时长 · 口播」里移除 */
+   口播音频只记路径，保留；它和新稿不对应时可以在「时长」里移除 */
 export function applyImport(rows, title, { mode = 'replace' } = {}) {
   return changeProject(mode === 'update' ? '更新稿件' : '导入新稿子', change => {
     state.rows = rows;
@@ -436,7 +420,6 @@ export function groupSelectionAction(ids) {
   }
   return changeProject('共用画面', change => {
     const members = groupRows(state.rows, ids);
-    viewState.multiMode = false;
     viewState.multi = null;
     viewState.sel = members ? members[0].id : ids[0];
 
@@ -469,12 +452,6 @@ export function setShotNote(row, note, { session } = {}) {
   });
   if (changed && session) session.snapped = true;
   return changed;
-}
-
-/* ── 语速 ── */
-export function setSpeechRate(value) {
-  if (!(value >= 1 && value <= 10)) return false;
-  return editProjectFields(null, { project: { speechRate: value } });
 }
 
 /* ── 项目改名（对话框提交一次 = 一步撤销） ── */

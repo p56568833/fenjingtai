@@ -2,14 +2,20 @@
    全程用临时目录 + 注入的媒体工具/时钟/ID，不启动剪映、不读真实草稿库、不写用户目录。
    覆盖：schema 引用完整性、特殊字符路径、同名去重、定格抽帧、取消、磁盘不足、
         索引冲突/不可解析/剪映运行中、重复导出、素材只指最终路径、原子提交失败回滚、
-        IPC 参数校验/任务身份/取消/事件解绑、平台探测与设备指纹降级、版本识别（仅 11.6.0 / 11.6.13345 已适配）。
+        IPC 参数校验/任务身份/取消/事件解绑、平台探测与设备指纹降级、版本识别（11.6.0 及以上可导出，实测版本显示已适配）。
    用法：node scripts/jianying-files-test.mjs */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { targetStatusOf, isVerifiedVersion, VERIFIED_VERSIONS } from '../renderer/src/core/jianying-target.js';
+import {
+  targetStatusOf,
+  isVerifiedVersion,
+  isSupportedVersion,
+  VERIFIED_VERSIONS,
+  MIN_VERSION,
+} from '../renderer/src/core/jianying-target.js';
 
 const require = createRequire(import.meta.url);
 const exporter = require('../electron/jianying-export.js');
@@ -1298,7 +1304,7 @@ test('平台探测：应用/草稿库/版本/运行状态与明文草稿指纹',
   );
 });
 
-test('平台探测：版本不在 11.6 时标记不支持，找不到应用时不假装可用', () => {
+test('平台探测：版本低于 11.6.0 时标记不支持，找不到应用时不假装可用', () => {
   const root = tmpRoot('探测版本');
   const fixture = makePlatformFixture(root, { version: '11.5.0' });
   const detected = fixture.detect();
@@ -1321,12 +1327,24 @@ test('平台探测：版本不在 11.6 时标记不支持，找不到应用时�
   );
 });
 
-/* 版本识别：只有 Mac 剪映专业版 11.6.0 / 11.6.13345 实测过，其他版本不生成、不登记。
-   同时断言真实 detect() 结果与界面可见文案（targetStatusOf）同源，主进程与界面的名单一致。 */
-test('版本识别：仅 11.6.0 / 11.6.13345 已适配，11.6.1 / 11.6.99 / 11.7.0 不生成不登记', () => {
-  assert.deepEqual([...platform.VERIFIED_VERSIONS], ['11.6.0', '11.6.13345'], '主进程实测名单');
+/* 版本识别：11.6.0 及以上都能导出（草稿按 11.6.0 格式生成），更旧或版本号认不出的不生成、不登记；
+   实测名单只决定显示「已适配」还是「可以导出」。同时断言真实 detect() 与界面文案（targetStatusOf）同源。 */
+test('版本识别：11.6.0 及以上可导出（实测版本显示已适配），更旧或认不出的不生成不登记', () => {
+  assert.deepEqual([...platform.VERIFIED_VERSIONS], ['11.6.0', '11.6.13345', '11.6.13370'], '主进程实测名单');
   assert.deepEqual([...VERIFIED_VERSIONS], [...platform.VERIFIED_VERSIONS], '界面与主进程名单一致');
-  for (const version of ['11.6.0', '11.6.13345', '11.6.1', '11.6.99', '11.7.0']) {
+  assert.equal(MIN_VERSION, platform.MIN_VERSION, '界面与主进程最低版本一致');
+  const cases = [
+    ['11.6.0', 'verified'],
+    ['11.6.13345', 'verified'],
+    ['11.6.13370', 'verified'],
+    ['11.6.1', 'newer'],
+    ['11.6.13400', 'newer'],
+    ['11.7.0', 'newer'],
+    ['12.0.3', 'newer'],
+    ['11.5.9', 'old'],
+    ['10.9.0', 'old'],
+  ];
+  for (const [version, kind] of cases) {
     const root = tmpRoot(`版本${version}`);
     const fixture = makePlatformFixture(root, { version });
     fs.writeFileSync(
@@ -1334,59 +1352,71 @@ test('版本识别：仅 11.6.0 / 11.6.13345 已适配，11.6.1 / 11.6.99 / 11.7
       JSON.stringify({ all_draft_store: [], root_path: fixture.library }),
     );
     const detected = fixture.detect();
-    const verified = version === '11.6.0' || version === '11.6.13345';
+    const ok = kind !== 'old';
     assert.equal(detected.version, version);
-    assert.equal(detected.supported, verified, `${version} supported`);
-    assert.equal(detected.canRegister, verified, `${version} canRegister`);
+    assert.equal(detected.supported, ok, `${version} supported`);
+    assert.equal(detected.canRegister, ok, `${version} canRegister`);
     const unsupported = detected.issues.filter(item => item.code === 'version-unsupported');
-    assert.equal(unsupported.length, verified ? 0 : 1, `${version} version-unsupported issue`);
-    if (!verified) {
-      assert.match(unsupported[0].message, /11\.6\.0 \/ 11\.6\.13345/);
-      assert.match(unsupported[0].message, /未验证/);
-      assert.match(unsupported[0].message, /不生成草稿、不登记草稿库/);
+    assert.equal(unsupported.length, ok ? 0 : 1, `${version} version-unsupported issue`);
+    if (!ok) {
+      assert.match(unsupported[0].message, /版本太旧/);
+      assert.match(unsupported[0].message, /11\.6\.0 或更新版本/);
     }
     const status = targetStatusOf(detected);
-    assert.equal(status.level, verified ? 'ok' : 'warn', `${version} 界面状态`);
-    if (verified) {
-      assert.match(status.title, /已适配/);
-      assert.doesNotMatch(status.title, /未验证/);
-    } else {
-      assert.match(status.title, /未验证/);
+    assert.equal(status.level, ok ? 'ok' : 'warn', `${version} 界面状态`);
+    if (kind === 'verified') assert.match(status.title, /已适配/);
+    if (kind === 'newer') {
+      assert.match(status.title, /可以导出/);
       assert.doesNotMatch(status.title, /已适配/);
+    }
+    if (kind === 'old') {
+      assert.match(status.title, /版本太旧/);
+      assert.match(status.text, /11\.6\.0 或更新版本/);
     }
   }
 
-  // 不把其他字符串“规范化”成已验证版本：空、带补丁位、带后缀、构建号都不算
-  for (const version of ['', '11.6.0.1', '11.6.0-beta', '11.6', ' 11.6.0 ', '11.6.13345.1', ' 11.6.13345', '11.7.0-beta5']) {
-    assert.equal(isVerifiedVersion(version), false, `${JSON.stringify(version)} 不应视为已验证版本`);
-    assert.equal(platform.isVerifiedVersion(version), false, `主进程：${JSON.stringify(version)} 不应视为已验证版本`);
+  // 认不出的版本号不猜：空、带后缀、带空格、缺段都不能导出；实测名单也不做“规范化”
+  for (const version of ['', '11.6.0-beta', '11.6', ' 11.6.0 ', ' 11.6.13345', '11.7.0-beta7', 'abc']) {
+    assert.equal(isSupportedVersion(version), false, `${JSON.stringify(version)} 不应可导出`);
+    assert.equal(platform.isSupportedVersion(version), false, `主进程：${JSON.stringify(version)} 不应可导出`);
+  }
+  for (const version of ['11.6.0.1', '11.6.13345.1', '11.6.13370.1']) {
+    assert.equal(isSupportedVersion(version), true, `${version} 可导出`);
+    assert.equal(platform.isSupportedVersion(version), true, `主进程：${version} 可导出`);
+    assert.equal(isVerifiedVersion(version), false, `${version} 不算实测版本`);
+    assert.equal(platform.isVerifiedVersion(version), false, `主进程：${version} 不算实测版本`);
   }
   const unknownRoot = tmpRoot('版本未知');
   const unknownFixture = makePlatformFixture(unknownRoot, { version: '' });
   const unknown = unknownFixture.detect();
   assert.equal(unknown.supported, false);
   assert.equal(unknown.canRegister, false);
-  assert.equal(
-    unknown.issues.some(item => item.code === 'version-unsupported'),
-    true,
-  );
+  const unknownIssue = unknown.issues.find(item => item.code === 'version-unsupported');
+  assert.match(unknownIssue.message, /没能识别/);
   assert.equal(unknown.version, '');
-  assert.match(targetStatusOf(unknown).title, /未验证/);
+  assert.match(targetStatusOf(unknown).title, /无法识别/);
 
-  // 主进程若误报 supported=true，界面也不能显示「已适配」
+  // 主进程若误报 supported=true，太旧的版本界面也不能放行
   const stale = targetStatusOf({
     ok: true,
     appPath: '/Applications/VideoFusion-macOS.app',
-    version: '11.6.1',
+    version: '11.5.0',
     supported: true,
     issues: [],
   });
-  assert.match(stale.title, /未验证/);
-  assert.doesNotMatch(stale.title, /已适配/);
+  assert.equal(stale.level, 'warn');
+  assert.match(stale.title, /版本太旧/);
 
-  // 11.6.0 已适配的前提是主进程 supported 为 true（探测失败/不可用仍按主进程结论）
+  // 剪映运行时仍可导出，但要黄色提醒：先退出剪映，草稿才会直接进「本地草稿」
+  const runningStatus = targetStatusOf({ ok: true, version: '11.6.13370', supported: true, running: true, issues: [] });
+  assert.equal(runningStatus.level, 'warn');
+  assert.match(runningStatus.title, /已适配/);
+  assert.match(runningStatus.text, /先退出剪映/);
+
+  // 能否导出以主进程 supported 为前提（探测失败/不可用仍按主进程结论）
   const notSupported = targetStatusOf({ ok: true, version: '11.6.0', supported: false, issues: [] });
-  assert.match(notSupported.title, /未验证/);
+  assert.equal(notSupported.level, 'warn');
+  assert.doesNotMatch(notSupported.title, /已适配/);
 });
 
 /* ── 13. IPC 边界 ── */
@@ -1576,8 +1606,8 @@ test('IPC：补登记只接受草稿库内目录，剪映运行中拒绝；打�
   assert.equal(await harness.invoke('jianying:pick-folder', ''), path.join(root, '选中 文件夹'));
 });
 
-/* 未验证版本不能从 IPC 直接生成/登记；文案与 platform 的提示同一处，且 11.6.0 不因版本被拒。 */
-test('IPC：11.6.1 导出被拒并说明仅验证 11.6.0；11.6.0 不因版本被拒', async () => {
+/* 版本太旧不能从 IPC 直接生成/登记；文案与 platform 的提示同一处，且 11.6.0 不因版本被拒。 */
+test('IPC：11.5.0 导出被拒并说明需要 11.6.0 或更新版本；11.6.0 不因版本被拒', async () => {
   const root = tmpRoot('IPC版本拦截');
   let exportCalls = 0;
   const blockedHarness = makeIpcHarness({
@@ -1586,12 +1616,12 @@ test('IPC：11.6.1 导出被拒并说明仅验证 11.6.0；11.6.0 不因版本�
       detect: () => ({
         ok: true,
         appPath: '/Applications/VideoFusion-macOS.app',
-        version: '11.6.1',
+        version: '11.5.0',
         draftRoot: path.join(root, '剪映草稿库'),
         running: false,
         canRegister: false,
         supported: false,
-        issues: [{ level: 'warn', code: 'version-unsupported', message: platform.unsupportedVersionMessage('11.6.1') }],
+        issues: [{ level: 'warn', code: 'version-unsupported', message: platform.unsupportedVersionMessage('11.5.0') }],
       }),
       runExport: async () => {
         exportCalls++;
@@ -1601,17 +1631,16 @@ test('IPC：11.6.1 导出被拒并说明仅验证 11.6.0；11.6.0 不因版本�
   });
   const rejected = await blockedHarness.invoke('jianying:export', ipcRequest(root));
   assert.equal(rejected.ok, false);
-  assert.equal(exportCalls, 0, '未验证版本不能进入导出任务');
-  assert.match(rejected.error, /11\.6\.0/);
-  assert.match(rejected.error, /未验证/);
-  assert.match(rejected.error, /不生成草稿、不登记草稿库/);
+  assert.equal(exportCalls, 0, '版本太旧不能进入导出任务');
+  assert.match(rejected.error, /11\.6\.0 或更新版本/);
+  assert.match(rejected.error, /版本太旧/);
   // 补登记同样不能绕过版本限制写索引
-  const libraryDraft = path.join(root, '剪映草稿库', '未验证版本草稿');
+  const libraryDraft = path.join(root, '剪映草稿库', '旧版本草稿');
   fs.mkdirSync(libraryDraft, { recursive: true });
   const blockedRegister = await blockedHarness.invoke('jianying:register', { draftDir: libraryDraft });
   assert.equal(blockedRegister.ok, false);
   assert.equal(blockedRegister.registered, false);
-  assert.match(blockedRegister.error, /未验证/);
+  assert.match(blockedRegister.error, /版本太旧/);
 
   const passRoot = tmpRoot('IPC版本通过');
   const passHarness = makeIpcHarness({

@@ -35,12 +35,10 @@ function mark(box, query) {
   }
 }
 
-/* scope：要刷的范围（整页或刚换掉的那几块）；表格的 .row 和原文视图的 .as 都在 #rows 里 */
+/* scope：要刷的表格范围（整页或刚换掉的那几块）。 */
 export function paintSearch(scope = document.querySelector('#rows')) {
   if (!scope) return;
-  const els = scope.matches?.('.row[data-id],.as[data-id]')
-    ? [scope]
-    : scope.querySelectorAll('.row[data-id],.as[data-id]');
+  const els = scope.matches?.('.row[data-id]') ? [scope] : scope.querySelectorAll('.row[data-id]');
   const query = viewState.query;
   for (const el of els) {
     const r = rowById(+el.dataset.id);

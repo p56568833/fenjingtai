@@ -29,7 +29,7 @@ import {
 } from '../app/candidate-actions.js';
 import { flushWriteBack } from '../app/candidate-sync.js';
 import { isCandidateBusy, relinkSavedClips, initCandidateMedia } from '../app/candidate-media.js';
-import { saveAllApproved, downloadOriginal, ensureMediaDir, batchRun } from './review-files.js';
+import { saveAllApproved, autoSaveApproved, downloadOriginal, ensureMediaDir, batchRun } from './review-files.js';
 import { forgetFrames, clearReviewFrames, previewOf } from './review-frames.js';
 
 import { CANDIDATE_VERSION } from '../core/candidate-values.js';
@@ -102,7 +102,7 @@ const renderer = createReviewRenderer({
   preview,
   cards,
 });
-const { importCandidates, copyCandidateSpec, setReworkNote, dismissCurrentRework, writeReworkDoc } =
+const { importCandidates, copyCandidateSpec, setReworkNote, setReplaceNote, dismissCurrentRework, writeReworkDoc } =
   createReviewWorkflows({ open: openVideoReview, render: renderVideoReview });
 function renderVideoReview() {
   renderer.render();
@@ -116,7 +116,10 @@ export function setDecision(id, d) {
     return;
   }
   const { candidate: c, next, msg } = result;
-  if (next === 'ok') relinkSavedClips();
+  if (next === 'ok') {
+    relinkSavedClips();
+    autoSaveApproved(); // 选过保存位置的：过一会儿在后台把片段存到本地，不用再点「保存已通过的片段」
+  }
   if (next) advanceAfterDecision(c);
   renderVideoReview();
   if (next) stamp(c.id);
@@ -370,6 +373,8 @@ export function initVideoReview() {
       return;
     }
     if (t.closest('[data-vr-rw-off]')) return dismissCurrentRework();
+    const rwDoc = t.closest('[data-vr-rw-doc]');
+    if (rwDoc) return writeReworkDoc(rwDoc.dataset.vrRwDoc);
     const d = t.closest('[data-vr-d]');
     if (d) return setDecision(d.dataset.vrFor, d.dataset.vrD);
     const fold = t.closest('[data-vr-fold]');
@@ -416,6 +421,8 @@ export function initVideoReview() {
   });
   $('#vrList').addEventListener('change', e => {
     if (e.target.matches?.('[data-vr-voice]')) setVoiceOn(e.target.checked); // 「口播声音」开关记住，下次默认照旧
+    // 不满意的地方：改完（回车 / 离开输入框）再存，一次改动算一步撤销
+    if (e.target.matches?.('[data-vr-rw-why]')) setReplaceNote(e.target.dataset.vrRwWhy, e.target.value);
   });
   $('#vrList').addEventListener('input', e => {
     const n = e.target.closest('[data-vr-note]');

@@ -71,11 +71,11 @@ export function createReviewCards({ root, preview, page }) {
         : '';
     return `<article class="vr-cand ${d ? 'd-' + d : ''}${c.id === page.curCand ? ' focus' : ''}" data-vr-id="${c.id}">
     <div class="vr-head"><strong>${esc(candName(c))}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
-    <div class="vr-meta"><span class="vr-src-title">${esc(c.title || '')}</span> · 建议 ${fmtTime(c.in)}–${fmtTime(c.out)}（${Math.round(c.out - c.in)} 秒）${c.best ? ` · <b class="vr-best" title="通过后自动设成可用片段；保存的文件仍是建议的整段，前后留着余量">精选 ${fmtTime(c.best.in)}–${fmtTime(c.best.out)}（${fmtLen(c.best.out - c.best.in)}）</b>` : ''} · ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
+    <div class="vr-meta"><span class="vr-src-title">${esc(c.title || '')}</span> · ${c.best ? `<b class="vr-best" title="${esc(`用这一段：通过后自动设成可用片段。保存的文件是 ${fmtTime(c.in)}–${fmtTime(c.out)}，前后留着余量`)}">片段 ${fmtTime(c.best.in)}–${fmtTime(c.best.out)}（${fmtLen(c.best.out - c.best.in)}）</b>` : `<b class="vr-best">片段 ${fmtTime(c.in)}–${fmtTime(c.out)}（${fmtLen(c.out - c.in)}）</b>`} · ${esc(c.license || '版权未注明')} · <button class="vr-link" data-vr-page="${c.id}">原片页面</button></div>
     ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
     ${c.limits ? `<p class="vr-cov-note">缺：${esc(c.limits)}</p>` : ''}
     ${c.short ? `<p class="vr-cov-note">不够长：${esc(c.short)}</p>` : ''}
-    ${stripHTML()}
+    ${stripHTML(c)}
     ${page.mode === 'rework' ? playerHTML(previewOf(c)) : '' /* 审核页的候选在左边播放器里播；待返工页没有左边播放器，在卡片里播 */}
     <div class="vr-row">
       <button class="vr-btn play" data-vr-play="${c.id}">▶ 播放这段</button>

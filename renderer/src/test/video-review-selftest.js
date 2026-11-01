@@ -165,11 +165,9 @@ export async function runVideoReviewTests(t) {
     .map(r => r.id);
   viewState.multi = ids;
   viewState.sel = ids[0];
-  viewState.multiMode = true;
   update('selection');
   click('#btnGroup');
   click('#mOk');
-  viewState.multiMode = false;
   setType(ids, 'real');
   addRefsToShot(lines()[0], ['/tmp/原来的照片.jpg']);
   update('rows');
@@ -536,10 +534,10 @@ export async function runVideoReviewTests(t) {
   );
   t('原来的照片主画面让位成备选', us(0).find(x => x.assetId !== a1.id)?.role === 'alt');
   t(
-    '画面描述追加一行：视频名、几分几秒、版权、原片页面',
-    lines()[0].note.includes('视频：福特肉类加工 1922｜01:41–01:50｜公有领域｜https://archive.org/details/fc-fc-485') &&
-      lines()[1].note === lines()[0].note,
-    lines()[0].note,
+    '画面描述不写来源：视频名、版权、原片页面只记在素材上',
+    !lines()[0].note.includes('福特肉类加工') &&
+      state.assets[a1.id]?.source?.page === 'https://archive.org/details/fc-fc-485',
+    lines()[0].note + ' | ' + JSON.stringify(state.assets[a1.id]?.source),
   );
   t(
     '卡片不再显示单独保存按钮，顶部仍可批量保存',
@@ -696,7 +694,7 @@ export async function runVideoReviewTests(t) {
     a1now.path,
   );
   t('保存的文件名带上对应的句号：第1-3句_标题', saves[0].name === '第1-3句_福特肉类加工 1922', saves[0].name);
-  t('画面描述里的原片来源还在', lines()[0].note.includes('archive.org/details/fc-fc-485'));
+  t('素材上的原片来源还在', state.assets[a1.id]?.source?.page === 'https://archive.org/details/fc-fc-485');
   t('收起的那一行显示已保存', card('A1').textContent.includes('已保存'));
 
   /* 撤回通过 */
@@ -704,13 +702,13 @@ export async function runVideoReviewTests(t) {
   click(btn('A1', 'ok'));
   await pause(30);
   t(
-    '再点一次「通过」= 撤回：素材拿掉，画面描述那一行删掉',
-    !cand('A1').decision && !us(0).some(x => x.assetId === a1.id) && !lines()[0].note.includes('福特肉类加工'),
+    '再点一次「通过」= 撤回：素材拿掉，画面描述不变',
+    !cand('A1').decision && !us(0).some(x => x.assetId === a1.id) && lines()[0].note === noteBefore,
     noteBefore + ' → ' + lines()[0].note,
   );
   undo();
   await pause(30);
-  t('撤销撤回：通过和画面描述都回来', cand('A1').decision === 'ok' && lines()[0].note.includes('福特肉类加工'));
+  t('撤销撤回：通过回来', cand('A1').decision === 'ok' && us(0).some(x => x.assetId === a1.id));
 
   /* 保存过的片段：撤回后再通过，直接挂回本地文件，不再变回「在线」（以前会一直显示在线，批量保存也跳过它） */
   const fx = window.native?.fixtureInfo?.();
@@ -821,11 +819,9 @@ export async function runVideoReviewTests(t) {
     .slice(0, 3)
     .map(r => r.id);
   viewState.sel = viewState.multi[0];
-  viewState.multiMode = true;
   update('selection');
   click('#btnGroup');
   click('#mOk');
-  viewState.multiMode = false;
   importLoadedFile({ ...file, path: '/tmp/删除批次-7.json', content: JSON.stringify({ ...DOC, batch: '重复批次' }) });
   await pause(30);
   const oldBatch = state.candidates[0].batchId;
@@ -944,11 +940,9 @@ export async function runVideoReviewTests(t) {
   const two = lines().map(r => r.id);
   viewState.multi = two;
   viewState.sel = two[0];
-  viewState.multiMode = true;
   update('selection');
   click('#btnGroup');
   click('#mOk');
-  viewState.multiMode = false;
   setType(two, 'real');
   lines().forEach((r, i) => (r.time = { start: i * 3, end: i * 3 + 3, st: 'ok' }));
   update('rows');
@@ -999,7 +993,7 @@ export async function runVideoReviewTests(t) {
     '整段那几句已经有画面再通过：放在备选轨，提示里说清楚',
     roleOf('P2') === 'alt' &&
       !!$(`#review-pttAlt .ptt-block[data-ptt="${aid('P2')}"]`) &&
-      $('#toastTxt')?.textContent.includes('备选轨'),
+      $('#toastTxt')?.textContent.includes('先放进备选'),
   );
   // 合成指针事件拖色块：按下在色块上，移动 / 松手在两条轨的外框上（和真实鼠标一样被外框接住）
   const lanes = () => $('#review-pttLanes');
@@ -1328,7 +1322,6 @@ export async function runVideoReviewTests(t) {
   storage.switchProject(original);
   storage.deleteProject(pid);
   viewState.multi = null;
-  viewState.multiMode = false;
   delete window.fjtHooks.writeCandidateReview;
   delete window.fjtHooks.pickFolder;
   delete window.fjtHooks.saveVideoSegment;

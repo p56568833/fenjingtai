@@ -9,7 +9,7 @@ import { fmtTime } from '../core/text.js';
 import { planImport, footageTakenBy } from '../core/candidates.js';
 import { attachCandidate, detachCandidate } from '../core/candidate-placement.js';
 import { DECISION } from '../core/candidate-values.js';
-import { reworkShots, resolveOnApprove, setRework, setAssetRework, dismissRework } from '../core/rework.js';
+import { reworkShots, resolveOnApprove, setRework, setAssetRework, dismissRework, reworkText } from '../core/rework.js';
 
 /* shots：groupReworkItems 的结果（一个画面一条，和返工单里的 shots 一一对应）。forIds：要补的那几句，回复的 for 只能落在这里 */
 export function registerReworkRequest(doc, shots) {
@@ -134,8 +134,8 @@ export function decideCandidate(id, decision) {
       if (r.current) {
         const old = resolveOnApprove(state.rows, rowById(c.rowId), r.assetId);
         const names = [...new Set([...r.demoted, ...old])].map(x => state.assets[x]?.name || '素材');
-        msg = `已放上正片轨（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
-      } else msg = '已通过；这几句在正片轨上已经有画面，先放在备选轨，拖上去就能换上';
+        msg = `已设为主画面（${fmtTime(c.in)}–${fmtTime(c.out)}）${names.length ? `，「${names.join('」「')}」让位成备选` : ''}`;
+      } else msg = '已通过；这几句已经有主画面，先放进备选，拖上去就能换上';
     }
     invalidateCandidate(c);
     c.decision = next;
@@ -201,6 +201,14 @@ export function saveRework(row, assetId, rework, label) {
 
     return row;
   });
+}
+/* 待返工页里改「不满意的地方」：素材照旧要换，只改意见；标记的时间不变 */
+export function setAssetReworkNote(item, assetId, text) {
+  const row = item?.lead && rowById(item.lead.id);
+  const cur = item?.replaces.find(x => x.assetId === assetId);
+  const note = reworkText(text);
+  if (!row || !cur || reworkText(cur.note) === note) return false;
+  return saveRework(row, assetId, { note, at: cur.at || Date.now() }, '修改不满意的地方');
 }
 /* 待返工页的补充要求：写在这一项的那几句上（共用画面里的别的句子不动） */
 export function setReworkNote(target, text, session) {

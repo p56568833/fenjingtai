@@ -74,13 +74,13 @@ export function shotTrackHTML({ unit: u, assets, tl, ti, pick, toneOf }) {
   const altRows = Math.max(1, ...trackAlts.map(a => a.row + 1));
   const altBlocks = trackAlts
     .map(it => {
-      const title = `备选 · ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒（不播放、不计时长）\n拖上正片轨：落在画面上 = 互换，落在空隙里 = 插进去\n双击：删除`;
+      const title = `备选 · ${it.asset.name || ''}\n${sec(it.start)}–${sec(it.end)} 秒（不播放、不计时长）\n拖上主画面：落在画面上 = 互换，落在空隙里 = 插进去\n双击：删除`;
       return `<div class="ptt-block alt${it.assetId === pick ? ' on' : ''}" data-ptt="${esc(it.assetId)}" data-alt="1"${filmAttrs(it, Math.max(0, it.end - it.start))} style="left:${pct(it.start)};width:${pct(Math.max(0, it.end - it.start))};top:${4 + it.row * ALT_ROW}px;height:${ALT_ROW - 6}px" title="${esc(title)}"><span class="ptt-grip l" title="拖动裁剪开头"></span><span class="ptt-label">${esc(shortName(it.asset.name))}</span><span class="ptt-grip r" title="拖动裁剪结尾"></span></div>`;
     })
     .join('');
   const timed = !!u.layout?.timed;
   const tips =
-    '拖中间：移动 / 换序\n拖两端：裁剪（Shift 拖相接边调切换点）\n上下拖：在正片和备选之间换\nI / O：裁到播放位置\n双击画面：定格补满 / 删除';
+    '拖中间：移动 / 换序\n拖两端：裁剪（Shift 拖相接边调切换点）\n上下拖：在主画面和备选之间换\nI / O：裁到播放位置\n双击画面：定格补满 / 删除';
   const html = `<div class="ptt-bar"><strong>画面时间</strong>${
     !items.length && !trackAlts.length
       ? ''
@@ -88,13 +88,13 @@ export function shotTrackHTML({ unit: u, assets, tl, ti, pick, toneOf }) {
   }<span class="ptt-warn" id="pttWarn"></span><span class="spacer"></span>${timed ? '<button class="ptt-reset" id="pttReset" title="去掉手动时间，按每个画面的出现位置（第几句到第几句）排">恢复按句子</button>' : ''}</div>
     <div class="ptt-lanes" id="pttLanes">
       <span></span><div class="ptt-ruler" id="pttRuler" title="点击或拖动：跳到这个时间">${ticks}<span class="ptt-rhead" id="pttRHead"></span></div>
-      <span class="ptt-lname">正片</span><div class="ptt-lane" id="pttLane">${seps}${holds}${blocks}<span class="ptt-ghost" id="pttGhost" hidden></span><span class="ptt-insert" id="pttInsert" hidden></span><span class="ptt-head" id="pttHead"></span>${
-        items.length ? '' : '<span class="ptt-empty">正片轨还没有画面：审核通过视频，或把备选拖上来</span>'
+      <span class="ptt-lname">主画面</span><div class="ptt-lane" id="pttLane">${seps}${holds}${blocks}<span class="ptt-ghost" id="pttGhost" hidden></span><span class="ptt-insert" id="pttInsert" hidden></span><span class="ptt-head" id="pttHead"></span>${
+        items.length ? '' : '<span class="ptt-empty">还没有主画面：审核通过视频，或把备选拖上来</span>'
       }</div>
       <span class="ptt-lname alt">备选</span><div class="ptt-lane alt${trackAlts.length ? '' : ' empty'}" id="pttAlt"${
         trackAlts.length
           ? ` style="height:${altRows * ALT_ROW + 4}px"`
-          : ' title="排不下的通过视频放在这里；把正片拖下来也行"'
+          : ' title="排不下的通过视频放在这里；把主画面拖下来也行"'
       }>${bareSeps}${altBlocks}<span class="ptt-insert" id="pttAltInsert" hidden></span></div>
     </div>`;
   return { html, alts: trackAlts, pick, hidden: false };

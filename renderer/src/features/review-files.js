@@ -55,16 +55,31 @@ async function saveSegment(id, { quiet = false } = {}) {
   return r;
 }
 
-export async function saveAllApproved() {
+/* 通过后自动在后台保存：选过保存位置才自动截（没选过的，等点「保存已通过的片段」时再选）。
+   等一下再开始：连着审几个、或者马上撤回，不白截。自动保存失败过的这次打开软件内不再自动重试，按钮还能手动再试 */
+const autoFailed = new Set();
+let autoTimer = 0;
+export function autoSaveApproved(delay = 1500) {
+  clearTimeout(autoTimer);
+  if (!state.mediaDir) return;
+  const pid = state.projectId; // 等的时候切了项目：不去存别的项目
+  autoTimer = setTimeout(() => {
+    if (state.projectId !== pid) return;
+    if (batchRun) autoSaveApproved();
+    else saveAllApproved({ auto: true });
+  }, delay);
+}
+
+export async function saveAllApproved({ auto = false } = {}) {
   const pid = state.projectId;
   await relinkSavedClips({ quiet: true }); // 已经存在本地的先换上，不重复下载
   if (state.projectId !== pid) return;
-  const list = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath);
+  const list = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath && !(auto && autoFailed.has(c.id)));
   if (!list.length) {
-    toast('没有待保存的已通过片段', null, 'info');
+    if (!auto) toast('没有待保存的已通过片段', null, 'info');
     return;
   }
-  if (!(await ensureMediaDir())) return;
+  if (auto ? !state.mediaDir : !(await ensureMediaDir())) return;
   if (batchRun || state.projectId !== pid) return;
   let ok = 0,
     fail = 0,
@@ -83,6 +98,7 @@ export async function saveAllApproved() {
         if (r.peer) copied++;
       } else {
         fail++;
+        autoFailed.add(c.id);
         if (r?.needFfmpeg) return;
         const why = r?.error || '未知原因';
         reasons.set(why, (reasons.get(why) || 0) + 1);
@@ -92,12 +108,13 @@ export async function saveAllApproved() {
     batchRun = null;
     emit('candidate-media');
   }
+  if (auto) autoSaveApproved(); // 这一轮里又通过了新的：接着存（失败过的不再自动重试，不会来回打转）
   const fromPeer = copied ? `（${copied} 段从对方电脑拷来）` : '';
-  if (!fail) return toast(`已保存 ${ok} 段${fromPeer}`, null, 'ok');
+  if (!fail) return auto ? undefined : toast(`已保存 ${ok} 段${fromPeer}`, null, 'ok'); // 自动保存成功不打扰，卡片上写着「已保存」
   const [top, n] = [...reasons].sort((a, b) => b[1] - a[1])[0] || ['未知原因', fail];
   const more = reasons.size > 1 ? `等 ${reasons.size} 种原因` : '';
   toast(
-    `已保存 ${ok} 段${fromPeer}，${fail} 段失败（可再次批量尝试）。${n < fail || more ? `主要原因（${n} 段）` : '原因'}：${top}${more ? '，' + more : ''}`,
+    `${auto ? '自动' : ''}保存了 ${ok} 段${fromPeer}，${fail} 段失败（点「保存已通过的片段」可以再试）。${n < fail || more ? `主要原因（${n} 段）` : '原因'}：${top}${more ? '，' + more : ''}`,
     null,
     ok ? 'warn' : 'error',
   );

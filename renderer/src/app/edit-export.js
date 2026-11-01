@@ -34,7 +34,7 @@ function normalizeOptions(raw = {}) {
   };
 }
 
-/* 首次打开返回 configured:false（界面展开完整设置），成功导出一次后为 true。 */
+/* 上次成功导出时的设置，只用来预填导出面板 */
 function readSavedSettings() {
   try {
     return settings()?.[PREFS_KEY] || null;
@@ -46,7 +46,6 @@ function readSavedSettings() {
 export function loadJianyingSettings() {
   const saved = readSavedSettings();
   return {
-    configured: saved?.configured === true,
     mode: saved?.mode === 'folder' ? 'folder' : 'library',
     destDir: typeof saved?.destDir === 'string' ? saved.destDir : '',
     options: normalizeOptions(saved?.options || saved || {}),
@@ -86,6 +85,7 @@ export function captureExportSnapshot() {
       types: state.types,
       speechRate: state.speechRate,
       voice: state.voice || null,
+      timing: state.timing || null,
       updatedAt: Number(currentProject()?.updatedAt) || Date.now(),
     });
   } catch (error) {

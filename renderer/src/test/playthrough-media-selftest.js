@@ -29,7 +29,9 @@ export async function runPlaythroughMediaTests(t) {
     asset: { path: fx.dir + '/样片.mp4' },
     usage: { clip: { in: cin, out: 1.9 } },
   });
-  const visible = () => stage.querySelector('.pt-media:not(.pt-pending)');
+  // 交接时旧画面会在新画面底下垫一会儿：看最上面的那个
+  const visible = () =>
+    stage.querySelector('.pt-media.pt-front:not(.pt-pending)') || stage.querySelector('.pt-media:not(.pt-pending)');
   let failed = 0;
   try {
     const a = media.show('a', video(0), 0, () => failed++);
@@ -45,7 +47,12 @@ export async function runPlaythroughMediaTests(t) {
       b.dataset.previewReady === 'true' && b.paused && Math.abs(b.currentTime - 0.4) < 0.04,
     );
     const reused = media.show('b', video(0.4), 0.4, () => failed++);
-    t('切换时复用已准备的首帧，立即交接、不出现黑屏', reused === b && visible() === b && !stage.contains(a));
+    t(
+      '切换时复用已准备的首帧，立即交接，旧画面在底下垫到新画面画上屏',
+      reused === b && visible() === b && stage.contains(a) && !a.classList.contains('pt-pending'),
+    );
+    await until(() => !stage.contains(a));
+    t('新画面画上屏后旧画面收起并释放', !stage.contains(a) && visible() === b);
 
     // 零入点的视频无需依赖 seeked 事件，也能在播放前准备好。
     media.prefetch('c', video(0));
@@ -53,6 +60,7 @@ export async function runPlaythroughMediaTests(t) {
     await until(() => c.dataset.previewReady === 'true');
     t('从零秒开始的视频也能提前准备好首帧', c.dataset.previewReady === 'true' && c.paused);
     media.show('c', video(0), 0, () => failed++);
+    await until(() => stage.querySelectorAll('video').length === 1);
     t('连续切换只保留当前与下一段，旧视频释放', visible() === c && stage.querySelectorAll('video').length === 1);
 
     // 模拟新素材迟迟没有元数据：超过旧实现的 1.5 秒也不能强行撤掉上一帧。
@@ -141,6 +149,98 @@ export async function runPlaythroughMediaTests(t) {
     runCommand('playthrough:shot', rows[0].id);
     await pause(650);
     t('手动留出的空白仍按用户设置显示', !!$('#ptStage .pt-gap'));
+    closePlaythrough();
+
+    // 播放中排布变了（例如刚记下视频的真实时长）：旧画面留到新画面出来，不清空闪黑
+    const timesOf = end => [
+      { assetId: rows[0].assetUsages[0].assetId, start: 0, end },
+      { assetId: rows[0].assetUsages[1].assetId, start: end, end: 1.5 },
+    ];
+    setShotTimes(rows[0], timesOf(1.2));
+    runCommand('playthrough:shot', rows[0].id);
+    await until(() => $('#ptStage video.pt-media:not(.pt-pending)'));
+    let dark = 0;
+    const darkWatch = new MutationObserver(() => {
+      if (!$('#ptStage .pt-media:not(.pt-pending)')) dark++;
+    });
+    darkWatch.observe($('#ptStage'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    setShotTimes(rows[0], timesOf(1.0));
+    await pause(300);
+    darkWatch.disconnect();
+    t(
+      '播放中排布变了也不清空画面、不闪黑',
+      dark === 0 && !!$('#ptStage video.pt-media:not(.pt-pending)'),
+      `黑屏次数=${dark}`,
+    );
+    closePlaythrough();
+
+    // 视频比口播先放到文件末尾：不能再 play() 让浏览器从头播（闪出片头一帧）；
+    // 素材本来就铺满这句，只是早放完一点，也不能冒出「片段已经放完」
+    storage.createProject('片尾不回跳', parseAny('第一句。第二句。'));
+    const [full, short] = state.rows.filter(r => r.kind === 'line');
+    full.time = { start: 0, end: 2, st: 'ok' };
+    short.time = { start: 2, end: 5, st: 'ok' };
+    update('rows');
+    addRefsToShot(full, [fx.dir + '/样片.mp4']);
+    addRefsToShot(short, [fx.dir + '/样片.mp4']);
+    runCommand('playthrough:shot', full.id);
+    await until(() => $('#ptStage video.pt-media:not(.pt-pending)'));
+    const tailVideo = $('#ptStage video.pt-media:not(.pt-pending)');
+    let peak = 0,
+      rewound = false,
+      badge = 0;
+    const watchTail = () => {
+      peak = Math.max(peak, tailVideo.currentTime);
+      // 放完后画面被释放时 currentTime 也会归零，那不算回跳
+      if (peak > 1.5 && tailVideo.currentTime < 1 && tailVideo.isConnected && tailVideo.hasAttribute('src'))
+        rewound = true;
+    };
+    for (const name of ['timeupdate', 'seeked', 'playing', 'ended']) tailVideo.addEventListener(name, watchTail);
+    const badgeWatch = new MutationObserver(() => {
+      if ($('#ptStage').classList.contains('pt-short')) badge++;
+    });
+    badgeWatch.observe($('#ptStage'), { attributes: true, attributeFilter: ['class'] });
+    await until(() => playthroughState().time >= 1.5, 4000);
+    // 让视频比口播快 0.25 秒（追平前就会先放到末尾）
+    tailVideo.currentTime = Math.min(1.95, playthroughState().time + 0.25);
+    // 这句之后会接着播下一句（那句素材确实短，会正常提示）：只看这一句
+    await until(() => playthroughState().time >= 2.05, 4000);
+    badgeWatch.disconnect();
+    t('视频先放到末尾时停在最后一帧，不跳回片头', peak > 1.5 && !rewound, `peak=${peak.toFixed(2)} 回跳=${rewound}`);
+    t('素材铺满这句时，早放完一点也不提示「片段已经放完」', badge === 0, `提示出现 ${badge} 次`);
+    // 标了定格补满的短素材照原定时长排：真的放完了才提示
+    closePlaythrough();
+    short.assetUsages[0].freeze = true;
+    update('rows');
+    runCommand('playthrough:shot', short.id);
+    await until(() => playthroughState().time >= 4.5, 6000);
+    t(
+      '素材确实比这句短时，放完后照常提示',
+      $('#ptStage').classList.contains('pt-freeze'),
+      `time=${playthroughState().time.toFixed(2)}`,
+    );
+    closePlaythrough();
+
+    // 视频跟口播差一点时微调速度追平，不硬跳进度
+    runCommand('playthrough:shot', full.id);
+    await until(() => $('#ptStage video.pt-media:not(.pt-pending)'));
+    const smooth = $('#ptStage video.pt-media:not(.pt-pending)');
+    await until(() => playthroughState().time >= 0.4, 3000);
+    smooth.currentTime = playthroughState().time + 0.2;
+    await new Promise(r => smooth.addEventListener('seeked', r, { once: true }));
+    const gap = () => smooth.currentTime - playthroughState().time;
+    const before = gap();
+    let jumps = 0;
+    smooth.addEventListener('seeking', () => jumps++);
+    await pause(150);
+    const slowed = smooth.playbackRate < 1;
+    await pause(500);
+    const after = gap();
+    t(
+      '视频比口播快一点时放慢追平，不来回跳',
+      slowed && jumps === 0 && after < before - 0.05,
+      `跳=${jumps} 差 ${before.toFixed(2)} → ${after.toFixed(2)}`,
+    );
   } finally {
     closePlaythrough();
     storage.switchProject(original);

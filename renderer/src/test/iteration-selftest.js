@@ -88,22 +88,10 @@ export async function runIterationTests(t) {
   key($('#typeEditorMask'), 'Escape');
   t('Esc 关闭类型编辑器且不保存', !$('#typeEditorMask').classList.contains('show') && types().has('a'));
 
-  // 原文视图和专注标注也认自定义类型
-  viewState.view = 'check';
-  update('rows');
-  select(lines()[2].id);
-  key(document.body, '6');
-  t(
-    '原文视图按 6 标注自定义类型',
-    lines()[2].type === 't1' && $(`.as[data-id="${lines()[2].id}"]`).classList.contains('typed'),
-  );
-  viewState.view = 'table';
-  update('rows');
+  // 自定义类型的快捷键在表格里照样能用
   select(lines()[3].id);
-  runCommand('focus:open');
   key(document.body, '7');
-  t('专注标注里按 7 标第 7 个类型', lines()[3].type === types().list[6].id);
-  key(document.body, 'Escape');
+  t('表格里按 7 标第 7 个类型', lines()[3].type === types().list[6].id);
 
   /* ── 口播音频与时间轴 ── */
   t('没有口播时按语速估算', timeline().source === 'rate' && $('#voiceBar').hidden);
@@ -203,7 +191,7 @@ export async function runIterationTests(t) {
     setVoice(voicePath, 8);
     await pause(400);
     runCommand('inspector:open', rs[3].id);
-    $('.sync-btn').click();
+    $('#btnSync').click();
     await pause(80);
     t(
       '超出口播音频的共用画面：从所选镜头开始静音预览，句子与素材不跳回音频结尾',

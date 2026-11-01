@@ -37,16 +37,15 @@ const ASSET_TIPS =
   '也可以把文件直接拖进这里或句子上。移除只解除关联，保留本地文件；⌘Z 可撤销。' +
   '输入自动保存；共用画面的描述、素材和视频片段整组共用一份。链接与路径随项目保存，本地素材需随交稿另行打包。';
 
-/* 这个画面在口播里的时间段，拆成三块分别放：
+/* 这个画面在口播里的时间段，拆成两块分别放（「对着口播看画面」只在工具条上）：
    - meta：口播时间 + 片段够不够长的提醒，放在「素材与片段」标题下面（说的是素材和口播对不对得上）
-   - sync：「对着口播看画面」，放在「素材与片段」标题右边（预览的是这些素材怎么配口播）
    - listen：「听这段口播」，放在原文旁边（听的是这几句话） */
 function voiceParts(members) {
   const span = shotSpan(
     timeline(),
     members.map(r => r.id),
   );
-  if (!span) return { meta: '', sync: '', listen: '' };
+  if (!span) return { meta: '', listen: '' };
   const src = timeline().source;
   const how = src === 'srt' ? '字幕实测' : src === 'fit' ? '按口播音频推算' : '按语速估算';
   const len = span.end - span.start;
@@ -68,7 +67,6 @@ function voiceParts(members) {
       : '';
   return {
     meta: `<div class="voice-block"><div class="voice-line"><b>口播</b><span class="mono">${fmtTc(span.start)}–${fmtTc(span.end)}</span><span>${fmtLen(len)} · ${how}</span></div>${compare}</div>`,
-    sync: `<button class="btn sync-btn" data-sync-preview="${members[0].id}" title="${state.voice ? '口播和画面一起播；下面的镜头轨可以调每个主画面出现的秒数' : '还没导入口播音频：按估算时间静音走一遍。下面的镜头轨可以调每个主画面出现的秒数'}">▶ 对着口播看画面</button>`,
     listen: state.voice
       ? `<button class="text-button listen-btn" data-voice-range="${members[0].id}">▶ 听这段口播</button>`
       : '',
@@ -100,7 +98,7 @@ export function renderInspector(force = false) {
   const voice = voiceParts(members);
   const html = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}</div>
     <section class="detail-assets">
-      <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span><span class="spacer"></span>${voice.sync}</div>
+      <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span></div>
       ${voice.meta}
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
       <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button><button class="btn" id="reworkShot" title="这个画面还缺镜头：写下要什么，生成返工单交给 AI 去找">再找一个…</button></div>
@@ -111,7 +109,7 @@ export function renderInspector(force = false) {
           : '';
       })()}
     </section>
-    <label class="detail-note-block"><span class="detail-label">${visual ? '画面描述' : '备注'}</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
+    <label class="detail-note-block"><span class="detail-label">画面描述</span><textarea id="detailNote" rows="4" placeholder="${visual ? '画面里有什么？如何呈现？' : '给剪辑的备注'}">${esc(r.note || '')}</textarea></label>
 `;
   // 后台刷新（别人改了别的句子、存了文件…）时面板内容没变就不重写：缩略图、滚动位置、展开的片段都留着
   if (!force && panel._html === html && panel.dataset.row === String(r.id) && panel.dataset.project === state.projectId)
@@ -136,7 +134,7 @@ function markNoteClamp() {
   if (document.activeElement !== note) note.classList.toggle('clamped', note.scrollHeight > note.clientHeight + 2);
 }
 
-/* 原文视图的选区卡 / 行菜单：打开右侧面板看这个画面的素材 */
+/* 打开右侧面板看这个画面的素材 */
 export function openInspectorFor(id) {
   const r = rowById(id);
   if (!r || r.kind !== 'line') return;
@@ -179,6 +177,7 @@ export function initInspector() {
   for (const type of ['input', 'change']) $('#inspector').addEventListener(type, e => (e.currentTarget._html = null));
   registerCommand('inspector:open', openInspectorFor);
   registerCommand('inspector:refresh', () => renderInspector(true));
+  registerCommand('assets:load-thumbs', hydrateAssetCards); // 别的页面（待返工）画了素材缩略图位，交给这里懒加载
   // 工具条上的「对着口播看画面」：不用先打开面板，选中哪句就从哪个画面看
   $('#btnSync').onclick = () => {
     if (!viewState.sel || !rowById(viewState.sel)) return toast('先点选一句，再对着口播看它的画面', null, 'info');
@@ -262,8 +261,6 @@ export function initInspector() {
     if (retry) return refreshThumb(retry.dataset.thumbRetry);
     const vr = e.target.closest('[data-voice-range]');
     if (vr) return runCommand('voice:play-shot', +vr.dataset.voiceRange);
-    const sp = e.target.closest('[data-sync-preview]');
-    if (sp) return runCommand('playthrough:shot', +sp.dataset.syncPreview);
   });
 
   panel.addEventListener('focusin', e => {

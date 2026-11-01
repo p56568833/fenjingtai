@@ -9,17 +9,17 @@ let cancelPending = null;
 function visibleSentence(wrap) {
   const view = wrap.getBoundingClientRect();
   let top = view.top;
-  for (const heading of wrap.querySelectorAll('.section-row,.sec-pin.on,.ck-sec')) {
+  for (const heading of wrap.querySelectorAll('.section-row,.sec-pin.on')) {
     const box = heading.getBoundingClientRect();
     if (box.top <= view.top + 1 && box.bottom > top) top = box.bottom;
   }
   const blocks = wrap.querySelectorAll(
-    '.rows > .row,.rows > .shared-scene,.sec-block > .row,.sec-block > .shared-scene,.ck-article > .ck-p,.ck-article > .shared-passage',
+    '.rows > .row,.rows > .shared-scene,.sec-block > .row,.sec-block > .shared-scene',
   );
   for (const block of blocks) {
     const box = block.getBoundingClientRect();
     if (box.bottom <= top || box.top >= view.bottom) continue;
-    for (const sentence of block.querySelectorAll('.sent[data-id],.as[data-id]')) {
+    for (const sentence of block.querySelectorAll('.sent[data-id]')) {
       const rect = sentence.getBoundingClientRect();
       if (rect.bottom > top && rect.top < view.bottom && rect.height > 0)
         return { sentence, offset: rect.top - view.top };
@@ -52,8 +52,7 @@ export function preserveReadingPosition(changeLayout) {
   cancelPending = cancel;
   // 重画可能把锚定的句子元素整个换掉（如去掉搜索高亮），按句子 id 找回新元素继续对齐
   const id = anchor.sentence.dataset.id;
-  const current = () =>
-    anchor.sentence.isConnected ? anchor.sentence : wrap.querySelector(`.sent[data-id="${id}"],.as[data-id="${id}"]`);
+  const current = () => (anchor.sentence.isConnected ? anchor.sentence : wrap.querySelector(`.sent[data-id="${id}"]`));
   const fix = () => {
     if (!guard.active()) return;
     const sentence = current();

@@ -22,6 +22,7 @@ import {
   dismissRework,
   buildReworkDoc,
   groupReworkItems,
+  followRework,
 } from '../renderer/src/core/rework.js';
 import {
   groupRows,
@@ -688,7 +689,6 @@ import {
   normalizeUsageSpans,
   mainCoverage,
 } from '../renderer/src/core/shots.js';
-import * as ED from '../renderer/src/core/export-doc.js';
 const roleRows = () => {
   const rows = lines('甲。乙。丙。');
   rows.forEach((r, i) => {
@@ -768,34 +768,8 @@ test('加入下一句：组内整段素材顺延，下一句自带的只在下�
   // 第 3 句上有两个主画面：1.8 起都保留，预览里平分这句的时间
   assert.equal(usageList(rows[2]).find(u => u.assetId === 'n').role, 'main');
 });
-test('素材清单只列要用的，CSV 逐句只列这句出现的，MD 回读保留角色与位置', () => {
-  const rows = roleRows();
-  const registry = {};
-  const a = ensureAsset(registry, '/tmp/主.png'),
-    b = ensureAsset(registry, '/tmp/叠.png'),
-    c = ensureAsset(registry, '/tmp/备.mp4');
-  groupRows(
-    rows,
-    rows.map(r => r.id),
-  );
-  rows.forEach(
-    r =>
-      (r.assetUsages = [
-        { assetId: a.id, role: 'main' },
-        { assetId: b.id, role: 'overlay' },
-        { assetId: c.id, role: 'alt' },
-      ]),
-  );
-  applySpan(rows, b.id, 1, 1);
-  rows.forEach(r => (r.note = '画面'));
-  const md = ED.buildAssetListMd({ title: 't', rows, issues: [], registry, speechRate: 4.5 });
-  assert.ok(md.includes('【主画面】主.png（整段）'));
-  assert.ok(md.includes('【叠加】叠.png（第 2 句 · 整段）'));
-  assert.ok(!md.includes('备.mp4') && md.includes('另有备选 1 个'));
-  const csv = ED.buildCsv({ title: 't', rows, registry });
-  const csvRows = csv.split('\n');
-  assert.ok(!csvRows[1].includes('叠.png') && csvRows[2].includes('【叠加】叠.png'));
-  const annotated = ED.buildAnnotatedMd({ title: 't', rows, issues: [], registry });
+test('旧版批注 MD 导入保留角色与位置', () => {
+  const annotated = fs.readFileSync(path.join(ROOT, 'scripts/fixtures/legacy-md-roles.md'), 'utf8');
   const back = parseAny(annotated);
   const p = { rows: back };
   hydrateProjectAssets(p);
@@ -833,7 +807,6 @@ test('PDF 不排备选，共用画面写明出现在哪几句', () => {
 /* ── 1.3.2：自定义类型 / 时间轴 / 导出细节 ── */
 const { normalizeTypes, typeIndex, newTypeId } = await import('../renderer/src/core/types.js');
 const { buildTimeline, lineAt, spanOf, shotSpan } = await import('../renderer/src/core/timeline.js');
-const { buildCsv, buildAnnotatedMd, buildAssetListMd } = await import('../renderer/src/core/export-doc.js');
 const { safeFileName } = await import('../renderer/src/core/text.js');
 const { pruneTypingJunk } = await import('../renderer/src/core/asset-model.js');
 const { mdTypes } = await import('../renderer/src/core/parse.js');
@@ -882,17 +855,8 @@ test('自定义类型：交稿检查按「是否需要画面」判断，不再�
   assert.equal(normalizeProjectRows([{ kind: 'line', text: '甲', type: 'talk' }], types)[0].type, 'talk');
   assert.equal(normalizeProjectRows([{ kind: 'line', text: '甲', type: 'talk' }])[0].type, null);
 });
-test('带批注 MD 带着自定义类型表来回不丢', () => {
-  const types = normalizeTypes([
-    { id: 'talk', label: '口播', full: '口播 · 出镜', color: '#123456', visual: false },
-    { id: 'map', label: '地图', full: '地图动画', visual: true },
-  ]);
-  const rows = [
-    { id: 1, kind: 'section', text: '开场' },
-    { id: 2, kind: 'line', text: '第一句。', type: 'talk', note: '' },
-    { id: 3, kind: 'line', text: '第二句。', type: 'map', note: '路线图\n第二行' },
-  ];
-  const md = buildAnnotatedMd({ title: '测试', rows, types });
+test('旧版批注 MD 导入保留自定义类型表', () => {
+  const md = fs.readFileSync(path.join(ROOT, 'scripts/fixtures/legacy-md-types.md'), 'utf8');
   const back = mdTypes(md);
   assert.equal(back[0].color, '#123456');
   const parsed = parseAny(md).filter(r => r.kind === 'line');
@@ -934,30 +898,13 @@ test('时间轴：字幕时间优先；对齐后新加的句子夹在前后之�
   assert.equal(tl.times.get(3).st, 'low');
   assert.equal(tl.total, 60);
 });
-test('CSV：共用画面写成人话、防公式注入；有口播音频时带开始结束时间', () => {
-  const rows = [
-    { id: 1, kind: 'line', no: 1, text: '=SUM(1)', type: 'real', groupId: 'shot-x' },
-    { id: 2, kind: 'line', no: 2, text: '第二句', type: 'real', groupId: 'shot-x' },
-  ];
-  const csv = buildCsv({ title: 't', rows, voiceDuration: 10 });
-  assert.ok(csv.includes('"第 1–2 句"'));
-  assert.ok(!csv.includes('shot-x'));
-  assert.ok(csv.includes(`"'=SUM(1)"`));
-  assert.ok(csv.includes('开始时间') && csv.includes('按音频推算'));
-  const list = buildAssetListMd({ title: 't', rows, voiceDuration: 10 });
-  assert.ok(list.includes('按口播音频时长推算'));
-});
-test('素材清单 / 打印分镜表：画面秒数含句间停顿，到下一个画面开口（AI 找素材按这个长度找）', () => {
+test('打印分镜表：画面秒数含句间停顿，到下一个画面开口（AI 找素材按这个长度找）', () => {
   const rows = [
     { id: 1, kind: 'line', no: 1, text: '甲', type: 'real', groupId: 'gp', time: { start: 0, end: 2, st: 'ok' } },
     { id: 2, kind: 'line', no: 2, text: '乙', type: 'real', groupId: 'gp', time: { start: 2.5, end: 4, st: 'ok' } },
     { id: 3, kind: 'line', no: 3, text: '丙', type: 'real', time: { start: 5, end: 7, st: 'ok' } },
   ];
   const tl = buildTimeline(rows, {});
-  const list = buildAssetListMd({ title: 't', rows, timeline: tl });
-  assert.ok(list.includes('第 1、2 句 · 00:00.0 · 5.0s'), '第 1–2 句：0 秒开口到第 3 句 5 秒开口');
-  assert.ok(list.includes('第 3 句 · 00:05.0 · 2.0s'), '最后一个画面到最后一句说完');
-  assert.ok(list.includes('从第一句开口到下一个画面开口'));
   const plan = planDocument(rows, 4.5, {}, { timeline: tl });
   assert.deepEqual(
     plan.shots.map(x => x.seconds),
@@ -1521,7 +1468,7 @@ test('两条轨：通过的按 for 排到它那几句，那几句已有画面放
   assert.equal(T.rangeFilled(layoutShot(reg, rows, tl), layoutShot(reg, rows, tl).items, 0, 2), true);
 });
 /* ── 1.10：项目 JSON 往返 / 候选更新失效 / 交稿检查两种目标 ── */
-const { buildProjectJson } = await import('../renderer/src/core/export-doc.js');
+const { buildProjectJson } = await import('../renderer/src/core/project-json.js');
 const {
   sanitizeProjectCandidates,
   planImport,
@@ -2270,6 +2217,119 @@ test('待返工按句子：共用画面里只对第 1 句的素材不满意，�
     [['1:1-2', '要近景']],
   );
 });
+test('待返工：同一画面里句子重叠的几项合成一项，返工单也只写一条', () => {
+  const row = (id, no) => ({ id, kind: 'line', no, text: '句' + no, groupId: 'g', assetUsages: [] });
+  const rows = [row(1, 1), row(2, 2), row(3, 3), row(4, 4)];
+  const cand = (id, forIds, decision) => ({ id, rowId: 1, forIds, decision, decidedAt: 10, url: 'https://x/' + id });
+  const cands = [cand('a', [1], 'no'), cand('b', [1, 2, 3, 4], 're'), cand('c', [2], 'no'), cand('p', [3], '')];
+  const list = reworkShots(rows, cands);
+  assert.deepEqual(
+    list.map(s => [s.key, s.target.map(m => m.no)]),
+    [['1:0-3', [1, 2, 3, 4]]],
+    '否掉的分别配第 1 句、第 1–4 句、第 2 句：合成一项「第 1–4 句」',
+  );
+  assert.deepEqual(
+    list[0].rejected.map(x => x.id),
+    ['a', 'b', 'c'],
+  );
+  assert.deepEqual(
+    list[0].cands.map(x => x.id),
+    ['a', 'b', 'c', 'p'],
+    '配第 3 句的待审候选也在这一项里',
+  );
+  const doc = buildReworkDoc({ title: 'T', shots: groupReworkItems(list) });
+  assert.deepEqual(doc.shots[0].for, ['1-4']);
+  dismissRework(rows, list[0], 20);
+  assert.deepEqual(reworkShots(rows, cands), [], '不用返工了：整项一起清掉');
+});
+test('待返工：同一个候选碰到的几项合成一项，不在两项里各列一次', () => {
+  const row = (id, no) => ({ id, kind: 'line', no, text: '句' + no, groupId: 'g', assetUsages: [] });
+  const rows = [row(1, 1), row(2, 2), row(3, 3), row(4, 4)];
+  const cand = (id, forIds, decision) => ({ id, rowId: 1, forIds, decision, decidedAt: 10, url: 'https://x/' + id });
+  const cands = [cand('a', [1], 'no'), cand('b', [2], 'no'), cand('p', [1, 2, 3, 4], '')];
+  assert.deepEqual(
+    reworkShots(rows, cands).map(s => [s.key, s.cands.map(c => c.id)]),
+    [['1:0-1', ['a', 'b', 'p']]],
+    '配第 1–4 句的待审候选同时碰到「第 1 句」「第 2 句」：合成「第 1–2 句」，范围不扩到整段',
+  );
+  cands[2].decision = 'ok';
+  assert.deepEqual(
+    reworkShots(rows, cands).map(s => s.key),
+    [],
+    '通过了它：两句一起解决',
+  );
+  // 没有候选连着的照旧分开
+  const apart = [cand('a', [1], 'no'), cand('c', [3], 'no')];
+  assert.deepEqual(
+    reworkShots(rows, apart).map(s => s.key),
+    ['1:0-0', '1:2-2'],
+  );
+});
+test('待返工：选中的那一项范围变了或者没了，选接上的那一项，不跳回第一项', () => {
+  const row = (id, no, groupId) => ({ id, kind: 'line', no, text: '句' + no, groupId, assetUsages: [] });
+  const rows = [row(1, 1, 'g'), row(2, 2, 'g'), row(3, 3), row(4, 4), row(5, 5)];
+  const cand = (id, rowId, forIds, decision) => ({
+    id,
+    rowId,
+    forIds,
+    decision,
+    decidedAt: 10,
+    url: 'https://x/' + id,
+  });
+  const cands = [
+    cand('x', 3, [3], 'no'),
+    cand('a', 1, [1], 'no'),
+    cand('p', 1, [1, 2], ''),
+    cand('y', 4, [4], 'no'),
+    cand('z', 5, [5], 'no'),
+  ];
+  const at = s => ({ key: s.key, leadId: s.lead.id, from: s.from, to: s.to, index: before.indexOf(s) });
+  let before = reworkShots(rows, cands);
+  assert.deepEqual(
+    before.map(s => s.key),
+    ['1:0-0', '3:0-0', '4:0-0', '5:0-0'],
+  );
+  // 在「第 1 句」里否掉配第 1–2 句的 p：这一项变成「第 1–2 句」，还选着它
+  const first = at(before[0]);
+  cands[2].decision = 'no';
+  assert.equal(followRework(reworkShots(rows, cands), first)?.key, '1:0-1');
+  // 「第 4 句」通过了：选下一项「第 5 句」，不回到第一项
+  before = reworkShots(rows, cands);
+  const fourth = at(before[2]);
+  cands[3].decision = 'ok';
+  assert.equal(followRework(reworkShots(rows, cands), fourth)?.key, '5:0-0');
+  // 最后一项没了：选新的最后一项
+  before = reworkShots(rows, cands);
+  const last = at(before.at(-1));
+  cands[4].decision = 'ok';
+  assert.equal(followRework(reworkShots(rows, cands), last)?.key, '3:0-0');
+  assert.equal(followRework(reworkShots(rows, cands), null)?.key, '1:0-1', '没有上一项：第一项');
+});
+test('通过候选不往画面描述里写来源；旧项目里写进去的那一行打开时摘掉，自己写的字不动', () => {
+  const c = {
+    id: 'a',
+    rowId: 1,
+    forIds: [1],
+    decision: 'ok',
+    title: '福特',
+    url: 'https://x/a.mp4',
+    in: 1,
+    out: 9,
+    license: '公有领域',
+  };
+  const line = '视频：福特｜00:01–00:09｜公有领域｜https://x/a.mp4';
+  const data = normalizeProjectData({
+    rows: [
+      { id: 1, kind: 'line', text: '甲', note: `工厂外景\n${line}` },
+      { id: 2, kind: 'line', text: '乙', note: '视频：自己写的说明' },
+    ],
+    candidates: [c],
+  });
+  assert.deepEqual(
+    data.rows.map(r => r.note),
+    ['工厂外景', '视频：自己写的说明'],
+  );
+});
 test('待返工：返工单写句号、要换掉的素材和理由、补充要求、否掉的候选；项目 JSON 往返保留标记', () => {
   const rows = [
     { id: 1, kind: 'line', no: 7, text: '甲', note: '外景', assetUsages: [{ assetId: 'x', role: 'main' }] },
@@ -2691,7 +2751,7 @@ test('候选清单错误百分号编码返回格式提示，合法编码可正�
   assert.deepEqual(validateCandidateDoc(doc('https://x/100%25.mp4')), []);
 });
 
-test('带批注 MD 和项目 JSON 回读保留手动时间、素材返工和画面返工标记', () => {
+test('旧版批注 MD 导入和项目 JSON 回读保留手动时间、素材返工和画面返工标记', () => {
   const original = {
     title: '往返回归',
     assets: { a: { id: 'a', kind: 'video', name: '视频', path: '/m/a.mp4' } },
@@ -2709,7 +2769,7 @@ test('带批注 MD 和项目 JSON 回读保留手动时间、素材返工和画�
       { id: 401, kind: 'line', text: '第二句。', reworkOff: 222 },
     ],
   };
-  const md = buildAnnotatedMd({ ...original, registry: original.assets });
+  const md = fs.readFileSync(path.join(ROOT, 'scripts/fixtures/legacy-md-rework.md'), 'utf8');
   const restored = { rows: parseAny(md) };
   hydrateProjectAssets(restored);
   const row = restored.rows.find(r => r.kind === 'line'),

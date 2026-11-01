@@ -1,6 +1,6 @@
 import { viewState } from '../app/view-state.js';
 /* 表格按块原地更新：没变的句子不换元素；别人增删改句子时正在看的位置不动；句号、时长原地改；
-   共用画面、筛选、章节显隐、搜索高亮、原文视图互切都和整表重画的结果一致。 */
+   共用画面、筛选、章节显隐、搜索高亮都和整表重画的结果一致。 */
 import { state } from '../app/state.js';
 import { emit } from '../app/events.js';
 import { update } from '../app/project-events.js';
@@ -172,23 +172,6 @@ export async function runTablePatchTests(t) {
     await pause(60);
     t('清空搜索恢复', !rowEl(200).querySelector('mark') && !rowEl(201).classList.contains('qdim'));
 
-    /* 原文视图和表格互切：各自整块重来，回到表格时内容完整 */
-    viewState.view = 'check';
-    update('rows');
-    await pause(60);
-    t('切到原文视图：表格的行都不在了', !$('#rows .row') && !!$('#rows .as'));
-    viewState.view = 'table';
-    update('rows');
-    await pause(60);
-    t(
-      '切回表格：每句一行，句号连续',
-      $$('#rows .row[data-id]').length === state.rows.filter(r => r.kind === 'line').length &&
-        $$('#rows .row .idx span')
-          .slice(0, 3)
-          .map(x => x.textContent)
-          .join(',') === '1,2,3',
-    );
-
     /* 没有句子的筛选：显示空状态；切回来空状态消失 */
     viewState.filter = '__none__';
     update('rows');
@@ -235,20 +218,6 @@ export async function runTablePatchTests(t) {
     undo();
     await pause(60);
     t('撤销改字：表格里显示原来的句子', rowEl(63).querySelector('.sent').textContent === text(63));
-    viewState.view = 'check';
-    update('rows');
-    await pause(60);
-    const span = () => $('#rows .as[data-id="64"]');
-    setType([64], typeId);
-    await pause(30);
-    t('原文视图标注原地改', span().classList.contains('typed'));
-    undo();
-    await pause(60);
-    t('原文视图撤销标注：句子回到未标注', !span().classList.contains('typed'));
-    viewState.view = 'table';
-    update('rows');
-    await pause(60);
-
     /* 右侧面板：别人改别处时不重写；在面板里打字后撤销，面板跟着回到原来的字 */
     openInspectorFor(150);
     await pause(60);

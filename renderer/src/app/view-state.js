@@ -3,9 +3,6 @@ export const viewState = {
   filter: 'all',
   sel: null,
   multi: null,
-  multiMode: false,
   query: '',
   view: 'table',
-  autoAdvance: false,
-  focusMode: false,
 };

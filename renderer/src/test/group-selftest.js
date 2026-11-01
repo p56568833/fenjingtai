@@ -35,7 +35,6 @@ export async function runGroupRangeTests(t) {
   const group = ids => {
     viewState.multi = ids;
     viewState.sel = ids[0];
-    viewState.multiMode = true;
     update('selection');
     click('#btnGroup');
     click('#mOk');
@@ -46,7 +45,6 @@ export async function runGroupRangeTests(t) {
   await pause(50);
   const gAll = () => rowOf(R(0).id).groupId;
   t('共用画面建立成功', !!gAll() && shotMembers(state.rows, rowOf(R(0).id)).length === 4);
-  viewState.multiMode = false;
   viewState.multi = null;
   click(`.row[data-id="${R(1).id}"] .sent`);
   t('直接点击第二句选中第二句', viewState.sel === R(1).id);
@@ -198,7 +196,6 @@ export async function runGroupRangeTests(t) {
   const gA = rowOf(R(0).id).groupId,
     gB = rowOf(R(2).id).groupId;
   t('两个相邻共用画面并存', !!gA && !!gB && gA !== gB);
-  viewState.multiMode = false;
   viewState.multi = null;
   click(`.row[data-id="${R(1).id}"] .sent`);
   click(`.shared-scene[data-owner="${R(2).id}"] .shared-scene-title`);
@@ -248,34 +245,6 @@ export async function runGroupRangeTests(t) {
   await pause(40);
   t('解除共用可撤销', rowOf(R(0).id).groupId === gA);
 
-  /* 原文视图同一套入口、同一套名称 */
-  viewState.view = 'check';
-  update('rows');
-  await pause(40);
-  t('原文视图共用区也有「···」', !!$('.shared-passage [data-group-more]'));
-  viewState.sel = R(1).id;
-  viewState.multi = null;
-  viewState.multiMode = false;
-  update('selection');
-  const passage = $(`.shared-passage[data-note-owner="${R(0).id}"]`);
-  passage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  t('原文共用区域的空白也保持组内当前句', viewState.sel === R(1).id);
-  click(passage.querySelector('[data-detail]'));
-  t('原文共用标题打开面板也保持组内当前句', viewState.sel === R(1).id);
-  click($('.shared-passage [data-group-more]'));
-  await pause(30);
-  t(
-    '原文菜单与表格同一套名称',
-    !!$('[data-shot-act="extend-next"]') &&
-      !!$('[data-shot-act="drop-last"]') &&
-      !!$('[data-shot-act="ungroup"]') &&
-      $('[data-shot-act="extend-next"]').textContent.includes('将下一句加入这个画面'),
-  );
-  closeMenu();
-  viewState.view = 'table';
-  update('rows');
-  await pause(30);
-
   /* 清场 */
   const created = storage
     .allProjects()
@@ -284,7 +253,6 @@ export async function runGroupRangeTests(t) {
   storage.switchProject(original);
   for (const id of created) storage.deleteProject(id);
   viewState.multi = null;
-  viewState.multiMode = false;
   clearUndo();
   update('rows');
   await pause(30);

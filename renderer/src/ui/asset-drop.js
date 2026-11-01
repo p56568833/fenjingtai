@@ -62,23 +62,18 @@ function targetRowFor(el) {
   }
   const scene = el.closest('.shared-scene');
   if (scene) return rowById(+scene.dataset.owner);
-  const passage = el.closest('.shared-passage');
-  if (passage) return rowById(+passage.dataset.noteOwner);
   const row = el.closest('.row[data-id]');
   if (row) return rowById(+row.dataset.id) || null;
-  const sent = el.closest('.as[data-id]');
-  if (sent) return rowById(+sent.dataset.id) || null;
   return null;
 }
 
 /* 高亮「实际接收」的区域：拖到组内句子时，整块共用画面亮起 */
 function highlightFor(el, on) {
-  let zone =
-    el && el.closest ? el.closest('#inspector, .shared-scene, .shared-passage, .row[data-id], .as[data-id]') : null;
+  let zone = el && el.closest ? el.closest('#inspector, .shared-scene, .row[data-id]') : null;
   const row = targetRowFor(el);
   if (row && row.groupId) {
-    const member = document.querySelector(`.row[data-id="${row.id}"], .as[data-id="${row.id}"]`);
-    zone = (member && member.closest('.shared-scene, .shared-passage')) || zone;
+    const member = document.querySelector(`.row[data-id="${row.id}"]`);
+    zone = (member && member.closest('.shared-scene')) || zone;
   }
   document.querySelectorAll('.drop-target').forEach(z => z !== zone && z.classList.remove('drop-target'));
   if (zone) zone.classList.toggle('drop-target', on);

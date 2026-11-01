@@ -18,10 +18,8 @@ function buildMenu({ win, dataDir }) {
           submenu: [
             { label: 'PDF 分镜脚本…', accelerator: 'CmdOrCtrl+Shift+E', click: send('export:pdf') },
             { type: 'separator' },
-            { label: '带批注的 MD', click: send('export:md') },
-            { label: '素材清单 MD', click: send('export:list') },
-            { label: 'CSV 表格', click: send('export:csv') },
-            { label: '项目 JSON', click: send('export:json') },
+            { label: '导出到剪映…', click: send('export:jianying') },
+            { label: '项目文件…', click: send('export:json') },
           ],
         },
         { type: 'separator' },
@@ -47,7 +45,6 @@ function buildMenu({ win, dataDir }) {
       label: '视图',
       submenu: [
         { label: '切换视图（审核 / 表格）', accelerator: 'CmdOrCtrl+T', click: send('toggle-view') },
-        { label: '专注标注', accelerator: 'CmdOrCtrl+E', click: send('focus-mode') },
         { label: '连播预览（从选中的句子开始）', click: send('playthrough') },
         { type: 'separator' },
         { label: '浅色 / 深色主题', accelerator: 'CmdOrCtrl+L', click: send('toggle-theme') },

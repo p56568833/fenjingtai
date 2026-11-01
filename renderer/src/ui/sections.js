@@ -38,7 +38,7 @@ function commitRename() {
   ren = null;
   if (!el) return;
   el.contentEditable = 'false';
-  staleBlock(el); // 表格 / 原文里的章节名原地改过：下次更新按数据重画（撤销改名时才不会留着新名字）
+  staleBlock(el); // 表格里的章节名原地改过：下次更新按数据重画（撤销改名时才不会留着新名字）
   const r = rowById(id);
   if (!r) return;
   const txt = el.textContent.trim();
@@ -129,7 +129,7 @@ export function initSections() {
   });
 
   rows.addEventListener('dblclick', e => {
-    const nameEl = e.target.closest('.section-row .name, .ck-sec .name');
+    const nameEl = e.target.closest('.section-row .name');
     if (nameEl && !nameEl.isContentEditable) {
       const holder = nameEl.closest('[data-sid]');
       holder && startRename(nameEl, +holder.dataset.sid);

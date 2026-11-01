@@ -16,7 +16,7 @@ export function chipHTML(r) {
   return `<div class="tchip typed" style="--tc:${t.color}" title="${esc(t.full)}">${typeIcon(t)}${esc(t.label)}${ARROW}</div>`;
 }
 
-/* 标注菜单（表格类型格 / 原文选区卡 共用） */
+/* 标注菜单（表格类型格） */
 export function typeMenuItems(attr, isOn) {
   return types()
     .list.map(

@@ -244,6 +244,44 @@ test('样例 A：问题列表只有手动留白 info，没有阻塞或需确认'
   assert.equal(issue(plan, 'manual-gap').lineNo, 1);
 });
 
+/* 对齐过剪映字幕的项目：字幕.srt 就是导入的那份原文，文字轨按原字幕条目，不按稿子重新断句 */
+test('导入过 SRT：字幕文件原样写出导入原文，文字轨按原字幕条目', () => {
+  const raw = '1\r\n00:00:00,120 --> 00:00:01,480\r\n第一句\r\n\r\n2\r\n00:00:01,480 --> 00:00:04,016\r\n话。第二句话。\r\n';
+  const cues = [
+    { start: 0.12, end: 1.48, text: '第一句' },
+    { start: 1.48, end: 4.016, text: '话。第二句话。' },
+  ];
+  const withRaw = makePlan({ ...sampleA(), timing: { name: '口播.srt', cues, raw } }, { subtitles: true });
+  assert.equal(withRaw.srt, raw, '导入原文一字不改');
+  assert.deepEqual(
+    withRaw.tracks.text.map(item => [item.text, item.targetStartUs, item.targetStartUs + item.targetDurationUs]),
+    [
+      ['第一句', 133333, 1466667],
+      ['话。第二句话。', 1466667, 4000000],
+    ],
+    '文字轨按原字幕条目、对齐到帧',
+  );
+  assert.deepEqual(
+    withRaw.subtitles.map(item => [item.no, item.text, item.lineId]),
+    [
+      [1, '第一句', null],
+      [2, '话。第二句话。', null],
+    ],
+  );
+
+  // 旧项目没存原文：按导入的条目和毫秒时间还原，不按稿子断句、不对齐到帧
+  const noRaw = makePlan({ ...sampleA(), timing: { name: '口播.srt', cues } }, { subtitles: true });
+  assert.equal(
+    noRaw.srt,
+    '1\n00:00:00,120 --> 00:00:01,480\n第一句\n\n2\n00:00:01,480 --> 00:00:04,016\n话。第二句话。\n',
+  );
+
+  // 字幕选项关闭时仍不生成
+  const off = makePlan({ ...sampleA(), timing: { name: '口播.srt', cues, raw } });
+  assert.equal(off.srt, '');
+  assert.deepEqual(off.tracks.text, []);
+});
+
 test('样例 A：字幕可选关闭；画幅变化只影响画布，不定格输出尺寸', () => {
   const off = makePlan(sampleA());
   assert.deepEqual(off.tracks.text, []);

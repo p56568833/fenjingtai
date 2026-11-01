@@ -4,16 +4,16 @@ import { state } from './state.js';
 import { alignScript } from '../core/subtitle-align.js';
 
 /* 用一份字幕给当前稿子算对齐结果（不改数据，给预览用） */
-export function planAlignment(name, cues) {
+export function planAlignment(name, cues, raw = '') {
   const lines = state.rows.filter(r => r.kind === 'line');
   const { times, stats } = alignScript(
     lines.map(r => ({ id: r.id, text: r.text })),
     cues,
   );
-  return { name: name || '字幕', cues, times, stats };
+  return { name: name || '字幕', cues, raw, times, stats };
 }
 
-export function applyAlignment({ name, cues, times, stats }) {
+export function applyAlignment({ name, cues, raw, times, stats }) {
   return changeProject(state.timing ? '重新对齐字幕' : '对齐剪映字幕', change => {
     for (const r of state.rows) {
       if (r.kind !== 'line') continue;
@@ -22,6 +22,7 @@ export function applyAlignment({ name, cues, times, stats }) {
       else delete r.time;
     }
     state.timing = { name, at: Date.now(), duration: stats.duration, cues };
+    if (raw) state.timing.raw = raw; // 导入时的 SRT 原文，导出剪映时原样写出
 
     change.notify(
       `已对齐字幕：${stats.ok} 句对上${stats.low + stats.est ? `，${stats.low + stats.est} 句待核对（时长列标黄）` : ''}`,

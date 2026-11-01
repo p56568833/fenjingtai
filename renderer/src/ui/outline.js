@@ -20,10 +20,8 @@ function syncActiveOutline() {
   const probe = box.top + box.height * 0.5;
   for (const item of items) {
     const anchor = item.sectionId
-      ? document.querySelector(
-          `${viewState.view === 'check' ? '.ck-sec' : '.section-row'}[data-sid="${item.sectionId}"]`,
-        )
-      : document.querySelector(`.row[data-id="${item.jump}"],.as[data-id="${item.jump}"]`);
+      ? document.querySelector(`.section-row[data-sid="${item.sectionId}"]`)
+      : document.querySelector(`.row[data-id="${item.jump}"]`);
     if (!anchor) continue; // 筛选后这一章可能没有可见句子
     if (active === null || anchor.getBoundingClientRect().top <= probe) active = item.jump;
     else break;

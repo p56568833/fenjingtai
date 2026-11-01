@@ -205,16 +205,6 @@ export async function runSearchTests(t) {
     closeSearch();
     t('关闭后清空直达提示', !$('#searchJump').textContent);
     viewState.filter = 'all';
-    setView('check');
-    openSearch();
-    await type('批发商');
-    t(
-      '原文视图搜索同样准确选中共用画面中的命中句',
-      viewState.sel === 91 &&
-        $('.as.cur')?.dataset.id === '91' &&
-        !!$('.as[data-id="91"] mark') &&
-        $('#searchCnt').textContent === '1/3',
-    );
   } finally {
     closeSearch();
     storage.switchProject(original);

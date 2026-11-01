@@ -789,8 +789,31 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
     addIssue('info', 'no-voice', '项目没有关联口播音频，草稿里只有画面');
   }
 
-  /* ── 字幕与 SRT：默认关闭；开启后每句一个可编辑文字段 ── */
-  if (opt.subtitles) {
+  /* ── 字幕与 SRT：默认关闭；开启后生成可编辑文字轨和「字幕.srt」。
+     对齐过剪映字幕的项目以导入的那份字幕为准：SRT 文件写导入原文（旧项目没存原文时按条目、毫秒时间还原），
+     文字轨按原字幕条目逐条放；没导入过字幕时才按稿子每句一个字幕。 ── */
+  const importedCues = Array.isArray(snapshot.timing?.cues)
+    ? snapshot.timing.cues.filter(cue => cue && finite(cue.start) != null && finite(cue.end) > finite(cue.start))
+    : [];
+  const importedRaw = typeof snapshot.timing?.raw === 'string' ? snapshot.timing.raw : '';
+  let srt = '';
+  if (opt.subtitles && importedCues.length) {
+    const exact = [];
+    importedCues.forEach((cue, index) => {
+      const text = srtText(cue.text);
+      if (!text) return;
+      exact.push({ text, startUs: clock.plainUs(Math.max(0, cue.start)), endUs: clock.plainUs(cue.end) });
+      const startUs = boundUs(clock.us(Math.max(0, cue.start)));
+      const endUs = boundUs(clock.us(cue.end));
+      if (endUs <= startUs) {
+        addIssue('confirm', 'zero-length', `第 ${index + 1} 条字幕不足一帧，文字轨里省略（字幕文件保留）`);
+        return;
+      }
+      subtitles.push({ lineId: null, no: index + 1, text: cue.text, startUs, endUs });
+      textTrack.push({ id: id('text'), text: cue.text, targetStartUs: startUs, targetDurationUs: endUs - startUs });
+    });
+    srt = importedRaw.trim() ? importedRaw : buildSrt(exact);
+  } else if (opt.subtitles) {
     lines.forEach((row, index) => {
       const time = tl.times.get(row.id);
       const text = typeof row.text === 'string' ? row.text : '';
@@ -808,6 +831,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
       subtitles.push({ lineId: row.id, no, text, startUs, endUs });
       textTrack.push({ id: id('text'), text, targetStartUs: startUs, targetDurationUs: endUs - startUs });
     });
+    srt = buildSrt(subtitles);
   }
 
   /* ── 备选素材：只进 altAssets，不上轨道 ── */
@@ -938,7 +962,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
     altAssets: altList,
     tracks: { video: videoTrack, audio: audioTrack, text: textTrack },
     subtitles,
-    srt: buildSrt(subtitles),
+    srt,
     issues,
     stats: {
       shots: units.length,

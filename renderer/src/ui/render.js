@@ -7,7 +7,6 @@ import { renumber, rowById } from '../app/project-queries.js';
 import { visibleLineIds } from '../app/selection.js';
 import { renderStats } from './render-stats.js';
 import { renderTable, updateRowVisual, updateSectionBadges } from './render-table.js';
-import { renderCheck, updateCheckSpans, updateCheckNote } from './render-check.js';
 import { armAnimation, animationArmed } from './base/anim.js';
 import { flipCapture, flipPlay } from './base/motion.js';
 import { closePop } from './base/popover.js';
@@ -70,7 +69,7 @@ export function renderAll() {
   }
 }
 
-/* 表格和原文视图都按块原地更新（base/keyed-patch.js）：没变的句子留着原来的元素，浏览器自己的滚动锚点
+/* 表格按块原地更新（base/keyed-patch.js）：没变的句子留着原来的元素，浏览器自己的滚动锚点
    就能让正在看的位置不动，不用重画后再把视口拽回去。切项目 / 切视图 / 导入时整块重来，走入场动画。 */
 function paintAll() {
   // 同一个项目、同一个视图里更新（筛选、删句、撤销、组成共用画面…）：记下屏幕上每句的位置，
@@ -79,7 +78,6 @@ function paintAll() {
     viewState.view === 'table' && lastRendered === `${state.projectId}|${viewState.view}` && !animationArmed()
       ? flipCapture(document.querySelector('#rows'))
       : null;
-  document.body.classList.toggle('reading', viewState.view === 'check');
   const reviewing = viewState.view === 'review';
   document.querySelector('#tablePage').hidden = reviewing;
   const reviewPage = document.querySelector('#reviewPage');
@@ -96,8 +94,7 @@ function paintAll() {
   syncTitle();
   syncViewToggle();
   renderStats();
-  if (viewState.view === 'check') renderCheck();
-  else if (!reviewing) renderTable();
+  if (!reviewing) renderTable();
   if (!reviewing) paintSearch();
   clearWorkspaceRefresh();
   emit('workspace');
@@ -109,6 +106,7 @@ function paintAll() {
 }
 
 export function setView(v) {
+  if (v !== 'table' && v !== 'review') return;
   if (viewState.view === v) return;
   flushPendingEdits(); // 先把正在编辑的内容提交掉，重建界面不丢输入
   const from = viewState.view;
@@ -147,16 +145,12 @@ export function cycleView() {
 
 /* 标注变了：筛选「全部」下原地刷新颜色和标签，其他筛选下句子可见性会变，整页重建 */
 function onMarks({ ids }) {
-  if (viewState.view === 'check') updateCheckSpans(ids);
-  else {
-    ids.forEach(updateRowVisual);
-    updateSectionBadges();
-  }
+  ids.forEach(updateRowVisual);
+  updateSectionBadges();
 }
 
-/* 画面描述变了：原文视图原地增删红字；表格里正在编辑的那格不动，别的格同步文字 */
+/* 画面描述变了：正在编辑的那格不动，别的格同步文字 */
 function onNotes({ ids }) {
-  if (viewState.view === 'check') return ids.forEach(updateCheckNote);
   let deferred = false;
   for (const id of ids) {
     const el = document.querySelector(`.note[data-id="${id}"]`);

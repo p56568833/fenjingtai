@@ -41,7 +41,7 @@ export function shotTotalText(members) {
   return `共 ${tl.source === 'srt' ? '' : '≈'}${s1(span.end - span.start)} 秒`;
 }
 
-/* 够不够：需要 / 可用 / 文件 三个数 + 结论（数据见 core/coverage.js） */
+/* 够不够：结论 + 需要 / 可用（数据见 core/coverage.js） */
 const COVER_TIP =
   '需要：这个画面在口播里要占的秒数\n可用：标出来的可用片段（在预览里按 I / O 设入点出点）；没标就按整个文件算\n文件：本地文件的实际长度\n够不够只拿「可用」和「需要」比';
 /* 差几秒但剪辑里已经补足（放慢、定格…）：勾上就不再报红。row / assetId 给了才画这个勾 */
@@ -55,32 +55,33 @@ function fitToggle(cov, ref) {
     : '你在剪辑里自己补（放慢等）：勾上后不再提示时长不够，导出到剪映时这段留空；要定格请在时间轴上点「定格补满」';
   return `<span class="cover-fit${on ? ' on' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-fit-row="${ref.row}" data-fit-asset="${esc(ref.assetId)}" title="${esc(tip)}">${on && cov.freeze ? '已定格补满' : '剪辑已补足'}</span>`;
 }
-function coverHTML(cov, ref) {
+/* compact：表格里只写结论（够 / 差几秒），需要、可用、文件这些数放在悬停提示里；右侧面板多写一行需要和可用 */
+function coverHTML(cov, ref, { compact = false } = {}) {
   if (!cov) return '';
-  const need = `<span class="cover-need">需要 <b>${s1(cov.need)}</b> 秒</span>`;
-  if (cov.verdict === 'still')
-    return `<span class="asset-cover cover-still" title="${esc(COVER_TIP)}">${need}<span class="cover-verdict">图片 · 不限时长</span></span>`;
-  // 本地文件时长还没读到（刚保存、正在读，或者读不出来）：只写需要多少，不下结论
-  if (cov.verdict === 'unknown')
-    return `<span class="asset-cover cover-unknown" title="${esc(COVER_TIP)}">${need}<span class="cover-file">文件时长未知（打开预览后会显示）</span></span>`;
-  const usable =
-    cov.usable == null
-      ? '<span class="cover-usable">可用 <b>—</b></span>'
-      : `<span class="cover-usable">可用 <b>${s1(cov.usable)}</b> 秒<i>${cov.clip ? `${fmtTime(cov.clip.in)}–${fmtTime(cov.clip.out)}` : cov.online ? '整段' : '整段 · 未标可用段'}</i></span>`;
-  const file = cov.online
-    ? '<span class="cover-file">在线 · 未保存</span>'
-    : cov.file != null
-      ? `<span class="cover-file">文件 ${s1(cov.file)} 秒</span>`
-      : '<span class="cover-file">文件时长未知</span>';
-  const verdict = cov.fixed
-    ? `✓ 已补足 · 原差 ${s1(cov.lack)} 秒`
-    : cov.verdict === 'ok'
-      ? `✓ 够${cov.spare >= 0.05 ? `，余 ${s1(cov.spare)} 秒` : ''}`
-      : cov.verdict === 'short'
-        ? `✗ 差 ${s1(cov.lack)} 秒`
-        : '时长未知';
+  const whole = cov.clip ? `${fmtTime(cov.clip.in)}–${fmtTime(cov.clip.out)}` : '整段';
+  const detail = [
+    `需要 ${s1(cov.need)} 秒`,
+    cov.verdict === 'still' ? '图片不限时长' : cov.usable != null ? `可用 ${s1(cov.usable)} 秒（${whole}）` : '',
+    cov.online ? '在线 · 还没保存到本地' : cov.file != null && cov.clip ? `文件 ${s1(cov.file)} 秒` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const tip = `${detail}\n\n${COVER_TIP}`;
+  const verdict =
+    cov.verdict === 'still'
+      ? '图片 · 不限时长'
+      : cov.verdict === 'unknown'
+        ? '文件时长未知'
+        : cov.fixed
+          ? `✓ 已补足 · 原差 ${s1(cov.lack)} 秒`
+          : cov.verdict === 'ok'
+            ? `✓ 够${cov.spare >= 0.05 ? `，余 ${s1(cov.spare)} 秒` : ''}`
+            : cov.verdict === 'short'
+              ? `✗ 差 ${s1(cov.lack)} 秒`
+              : '时长未知';
   const fit = cov.fixed || cov.verdict === 'short' ? fitToggle(cov, ref) : '';
-  return `<span class="asset-cover cover-${cov.verdict}${cov.fixed ? ' cover-fixed' : ''}" title="${esc(COVER_TIP)}">${need}${usable}${file}<span class="cover-verdict">${verdict}</span>${fit}</span>`;
+  const line = compact ? '' : `<span class="cover-detail">${esc(detail)}</span>`;
+  return `<span class="asset-cover cover-${cov.verdict}${cov.fixed ? ' cover-fixed' : ''}${compact ? ' compact' : ''}" title="${esc(tip)}">${line}<span class="cover-verdict">${verdict}</span>${fit}</span>`;
 }
 const coverageFor = members => shotCoverage(layoutShot(state.assets || {}, members, timeline()));
 
@@ -125,7 +126,7 @@ export function assetCards(r) {
       ]
         .filter(Boolean)
         .join(' · ');
-      return `<button class="row-asset ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-detail="${r.id}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc(where || '上屏')}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov, { row: r.id, assetId: u.assetId })}</span></button>`;
+      return `<button class="row-asset ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-detail="${r.id}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc([ROLES[u.role] || '未分配', where].filter(Boolean).join(' · '))}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov, { row: r.id, assetId: u.assetId }, { compact: true })}</span></button>`;
     })
     .join('');
   const altBtn = alts.length
@@ -219,7 +220,7 @@ export function inspectorAssets(r, { missing } = {}) {
     vr +
     lineOverview(members) +
     (usages.some(u => !(u.role in ROLES))
-      ? `<button class="asset-mini auto-roles" id="autoRoles">还有素材未分配 · 第一个上屏，其余放备选</button>`
+      ? `<button class="asset-mini auto-roles" id="autoRoles">还有素材未分配 · 第一个设为主画面，其余放备选</button>`
       : '') +
     orderedUsages(r)
       .map(({ u, index }) => {
@@ -229,7 +230,7 @@ export function inspectorAssets(r, { missing } = {}) {
         const gone = missing ? missing.has(path) : false;
         const fetchable = gone && peer?.status === 'online' && path.startsWith('/');
         const bits = [KIND_LABEL[kind] || '素材'];
-        if (u.role === 'alt') bits.unshift('备选 · 不上屏');
+        if (u.role === 'alt') bits.unshift('备选 · 不放进成片');
         const cov = gone ? null : covers.get(u.assetId);
         if (u.clip && !cov) bits.push(`片段 ${clipText(u.clip)}`);
         const it = placed.get(u.assetId);
@@ -255,9 +256,7 @@ export function inspectorAssets(r, { missing } = {}) {
 
       ${lineControls(u, index, members)}
       <button class="rework-btn${u.rework ? ' on' : ''}" data-rework-usage="${index}" title="${u.rework ? '点开修改意见，或者不用换了' : '写下哪里不满意，生成返工单交给 AI 找新的'}">${
-        u.rework
-          ? `<b>待换</b><span>${esc(u.rework.note || '（没写意见）')}</span><i>修改</i>`
-          : '<b>不满意</b><span>写下哪里不满意，交给 AI 换一个</span>'
+        u.rework ? `<b>待换</b><span>${esc(u.rework.note || '（没写意见）')}</span><i>修改</i>` : '不满意…'
       }</button>
     </div>`;
       })

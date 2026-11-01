@@ -8,6 +8,7 @@ import { state } from './state.js';
 import { notify } from './events.js';
 import { persist } from './storage.js';
 import { projectData, applyProjectData } from '../core/project-data.js';
+import { assetName } from '../core/asset-model.js';
 
 const stack = [];
 const redoStack = [];
@@ -72,6 +73,30 @@ export function rebaseHistory(projectId, rebase, mark) {
 /* 会话开始 / 结束时重新绑定历史标记，旧会话的序号不能用于新的协作会话。 */
 export function bindHistory(projectId, mark) {
   for (const entry of [...stack, ...redoStack]) if (entry.projectId === projectId) entry.mark = mark;
+}
+
+/* 文件在磁盘上改了名（按句号自动改名、整理旧片段）：改名不进撤销，旧快照里的路径一起换成新名字，
+   否则 ⌘Z 会把素材指回已经不存在的旧文件名，画面显示「文件失联」 */
+export function followMovedPaths(moved) {
+  if (!moved?.size) return;
+  const needles = [...moved.keys()].map(p => JSON.stringify(p).slice(1, -1));
+  for (const entry of [...stack, ...redoStack]) {
+    if (!needles.some(n => entry.data.includes(n))) continue;
+    const data = JSON.parse(entry.data);
+    for (const a of Object.values(data.assets || {}))
+      if (moved.has(a.path)) {
+        a.path = moved.get(a.path);
+        a.name = assetName(a.path);
+      }
+    for (const c of data.candidates || []) if (moved.has(c.savedPath)) c.savedPath = moved.get(c.savedPath);
+    for (const r of data.rows || [])
+      if (typeof r.assets === 'string' && r.assets)
+        r.assets = r.assets
+          .split('\n')
+          .map(p => moved.get(p) ?? p)
+          .join('\n');
+    entry.data = JSON.stringify(data);
+  }
 }
 
 /* 不进撤销的后台结果，撤销 / 重做时不能被旧快照带回去：

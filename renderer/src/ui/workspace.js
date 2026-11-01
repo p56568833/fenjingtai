@@ -8,7 +8,7 @@ import { rememberCursor } from '../app/storage.js';
 import { repairPunctuationAction } from '../app/actions.js';
 import { setFitDone } from '../app/asset-actions.js';
 import { repairCandidates } from '../core/shots.js';
-import { toast, confirmModal } from './base/dom.js';
+import { confirmModal } from './base/dom.js';
 import { closePop } from './base/popover.js';
 import { renderOutline, initOutline, beginOutlineJump } from './outline.js';
 import { renderToolbar, initToolbar } from './toolbar.js';
@@ -43,7 +43,7 @@ export function jumpTo(id, { preserveFilter = false } = {}) {
   if (filtered) emit('view-refresh');
   else update('selection');
   // 章节标题会吸顶，当前坐标不是章节起点；定位首句也能让浏览器展开屏幕外的正文。
-  const el = document.querySelector(`.row[data-id="${viewState.sel}"],.as[data-id="${viewState.sel}"]`);
+  const el = document.querySelector(`.row[data-id="${viewState.sel}"]`);
   const releaseOutline = beginOutlineJump(viewState.sel);
   // 跳过去后不再给那句闪一圈光（切章节时整组画面框会「散开」一下，看着晃）；选中底色已经标出是哪句
   el?.scrollIntoView({ block: 'center' });
@@ -71,14 +71,6 @@ export function jumpTo(id, { preserveFilter = false } = {}) {
   rememberCursor();
 }
 
-export function nextUnmarked() {
-  const lines = state.rows.filter(r => r.kind === 'line');
-  const i = lines.findIndex(r => r.id === viewState.sel);
-  const ordered = [...lines.slice(i + 1), ...lines.slice(0, i + 1)];
-  const next = ordered.find(r => !r.type);
-  if (next) jumpTo(next.id);
-  else toast('所有句子都已标注', null, 'ok');
-}
 export function revealSavedCursor() {
   cancelJump?.();
   const { projectId } = state;
@@ -93,7 +85,7 @@ export function revealSavedCursor() {
     if (!guard.active()) return;
     guard.cancel();
     if (viewState.sel !== sel || state.projectId !== projectId || viewState.view !== view) return;
-    const el = document.querySelector(`.row[data-id="${sel}"],.as[data-id="${sel}"]`);
+    const el = document.querySelector(`.row[data-id="${sel}"]`);
     el?.scrollIntoView({ block: 'center' });
   });
 }
@@ -169,7 +161,6 @@ export function initWorkspace() {
   initInspector();
   initReview();
   registerCommand('nav:jump', jumpTo);
-  registerCommand('nav:next-unmarked', nextUnmarked);
   initOverview();
   on('workspace', refresh);
   on('durations', () => renderOverview());
@@ -179,20 +170,6 @@ export function initWorkspace() {
     renderToolbar();
     renderOutline();
   });
-  on('annotated', ({ type }) => {
-    if (viewState.autoAdvance && type && !viewState.focusMode) nextUnmarked();
-  });
-  $('#btnNext').onclick = nextUnmarked;
-  try {
-    viewState.autoAdvance = localStorage.getItem('fjz:autoAdvance') === 'true';
-  } catch {}
-  $('#autoAdvance').checked = viewState.autoAdvance;
-  $('#autoAdvance').onchange = e => {
-    viewState.autoAdvance = e.target.checked;
-    try {
-      localStorage.setItem('fjz:autoAdvance', String(viewState.autoAdvance));
-    } catch {}
-  };
   $('#repairHint').onclick = () => {
     const n = repairCandidates(state.rows).length;
     if (!n) return;
@@ -224,9 +201,9 @@ export function initWorkspace() {
     // 点句子里的素材卡 / 徽标 / 「共用画面」标题：打开右侧面板
     const detail = e.target.closest('[data-detail]');
     if (detail && !detail.closest('#inspector')) {
-      const shared = detail.closest('.shared-scene, .shared-passage');
+      const shared = detail.closest('.shared-scene');
       const ownerId = +detail.dataset.detail;
-      const id = shared && !detail.closest('.row, .as') ? selectedMemberOrOwner(ownerId) : ownerId;
+      const id = shared && !detail.closest('.row') ? selectedMemberOrOwner(ownerId) : ownerId;
       openInspectorFor(id);
     }
   });

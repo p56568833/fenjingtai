@@ -5,6 +5,7 @@
 import { state } from '../app/state.js';
 import { saveRework } from '../app/candidate-actions.js';
 import { shotMembers } from '../core/shots.js';
+import { reworkText } from '../core/rework.js';
 import { usageList, assetName } from '../core/asset-model.js';
 import { toast, esc } from '../ui/base/dom.js';
 import { registerModal } from '../ui/base/modal.js';
@@ -55,7 +56,7 @@ function apply(rework, label) {
   return row;
 }
 function save() {
-  const note = $('#reworkNote').value.trim();
+  const note = reworkText($('#reworkNote').value);
   if (!note && !target?.assetId) return toast('写一下要什么样的镜头', null, 'warn');
   const row = apply({ note, at: Date.now() }, target?.assetId ? '标记素材要换' : '这个画面再找一个镜头');
   if (row)

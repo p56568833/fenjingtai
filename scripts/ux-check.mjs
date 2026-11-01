@@ -25,24 +25,24 @@ const projCount = () => page.evaluate(async () => Object.keys((await window.nati
 await page.goto(page.url().replace(/[?].*$/, ''));
 await sleep(1800);
 
-/* 1. 视图切换高亮跟随（⌘T 两态循环：表格 ↔ 勾选） */
-await page.click('#viewToggle button[data-v="check"]');
+/* 1. 视图切换高亮跟随（⌘T 两态循环：表格 ↔ 审核） */
+await page.click('#viewToggle button[data-v="review"]');
 await sleep(500);
 t(
-  '切勾选后高亮在勾选',
-  (await page.evaluate(() => document.querySelector('#viewToggle button.active')?.dataset.v)) === 'check',
+  '切审核后高亮在审核',
+  (await page.evaluate(() => document.querySelector('#viewToggle button.active')?.dataset.v)) === 'review',
 );
 await cmdT();
 await sleep(400);
 t(
-  '⌘T 勾选→表格，高亮跟随',
+  '⌘T 审核→表格，高亮跟随',
   (await page.evaluate(() => document.querySelector('#viewToggle button.active')?.dataset.v)) === 'table',
 );
 await cmdT();
 await sleep(400);
 t(
-  '⌘T 表格→勾选，高亮跟随',
-  (await page.evaluate(() => document.querySelector('#viewToggle button.active')?.dataset.v)) === 'check',
+  '⌘T 表格→审核，高亮跟随',
+  (await page.evaluate(() => document.querySelector('#viewToggle button.active')?.dataset.v)) === 'review',
 );
 await cmdT();
 await sleep(400);
@@ -50,51 +50,6 @@ t(
   '⌘T 循环回表格',
   (await page.evaluate(() => document.querySelector('#viewToggle button.active')?.dataset.v)) === 'table',
 );
-
-/* 1.5 勾选视图：选中句子即弹标注卡 → 点 A roll → ⌘Z 恢复；章节标题吸顶 */
-await page.click('#viewToggle button[data-v="check"]');
-await sleep(500);
-t(
-  '勾选视图章节吸顶',
-  (await page.evaluate(() => getComputedStyle(document.querySelector('.ck-sec')).position)) === 'sticky',
-);
-const ckId = await page.evaluate(() => {
-  const target = [...document.querySelectorAll('.as')].find(el => el.className.includes('st-fx'));
-  if (!target) return null;
-  target.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  return target.dataset.id;
-});
-await sleep(200);
-const cardShown = await page.evaluate(() => !!document.querySelector('.popover.hovercard [data-ck-t="a"]'));
-const marked = await page.evaluate(() => {
-  const item = document.querySelector('.popover.hovercard [data-ck-t="a"]');
-  if (!item) return false;
-  item.click();
-  return true;
-});
-await sleep(300);
-t(
-  '选中弹卡并点 A roll 标注',
-  cardShown &&
-    marked &&
-    (await page.evaluate(id => {
-      const el = document.querySelector(`.as[data-id="${id}"]`);
-      return !!el && el.classList.contains('st-a');
-    }, ckId)),
-  `id=${ckId}`,
-);
-await cmdZ();
-await sleep(400);
-t(
-  '勾选 ⌘Z 撤销恢复',
-  await page.evaluate(id => {
-    const el = document.querySelector(`.as[data-id="${id}"]`);
-    return !!el && el.className.includes('st-fx');
-  }, ckId),
-);
-await page.click('#viewToggle button[data-v="table"]');
-await sleep(400);
 
 /* 2. 搜索打字时视口稳定，命中高亮，关闭后输入框清空 */
 await page.evaluate(() => {
@@ -111,26 +66,6 @@ t('表格内命中高亮', (await page.evaluate(() => document.querySelectorAll(
 await page.keyboard.press('Escape');
 await sleep(300);
 t('关闭搜索后输入框清空', (await page.evaluate(() => document.querySelector('#searchInput').value)) === '');
-
-/* 3. 勾选视图搜索：命中句加高亮且回车可跳到视口内 */
-await page.evaluate(() => document.querySelector('#viewToggle button[data-v="check"]').click());
-await sleep(500);
-await page.click('#btnSearch');
-await page.type('#searchInput', '掌机', { delay: 30 });
-await sleep(400);
-await page.keyboard.press('Enter');
-await sleep(500);
-const ovHit = await page.evaluate(() => {
-  const hit = [...document.querySelectorAll('.as')].find(el => el.querySelector('mark'));
-  if (!hit) return 'no-marked-as';
-  const r = hit.getBoundingClientRect();
-  return r.top > 0 && r.bottom < innerHeight ? 'in-view' : `out(top=${Math.round(r.top)})`;
-});
-t('勾选视图下回车跳到命中句', ovHit === 'in-view', ovHit);
-await page.keyboard.press('Escape');
-await sleep(300);
-await page.evaluate(() => document.querySelector('#viewToggle button[data-v="table"]').click());
-await sleep(400);
 
 /* 4. 删除一句后选中句留在原地；⌘Z 后界面恢复 */
 const delInfo = await page.evaluate(() => {

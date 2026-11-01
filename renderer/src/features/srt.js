@@ -13,6 +13,8 @@ import { registerCommand } from '../ui/base/commands.js';
 const $ = s => document.querySelector(s);
 let pending = null; // { name, cues, times, stats }
 
+const isSrtText = text => !/^\uFEFF?\s*WEBVTT/.test(text);
+
 const fmtLen = sec => (sec >= 60 ? `${Math.floor(sec / 60)} 分 ${Math.round(sec % 60)} 秒` : `${Math.round(sec)} 秒`);
 
 /* 入口：file = { name, content }（来自文件对话框 / 拖入 / 已存的字幕） */
@@ -27,7 +29,9 @@ export function startSrtAlign(file, { silent = false } = {}) {
     toast('当前项目还没有句子，先导入稿子再对齐字幕', null, 'info');
     return false;
   }
-  pending = planAlignment(file.name, cues);
+  /* 原文只存 SRT：导出剪映时原样写回「字幕.srt」；VTT 等其他格式导出时按条目还原 */
+  const raw = typeof file.content === 'string' ? (isSrtText(file.content) ? file.content : '') : file.raw || '';
+  pending = planAlignment(file.name, cues, raw);
   if (silent) return applyAlign();
   renderPreview();
   $('#srtMask').classList.add('show');
@@ -71,7 +75,7 @@ function realignSaved() {
     toast('这个项目还没有对齐过字幕', null, 'info');
     return;
   }
-  startSrtAlign({ name: state.timing.name, cues: state.timing.cues });
+  startSrtAlign({ name: state.timing.name, cues: state.timing.cues, raw: state.timing.raw });
 }
 
 function pickSrt() {

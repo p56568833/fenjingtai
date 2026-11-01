@@ -83,7 +83,7 @@ function renderSummary() {
   const plan = planDocument(state.rows, state.speechRate, state.assets, { types: types().list, timeline: timeline() });
   const refs = state.rows.filter(r => r.kind === 'line').flatMap(r => assetRefs(r, state.assets));
   $('#pdfSummary').textContent = plan.shots.length
-    ? `${plan.shots.length} 个镜头 · ${plan.lines} 句口播${plan.named ? ` · ${plan.chapters.length} 个章节` : ''}`
+    ? `${plan.shots.length} 个画面 · ${plan.lines} 句口播${plan.named ? ` · ${plan.chapters.length} 个章节` : ''}`
     : '这个项目还没有句子';
   $('#pdfAssetCount').textContent = refs.length
     ? `${new Set(refs).size} 个引用 · 本地图片会嵌入 PDF，只显示文件名不带本机路径`
@@ -156,7 +156,7 @@ export function initPdfExport() {
     'beforeend',
     `<div class="modal-mask" id="pdfMask"><div class="modal pdf-modal" role="dialog" aria-labelledby="pdfTitle">
     <h3 id="pdfTitle">导出 PDF 分镜脚本</h3>
-    <p>发给剪辑、合作方或客户看的只读文档：每行一个镜头，左边逐句口播，右边画面设计；共用画面的几句合在同一行。</p>
+    <p>发给剪辑、合作方或客户看的只读文档：每行一个画面，左边逐句口播，右边画面设计；共用画面的几句合在同一行。</p>
     <div class="pdf-layouts" role="radiogroup" aria-label="纸张方向">
       <label class="pdf-layout"><input type="radio" name="pdfOrient" value="portrait">${PAGE_ICON('portrait')}<span><b>竖版 A4</b><small>手机看、打印都顺手</small></span></label>
       <label class="pdf-layout"><input type="radio" name="pdfOrient" value="landscape">${PAGE_ICON('landscape')}<span><b>横版 A4</b><small>电脑屏幕、投屏讨论</small></span></label>

@@ -63,12 +63,12 @@ function renderReview() {
   );
   const unlinked = unlinkedShots(state.rows, ti).length;
   let summary;
-  if (list.length) summary = `${list.length} 个镜头待处理${assetMode ? '（含素材交付）' : ''}；可以带缺项导出。`;
-  else if (assetMode) summary = '分镜和素材都检查过了：需要画面的镜头都已关联素材，没有失联文件。';
+  if (list.length) summary = `${list.length} 处待处理${assetMode ? '（含素材交付）' : ''}；可以带缺项导出。`;
+  else if (assetMode) summary = '分镜和素材都检查过了：需要配画面的都已关联素材，没有失联文件。';
   else
     summary = unlinked
-      ? `分镜方案完整（类型、画面描述都已填写）。另有 ${unlinked} 个需要画面的镜头还没关联素材，勾选「也检查素材交付」可以逐个列出。`
-      : '分镜方案完整，需要画面的镜头也都已关联素材。';
+      ? `分镜方案完整（类型、画面描述都已填写）。另有 ${unlinked} 个需要配画面的画面还没关联素材，勾选「也检查素材交付」可以逐个列出。`
+      : '分镜方案完整，需要配画面的也都已关联素材。';
   $('#reviewSummary').textContent = summary;
   host.innerHTML = list
     .map(
@@ -96,7 +96,7 @@ function closeReview() {
 export function initReview() {
   document.body.insertAdjacentHTML(
     'beforeend',
-    `<div class="modal-mask" id="reviewMask"><div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="reviewTitle"><h3 id="reviewTitle">交稿检查</h3><label class="review-assets-toggle"><input type="checkbox" id="reviewAssets"> 也检查素材交付（需要画面的镜头是否已关联素材、素材文件是否还在）</label><p id="reviewSummary" role="status"></p><div id="reviewList"></div><div class="m-btns"><button class="btn" id="closeReview">返回修改</button><button class="btn primary" id="reviewExport">继续导出</button></div></div></div>`,
+    `<div class="modal-mask" id="reviewMask"><div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="reviewTitle"><h3 id="reviewTitle">交稿检查</h3><label class="review-assets-toggle"><input type="checkbox" id="reviewAssets"> 也检查素材交付（需要配画面的是否都有素材、素材文件是否还在）</label><p id="reviewSummary" role="status"></p><div id="reviewList"></div><div class="m-btns"><button class="btn" id="closeReview">返回修改</button><button class="btn primary" id="reviewExport">继续导出</button></div></div></div>`,
   );
   registerCommand('review:open', openReview);
   on('workspace', () => reviewOpen && renderReview());

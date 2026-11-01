@@ -22,11 +22,12 @@ export async function runWindowScrollTests(t) {
         note: '',
       })),
     );
-    for (const view of ['table', 'check']) {
+    {
+      const view = 'table';
       viewState.view = view;
       update('rows');
       await pause(180);
-      const target = () => $(`.row[data-id="91"],.as[data-id="91"]`);
+      const target = () => $(`.row[data-id="91"]`);
       target().scrollIntoView({ block: 'center' });
       await pause(100);
       target().scrollIntoView({ block: 'center' });

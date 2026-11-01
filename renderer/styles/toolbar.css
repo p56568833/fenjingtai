@@ -196,10 +196,11 @@ body.dark .chip-filter:hover {
   /* 工具条：筛选、标注工具、进度、类型、时长、面板开关合成一行 */
   /* 放不下时整组换到第二行（标注阶段多了标注工具、或窗口比较窄），不会把筛选挤出视野 */
   flex-wrap: wrap;
-  gap: 6px 8px;
+  gap: 6px;
   padding: 6px 16px 8px;
   min-width: 0;
 }
+/* 带勾选框的小标签（类型设置里的「以后新建项目也用这套类型」） */
 .auto-label {
   font-size: 11px;
   color: var(--text-2);
@@ -272,22 +273,11 @@ body.drop-voice .stats::after {
   flex: none;
   white-space: nowrap;
 }
-/* 标注工具：还有没标的句子时，单独占第二行（左对齐）；全部标完就收起，工具条只剩一行 */
-.mark-tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  order: 10;
-  flex: 1 0 100%;
-}
-.mark-tools[hidden] {
-  display: none;
-}
 /* 右侧一组（进度 / 类型 / 时长 / 多选 / 视频审核 / 面板）作为整体靠右，窄窗口时整组换行仍靠右 */
 .work-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: none;
   margin-left: auto;
 }

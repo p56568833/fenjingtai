@@ -8,6 +8,9 @@
      · 标了不满意的素材：它配的那几句（整段的就是整个画面）
      · 写了要求的句子：连着的几句算一项
      · 否掉的候选：它 for 的那几句，那几句还没有通过的视频，而且不是在「不用返工了」之前否掉的
+   同一画面里句子有重叠的几项合成一项（否掉了配第 1 句的、配第 1–4 句的、配第 2 句的 → 一项「第 1–4 句」）；
+   被同一个没通过的候选连着的几项也合成一项（配第 1–4 句的候选同时碰到「第 1 句」「第 2 句」→「第 1–2 句」），
+   同一个候选不在两项里各列一次。别的不重叠的照旧分开。
    这几句有候选被通过：要换掉的旧素材挪到备选、要求清掉，从这一页消失。 */
 import { shotMembers, applyRole, usageSpan } from './shots.js';
 import { usageList } from './asset-model.js';
@@ -16,6 +19,12 @@ import { sentenceScope } from './candidate-scope.js';
 
 const REJECT = new Set(['no', 're']);
 export const isRejected = c => REJECT.has(c?.decision);
+
+/* 返工意见里真正写了字的部分：只有标点、空格的（比如误敲的「，，」）当作没写 */
+export const reworkText = s => {
+  const t = String(s ?? '').trim();
+  return /[\p{L}\p{N}]/u.test(t) ? t : '';
+};
 
 /* 画面要补一个镜头（写在每一句上，共用画面拆开后各自留一份） */
 export function setRework(rows, row, rework) {
@@ -71,6 +80,23 @@ const spanOfCand = (c, members) => {
   }
   return forRange(c, members);
 };
+
+/* 句子有重叠、或者 linked 说连着的几项合成一项：范围取首尾，要求取第一条，要换掉的素材、否掉的候选都并进来 */
+function mergeItems(list, linked) {
+  const out = [];
+  for (const it of [...list].sort((a, b) => a.from - b.from || b.to - a.to)) {
+    const last = out.at(-1);
+    if (!last || (it.from > last.to && !linked(last, it))) {
+      out.push({ ...it, replaces: [...it.replaces], fresh: [...it.fresh] });
+      continue;
+    }
+    last.to = Math.max(last.to, it.to);
+    last.request ||= it.request;
+    for (const x of it.replaces) if (!last.replaces.some(y => y.assetId === x.assetId)) last.replaces.push(x);
+    last.fresh.push(...it.fresh);
+  }
+  return out;
+}
 
 /* 所有待返工的项，按稿子顺序；一项就是加进来的那几句：
    [{ key, lead, members（整个画面）, from, to（members 下标）, target（那几句）, cands（配到这几句的候选）,
@@ -135,8 +161,11 @@ export function reworkShots(rows, candidates) {
       for (let i = sp.from; i <= sp.to; i++) if (!covered.has(i)) open = true;
       if (open) item(sp.from, sp.to).fresh.push(c);
     }
-    for (const it of items.values()) {
-      if (!it.request && !it.replaces.length && !it.fresh.length) continue;
+    // 没通过的候选（待审的、否掉的）会列在它碰到的每一项里：碰到两项就把两项连起来
+    const spans = g.cands.filter(c => c.decision !== 'ok').map(c => forRange(c, members));
+    const linked = (a, b) => spans.some(sp => overlaps(sp, a) && overlaps(sp, b));
+    const active = [...items.values()].filter(x => x.request || x.replaces.length || x.fresh.length);
+    for (const it of mergeItems(active, linked)) {
       const cands = g.cands.filter(c => overlaps(forRange(c, members), it));
       const rejected = cands.filter(isRejected);
       out.push({
@@ -161,6 +190,17 @@ export function reworkShots(rows, candidates) {
   }
   return out.sort(
     (a, b) => (order.get(a.lead.id) ?? 0) - (order.get(b.lead.id) ?? 0) || a.from - b.from || a.to - b.to,
+  );
+}
+
+/* 选中的那一项不在列表里了：范围变了（又否掉一个更宽的候选）就选同一画面里接上的那一项；
+   通过了、不用返工了就选原来位置上的下一项。prev：{ leadId, from, to, index }，没有就选第一项 */
+export function followRework(list, prev) {
+  if (!prev) return list[0] || null;
+  return (
+    list.find(s => s.lead.id === prev.leadId && overlaps(s, prev)) ||
+    list[Math.min(prev.index, list.length - 1)] ||
+    null
   );
 }
 
@@ -204,7 +244,7 @@ export function groupReworkItems(items) {
       forTexts: g.items.map(s =>
         s.from === s.to ? String(s.target[0].no) : `${s.target[0].no}-${s.target.at(-1).no}`,
       ),
-      requests: g.items.map(s => s.request?.note).filter(Boolean),
+      requests: g.items.map(s => reworkText(s.request?.note)).filter(Boolean),
       replaces: uniq(g.items.flatMap(s => s.replaces)),
       rejected: uniq(g.items.flatMap(s => s.rejected)),
       cands: uniq(g.items.flatMap(s => s.cands)),
@@ -252,7 +292,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
       visualNote: s.lead.note || '',
       need: s.cands.find(c => c.need)?.need || '',
       request: s.requests.join('\n'),
-      replace: s.replaces.map(x => ({ name: nameOf(x.assetId), note: x.note || '' })),
+      replace: s.replaces.map(x => ({ name: nameOf(x.assetId), note: reworkText(x.note) })),
       current: [
         ...new Map(
           s.target.flatMap(m =>

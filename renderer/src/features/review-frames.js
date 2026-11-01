@@ -16,8 +16,12 @@ const frames = new Map();
 const queue = [];
 const active = new Map();
 let running = 0;
-const CELLS = 9; // 从精选段开头到结尾均匀抽 9 帧，审核页排成 3×3
-export const stripHTML = () => `<div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(CELLS)}</div>`;
+/* 从精选段开头到结尾均匀抽几帧：4 秒以内的短片段 3 帧，长一点的 6 帧（再多就几乎一样了）；审核页排成每行 3 张 */
+const cellsFor = c => (Math.max(0, c.out - c.in) <= 4 ? 3 : 6);
+export const stripHTML = c => {
+  const n = cellsFor(previewOf(c));
+  return `<div class="vr-strip">${'<div class="vr-cell ld">载入中…</div>'.repeat(n)}</div>`;
+};
 const stripOf = job => (job.host.isConnected ? job.host.querySelector(`[data-vr-id="${job.c.id}"] .vr-strip`) : null);
 /* 渲染后把截图放进卡片：截过的直接放，没截的排队去截 */
 export function paintStrips(host, cands) {
@@ -100,13 +104,14 @@ async function grab(job, signal) {
     }
     if (Number.isFinite(v.duration) && c.in >= v.duration - 0.05)
       throw Object.assign(new Error('入出点超出视频长度'), { outOfRange: v.duration });
-    for (let i = 0; i < CELLS && valid(); i++) {
-      const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / CELLS;
+    const n = cellsFor(c);
+    for (let i = 0; i < n && valid(); i++) {
+      const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / n;
       cells.push({ cell: await frameAt(v, t, fmtTime(t + (c.local ? orig.in : 0)), signal, t - c.in) });
       if (!valid()) break;
       stripOf(job)?.replaceChildren(
         ...cells.map(x => x.cell),
-        ...Array.from({ length: CELLS - cells.length }, () => loadingCell()),
+        ...Array.from({ length: n - cells.length }, () => loadingCell()),
       );
     }
   } catch (error) {

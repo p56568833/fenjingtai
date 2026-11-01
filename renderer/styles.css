@@ -8,14 +8,12 @@
 @import url('./styles/shared-scene.css');
 @import url('./styles/assets.css');
 @import url('./styles/inspector.css');
-@import url('./styles/reading.css');
 @import url('./styles/selection.css');
 @import url('./styles/search.css');
 @import url('./styles/popover.css');
 @import url('./styles/dialogs.css');
 @import url('./styles/projects.css');
 @import url('./styles/preview.css');
-@import url('./styles/focus.css');
 @import url('./styles/voice.css');
 @import url('./styles/playthrough.css');
 @import url('./styles/type-editor.css');

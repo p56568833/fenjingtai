@@ -7,6 +7,7 @@ import { projectForId, allProjects } from './storage.js';
 import { changeProject } from './project-change.js';
 import { candidateVersion } from './candidate-actions.js';
 import { writeBack } from './candidate-sync.js';
+import { followMovedPaths } from './undo.js';
 import { invalidateProbe, probePaths, isMissing } from './asset-actions.js';
 import { swapToLocal, fileTitle, staleOnlineClips, hasLineTag, lineTag } from '../core/candidate-placement.js';
 import { assetName, syncMirror, referencedAssetIds } from '../core/asset-model.js';
@@ -113,6 +114,7 @@ native.onSegmentProgress(({ token, p }) => {
 /* 文件改名涉及磁盘，不进撤销；所有引用该路径的项目同时更新。 */
 export function applyMovedPaths(moved) {
   if (!moved.size) return;
+  followMovedPaths(moved);
   for (const stored of allProjects()) {
     const p = projectOf(stored.id);
     if (!p) continue;

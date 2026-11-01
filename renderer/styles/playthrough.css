@@ -64,6 +64,7 @@
 .pt-stage.pt-short::after {
   content: '画面片段已经放完，口播还在继续';
   position: absolute;
+  z-index: 2;
   left: 12px;
   bottom: 12px;
   font-size: 12px;
@@ -609,6 +610,10 @@
 .pt-stage > .pt-pending {
   opacity: 0;
 }
+/* 刚换上的画面叠在旧画面上面；旧画面等新画面真正画上屏才收起 */
+.pt-stage > .pt-front {
+  z-index: 1;
+}
 .pt-progress[hidden] {
   display: none;
 }
@@ -622,7 +627,7 @@
 /* 两条轨：左边一列写轨名，刻度尺和两条轨对齐在右边一列 */
 .ptt-lanes {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr);
   column-gap: 8px;
   align-items: start;
 }
@@ -677,4 +682,18 @@
 /* 双击画面弹出的菜单：弹窗版「对着口播看画面」在遮罩上面，菜单要压在它上面 */
 .popover.ptt-menu {
   z-index: 400;
+}
+/* 播放器里的类型标签（颜色跟着类型走） */
+.pt-type {
+  background: color-mix(in srgb, var(--tc) 16%, transparent);
+  color: color-mix(in srgb, var(--tc) 75%, var(--text));
+  border-radius: 6px;
+  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pt-type svg {
+  width: 13px;
+  height: 13px;
 }

@@ -1,15 +1,14 @@
-/* 导入导出：文件 / 粘贴；MD（含批注回读）/ 素材清单 / CSV / 项目 JSON。
+/* 导入导出：稿件文件 / 粘贴导入，PDF / 项目文件导出。
    桌面版导出走系统保存对话框。解析与生成都是 core/ 里的纯函数，这里只管流程和弹窗。 */
 import { state } from '../app/state.js';
 import { update } from '../app/project-events.js';
-import { types, timeline } from '../app/project-queries.js';
+import { types } from '../app/project-queries.js';
 import * as storage from '../app/storage.js';
 import { clearUndo } from '../app/undo.js';
 import { saveCurrentProject } from '../app/project-change.js';
 import { applyImport, rowIdOptions } from '../app/actions.js';
-import { probePaths, isMissing } from '../app/asset-actions.js';
 import { normalizeProjectRows, reconcileDraft } from '../core/project-import.js';
-import { buildAnnotatedMd, buildAssetListMd, buildCsv, buildProjectJson } from '../core/export-doc.js';
+import { buildProjectJson } from '../core/project-json.js';
 import { parseAny, migrateSections, mdTypes } from '../core/parse.js';
 import { normalizeProjectData } from '../core/project-data.js';
 import { normalizeReworkRequests } from '../core/candidate-scope.js';
@@ -17,9 +16,9 @@ import { CANDIDATE_TYPE } from '../core/candidate-values.js';
 import { sanitizeProjectCandidates } from '../core/candidates.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
-import { toast, confirmModal, esc } from './base/dom.js';
+import { toast, esc } from './base/dom.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor } from './base/popover.js';
-import { openDurPopover } from './popover.js';
+import { clearTiming } from '../app/subtitle.js';
 import { armAnimation } from './base/anim.js';
 import { deliveryIssues } from './review.js';
 import { registerCommand, runCommand } from './base/commands.js';
@@ -167,47 +166,10 @@ async function download(name, content) {
   return false;
 }
 
-async function doExport(kind, checked = false) {
+function doExport(kind) {
   if (kind === 'pdf') return runCommand('pdf:open');
-  if (kind === 'json') return runCommand('pack:export-open'); // 先选：仅项目文件 / 连同素材打包
-  const issues = deliveryIssues();
-  if (!checked && kind !== 'json' && issues.length) {
-    confirmModal(
-      '交稿还有待处理项',
-      `${issues.length} 个镜头存在未标注、缺画面描述、主画面缺失、画面有空白或片段待调整。可取消后打开交稿检查，也可带缺项导出。`,
-      '带缺项导出',
-      () => doExport(kind, true),
-      { danger: false },
-    );
-    return;
-  }
-  const title = state.title || '未命名项目';
-  const file = safeFileName(title);
-  const registry = state.assets || {};
-  // 失联文件在导出里标出来（清单 / CSV / MD 都写「文件失联」，剪辑拿到清单能看见）
-  const paths = [
-    ...new Set(
-      Object.values(registry)
-        .map(a => a.path)
-        .filter(p => p && !/^https?:/i.test(p)),
-    ),
-  ];
-  const probe = await probePaths(paths);
-  const missing = new Set(paths.filter(p => isMissing(probe[p])));
-  const ctx = {
-    title,
-    rows: state.rows,
-    issues,
-    registry,
-    missing,
-    types: types().list,
-    timeline: timeline(),
-    speechRate: state.speechRate,
-  };
-
-  if (kind === 'md') await download(`${file}·带批注.md`, buildAnnotatedMd(ctx));
-  if (kind === 'list') await download(`素材清单·${file}.md`, buildAssetListMd(ctx));
-  if (kind === 'csv') await download(`${file}.csv`, buildCsv(ctx));
+  if (kind === 'json') return runCommand('pack:export-open');
+  if (kind === 'jianying') return runCommand('jianying:export');
 }
 
 /* 仅导出项目 JSON（不含素材文件本身） */
@@ -237,18 +199,39 @@ function openPaste() {
   setTimeout(() => $('#pasteArea').focus(), 60);
 }
 
+/* 口播音频、剪映字幕：没导入时是导入入口；导入了就写着现在用的是哪个，并给出更换 / 重新对齐 / 移除 */
+const ICON_MIC =
+  '<svg class="mi" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+const ICON_SRT =
+  '<svg class="mi" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>';
+const ICON_REDO = '<svg class="mi" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>';
+const ICON_OFF = '<svg class="mi" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const item = (imp, icon, title, desc) =>
+  `<div class="pop-item" data-imp="${imp}">${icon}<span class="main">${title}<span class="desc">${desc}</span></span></div>`;
+const voiceItems = () =>
+  state.voice
+    ? item('voice', ICON_MIC, '更换口播音频', `现在用的是：${esc(state.voice.name)}`) +
+      item('voice-clear', ICON_OFF, '移除口播音频', '本地文件保留，⌘Z 可撤销')
+    : item('voice', ICON_MIC, '口播音频', '录好的口播（音频或视频）：逐句播放、对着画面预览');
+const subtitleItems = () =>
+  state.timing
+    ? item('srt', ICON_SRT, '换一份剪映字幕', `现在对齐的是：${esc(state.timing.name || '剪映字幕')}`) +
+      item('srt-realign', ICON_REDO, '重新对齐字幕', '改过稿子后，用同一份字幕重新对齐') +
+      item('srt-clear', ICON_OFF, '清除字幕时间', '回到按语速估算，⌘Z 可撤销')
+    : item('srt', ICON_SRT, '对齐剪映字幕（SRT）', '录完口播后，把每句换成精确的时间码');
+
 function openImportMenu(anchor) {
   openMenu(
     anchor,
     `
       <div class="p-title">导入</div>
-      <div class="pop-item" data-imp="file"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span class="main">选择稿子文件<span class="desc">MD / TXT / Word / 项目 JSON / 打包 ZIP，整篇自动分句；也可以直接拖进窗口</span></span></div>
+      <div class="pop-item" data-imp="file"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span class="main">选择稿子文件<span class="desc">MD / TXT / Word，整篇自动分句；也可以直接拖进窗口</span></span></div>
       <div class="pop-item" data-imp="paste"><svg class="mi" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg><span class="main">粘贴稿子文本<span class="desc">整篇复制进来，也认得出带批注的 MD</span></span></div>
       <div class="pop-sep"></div>
-      <div class="pop-item" data-imp="voice"><svg class="mi" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span class="main">${state.voice ? '更换口播音频' : '口播音频'}<span class="desc">录好的口播（音频或视频）：逐句播放、对着画面预览</span></span></div>
-      <div class="pop-item" data-imp="srt"><svg class="mi" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg><span class="main">对齐剪映字幕（SRT）<span class="desc">录完口播后，把每句换成精确的时间码</span></span></div>
+      ${voiceItems()}
+      ${subtitleItems()}
       <div class="pop-sep"></div>
-      <div class="pop-item" data-imp="jsonnew"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg><span class="main">项目 JSON / 打包 ZIP 导入为新项目<span class="desc">从别的机器整体搬过来；打包的 ZIP 会把素材一起解压出来</span></span></div>`,
+      <div class="pop-item" data-imp="jsonnew"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg><span class="main">打开项目文件<span class="desc">JSON 或打包的 ZIP，导入为新项目；ZIP 会把素材一起解压出来</span></span></div>`,
   );
   markPopAnchor(anchor);
 }
@@ -258,17 +241,19 @@ function openExportMenu(anchor) {
   openMenu(
     anchor,
     `
-      <div class="p-title">导出「${esc(state.title)}」</div>
-      <div class="pop-item" data-x="review"><svg class="mi" viewBox="0 0 24 24"><path d="m5 12 4 4 10-10"/></svg><span class="main">交稿检查<span class="desc">${n ? `${n} 个镜头待处理` : '分镜方案完整 · 可再勾选检查素材交付'}</span></span></div>
+      <div class="p-title" title="${esc(state.title)}">导出「${esc(state.title)}」</div>
+      <div class="pop-item export-check${n ? ' has-issues' : ''}" data-x="review">
+        <svg class="mi" viewBox="0 0 24 24">${n ? '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>' : '<path d="m5 12 4 4 10-10"/>'}</svg>
+        <span>交稿检查</span><span class="export-status">${n ? `${n} 处待处理` : '方案完整'}</span><span class="export-chevron" aria-hidden="true">›</span>
+      </div>
       <div class="pop-sep"></div>
-      <div class="pop-item" data-x="jianying"><svg class="mi" viewBox="0 0 24 24"><path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z"/><path d="m4 9 1.6-4h4L8 9m4 0 1.6-4h4L16 9"/></svg><span class="main">导出到剪映<span class="desc">按分镜排布生成可编辑草稿，本机剪映继续剪</span></span></div>
-      <div class="pop-sep"></div>
-      <div class="pop-item" data-x="pdf"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg><span class="main">PDF 分镜脚本<span class="desc">按镜头排版，发给别人直接看 · ⇧⌘E</span></span></div>
-      <div class="pop-sep"></div>
-      <div class="pop-item" data-x="md"><span class="pdot" style="background:var(--accent)"></span><span class="main">带批注的 MD<span class="desc">回写成批注稿，接回原来的工作流</span></span></div>
-      <div class="pop-item" data-x="list"><span class="pdot" style="background:#12945f"></span><span class="main">素材清单 MD<span class="desc">按类型分组，照单找素材</span></span></div>
-      <div class="pop-item" data-x="csv"><span class="pdot" style="background:#d9820b"></span><span class="main">CSV 表格<span class="desc">进 Excel / 飞书表格</span></span></div>
-      <div class="pop-item" data-x="json"><span class="pdot" style="background:#7c4de8"></span><span class="main">项目文件<span class="desc">项目的全部数据（含视频审核结果）；可选连同用到的素材打包成 ZIP，发给别人直接用</span></span></div>`,
+      <div class="export-group">剪辑</div>
+      <div class="pop-item" data-x="jianying"><svg class="mi" viewBox="0 0 24 24"><path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z"/><path d="m4 9 1.6-4h4L8 9m4 0 1.6-4h4L16 9"/></svg><span class="main">导出到剪映<span class="desc">生成可编辑草稿，在剪映中继续剪辑</span></span></div>
+      <div class="export-group">文档</div>
+      <div class="pop-item" data-x="pdf"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg><span class="main">PDF 分镜脚本<span class="desc">按镜头排版，方便审阅与分享</span></span><span class="sub" aria-label="快捷键 Shift Command E">⇧⌘E</span></div>
+      <div class="export-group">项目交接</div>
+      <div class="pop-item" data-x="json"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 10v7m-3-3 3 3 3-3"/></svg><span class="main">项目文件<span class="desc">导出完整项目，可附带所用素材</span></span></div>`,
+    { className: 'export-menu' },
   );
   markPopAnchor(anchor);
 }
@@ -304,7 +289,6 @@ export function initImportExport() {
   };
   $('#btnImport').onclick = toggle($('#btnImport'), openImportMenu);
   $('#btnExport').onclick = toggle($('#btnExport'), openExportMenu);
-  $('#btnDur').onclick = toggle($('#btnDur'), openDurPopover);
 
   document.addEventListener(
     'click',
@@ -318,6 +302,9 @@ export function initImportExport() {
         if (w === 'paste') openPaste();
         if (w === 'srt') runCommand('srt:pick');
         if (w === 'voice') runCommand('voice:pick');
+        if (w === 'voice-clear') runCommand('voice:clear');
+        if (w === 'srt-realign') runCommand('srt:realign');
+        if (w === 'srt-clear') clearTiming();
         if (w === 'jsonnew') {
           const r = await native.importFile();
           if (r?.error) toast(r.error, null, 'error');
@@ -330,7 +317,6 @@ export function initImportExport() {
       if (x && pop) {
         closePop();
         if (x.dataset.x === 'review') runCommand('review:open');
-        else if (x.dataset.x === 'jianying') runCommand('jianying:export');
         else doExport(x.dataset.x);
       }
     },

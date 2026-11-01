@@ -14,9 +14,6 @@
 .rows.anim .row {
   animation: rowIn 0.32s cubic-bezier(0.3, 0, 0.2, 1) backwards;
 }
-.rows.anim .ck-p {
-  animation: rowIn 0.3s cubic-bezier(0.3, 0, 0.2, 1) backwards;
-}
 .mo-glide {
   position: absolute;
   left: 0;

@@ -1,10 +1,19 @@
 /* 审核页左栏：待审 / 待返工切换、当前批次卡片、这一批（或待返工）的画面列表。只拼 HTML 和滑块动效。 */
 import { state } from '../app/state.js';
-import { reworkShots } from '../core/rework.js';
+import { reworkShots, reworkText } from '../core/rework.js';
 import { esc } from '../ui/base/dom.js';
 import { glide } from '../ui/base/motion.js';
 import { fmtDay, batchDetail } from '../core/review-format.js';
-import { page, pendingCount, isPending, batchLabel, rangeText, sectionOf, reworkLabel } from './review-model.js';
+import {
+  page,
+  pendingCount,
+  isPending,
+  batchLabel,
+  rangeText,
+  sectionOf,
+  reworkLabel,
+  reworkState,
+} from './review-model.js';
 
 /* 左栏：当前批次标题打开切换菜单，进度独立显示；下面是这一批的全部画面（按章节） */
 /* 待审 / 待返工切换的白色滑块：和顶栏「审核 / 表格」一样滑过去。
@@ -73,26 +82,44 @@ export function navHTML(all, shots) {
     <div class="vr-shots">${shotsHTML}</div>`;
 }
 
+/* 待返工一项的说明：要做什么 + 为什么（不满意的地方 / 你的要求 / 否掉的意见），都没写就用这几句的口播 */
+function reworkReason(s) {
+  const why = x => reworkText(x);
+  if (s.replaces.length) {
+    const note = s.replaces.map(x => why(x.note)).find(Boolean);
+    return `换素材${note ? `：${note}` : ''}`;
+  }
+  if (s.request) return `要补${why(s.request.note) ? `：${why(s.request.note)}` : ''}`;
+  const note = s.rejected.map(c => why(c.note)).find(Boolean);
+  return `否掉 ${s.rejected.length} 个${note ? `：${note}` : ''}`;
+}
+const REWORK_HELP =
+  '这里列出要重新找画面的句子：审核时否掉、还没有通过的；在右侧面板对素材点了「不满意」的；要 AI 再找一个的。\n生成返工单交给找素材的 AI，新候选导入后在这里审；任何一个候选通过，这一项就离开这一页。';
+
 export function reworkNavHTML(list) {
   let sec = null;
+  const states = list.map(reworkState);
   const items = list
-    .map(s => {
+    .map((s, i) => {
       const section = sectionOf(s.lead.id);
       const head = section !== sec ? `<div class="vr-nav-sec">${esc(section || '（没有章节）')}</div>` : '';
       sec = section;
-      const label = s.cands[0]?.label || s.request?.note || s.replaces[0]?.note || '';
-      const status = s.replaces.length
-        ? `<span class="vr-nav-done re">换 ${s.replaces.length} 个</span>`
-        : s.request
-          ? '<span class="vr-nav-done re">要补</span>'
-          : `<span class="vr-nav-done re">否掉 ${s.rejected.length}</span>`;
-      return `${head}<button class="vr-nav-shot${s.key === page.curRework ? ' on' : ''}" data-vr-rw="${esc(s.key)}"><span>${reworkLabel(s)}${label ? `<small>${esc(label)}</small>` : ''}</span>${status}</button>`;
+      const st = states[i];
+      return `${head}<button class="vr-nav-shot${s.key === page.curRework ? ' on' : ''}" data-vr-rw="${esc(s.key)}" title="${esc(s.target.map(m => m.text).join(''))}"><span>${reworkLabel(s)}<small>${esc(reworkReason(s))}</small></span><span class="vr-nav-done vr-rw-st s-${st.key}">${st.short}</span></button>`;
     })
     .join('');
+  const todo = states.filter(x => x.key === 'todo').length;
+  const sum = list.length
+    ? ['todo', 'sent', 'new']
+        .map(k => [k, states.filter(x => x.key === k).length])
+        .filter(([, n]) => n)
+        .map(([k, n]) => `${{ todo: '待发出', sent: '已发出', new: '有候选待审' }[k]} ${n}`)
+        .join(' · ')
+    : '';
   return `${tabsHTML()}<div class="vr-picker"><div class="vr-bh vr-rw-card">
-      <div class="vr-bheader"><b>待返工</b><span class="vr-bdate">${list.length} 个画面</span></div>
-      <p class="vr-rw-hint">审核时否掉、还没有通过的画面，和你在右侧面板对素材点了「不满意」或要 AI 再找的画面。里面任何一个候选通过，它就离开这一页。</p>
-      <button class="btn primary vr-rw-doc" id="vrReworkDoc"${list.length ? '' : ' disabled'} title="把这一页写成返工单，放在片段保存位置，并复制一句话给找素材的 AI">生成返工单</button>
+      <div class="vr-bheader"><b>待返工</b><span class="vr-rw-help" title="${esc(REWORK_HELP)}" aria-label="${esc(REWORK_HELP)}">?</span><span class="vr-bdate">${list.length} 项</span></div>
+      ${sum ? `<div class="vr-rw-sum">${sum}</div>` : ''}
+      <button class="btn primary vr-rw-doc" id="vrReworkDoc"${list.length ? '' : ' disabled'} title="把这一页全部写成一份返工单，放在片段保存位置，并复制一句话给找素材的 AI">${todo && todo < list.length ? `生成返工单（全部 ${list.length} 项）` : '生成返工单'}</button>
       ${page.reworkDocAt ? `<div class="vr-bother">已生成 · ${fmtDay(page.reworkDocAt)}</div>` : ''}
     </div></div>
     <div class="vr-shots">${items}</div>`;

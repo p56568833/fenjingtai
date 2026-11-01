@@ -52,7 +52,8 @@ export function createReviewRenderer({
     // 这一批的进度只在左栏批次卡片上写（待审数 + 进度条），顶栏不再重复
     const unsaved = state.candidates.filter(c => c.decision === 'ok' && !c.savedPath).length;
     const saveAll = $('#vrSaveAll');
-    saveAll.hidden = !unsaved && !batchRun;
+    // 待返工页和保存片段无关：不占一整行，正在保存时才露出进度
+    saveAll.hidden = !batchRun && (!unsaved || page.mode === 'rework');
     saveAll.disabled = !!batchRun;
     saveAll.classList.toggle('saving', !!batchRun);
     saveAll.textContent = saveAllLabel() || `保存已通过的片段（${unsaved}）`;
@@ -138,14 +139,14 @@ export function createReviewRenderer({
       c.id === page.curCand
         ? cardHTML(c)
         : isIdle(c)
-          ? rowOf(c, 'idle', '未采用', '它给的那几句在正片轨上已经有通过的画面，点开还能审')
+          ? rowOf(c, 'idle', '未采用', '它给的那几句已经有通过的主画面，点开还能审')
           : isPending(c)
             ? rowOf(c, 'wait', '待审', '点开看画面、审核')
             : doneHTML(c);
     const okN = g.cands.filter(c => c.decision === 'ok').length;
     const headHTML = `<div class="vr-pfill-head"><span>素材 ${g.cands.length} 个 · 通过 ${okN}</span><span class="vr-spacer"></span>${
       fill
-        ? `<span class="vr-pst ${fill.full ? 'ok' : fill.got > 0 ? 'part' : 'miss'}" title="正片轨上排了多少秒 / 这个画面的口播有多长">已排 ${secText(fill.got)} / 口播 ${secText(fill.dur)} 秒</span>`
+        ? `<span class="vr-pst ${fill.full ? 'ok' : 'has'}" title="主画面排了多少秒 / 这个画面的口播有多长">已排 ${secText(fill.got)} / 口播 ${secText(fill.dur)} 秒</span>`
         : ''
     }</div>`;
     const reworkNote = g.cands.find(c => c.reworkNote)?.reworkNote || '';

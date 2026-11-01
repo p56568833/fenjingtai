@@ -1,5 +1,5 @@
 import { viewState } from '../app/view-state.js';
-/* 全局键盘：1-9 标注 / 删除 / 方向导航 / ⌘F / ⌘Z / 空格对着口播看画面 / Esc；原文视图的键位由 check-view.js 接管 */
+/* 全局键盘：1-9 标注 / 删除 / 方向导航 / ⌘F / ⌘Z / 空格对着口播看画面 / Esc */
 import { state } from '../app/state.js';
 import { currentSelection, visibleLineIds } from '../app/selection.js';
 import { types } from '../app/project-queries.js';
@@ -10,7 +10,6 @@ import { cycleView } from './render.js';
 import { renderSelectionOnly } from './base/selection.js';
 import { closePop } from './base/popover.js';
 import { openSearch, closeSearch } from './search.js';
-import { handleCheckKey } from './check-view.js';
 import { runCommand } from './base/commands.js';
 
 function moveTo(dir) {
@@ -53,9 +52,9 @@ export function initKeyboard() {
       }
       return;
     }
-    if (mod && (e.key === 'e' || e.key === 'E')) {
+    if (mod && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
       e.preventDefault();
-      runCommand(e.shiftKey ? 'pdf:open' : 'focus:open'); // ⇧⌘E 导出 PDF，⌘E 专注标注
+      runCommand('pdf:open'); // ⇧⌘E 导出 PDF
       return;
     }
     if (mod && e.key === '/') {
@@ -73,9 +72,8 @@ export function initKeyboard() {
     if (editing) return; // 编辑中的其余按键由 edit.js 处理
 
     if (e.key === 'Escape') {
-      if (viewState.multi || viewState.multiMode) {
+      if (viewState.multi) {
         viewState.multi = null;
-        viewState.multiMode = false;
         renderSelectionOnly();
       }
       closePop();
@@ -84,14 +82,12 @@ export function initKeyboard() {
     }
     // 空格：播放 / 暂停口播（有口播音频时；没有就不占用这个键）
     // 空格：从选中的这句打开「对着口播看画面」
-    if (e.key === ' ' && !mod && state.voice && !viewState.multiMode && viewState.sel) {
+    if (e.key === ' ' && !mod && state.voice && viewState.sel) {
       e.preventDefault();
       runCommand('playthrough:from', viewState.sel);
       return;
     }
-    // 原文视图：方向键 / 1·2·0 / ⌫ 都按「阅读勾选」的语义走（⌫ 只擦勾选不删句子）
-    if (viewState.view === 'check' && handleCheckKey(e)) return;
-    // 两个视图同一套：⌫ 只清标注（误按也不丢字），⌘⌫ 才删除句子（可撤销）
+    // 表格：⌫ 只清标注（误按也不丢字），⌘⌫ 才删除句子（可撤销）
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (!currentSelection().length) return;
       e.preventDefault();

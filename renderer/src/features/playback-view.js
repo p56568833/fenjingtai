@@ -27,7 +27,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
       <div class="pt-meta" id="ptMeta"></div>
       <div class="pt-progress"><div id="ptBar"></div></div>
       ${trackHost ? '' : '<div class="pt-track" id="ptTrack" hidden></div>'}
-      <div class="pt-controls"><button class="btn" id="ptPrev" title="上一个镜头（←）" aria-label="上一个镜头">${ICON_PREV}</button><button class="btn primary" id="ptPlay">${ICON_PLAY}播放</button><button class="btn" id="ptNext" title="下一个镜头（→）" aria-label="下一个镜头">${ICON_NEXT}</button><span class="pt-time mono" id="ptTime"></span><span class="spacer"></span><span class="pt-keys"><kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个镜头</span></div>
+      <div class="pt-controls"><button class="btn" id="ptPrev" title="上一个画面（←）" aria-label="上一个画面">${ICON_PREV}</button><button class="btn primary" id="ptPlay">${ICON_PLAY}播放</button><button class="btn" id="ptNext" title="下一个画面（→）" aria-label="下一个画面">${ICON_NEXT}</button><span class="pt-time mono" id="ptTime"></span><span class="spacer"></span><span class="pt-keys"><kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个画面</span></div>
     </div>`);
   if (trackHost) trackHost.innerHTML = markup('<div class="pt-track" id="ptTrack" hidden></div>');
   const $ = s => root.querySelector(s);
@@ -53,7 +53,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
         : `当前口播音频只到 ${fmtTime(voiceEnd())}，这段没有对应口播，按估算时间静音预览`
       : state.voice
         ? '口播音频读不出来，按估算时间静音播放'
-        : '还没导入口播音频：按估算时间静音播放（时长菜单 → 导入口播音频）';
+        : '还没导入口播音频：按估算时间静音播放（导入 → 口播音频）';
   }
 
   const buildUnits = () => {
@@ -84,7 +84,9 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
   }
 
   /* 字幕之间的自然停顿延续上一段画面（视频接着播到下一个画面出现）；手动留白、没有配素材的句子照常空着。 */
-  const mediaKey = (i, item) => `${i}|${item.assetId}@${item.start}`;
+  // 键里带上文件和片段：数据刷新后键相同就一定是同一画面，可以直接复用，不用清空重载
+  const mediaKey = (i, item) =>
+    `${i}|${item.assetId}@${item.start}|${item.asset.path}|${item.usage.clip?.in ?? ''}-${item.usage.clip?.out ?? ''}`;
   function prefetchNext(i, t) {
     for (let j = i; j < units.length; j++) {
       const u = units[j];
@@ -117,6 +119,8 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     const stage = $('[data-pt="ptStage"]');
     videoEl?.pause();
     videoEl = null;
+    // 上一段停在「剪辑里补足」时画面是藏着的：去掉标记前先把它收起，免得新画面出来前旧画面又露一下
+    if (stage.classList.contains('pt-fitdone')) media.hideVisible();
     stage.classList.remove('pt-short', 'pt-freeze', 'pt-fitdone');
     if (!u) return media.clear();
     segStart = u.start + (item ? item.start : 0);
@@ -193,11 +197,8 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
         );
       const previousMedia = mediaSignature();
       buildUnits();
+      // 排布变了（比如播放时刚记下视频真实时长）也不清空画面：重新上屏，旧画面留到新画面解出首帧，不闪黑
       const changedMedia = previousMedia !== mediaSignature();
-      if (changedMedia) {
-        media.clear();
-        videoEl = null;
-      }
       const i = keep != null ? unitOfRow(keep) : -1;
       if (range && i >= 0) range = { start: units[i].start, end: units[i].end };
       trackUnit = -1;
@@ -228,12 +229,23 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     if (!v || !u || !(v.readyState >= 1)) return;
     const cin = +v.dataset.in || 0;
     const cout = v.dataset.out === '' ? v.duration : +v.dataset.out;
-    const want = Math.min(cin + (t - segStart), Math.max(cin, (cout || v.duration) - 0.04));
-    const over = cin + (t - segStart) >= (cout || v.duration);
-    if (Math.abs(v.currentTime - want) > (force ? 0.04 : 0.3)) v.currentTime = Math.max(0, want);
+    const end = cout || v.duration;
+    const want = Math.min(cin + (t - segStart), Math.max(cin, end - 0.04));
+    const clockOver = cin + (t - segStart) >= end;
+    // 视频自己的进度常比口播时钟快一点，会先放到文件末尾自己停下；这时再 play() 浏览器会从头播，闪出片头一帧。
+    // 已经放到头（或到了出点）就算放完，停在最后一帧
+    const over = clockOver || v.ended || (!v.seeking && v.currentTime >= end - 0.02);
+    const drift = want - v.currentTime;
+    // 差得多（刚开始播、刚拖过）才直接跳；平时微调播放速度慢慢追平，硬跳会让画面顿一下
+    if (Math.abs(drift) > (force ? 0.04 : 0.4)) v.currentTime = Math.max(0, want);
+    const rate =
+      clock.isPlaying() && !over && Math.abs(drift) > 0.02 ? Math.min(1.15, Math.max(0.85, 1 + drift * 1.5)) : 1;
+    if (Math.abs(v.playbackRate - rate) > 0.01) v.playbackRate = rate;
     if (clock.isPlaying() && !over && v.paused) v.play().catch(() => {});
     if ((!clock.isPlaying() || over) && !v.paused) v.pause();
-    const tail = over && t < segEnd;
+    // 「片段已经放完」只看素材本来够不够长：铺满这段的素材只是比口播早放完一点，不提示
+    const short = end - cin < segEnd - segStart - 0.1;
+    const tail = short && clockOver && t < segEnd;
     const stage = $('[data-pt="ptStage"]');
     stage.classList.toggle('pt-freeze', tail && !!segItem?.usage?.freeze);
     stage.classList.toggle('pt-fitdone', tail && !segItem?.usage?.freeze && !!segItem?.usage?.fitDone);

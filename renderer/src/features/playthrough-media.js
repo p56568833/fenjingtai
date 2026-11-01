@@ -7,6 +7,7 @@ export function createPreviewMedia(stage) {
   const records = new Map();
   let wanted = '';
   let visible = '';
+  let leaving = ''; // 刚被换下的画面：新画面真正画上屏之前还垫在下面
   let next = '';
   let onError = null;
 
@@ -25,16 +26,46 @@ export function createPreviewMedia(stage) {
   }
 
   function prune() {
-    for (const key of records.keys()) if (key !== wanted && key !== visible && key !== next) dispose(key);
+    for (const key of records.keys())
+      if (key !== wanted && key !== visible && key !== next && key !== leaving) dispose(key);
+  }
+
+  /* 透明时预加载的视频还没画上屏过：刚露出来的头一两帧可能是空的。等它交出一帧（或最多 300 毫秒）再收旧画面 */
+  function afterPaint(el, fn) {
+    let done = false;
+    const go = () => {
+      if (done) return;
+      done = true;
+      fn();
+    };
+    if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(() => requestAnimationFrame(go));
+    else requestAnimationFrame(() => requestAnimationFrame(go));
+    setTimeout(go, 300);
   }
 
   function reveal(rec) {
     if (rec.dead || !rec.ready || wanted !== rec.key) return;
+    const before = records.get(visible);
+    // 已经在显示的画面重新定位后再次就绪：不打断还在进行的交接
+    if (before === rec && leaving) return;
+    leaving = before && before !== rec && !before.el.classList.contains('pt-pending') ? before.key : '';
     visible = rec.key;
-    for (const other of records.values()) if (other !== rec) other.el.classList.add('pt-pending');
+    // 新画面叠在最上面先显示，换下来的那个留在底下垫着，其余的收起
+    for (const other of records.values()) {
+      other.el.classList.toggle('pt-front', other === rec);
+      if (other !== rec && other.key !== leaving) other.el.classList.add('pt-pending');
+    }
     rec.el.classList.remove('pt-pending');
     for (const child of [...stage.children]) if (![...records.values()].some(r => r.el === child)) child.remove();
     prune();
+    if (!leaving) return;
+    const old = leaving;
+    afterPaint(rec.el, () => {
+      if (leaving !== old) return;
+      leaving = '';
+      if (visible !== old) records.get(old)?.el.classList.add('pt-pending');
+      prune();
+    });
   }
 
   function decoded(rec) {
@@ -124,13 +155,16 @@ export function createPreviewMedia(stage) {
       prune();
       return rec.el;
     },
+    hideVisible() {
+      records.get(visible)?.el.classList.add('pt-pending');
+    },
     prefetch(key, item) {
       next = key || '';
       prune();
       if (item) prepare(key, item);
     },
     clear() {
-      wanted = visible = next = '';
+      wanted = visible = next = leaving = '';
       onError = null;
       for (const key of records.keys()) dispose(key);
       stage.replaceChildren();

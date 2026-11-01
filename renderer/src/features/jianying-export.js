@@ -8,7 +8,7 @@ import { rowById } from '../app/project-queries.js';
 import * as editExport from '../app/edit-export.js';
 import { usageList } from '../core/asset-model.js';
 import { fmtTc, fmtLen, safeFileName } from '../core/text.js';
-import { targetStatusOf, isVersionSupported, VERIFIED_VERSIONS } from '../core/jianying-target.js';
+import { targetStatusOf, isVersionSupported, unsupportedVersionText } from '../core/jianying-target.js';
 import { toast, esc } from '../ui/base/dom.js';
 import { registerModal } from '../ui/base/modal.js';
 import { closePop } from '../ui/base/popover.js';
@@ -48,7 +48,6 @@ let configError = '';
 let running = null; // 本次正在跑的任务 { jobId, cancelRequested, mode, destDir, options, draftName, progress }
 let lastDone = null; // 最近一次结果 { result, mode, destDir, options, draftName }
 let starting = false;
-let quickSuppressed = false;
 
 function fmtBytes(n) {
   if (!(n > 0)) return '0 MB';
@@ -210,89 +209,11 @@ export function openJianyingExport() {
   applyPrefsToForm();
   renderTarget();
   hideIssues($('#jyIssues'));
-  if (prefs.configured && !quickSuppressed) {
-    void tryQuickStart(token).catch(error => {
-      console.error('快捷生成剪映草稿失败', error);
-      quickSuppressed = true;
-      configError = '准备导出时出错：' + (error?.message || error);
-      setPane('config');
-      renderSummary();
-      renderAssetsLine();
-      updateGoState();
-    });
-    return;
-  }
   setPane('config');
   renderSummary();
   renderAssetsLine();
   updateGoState();
   void refreshConfig(token);
-}
-
-/* 成功导出过一次之后的入口：按记住的本机设置直接开始。
-   发现版本不兼容、需要确认的问题或目录失效时退回完整设置，不静默降级。 */
-async function tryQuickStart(token) {
-  setPane('run');
-  $('#jyRunHead').textContent = '正在按上次的设置准备…';
-  $('#jyProgressTxt').textContent = '正在检查项目与素材…';
-  renderStages();
-  detection = await editExport.detectJianying();
-  if (token !== viewToken) return;
-  renderTarget();
-  const appFound = detection.ok || !!detection.version || !!detection.appPath;
-  if (!appFound || !isVersionSupported(detection) || (prefs.mode !== 'folder' && !detection.ok)) {
-    setPane('config');
-    renderSummary();
-    renderAssetsLine();
-    updateGoState();
-    void refreshConfig(token);
-    return;
-  }
-  if (prefs.mode === 'folder' && !prefs.destDir) {
-    quickSuppressed = true;
-    setPane('config');
-    renderSummary();
-    renderAssetsLine();
-    updateGoState();
-    return;
-  }
-  const captured = editExport.captureExportSnapshot();
-  if (token !== viewToken) return;
-  if (!captured.ok) {
-    configError = captured.error;
-    quickSuppressed = true;
-    setPane('config');
-    renderSummary();
-    renderAssetsLine();
-    updateGoState();
-    return;
-  }
-  snapshot = captured.snapshot;
-  const prep = await editExport.prepareJianyingExport(snapshot, prefs.options);
-  if (token !== viewToken) return;
-  if (!prep.ok || prep.issues.some(issue => levelOf(issue) !== 'info')) {
-    if (!prep.ok) configError = prep.error;
-    quickSuppressed = true;
-    setPane('config');
-    prepared = prep.ok ? prep : null;
-    configIssues = prep.ok ? prep.issues : [];
-    renderSummary();
-    renderAssetsLine();
-    renderIssues($('#jyIssues'), configIssues, 'config');
-    renderConfirmRow();
-    updateGoState();
-    return;
-  }
-  prepared = prep;
-  configIssues = prep.issues;
-  launchJob({
-    mode: prefs.mode,
-    destDir: prefs.destDir,
-    draftName: state.title || '未命名项目',
-    options: prefs.options,
-    prepared: prep,
-    quick: true,
-  });
 }
 
 function applyPrefsToForm() {
@@ -334,7 +255,10 @@ function renderTarget() {
   const el = $('#jyTarget');
   const status = targetStatusOf(detection);
   el.dataset.level = status.level;
-  const issues = (detection?.issues || []).filter(issue => issue?.message).map(issue => esc(issue.message));
+  /* 版本不能导出的原因已由标题和说明讲清，不再把主进程的同义提示重复一遍 */
+  const issues = (detection?.issues || [])
+    .filter(issue => issue?.message && issue.code !== 'version-unsupported')
+    .map(issue => esc(issue.message));
   const tail = issues.length ? `<small>${issues.join('；')}</small>` : '';
   el.innerHTML = `<b>${esc(status.title)}</b>${status.text ? `<span>${esc(status.text)}</span>` : ''}${tail}`;
 }
@@ -401,7 +325,7 @@ function renderSummary() {
         .join(' · ')
     : '没有需要处理的问题';
   host.innerHTML = [
-    `<div class="jy-sum-row"><b>画面</b><span>${shots} 个镜头 · ${segments} 个片段${stats.freezeCount ? ` · 含 ${stats.freezeCount} 段定格` : ''}</span></div>`,
+    `<div class="jy-sum-row"><b>画面</b><span>${shots} 个画面 · ${segments} 个片段${stats.freezeCount ? ` · 含 ${stats.freezeCount} 段定格` : ''}</span></div>`,
     `<div class="jy-sum-row"><b>总时长</b><span>${durationSec > 0 ? fmtTc(durationSec) : '—'}${stats.gapUs ? `（留白 ${fmtLen(stats.gapUs / 1e6)}）` : ''}</span></div>`,
     `<div class="jy-sum-row"><b>口播</b><span>${hasVoice ? '加入独立音轨，与画面一起进剪映' : '项目没有口播音频，不含口播'}</span></div>`,
     `<div class="jy-sum-row"><b>时间来源</b><span>${timingBase}${timingExtra.length ? ' · ' + timingExtra.join(' · ') : ''}</span></div>`,
@@ -470,7 +394,7 @@ function goBlocker() {
   if (detection.unavailable) return detection.error || '这个版本还不支持导出到剪映';
   const appFound = detection.ok || !!detection.version || !!detection.appPath;
   if (!appFound) return '没找到 Mac 版剪映专业版';
-  if (!isVersionSupported(detection)) return `当前剪映版本未验证（仅验证 ${VERIFIED_VERSIONS.join(' / ')}）`;
+  if (!isVersionSupported(detection)) return unsupportedVersionText(detection.version);
   if (currentMode() === 'library' && !detection.ok) return '剪映草稿库暂时不可用，改用「保存草稿文件夹」';
   if (!prepared?.ok) return prepared?.error || configError || '导出计划还没准备好';
   if (configIssues.some(isBlocking)) return '有阻塞问题，先处理后再导出';
@@ -582,14 +506,14 @@ async function startFromForm() {
       updateGoState();
       return toast('先勾选确认上面的待确认项', null, 'warn');
     }
-    launchJob({ mode, destDir: prefs.destDir, draftName: formName(), options, prepared: prep, quick: false });
+    launchJob({ mode, destDir: prefs.destDir, draftName: formName(), options, prepared: prep });
   } finally {
     starting = false;
     if (pane === 'config') updateGoState();
   }
 }
 
-function launchJob({ mode, destDir, draftName, options, prepared: prep, quick }) {
+function launchJob({ mode, destDir, draftName, options, prepared: prep }) {
   if (running) return false;
   const job = {
     jobId: '',
@@ -599,11 +523,10 @@ function launchJob({ mode, destDir, draftName, options, prepared: prep, quick })
     options,
     draftName,
     progress: null,
-    quick: !!quick,
   };
   running = job;
   setPane('run');
-  $('#jyRunHead').textContent = quick ? '正在按上次的设置生成草稿' : '正在生成剪映草稿';
+  $('#jyRunHead').textContent = '正在生成剪映草稿';
   $('#jyProgressTxt').textContent = '正在检查项目与素材…';
   renderRun();
   editExport
@@ -693,7 +616,7 @@ function renderRun() {
   const progress = job?.progress;
   const phase = progress?.phase || '';
   const canceling = !!job?.cancelRequested;
-  $('#jyRunHead').textContent = canceling ? '正在取消…' : job?.quick ? '正在按上次的设置生成草稿' : '正在生成剪映草稿';
+  $('#jyRunHead').textContent = canceling ? '正在取消…' : '正在生成剪映草稿';
   const known = job && (phase === 'copy' || phase === 'freeze') && Number(progress.total) > 0;
   const wrap = $('#jyProgress');
   if (known) {
@@ -726,17 +649,10 @@ function joinText(entry) {
 function finishInto(result, job) {
   const entry = { result, mode: job.mode, destDir: job.destDir, options: job.options, draftName: job.draftName };
   lastDone = entry;
+  /* 成功后记住这次的设置，下次打开导出面板时预先填好，仍由用户确认后才开始 */
   if (result?.ok && !result.canceled) {
-    quickSuppressed = false;
-    editExport.saveJianyingSettings({
-      mode: job.mode,
-      destDir: job.destDir,
-      options: job.options,
-      configured: true,
-    });
+    editExport.saveJianyingSettings({ mode: job.mode, destDir: job.destDir, options: job.options });
     prefs = editExport.loadJianyingSettings();
-  } else {
-    quickSuppressed = true;
   }
   if (isShown()) renderDone(entry);
   else notifyHidden(entry);

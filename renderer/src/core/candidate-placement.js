@@ -68,9 +68,7 @@ export function attachCandidate(c, rows, registry, { tl = null } = {}) {
       for (const u of usageList(m)) if (u.assetId === asset.id) u.at = { ...place.at, of: members[0].id };
   const demoted = main ? resolveMainConflicts(members, asset.id, id => !!registry[id]?.source?.candidate) : [];
   if (main) sortMainsBySentence(members);
-  const line = noteLine(c);
-  if (!(row.note || '').includes(line))
-    setShotField(rows, row, 'note', (row.note ? row.note.replace(/\s+$/, '') + '\n' : '') + line);
+  // 来源（标题、时间段、版权、网址）只记在素材上，不写进画面描述
   syncMirror(members, registry);
   return { assetId: asset.id, role: place.role, current: main, demoted };
 }
@@ -83,7 +81,7 @@ export function detachCandidate(c, rows, registry) {
     : id
       ? rows.filter(r => r.kind === 'line' && usageList(r).some(u => u.assetId === id))
       : [];
-  const line = noteLine(c);
+  const line = noteLine(c); // 2.1.4 以前通过时会写进画面描述：撤回时顺手摘掉
   const touched = [];
   for (const row of owners) {
     const members = shotMembers(rows, row);

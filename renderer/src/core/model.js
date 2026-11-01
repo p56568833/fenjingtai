@@ -14,7 +14,7 @@
    @property {string} [groupId]     共用画面编号：同一章节里连续几句共享 note/type/status/assetUsages
    @property {AssetUsage[]} [assetUsages]
    @property {string} [assets]      旧版素材文本镜像（一行一个路径），由 assetUsages 生成，仅为兼容
-   @property {boolean} [para]       原稿换行处（原文视图分段用）
+   @property {boolean} [para]       原稿换行处（旧稿兼容）
    @property {{start:number,end:number,conf:number,st:'ok'|'low'|'est'}} [time]  剪映字幕对齐结果（秒）
 
    @typedef {Object} AssetUsage  某个画面对某个素材的使用
@@ -46,7 +46,7 @@
    @property {Object<string, Asset>} assets
    @property {TypeDef[]} [types]       没有时用默认五类
    @property {number} [speechRate]     字 / 秒
-   @property {{name:string,at:number,duration:number,cues:Array}} [timing]  对齐用的剪映字幕
+   @property {{name:string,at:number,duration:number,cues:Array,raw?:string}} [timing]  对齐用的剪映字幕（raw：导入时的 SRT 原文）
    @property {{path:string,name:string,duration:number|null}} [voice]       口播音频
    @property {Object[]} [candidates] 视频候选及审核结果
    @property {string} [mediaDir]     本机片段保存位置，不随普通编辑撤销

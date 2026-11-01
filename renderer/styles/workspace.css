@@ -36,7 +36,4 @@
   .workspace.has-inspector .outline {
     display: none;
   }
-  body.reading .workspace.has-inspector .table {
-    min-width: 0;
-  }
 }

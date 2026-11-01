@@ -1,5 +1,5 @@
 /* v1.2 功能与布局回归（CDP 交互，npm test 起实例后运行）：
-   拖拽高亮与空白防打开 / 原文视图纯读稿 / 窄窗口+右面板不溢出 / 长文件名 / 导出回读片段 / 视图切换定位 */
+   拖拽高亮与空白防打开 / 窄窗口+右面板不溢出 / 长文件名 / 项目导出片段 */
 import puppeteer from 'puppeteer-core';
 import { writeFileSync } from 'node:fs';
 
@@ -27,27 +27,11 @@ await page.evaluate(async () => {
 });
 await sleep(600);
 
-/* 1. 原文视图：纯读稿 + 当前句子 / 共用区入口开右面板 */
-await page.click('#viewToggle button[data-v="check"]');
-await sleep(500);
-t(
-  '原文正文无常驻素材 / 状态 / 播放器',
-  await page.evaluate(() => {
-    const art = document.querySelector('.ck-article');
-    return !!art && !art.querySelector('.asset-thumb, .asset-list, .production-badge, video, .row-assets');
-  }),
-);
-const cardOk = await page.evaluate(() => {
-  const sp = document.querySelector('.as');
-  sp.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-  document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  return !!document.querySelector('.popover.hovercard [data-ck-detail]');
-});
-t('原文选区卡提供「画面与素材」入口', cardOk);
-await page.evaluate(() => document.querySelector('.popover.hovercard [data-ck-detail]')?.click());
+/* 1. 表格入口打开右侧面板 */
+await page.click('#viewToggle button[data-v="table"]');
+await page.click('#btnDetail');
 await sleep(300);
 t('入口打开右侧面板', await page.evaluate(() => !document.querySelector('#inspector').hidden));
-await shot('check-view');
 
 /* 2. 拖拽：高亮接收区 + 空白处拦截默认打开 */
 await page.click('#viewToggle button[data-v="table"]');
@@ -122,63 +106,14 @@ if (fixDir) {
   await shot('long-name');
 }
 
-/* 5. 导出 → 回读：片段范围不丢（MD 元数据 / 素材清单 / CSV） */
+/* 5. 项目文件导出保留片段范围 */
 const rt = await page.evaluate(async () => {
-  const { buildAnnotatedMd, buildAssetListMd, buildCsv } = await import('./src/core/export-doc.js');
-  const { parseAny } = await import('./src/core/parse.js');
-  const rows = [
-    {
-      id: 1,
-      no: 1,
-      kind: 'line',
-      text: '测试句。',
-      type: 'real',
-      note: '画面',
-      status: 'ready',
-      assetUsages: [{ assetId: 'a1', clip: { in: 12, out: 18 } }],
-    },
-  ];
-  const registry = { a1: { id: 'a1', kind: 'video', path: '/tmp/x.mp4', name: 'x.mp4' } };
-  const md = buildAnnotatedMd({ title: '回读', rows, issues: [], registry });
-  const back = parseAny(md).filter(r => r.kind === 'line');
-  const list = buildAssetListMd({ title: '回读', rows, issues: [], registry, speechRate: 4.5 });
-  const csv = buildCsv({ title: '回读', rows, registry });
-  return {
-    clip: back[0] && back[0].assetUsages && back[0].assetUsages[0] && back[0].assetUsages[0].clip,
-    listHas: list.includes('00:12–00:18') && list.includes('片段'),
-    csvHas: csv.includes('00:12–00:18'),
-  };
+  const { buildProjectJson } = await import('./src/core/project-json.js');
+  const rows = [{ id: 1, kind: 'line', text: '测试句。', assetUsages: [{ assetId: 'a1', clip: { in: 12, out: 18 } }] }];
+  const assets = { a1: { id: 'a1', kind: 'video', path: '/tmp/x.mp4', name: 'x.mp4' } };
+  return JSON.parse(buildProjectJson({ title: '回读', rows, assets })).rows[0].assetUsages[0].clip;
 });
-t('MD 元数据回读保留片段范围', !!rt.clip && rt.clip.in === 12 && rt.clip.out === 18, JSON.stringify(rt.clip));
-t('素材清单写明片段范围', rt.listHas);
-t('CSV 写明片段范围', rt.csvHas);
-
-/* 6. 视图切换保持定位 */
-const pos = await page.evaluate(() => {
-  const rows = [...document.querySelectorAll('.row')];
-  const mid = rows[Math.floor(rows.length / 2)];
-  mid.scrollIntoView({ block: 'center' });
-  return +mid.dataset.id;
-});
-await page.evaluate(async id => {
-  const { viewState } = await import('./src/app/view-state.js');
-  const { update } = await import('./src/app/project-events.js');
-  viewState.sel = id;
-  viewState.multi = null;
-  update('selection');
-}, pos);
-await sleep(120);
-await page.click('#viewToggle button[data-v="check"]');
-await sleep(600);
-t(
-  '切到原文后仍定位在当前句子',
-  await page.evaluate(id => {
-    const el = document.querySelector(`.as[data-id="${id}"]`);
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    return r.top >= -10 && r.top < innerHeight;
-  }, pos),
-);
+t('项目文件保留片段范围', rt?.in === 12 && rt?.out === 18, JSON.stringify(rt));
 
 /* 7. 长稿：300+ 句渲染、吸顶与滚动正常 */
 await page.setViewport({ width: 1440, height: 940 });

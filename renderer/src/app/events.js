@@ -3,7 +3,7 @@
    常用事件：
      project-committed {projectId,source,fields,rowIds,rowFields,structural,timing,assets,candidates} 一次已完成的项目修改
      view-refresh    筛选或布局改变，需要重新呈现当前视图（不修改项目或失效数据缓存）
-     view-painted    表格/原文已更新，播放高亮可重新附着
+     view-painted    表格已更新，播放高亮可重新附着
      selection       只变选中态 → 原地高亮
      candidates-changed {resetIds?, removedIds?} 候选生命周期：在项目通知前清理旧的展开与缩略图
      candidate-sync  清单写回状态变化

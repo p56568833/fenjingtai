@@ -9,8 +9,6 @@ import { runCommand } from '../ui/base/commands.js';
 import { renderOverview } from '../ui/timeline-overview.js';
 import { shotLineCoverage, projectPictureCoverage } from '../app/line-coverage.js';
 import { setMissingPaths, missingPaths } from '../app/asset-status.js';
-import { openDurPopover } from '../ui/popover.js';
-import { closePop } from '../ui/base/popover.js';
 
 const $ = s => document.querySelector(s);
 const blocks = () =>
@@ -32,15 +30,6 @@ export async function runTimelineOverviewTests(t) {
     viewState.sel = lines[1].id;
     viewState.view = 'table';
     update('rows');
-    openDurPopover($('#btnDur'));
-    t(
-      '时长菜单显示完整录音一小时，句子合计单独列出，不遗漏停顿与首尾空白',
-      $('#durTotal').textContent === '60.0 分钟' &&
-        $('#durSentenceTotal').textContent === '38 秒' &&
-        $('.popover').textContent.includes('全片时长') &&
-        $('.popover').textContent.includes('不含句间停顿'),
-    );
-    closePop();
     t(
       '时间总览以一小时录音为标尺，未挂素材保持空白',
       $('#segOverview').dataset.total === '3600' &&

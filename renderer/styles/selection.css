@@ -6,8 +6,8 @@
 .row.selected .tchip .arr {
   opacity: 0.6;
 }
-body:not(.multi-mode) .row:hover .idx > span,
-body.multi-active:not(.multi-mode) .row.selected .idx > span {
+.row:hover .idx > span,
+body.multi-active .row.selected .idx > span {
   display: none;
 }
 body.dark .row.selected,
@@ -87,9 +87,9 @@ body.dark .shared-scene.picked {
 .select-tools .btn {
   white-space: nowrap;
 }
-/* 不用进「多选模式」也能勾：悬停时句号位置换成勾选框；多选中的句子一直显示勾 */
-body:not(.multi-mode) .row:hover .row-select,
-body.multi-active:not(.multi-mode) .row.selected .row-select {
+/* 表格勾选：悬停时句号位置换成勾选框；多选中的句子一直显示勾 */
+.row:hover .row-select,
+body.multi-active .row.selected .row-select {
   display: block;
 }
 .select-tools[hidden] {

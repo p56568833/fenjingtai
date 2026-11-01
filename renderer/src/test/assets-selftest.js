@@ -8,6 +8,7 @@ import { parseAny } from '../core/parse.js';
 import { groupRows, shotMembers } from '../core/shots.js';
 import { usageList, countAssetShots, clipText } from '../core/asset-model.js';
 import { setUsageClip } from '../app/asset-actions.js';
+import { applyMovedPaths } from '../app/candidate-media.js';
 import { handleDropPaths, addFilesToShot } from '../ui/asset-drop.js';
 import { openPreview, closePreview, isReleased } from '../features/preview.js';
 import { openAssetPicker } from '../ui/asset-picker.js';
@@ -250,6 +251,24 @@ export async function runAssetTests(t) {
 
   if (!$('#inspector').hidden) click('#btnDetail');
   await pause(30);
+
+  /* ── 后台给文件改名不进撤销：⌘Z 不能把素材指回已经不存在的旧文件名 ── */
+  {
+    const renamed = dir + '/第1句_样图.png';
+    const usedBefore = usageList(R(5)).length;
+    addFilesToShot(R(5), [{ name: '样图.png', path: png }]);
+    const asset = () => Object.values(state.assets).find(a => a.path === png || a.path === renamed);
+    applyMovedPaths(new Map([[png, renamed]]));
+    const moved = asset()?.path === renamed;
+    undo();
+    t(
+      '后台改名后撤销，素材仍指向改名后的文件',
+      moved && usageList(R(5)).length === usedBefore && asset()?.path === renamed && !R(0).assets.includes(png),
+      `path=${asset()?.path}`,
+    );
+    applyMovedPaths(new Map([[renamed, png]]));
+  }
+
   /* 清场：删掉测试项目 */
   const created = storage
     .allProjects()

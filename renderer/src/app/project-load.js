@@ -17,7 +17,6 @@ export function loadProjectIntoState(p) {
   for (const r of state.rows) if (r.kind === 'line' && r.type === 'b' && !types().has('b')) r.type = null;
   viewState.filter = 'all';
   viewState.multi = null;
-  viewState.multiMode = false;
   viewState.query = '';
   const first = state.rows.find(r => r.kind === 'line');
   viewState.sel = state.rows.some(r => r.kind === 'line' && r.id === p.cursorId) ? p.cursorId : (first?.id ?? null);

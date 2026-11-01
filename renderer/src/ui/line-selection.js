@@ -34,7 +34,7 @@ export function initLineSelection(panel, panelRow, render) {
     // 改范围可能重排素材卡；按素材身份找回键盘焦点，不滚动口播或侧栏。
     const nextIndex = usageList(r).findIndex(u => u.assetId === assetId);
     panel.querySelector(`[data-line-usage="${nextIndex}"][data-line="${to}"]`)?.focus({ preventScroll: true });
-    if (toggle) toast('已设为备选 · 点击句子可重新上屏 · ⌘Z 可撤销', null, 'ok');
+    if (toggle) toast('已设为备选 · 点击句子可设回主画面 · ⌘Z 可撤销', null, 'ok');
     else if (hadManual) toast('已改回按句子排（手动拖过的秒数清掉了） · ⌘Z 可撤销', null, 'ok');
   };
   const valid = g => {

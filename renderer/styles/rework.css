@@ -36,7 +36,7 @@
 .rework-modal .m-btns .spacer {
   flex: 1;
 }
-/* 右侧素材卡片：「不满意」占一整行；标过之后直接写着意见，点开能改 */
+/* 右侧素材卡片：没标过只是右下角一个小按钮「不满意…」；标过之后占一整行，直接写着意见，点开能改 */
 .inspector-asset .rework-btn {
   flex: 0 0 100%;
   display: flex;
@@ -52,6 +52,14 @@
   font-size: 12.5px;
   text-align: left;
   cursor: pointer;
+}
+.inspector-asset .rework-btn:not(.on) {
+  flex: none;
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 999px;
+  font-size: 12px;
 }
 .inspector-asset .rework-btn span {
   flex: 1;

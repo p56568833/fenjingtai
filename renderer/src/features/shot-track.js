@@ -442,7 +442,7 @@ export function createShotTrack({
           placeMains(drag.cur?.mains);
           altInsert.hidden = false;
           altInsert.style.left = `${(drag.cur.alts[0].start / dur) * 100}%`;
-          feedback.textContent = '松手放到备选轨：先撤下来，原来的位置留空';
+          feedback.textContent = '松手放进备选：先撤下来，原来的位置留空';
         } else if (toMain) {
           const slot = mainSlotAt(items, Math.max(0, toSec(ev.clientX)), dur);
           if (slot.kind === 'on') {
@@ -459,7 +459,7 @@ export function createShotTrack({
             insert.hidden = false;
             insert.style.left = `${(drag.cur.mains[drag.cur.index].start / dur) * 100}%`;
             showGhost(drag.cur.mains[drag.cur.index].start, drag.cur.mains[drag.cur.index].end);
-            feedback.textContent = `松手放上正片轨（${sec(drag.cur.mains[drag.cur.index].start)} 秒起）`;
+            feedback.textContent = `松手设为主画面（${sec(drag.cur.mains[drag.cur.index].start)} 秒起）`;
           }
         } else if (isAlt) {
           drag.kind = 'alt';
@@ -543,9 +543,9 @@ export function createShotTrack({
         refreshSoon();
         return;
       }
-      if (d.kind === 'toAlt') commitTracks(d.cur, '画面移到备选轨');
-      else if (d.kind === 'swap') commitTracks(d.cur, '备选换上正片轨');
-      else if (d.kind === 'insert') commitTracks({ mains: d.cur.mains }, '备选放上正片轨');
+      if (d.kind === 'toAlt') commitTracks(d.cur, '画面移到备选');
+      else if (d.kind === 'swap') commitTracks(d.cur, '备选换成主画面');
+      else if (d.kind === 'insert') commitTracks({ mains: d.cur.mains }, '备选设为主画面');
       else if (d.kind === 'alt') {
         if (d.cur.changed) commitTracks(d.cur, mode === 'move' ? '移动备选' : '裁剪备选');
       } else

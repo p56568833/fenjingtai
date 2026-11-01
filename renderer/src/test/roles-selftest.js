@@ -10,7 +10,6 @@ import { checkDelivery } from '../core/shots.js';
 import { usageList } from '../core/asset-model.js';
 import { addRefsToShot, setUsageLines, toggleAlt } from '../app/asset-actions.js';
 import { setType, ungroupAction } from '../app/actions.js';
-import { buildAssetListMd } from '../core/export-doc.js';
 import { renderInspector } from '../ui/inspector.js';
 
 const $ = s => document.querySelector(s);
@@ -39,11 +38,9 @@ export async function runRoleTests(t) {
     .map(r => r.id);
   viewState.multi = ids;
   viewState.sel = ids[0];
-  viewState.multiMode = true;
   update('selection');
   click('#btnGroup');
   click('#mOk');
-  viewState.multiMode = false;
   setType(ids, 'real');
   const A = lines()[0];
   const fixtureDir = window.native.fixtureInfo()?.dir || '/tmp';
@@ -143,12 +140,6 @@ export async function runRoleTests(t) {
       $$('.shared-scene .scene-cover.bad .lo-cell.empty').length === 2,
     $('.shared-scene .scene-cover')?.textContent || '没有画面条',
   );
-  const md = buildAssetListMd({ title: 't', rows: state.rows, issues: [], registry: state.assets, speechRate: 4.5 });
-  t(
-    '素材清单只列要用的，备选只报个数',
-    md.includes('【主画面】角色-主.png') && !md.includes('角色-备.mp4') && md.includes('另有备选 2 个'),
-    md.split('\n').find(l => l.includes('素材：')),
-  );
   undo();
   t('角色修改可撤销', us()[2].role === 'main');
 
@@ -233,7 +224,6 @@ export async function runRoleTests(t) {
   storage.switchProject(original);
   for (const id of created) storage.deleteProject(id);
   viewState.multi = null;
-  viewState.multiMode = false;
   clearUndo();
   update('rows');
   await pause(30);

@@ -7,6 +7,7 @@ import { memberSeconds } from '../core/timeline.js';
 import {
   importCandidateData,
   setReworkNote as updateReworkNote,
+  setAssetReworkNote,
   dismissShotRework,
   registerReworkRequest,
 } from '../app/candidate-actions.js';
@@ -91,20 +92,27 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
     const s = curReworkItem();
     if (s) updateReworkNote(s.target, text, session);
   }
+  function setReplaceNote(assetId, text) {
+    const s = curReworkItem();
+    if (s && setAssetReworkNote(s, assetId, text)) toast('已改好不满意的地方 · ⌘Z 可撤销', null, 'ok');
+  }
   function dismissCurrentRework() {
     const s = curReworkItem();
     if (!s) return;
     dismissShotRework(s);
     toast(`${reworkLabel(s)} 不用返工了 · ⌘Z 可撤销`, null, 'ok');
   }
-  /* 待返工页 → 返工单：写到片段保存位置，再把交给 AI 的那句话复制好 */
-  async function writeReworkDoc() {
+  /* 待返工页 → 返工单：写到片段保存位置，再把交给 AI 的那句话复制好。
+     only：只写这一项（右边「为这一项生成返工单」），文件名带上句号，不盖掉整页的返工单 */
+  async function writeReworkDoc(only = null) {
     const pid = state.projectId;
     if (!reworkList().length) return toast('没有待返工的画面', null, 'info');
     const dir = await ensureMediaDir();
     if (!dir || state.projectId !== pid) return;
     renumber();
-    const list = groupReworkItems(reworkList());
+    const item = only && reworkList().find(s => s.key === only);
+    if (only && !item) return toast('这一项已经不用返工了', null, 'info');
+    const list = groupReworkItems(item ? [item] : reworkList());
     if (!list.length) return toast('没有待返工的画面', null, 'info');
     const title = state.title || '未命名项目';
     const tl = timeline();
@@ -115,7 +123,8 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
       batchName: batchOfCand,
       secondsOf: members => memberSeconds(tl, members),
     });
-    const file = `${dir.replace(/\/+$/, '')}/返工单·${safeFileName(title)}.json`;
+    const part = item ? `·${safeFileName(reworkLabel(item).replace(/\s/g, ''))}` : '';
+    const file = `${dir.replace(/\/+$/, '')}/返工单·${safeFileName(title)}${part}.json`;
     const r = await native.writeReworkDoc(file, JSON.stringify(doc, null, 2));
     if (!r?.ok) return toast('返工单没写进去：' + (r?.error || '未知原因'), null, 'error');
     if (state.projectId !== pid) return toast('返工单已写入，但项目已切换，请回到原项目重新生成', null, 'warn');
@@ -127,5 +136,5 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
       `返工单已生成（${doc.sentences}），交给 AI 的话已复制`,
     );
   }
-  return { importCandidates, copyCandidateSpec, setReworkNote, dismissCurrentRework, writeReworkDoc };
+  return { importCandidates, copyCandidateSpec, setReworkNote, setReplaceNote, dismissCurrentRework, writeReworkDoc };
 }

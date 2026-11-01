@@ -168,7 +168,7 @@
   cursor: pointer;
 }
 /* 属于「视频审核」，保持在 .pdf-checks label 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
-.vr-rw-req label {
+.vr-rw-req label.vr-rw-ask {
   display: flex;
   align-items: baseline;
   gap: 8px;

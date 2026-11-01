@@ -7,20 +7,16 @@ import { types } from '../app/project-queries.js';
 import { shotMembers, shots, checkDelivery } from '../core/shots.js';
 import { parseAny } from '../core/parse.js';
 import { undo, clearUndo } from '../app/undo.js';
-import { setType, setNote, markSentences, mergeToPrev } from '../app/actions.js';
+import { setType, setNote, mergeToPrev } from '../app/actions.js';
 import { addRefsToShot, removeUsage } from '../app/asset-actions.js';
 import { renderInspector } from '../ui/inspector.js';
 import { previewImport } from '../ui/import-export.js';
-import { jumpTo, nextUnmarked, openReview } from '../ui/workspace.js';
-import { openDurPopover } from '../ui/popover.js';
-import { setMultiMode } from '../ui/toolbar.js';
+import { jumpTo, openReview } from '../ui/workspace.js';
 import * as storage from '../app/storage.js';
 import { runCommand } from '../ui/base/commands.js';
 const $ = s => document.querySelector(s),
   $$ = s => [...document.querySelectorAll(s)];
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-// 1.7.1 起界面上没有「多选句子」开关了，逐句点选模式只在自测里直接切
-const toggleMultiMode = () => setMultiMode(!viewState.multiMode);
 const click = s => $(s).click();
 const input = (s, value) => {
   const el = $(s);
@@ -42,7 +38,8 @@ export async function runWorkspaceTests(t) {
   );
   const navigationProject = state.projectId;
   const sections = state.rows.filter(r => r.kind === 'section');
-  for (const view of ['table', 'check']) {
+  {
+    const view = 'table';
     viewState.view = view;
     update('rows');
     await pause(40);
@@ -52,7 +49,7 @@ export async function runWorkspaceTests(t) {
     const thirdLine = state.rows[state.rows.indexOf(sections[2]) + 1];
     viewState.sel = firstLine.id;
     update('selection');
-    $(`.row[data-id="${thirdLine.id}"],.as[data-id="${thirdLine.id}"]`).scrollIntoView({ block: 'center' });
+    $(`.row[data-id="${thirdLine.id}"]`).scrollIntoView({ block: 'center' });
     await pause(80);
     t(
       `${view} 浏览到第3章时目录跟着高亮，选中句仍在第1章`,
@@ -60,7 +57,7 @@ export async function runWorkspaceTests(t) {
     );
     viewState.sel = thirdLine.id;
     update('selection');
-    $(`.row[data-id="${firstLine.id}"],.as[data-id="${firstLine.id}"]`).scrollIntoView({ block: 'center' });
+    $(`.row[data-id="${firstLine.id}"]`).scrollIntoView({ block: 'center' });
     await pause(80);
     t(
       `${view} 浏览回第1章时目录跟着高亮，选中句仍在第3章`,
@@ -69,7 +66,7 @@ export async function runWorkspaceTests(t) {
     const atChapterStart = section => {
       const si = state.rows.indexOf(section);
       const firstLine = state.rows[si + 1];
-      const el = $(`.row[data-id="${firstLine.id}"],.as[data-id="${firstLine.id}"]`);
+      const el = $(`.row[data-id="${firstLine.id}"]`);
       const rect = el.getBoundingClientRect();
       const top = wrap.getBoundingClientRect().top + $('#thead').getBoundingClientRect().height;
       navigationDetail = JSON.stringify({
@@ -132,39 +129,13 @@ export async function runWorkspaceTests(t) {
     third = first + 2;
   t('章节目录显示所有有内容章节', $$('.outline-item').length === 2);
   setType([first], 'a');
-  viewState.sel = first;
-  nextUnmarked();
-  t('下一个未标注可定位', viewState.sel === second);
-  viewState.autoAdvance = true;
   setType([second], 'real');
-  t('可选自动跳转', viewState.sel === third);
-  viewState.autoAdvance = false;
+  viewState.sel = third;
   viewState.view = 'table';
   update('rows');
   t(
     '默认隐藏多选框',
     getComputedStyle($('.row-select')).display === 'none' && $('#selectionHeading').textContent === '#',
-  );
-  toggleMultiMode();
-  t('多选按钮显示勾选框', getComputedStyle($('.row-select')).display !== 'none');
-  t('多选模式从空选区开始', viewState.multiMode && currentSelection().length === 0);
-  t('空选区共用按钮置灰', $('#btnGroup').disabled && $('#btnGroup').title.includes('连续两句'));
-  click(`[data-select="${first}"]`);
-  click(`[data-select="${second}"]`);
-  t(
-    '逐句勾选即可启用合并',
-    currentSelection().length === 2 && !$('#btnGroup').disabled && $$('.row-select:checked').length === 2,
-  );
-  click(`[data-select="${first}"]`);
-  t('再次勾选可取消单句', currentSelection().length === 1 && currentSelection()[0] === second);
-  click(`[data-select="${first}"]`);
-  toggleMultiMode();
-  t(
-    '完成选择退出并清空勾选',
-    !viewState.multiMode &&
-      currentSelection().length === 0 &&
-      !$$('.row-select:checked').length &&
-      getComputedStyle($('.row-select')).display === 'none',
   );
   // 1.7.1：勾选框只看勾选集合——光标停着的那句不会被顺带勾上，勾光标那句也不会反而取消
   viewState.sel = third;
@@ -188,27 +159,12 @@ export async function runWorkspaceTests(t) {
   t('勾光标所在的那句是勾上而不是取消', viewState.multi?.length === 1 && viewState.multi[0] === first);
   click('#btnClearSel');
   t('操作条「取消」清空勾选', viewState.multi === null && $('#selectTools').hidden);
-  viewState.view = 'check';
-  update('rows');
-  toggleMultiMode();
-  const selectSentence = id =>
-    $(`.as[data-id="${id}"]`).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-  selectSentence(first);
-  selectSentence(second);
-  t('原文多选逐句累加且不弹卡', currentSelection().length === 2 && $$('.as[aria-checked="true"]').length === 2);
-  key(`.as[data-id="${first}"]`, ' ');
-  t('原文空格键切换勾选', currentSelection().length === 1);
-  key(`.as[data-id="${first}"]`, 'Enter');
+  click(`[data-select="${first}"]`);
+  click(`[data-select="${second}"]`);
   click('#btnGroup');
   click('#mOk');
   await pause(30);
-  t('共用成功退出多选并保住结果', !viewState.multiMode && viewState.multi === null && viewState.sel === first);
-  viewState.view = 'table';
-  update('rows');
-  t(
-    '共用后收起勾选框',
-    getComputedStyle($('.row-select')).display === 'none' && $('#selectionHeading').textContent === '#',
-  );
+  t('共用成功清空勾选并保住结果', viewState.multi === null && viewState.sel === first);
   t(
     '共用画面有连续边框和句号范围',
     $$('.shared-scene-header').length === 1 &&
@@ -308,15 +264,6 @@ export async function runWorkspaceTests(t) {
     Math.abs(center($('.shared-scene-body')) - center($('.shared-scene-body>.typebox'))) < 2 &&
     Math.abs(center($('.shared-scene-body')) - center($('.shared-scene-body>.visual-cell'))) < 2;
   t('类型与素材在整组垂直居中', aligned());
-  document.body.classList.add('multi-mode');
-  t(
-    '多选时共享布局仍居中且原文占三列',
-    aligned() &&
-      $('.shared-scene .dur').getBoundingClientRect().right <
-        $('.shared-scene-body>.typebox').getBoundingClientRect().left &&
-      $('.shared-scene .sent').getBoundingClientRect().right < $('.shared-scene .dur').getBoundingClientRect().left,
-  );
-  document.body.classList.remove('multi-mode');
   t(
     '表格直接显示对应素材名称',
     $('.shared-scene .row-assets').textContent.includes('参考.png') && $$('.shared-scene .row-assets').length === 1,
@@ -375,50 +322,8 @@ export async function runWorkspaceTests(t) {
   );
   undo();
   undo();
-  viewState.view = 'check';
-  update('rows');
-  setNote(first, '从原文更新的批注');
-  t('原文共用画面将两句话围在同一区块', $$('.shared-passage').length === 1 && $$('.shared-passage .as').length === 2);
-  const noteStyle = getComputedStyle($('.as-note'));
-  t(
-    '原文批注放大且为红色',
-    parseFloat(noteStyle.fontSize) >= 20 && ['rgb(200, 45, 53)', 'rgb(255, 142, 148)'].includes(noteStyle.color),
-  );
-  t('原文批注与素材面板保持同步', $('#detailNote')?.value === '从原文更新的批注');
-  t(
-    '共用批注在原文整组末尾只出现一次',
-    $$('.shared-passage .as-note').length === 1 &&
-      $('.shared-passage').lastElementChild.classList.contains('shared-note'),
-  );
-  const down = el => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-  down($('.shared-note'));
-  click('.shared-note');
-  t('共用批注可点击编辑', !!$('.shared-passage>.as-note-edit'));
-  $('.as-note-edit').textContent = '只显示一次的新批注';
-  key('.as-note-edit', 'Enter');
-  t(
-    '编辑共用批注同步整组且不重复',
-    shotMembers(
-      state.rows,
-      state.rows.find(r => r.id === first),
-    ).every(r => r.note === '只显示一次的新批注') && $$('.shared-passage .as-note').length === 1,
-  );
-  down($(`.as[data-id="${second}"]`));
-  click(`[data-ck-note="${second}"]`);
-  t(
-    '从第二句编辑仍定位到组末同一批注',
-    !!$('.shared-passage>.as-note-edit') &&
-      $('.as-note-edit').dataset.edit === String(first) &&
-      $('.shared-note').style.display === 'none',
-  );
-  key('.as-note-edit', 'Escape');
-  setNote(second, '');
-  t('清空共用批注移除唯一红字', $$('.shared-passage .as-note').length === 0);
-  undo();
-  t('撤销后批注仍只显示一次', $$('.shared-passage .as-note').length === 1);
-
-  viewState.view = 'table';
-  update('rows');
+  setNote(first, '从表格更新的画面描述');
+  t('共用描述与素材面板保持同步', $('#detailNote')?.value === '从表格更新的画面描述');
   click('#btnDetail');
   viewState.sel = third;
   viewState.multi = null;
@@ -435,23 +340,12 @@ export async function runWorkspaceTests(t) {
   );
   undo();
   t('分组操作可撤销', !!state.rows.find(r => r.id === first).groupId);
-  toggleMultiMode();
-  toggleMultiMode();
-  t('完成选择不影响已建共用', !!state.rows.find(r => r.id === first).groupId);
-  viewState.view = 'check';
-  update('rows');
   const beforeTypes = state.rows.map(r => r.type);
   click('#filters [data-f="none"]');
-  t('筛选后选区指向可见句子', !!document.querySelector(`.as[data-id="${viewState.sel}"]`));
-  t(
-    '原文顶部是筛选，不会改类型',
-    JSON.stringify(state.rows.map(r => r.type)) === JSON.stringify(beforeTypes) && $$('.as').length === 3,
-  );
-  viewState.sel = third;
-  viewState.multi = null;
-  update('selection');
-  markSentences([third], 'real');
-  t('原文筛选中标注后移出未标列表', $$('.as').length === 2);
+  t('筛选后选区指向可见句子', !!document.querySelector(`.row[data-id="${viewState.sel}"]`));
+  t('类型筛选不修改标注', JSON.stringify(state.rows.map(r => r.type)) === JSON.stringify(beforeTypes));
+  setType([third], 'real');
+  t('筛选中标注后移出未标列表', !document.querySelector(`.row[data-id="${third}"]`));
   viewState.filter = 'all';
   viewState.view = 'table';
   update('rows');
@@ -461,10 +355,6 @@ export async function runWorkspaceTests(t) {
   storage.switchProject(storage.allProjects().find(p => p.title === '新版工作流测试').id);
   update('rows');
   t('切回项目恢复处理位置', viewState.sel === second);
-  openDurPopover($('#btnDur'));
-  $('#speechRate').value = '3';
-  click('#saveRate');
-  t('自定义语速持久化', state.speechRate === 3 && storage.current().speechRate === 3);
   openReview();
   t('交稿检查显示缺项', $$('.review-item').length > 0);
   click('#closeReview');
@@ -505,9 +395,7 @@ export async function runWorkspaceTests(t) {
   const saved = disk.projects[state.projectId];
   t(
     '新增字段完整落盘',
-    saved.rows.some(r => r.assets?.includes('参考.png') && r.assetUsages?.length) &&
-      saved.speechRate === 3 &&
-      !!saved.assets,
+    saved.rows.some(r => r.assets?.includes('参考.png') && r.assetUsages?.length) && !!saved.assets,
   );
   // 视图切换：不提交的编辑不丢，定位不跳走
   viewState.view = 'table';
@@ -519,14 +407,14 @@ export async function runWorkspaceTests(t) {
   sentEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   await pause(20);
   sentEl.textContent = '切换视图前改的字。';
-  click('#viewToggle button[data-v="check"]');
+  click('#viewToggle button[data-v="review"]');
   await pause(80);
   t(
     '切换视图前自动保存正在编辑的内容',
     state.rows.find(r => r.id === editRow.id)?.text === '切换视图前改的字。',
     state.rows.find(r => r.id === editRow.id)?.text,
   );
-  t('切换视图保持当前句子定位', viewState.sel === editRow.id && !!$(`.as[data-id="${editRow.id}"]`));
+  t('切到审核保持当前句子定位', viewState.sel === editRow.id && viewState.view === 'review');
   t(
     '筛选与视图同步数据',
     JSON.stringify(state.rows.map(r => r.note)) === JSON.stringify(storage.current().rows.map(r => r.note)),
@@ -534,12 +422,9 @@ export async function runWorkspaceTests(t) {
   click('#viewToggle button[data-v="table"]');
   await pause(50);
   // A long draft must keep main content and controls inside a narrow desktop window.
-  const hasTodo = state.rows.some(r => r.kind === 'line' && !r.type);
   t(
-    '1.7 工具条一行：标注工具只在有未标注时出现，不横向溢出',
-    !document.querySelector('.selection-tools') &&
-      $('#btnNext').getBoundingClientRect().width > 0 === hasTodo &&
-      $('.work-tools').scrollWidth <= $('.work-tools').clientWidth + 1,
+    '工具条一行，不横向溢出',
+    !document.querySelector('.selection-tools') && $('.work-tools').scrollWidth <= $('.work-tools').clientWidth + 1,
   );
   const toolLines = state.rows.filter(r => r.kind === 'line' && !r.groupId);
   viewState.sel = toolLines[0].id;
@@ -613,7 +498,6 @@ export async function runWorkspaceTests(t) {
   for (const id of created) storage.deleteProject(id);
   viewState.view = 'table';
   viewState.filter = 'all';
-  viewState.autoAdvance = false;
   clearUndo();
   update('rows');
 }

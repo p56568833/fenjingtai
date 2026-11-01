@@ -40,8 +40,7 @@
         <span id="saveTxt">已保存</span>
       </div>
 
-      <!-- 视图切换：视频审核 ↔ 表格。底下的白色滑块跟着选中项左右滑（弹簧动效）。
-           原文视图暂时不放入口（按钮隐藏，代码保留，需要时去掉 hidden 即可恢复） -->
+      <!-- 视图切换：视频审核 ↔ 表格 -->
       <div class="view-toggle" id="viewToggle" role="tablist" aria-label="视图">
         <span class="vt-pill" aria-hidden="true"></span>
         <button data-v="review" role="tab" title="视频审核：过目 Claude 找的候选视频，通过 / 不要 / 换一个 (⌘T)">
@@ -50,7 +49,6 @@
             <path d="m10.5 9.5 4 2.5-4 2.5z" /></svg
           >审核<span class="vt-badge" id="vtBadge" hidden></span>
         </button>
-        <button data-v="check" hidden title="阅读原文并标注画面">原文</button>
         <button data-v="table" class="active" role="tab" title="逐句标注 (⌘T)">
           <svg viewBox="0 0 24 24">
             <path d="M8 6h13M8 12h13M8 18h13" />
@@ -111,28 +109,18 @@
         </div>
       </div>
 
-      <!-- ═════════ 工具条：目录 / 筛选 / 标注工具（有未标注才出现）/ 进度 / 类型 / 时长 / 面板 ═════════ -->
+      <!-- ═════════ 工具条（一行）：目录 / 筛选 / 类型 / 素材进度 / 对着口播看画面 / 面板 ═════════ -->
       <div class="work-tools">
         <button class="btn icon-only" id="btnOutline" aria-expanded="true" title="章节目录">
           <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13" /></svg>
         </button>
         <div class="filters" id="filters"></div>
-        <div class="mark-tools" id="markTools">
-          <button class="btn" id="btnNext" title="跳到下一个还没标注的句子">下一个未标注 ↓</button>
-          <button class="btn" id="btnFocus" title="一次只看一句，按数字键标完自动下一句 (⌘E)">专注标注</button>
-          <label class="auto-label" title="标完一句自动跳到下一个未标注"
-            ><input type="checkbox" id="autoAdvance" /> 标完自动跳转</label
-          >
-        </div>
+        <button class="chip-filter chip-tool" id="btnTypes" title="改本项目的标注类型：名字、颜色、快捷键">
+          类型…
+        </button>
         <div class="work-right">
           <button class="text-button repair-hint" id="repairHint" hidden></button>
           <div class="progress-txt" id="progressTxt"></div>
-          <button class="chip-filter chip-tool" id="btnTypes" title="改本项目的标注类型：名字、颜色、快捷键">
-            类型…
-          </button>
-          <button class="chip-filter chip-tool" id="btnDur" title="全片时长、语速、剪映字幕、口播音频">
-            ⏱ 时长 · 口播
-          </button>
           <button
             class="btn sync-btn"
             id="btnSync"
@@ -140,8 +128,17 @@
           >
             ▶ 对着口播看画面
           </button>
-          <button class="btn" id="btnDetail" aria-expanded="false" title="右侧面板：画面描述、素材、对应的口播">
-            画面与素材
+          <button
+            class="btn icon-only"
+            id="btnDetail"
+            aria-expanded="false"
+            aria-label="画面与素材"
+            title="画面与素材（右侧面板）：画面描述、素材、对应的口播"
+          >
+            <svg viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M15 4v16" />
+            </svg>
           </button>
         </div>
       </div>
@@ -154,7 +151,7 @@
               <div>口播内容</div>
               <div id="durHeading" title="按语速估算；对齐剪映字幕后显示真实时间码">≈时长</div>
               <div class="h-type">类型 <kbd id="typeKeys">1-5</kbd></div>
-              <div>画面 · 备注</div>
+              <div>画面</div>
             </div>
             <div class="rows" id="rows"></div>
           </div>

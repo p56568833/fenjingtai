@@ -14,7 +14,6 @@ import { initPopover } from './ui/popover.js';
 import { initEdit } from './ui/edit.js';
 import { initKeyboard } from './ui/keyboard.js';
 import { initSearch, openSearch } from './ui/search.js';
-import { initCheck } from './ui/check-view.js';
 import { initSections } from './ui/sections.js';
 import { initSectionPins } from './ui/section-pin.js';
 import { initProjects } from './ui/projects.js';
@@ -27,7 +26,6 @@ import { initHelp } from './ui/help.js';
 import { initTheme } from './ui/theme.js';
 import { registerModal, initModalKeys, menuAllowed } from './ui/base/modal.js';
 import { runCommand } from './ui/base/commands.js';
-import { initFocus, focusKey } from './features/focus.js';
 import { initSrt } from './features/srt.js';
 import { initPreview, closePreview, previewKey } from './features/preview.js';
 import { closeAssetPicker } from './ui/asset-picker.js';
@@ -72,7 +70,6 @@ const MENU = {
   'import-srt': 'srt:pick',
   'import-voice': 'voice:pick',
   search: () => openSearch(),
-  'focus-mode': 'focus:open',
   'toggle-view': () => cycleView(),
   'toggle-theme': 'theme:toggle',
   'theme-system': 'theme:system',
@@ -179,8 +176,6 @@ function registerModals() {
     allowMenu: ['undo', 'redo'],
     autoFocus: false,
   });
-  // 专注标注：自己处理所有按键；原生菜单的撤销 / 重做 / 主题照常可用
-  registerModal('focusMask', { onKey: focusKey, allowMenu: ['undo', 'redo', 'focus-mode'], autoFocus: false });
 }
 
 async function boot() {
@@ -208,7 +203,6 @@ async function boot() {
   initEdit();
   initKeyboard();
   initSearch();
-  initCheck();
   initSections();
   initSectionPins();
   initProjects();
@@ -218,7 +212,6 @@ async function boot() {
   initAssetDrop();
   initAssetPicker();
   initShotMenu();
-  initFocus();
   initSrt();
   initVoice();
   initPlaythrough();

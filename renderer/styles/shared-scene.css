@@ -1,7 +1,6 @@
 /* ═════════ 共用画面 ═════════ */
 /* A shared visual has one continuous boundary across its sentences. */
-.shared-scene-header,
-.shared-passage-heading {
+.shared-scene-header {
   display: flex;
   text-align: left;
   font: inherit;
@@ -95,8 +94,7 @@
   align-self: center;
   padding: 8px 0;
 }
-.shared-scene-title,
-.shared-passage-title {
+.shared-scene-title {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -112,8 +110,7 @@
   border: 0;
   padding: 10px 14px;
 }
-.shared-scene-title:hover strong,
-.shared-passage-title:hover strong {
+.shared-scene-title:hover strong {
   text-decoration: underline;
 }
 .shared-scene-title small {

@@ -217,7 +217,7 @@ body.dark ::-webkit-scrollbar-thumb {
 .row-assets:not(:has(.row-asset)) {
   margin: 0;
 }
-/* 够不够：素材卡片下的「需要 / 可用 / 文件」和结论；共用画面标题旁的口播总长 */
+/* 够不够：素材卡片下的结论（右侧面板多一行「需要 / 可用」）；表格里只有结论，细节在悬停提示 */
 .asset-cover {
   display: flex;
   flex-wrap: wrap;
@@ -234,7 +234,8 @@ body.dark ::-webkit-scrollbar-thumb {
   color: var(--text-3);
   margin-left: 4px;
 }
-.asset-cover .cover-file {
+.asset-cover .cover-detail {
+  flex-basis: 100%;
   color: var(--text-3);
 }
 .asset-cover .cover-verdict {

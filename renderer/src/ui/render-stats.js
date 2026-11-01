@@ -52,11 +52,9 @@ export function renderStats() {
   // 看「有没有挂上要用的素材」（主画面 / 叠加 / 未分配，不算备选）
   const done = lines.length - counts.none,
     linked = visualShots.filter(g => g.some(m => linkedUsages(m).length)).length;
-  // 全部标完后「已标 N/N」不再有信息量，只留素材进度
+  // 句数、未标注数筛选芯片上已经有了，这里只留素材进度
   const prog = document.querySelector('#progressTxt');
-  prog.innerHTML =
-    (counts.none ? `已标 <b>${done}/${lines.length}</b> 句 · ` : `${lines.length} 句 · `) +
-    `已关联素材 <b>${linked}/${visualShots.length}</b> 个镜头`;
+  prog.innerHTML = `已配素材 <b>${linked}/${visualShots.length}</b>`;
   const nums = [...prog.querySelectorAll('b')].map(b => b.textContent);
   if (samePid && nums.length === prevProg.length)
     prog.querySelectorAll('b').forEach((b, i) => {
@@ -66,8 +64,7 @@ export function renderStats() {
       }
     });
   prevProg = nums;
-  prog.title = `已标注 ${done}/${lines.length} 句 · 需要画面的镜头 ${visualShots.length} 个（共用画面算一个），其中已关联素材 ${linked} 个（备选不算）`;
-  document.querySelector('#markTools').hidden = !counts.none;
+  prog.title = `已标注 ${done}/${lines.length} 句 · 需要配画面的 ${visualShots.length} 个画面（A roll 等不用配画面的类型不算，共用画面算一个），其中已配素材 ${linked} 个（备选不算）`;
 }
 
 /* 筛选标签原地更新：协作同步、素材变化时统计会频繁重画，整排重建会让标签闪烁，

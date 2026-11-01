@@ -6,7 +6,7 @@ import { rowById } from '../app/project-queries.js';
 import { match } from '../app/selection.js';
 import { setView } from './render.js';
 import { runCommand } from './base/commands.js';
-import { closePop, syncPopToAnchor, popEl } from './base/popover.js';
+import { closePop, popEl } from './base/popover.js';
 import { leave, cancelLeave, flash, reduced, SPRING } from './base/motion.js';
 import { paintSearch } from './base/search-paint.js';
 
@@ -61,7 +61,7 @@ export function closeSearch() {
 function selectResult(id) {
   // 编号 / 时间直达的句子可能被类型筛选藏起来，这时切回「全部」再跳
   runCommand('nav:jump', id, { preserveFilter: match(rowById(id)) });
-  flash(document.querySelector(`.row[data-id="${id}"],.as[data-id="${id}"]`));
+  flash(document.querySelector(`.row[data-id="${id}"]`));
 }
 function qNav(d) {
   const m = qMatches();
@@ -149,14 +149,13 @@ export function initSearch() {
     },
     true,
   );
-  // 滚动时：勾选视图的选区卡跟着句子挪，其他弹层（锚着鼠标位置）直接收起
+  // 滚动时收起工作区菜单
   document.querySelector('#tableWrap').addEventListener(
     'scroll',
     () => {
       // 协作菜单锚在固定顶栏；正文滚动（含跳句后的校准）不改变它的位置。
       if (popEl?._anchor?.id === 'btnCollab') return;
-      if (popEl && popEl.classList.contains('hovercard')) syncPopToAnchor();
-      else closePop();
+      closePop();
     },
     { passive: true },
   );

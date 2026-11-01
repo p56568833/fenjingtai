@@ -1,6 +1,6 @@
 import { viewState } from '../app/view-state.js';
 /* 1.3 新功能回归（npm test 时由 selftest.js 调用）：
-   重做 / 撤销回到原位 / ⌫ 与 ⌘⌫ / 弹窗栈 Esc / 搜索输入法 / 专注标注 / 剪映字幕对齐 / 拖入导入稿子 */
+   重做 / 撤销回到原位 / ⌫ 与 ⌘⌫ / 弹窗栈 Esc / 搜索输入法 / 剪映字幕对齐 / 拖入导入稿子 */
 import { state } from '../app/state.js';
 import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
@@ -10,7 +10,6 @@ import { parseAny } from '../core/parse.js';
 import { startSrtAlign } from '../features/srt.js';
 import { clearTiming } from '../app/subtitle.js';
 import { importDroppedFiles } from '../ui/asset-drop.js';
-import { buildCsv } from '../core/export-doc.js';
 import { anyModalOpen } from '../ui/base/modal.js';
 
 const $ = s => document.querySelector(s);
@@ -110,31 +109,10 @@ export async function runFeatureTests(t) {
   inp.dispatchEvent(new InputEvent('input', { bubbles: true }));
   await pause(220);
 
-  /* ── 专注标注 ── */
+  // 后面的用例接着用：第 1 句标成真实素材，其余没标
   for (const r of lines()) r.type = null;
+  L(0).type = 'real';
   update('rows');
-  viewState.sel = L(0).id;
-  document.activeElement?.blur();
-  key('e', { metaKey: true }, document.body);
-  await pause(30);
-  t('⌘E 打开专注标注', $('#focusMask').classList.contains('show') && $('.fc-text')?.textContent === L(0).text);
-  key('2', {}, document.body);
-  await pause(20);
-  t('按 2 标注并跳到下一句', L(0).type === 'real' && $('.fc-text')?.textContent === L(1).text);
-  key('r', {}, document.body);
-  await pause(20);
-  t('R 重复上一个类型', L(1).type === 'real' && $('.fc-text')?.textContent === L(2).text);
-  key('z', { metaKey: true }, document.body);
-  await pause(30);
-  t('专注模式里 ⌘Z 撤销', !L(1).type);
-  key('ArrowLeft', {}, document.body);
-  await pause(10);
-  key('Escape', {}, document.body);
-  await pause(20);
-  t(
-    'Esc 退出并停在处理的句子',
-    !$('#focusMask').classList.contains('show') && !viewState.focusMode && lines().some(r => r.id === viewState.sel),
-  );
 
   /* ── 剪映字幕对齐 ── */
   startSrtAlign({ name: '测试.srt', content: SRT });
@@ -158,13 +136,12 @@ export async function runFeatureTests(t) {
       $(`.row[data-id="${L(0).id}"] .dur .tc`).title.includes('00:01') &&
       $('#durHeading').textContent === '时长',
   );
-  const csv = buildCsv({ title: 'x', rows: state.rows, registry: {}, missing: new Set() });
-  t('CSV 带开始 / 结束时间', csv.includes('开始时间') && csv.includes('00:00:01.000'));
   t('项目记住字幕来源', state.timing?.name === '测试.srt' && state.timing.cues.length === 3);
+  t('项目保存导入时的 SRT 原文，导出剪映时原样写出', state.timing?.raw === SRT);
   storage.persist(true);
   await pause(50);
   const saved = window.native.loadData().projects[state.projectId];
-  t('字幕时间随项目保存', saved.timing?.cues?.length === 3 && saved.rows.some(r => r.time));
+  t('字幕时间随项目保存', saved.timing?.cues?.length === 3 && saved.timing.raw === SRT && saved.rows.some(r => r.time));
   actions.splitAt(L(1).id, 3);
   t('拆分对齐过的句子按字数分时间', L(1).time && L(2).time && Math.abs(L(1).time.end - L(2).time.start) < 0.001);
   undo();

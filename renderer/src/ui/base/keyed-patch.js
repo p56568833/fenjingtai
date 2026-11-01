@@ -1,4 +1,4 @@
-/* 按块原地更新：每块（一句、一组共用画面、一段原文…）有固定的 key 和它的 HTML，
+/* 按块原地更新：每块（一句、一组共用画面等）有固定的 key 和它的 HTML，
    和上次写进页面的比，一样的块原样留着（滚动位置、浏览器记住的行高、缩略图都不丢），
    变了的块换掉，新加的插进去，没了的删掉。
    块的写法：叶子 { key, html }；容器 { key, html: 外壳（空的开闭标签）, kids: [...] }，外壳不变时只更新里面的块。
@@ -8,7 +8,7 @@ const tpl = document.createElement('template');
 /* fresh：整块重来（切项目 / 切视图的入场动画）；onReplace(旧, 新)：同一块换新元素时，让调用方把旧元素里
    后来补画的内容（素材卡片…）挪过去。返回新建的元素。 */
 export function patchChildren(parent, specs, { fresh = false, onReplace = null } = {}) {
-  // 里面是别的渲染器写的内容（原文视图 / 表格互切、空状态…），或要求整块重来：清空后按新的建
+  // 里面是别的渲染器写的内容（空状态等），或要求整块重来：清空后按新的建
   if (fresh || [...parent.childNodes].some(n => n.nodeType !== 1 || n._pk == null)) parent.replaceChildren();
   const old = new Map();
   for (const el of parent.children) old.set(el._pk, el);

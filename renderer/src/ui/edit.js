@@ -99,8 +99,6 @@ function commitSentEdit(el) {
 /* 切换视图 / 重建界面前把进行中的编辑提交掉（改字、批注、章节改名），不丢输入 */
 function flushPendingEdits() {
   for (const s of [...document.querySelectorAll('.sent[contenteditable="true"]')]) commitSentEdit(s);
-  for (const ed of [...document.querySelectorAll('.as-note-edit')])
-    ed.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
   for (const n of [...document.querySelectorAll('.name[contenteditable="true"]')])
     n.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
 }
@@ -170,7 +168,7 @@ function selectOnClick(id, e) {
       return;
     }
   }
-  if (e.metaKey || e.ctrlKey || viewState.multiMode) {
+  if (e.metaKey || e.ctrlKey) {
     if (!viewState.multi) viewState.multi = viewState.sel != null ? [viewState.sel] : [];
     const i = viewState.multi.indexOf(id);
     if (i > -1) viewState.multi.splice(i, 1);

@@ -61,7 +61,6 @@ try {
     const fixture = document.createElement('div');
     fixture.id = 'styleFixture';
     fixture.innerHTML = `<div class="shared-scene picked"><div class="shared-scene-header"><div class="shared-scene-title"><span>共用画面标题</span></div><span>其他说明</span></div><div class="shared-scene-lines"><div class="row selected"><div class="spine">1</div><div class="sentence">共用句子</div><div class="row-act"><button>操作</button></div></div></div></div>
-      <div class="shared-passage"><div class="shared-passage-heading"><div class="shared-passage-title"><span>阅读标题</span></div></div></div>
       <button class="asset-open"><span class="asset-caption"><strong>素材标题</strong></span></button>
       <button class="review-item"><strong>检查标题</strong><span>检查内容</span></button>`;
     document.body.append(fixture);

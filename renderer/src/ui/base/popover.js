@@ -9,7 +9,8 @@ export const closePop = ({ restoreFocus = false } = {}) => {
   setAnchorOpen(anchor, false);
   popEl && popEl.remove();
   popEl = null;
-  if ((restoreFocus || hadFocus) && anchor?.isConnected && typeof anchor.focus === 'function')
+  // 焦点还给锚点只为键盘操作：用鼠标点过菜单里的输入框再点外面关掉时不还，按钮上不会留着一圈蓝框
+  if ((restoreFocus || (hadFocus && lastInput === 'key')) && anchor?.isConnected && typeof anchor.focus === 'function')
     anchor.focus({ preventScroll: true });
 };
 /* 菜单里能按的项：带 data-* 动作、没被禁用的 .pop-item，以及菜单里的按钮 / 输入框 */
@@ -31,8 +32,7 @@ function wireMenuA11y() {
       el.setAttribute('role', 'menuitem');
       el.tabIndex = -1;
     }
-  // 原文视图跟着选区弹出的选区卡（opts.pos）不是菜单：不抢焦点、不接管方向键，方向键照常换句
-  popEl._kbd = lastInput === 'key' && !popEl._pos;
+  popEl._kbd = lastInput === 'key';
   if (popEl._kbd) {
     const el = popEl;
     setTimeout(() => el === popEl && menuItems()[0]?.focus({ preventScroll: true }), 0);
@@ -64,11 +64,11 @@ function menuKey(e) {
 
 /* 弹层定位：有锚点（顶栏按钮、类型标签、「…」按钮）就贴着锚点弹——
    锚点在窗口左半边就左对齐、在右半边就右对齐，下面放不下翻到上面；菜单从锚点那一角「长」出来。
-   只有原文视图里鼠标划选的选区卡（opts.atMouse）才跟着光标。 */
+   没有锚点的上下文菜单按鼠标位置弹出。 */
 const mouse = { x: 0, y: 0, seen: false };
 const GAP = 6;
 function setAnchorOpen(anchor, open) {
-  if (!anchor?.classList || anchor.classList.contains('as')) return;
+  if (!anchor?.classList) return;
   anchor.classList.toggle('pop-open', open);
   if (anchor.tagName === 'BUTTON') anchor.setAttribute('aria-expanded', String(open));
 }
@@ -77,19 +77,14 @@ export function openMenu(anchor, html, opts = {}) {
   closePop();
   popEl = document.createElement('div');
   popEl.className = 'popover';
+  if (opts.className) popEl.classList.add(opts.className);
   popEl.innerHTML = html;
   popEl.style.visibility = 'hidden'; // 先量尺寸再定位，别闪现在旧位置
   document.body.appendChild(popEl);
   const pw = popEl.offsetWidth,
     ph = popEl.offsetHeight;
   let x, y;
-  if (opts.pos) {
-    // 勾选视图的选区卡：锚在句子给定位置，贴边翻转，滚动时 syncPopToAnchor 按这个点重新定位
-    popEl._pos = opts.pos;
-    x = Math.max(8, Math.min(opts.pos.x, innerWidth - pw - 8));
-    y = opts.pos.y + ph > innerHeight - 52 ? Math.max(8, opts.pos.y - ph - 12) : opts.pos.y;
-  } else if (anchor && !opts.atMouse) {
-    popEl._pos = null;
+  if (anchor) {
     const r = anchor.getBoundingClientRect();
     const alignRight = r.left + r.width / 2 > innerWidth / 2;
     x = alignRight ? r.right - pw : r.left;
@@ -103,7 +98,6 @@ export function openMenu(anchor, html, opts = {}) {
     popEl.style.transformOrigin = `${up ? 'bottom' : 'top'} ${alignRight ? 'right' : 'left'}`;
     popEl.classList.toggle('pop-up', up);
   } else {
-    popEl._pos = null;
     const m = mouse.seen ? mouse : { x: 8, y: 8 };
     x = m.x + 10;
     y = m.y + 14;
@@ -137,19 +131,6 @@ export function reglidePop() {
   const item = items.find(i => i.matches(':hover')) || items.find(i => i === document.activeElement);
   glide(popEl, item || null, 'pop-glide', { snap: true });
 }
-/* 滚动时把选区卡挪回锚点句子旁边（卡片属于选中句，不跟着滚就悬空了） */
-export function syncPopToAnchor() {
-  if (!popEl || !popEl._anchor) return closePop();
-  if (!popEl._anchor.isConnected) return closePop();
-  const r = popEl._anchor.getBoundingClientRect();
-  const pw = popEl.offsetWidth,
-    ph = popEl.offsetHeight;
-  const x = Math.max(8, Math.min(r.left, innerWidth - pw - 8));
-  const y0 = r.bottom + 8;
-  const y = y0 + ph > innerHeight - 52 ? Math.max(8, y0 - ph - 12) : y0;
-  popEl.style.left = x + 'px';
-  popEl.style.top = y + 'px';
-}
 export const popOpenFor = anchor => !!(popEl && popEl._anchor === anchor);
 export const markPopAnchor = anchor => {
   if (!popEl) return;
@@ -181,10 +162,8 @@ export function initPopover() {
       popEl &&
       !popEl.contains(e.target) &&
       !e.target.closest('.tchip') &&
-      !e.target.closest('.as') &&
       !e.target.closest('#btnImport') &&
       !e.target.closest('#btnExport') &&
-      !e.target.closest('#btnDur') &&
       !e.target.closest('#btnProjects')
     )
       closePop();

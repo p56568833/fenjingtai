@@ -316,12 +316,6 @@ body.dark .note:empty::before {
 .dur {
   font-size: 11px;
 }
-body.reading .table {
-  min-width: 0;
-}
-body.multi-mode .idx {
-  justify-content: space-between;
-}
 .row-select {
   display: none;
   width: 16px;
@@ -330,13 +324,6 @@ body.multi-mode .idx {
   margin: 0;
   accent-color: var(--accent);
   cursor: pointer;
-}
-body.multi-mode .row-select {
-  display: block;
-}
-body.multi-mode .row,
-body.multi-mode .shared-scene-body {
-  grid-template-columns: 48px minmax(160px, 1.15fr) 48px 146px minmax(200px, 1fr);
 }
 .row .note,
 .shared-scene .note {
@@ -409,8 +396,7 @@ body.dark .tchip.typed {
 .dur .tc.dur-fit {
   color: var(--text-3);
 }
-.row.playing .sent,
-.as.playing {
+.row.playing .sent {
   text-decoration: underline 2px color-mix(in srgb, var(--accent) 70%, transparent);
   text-underline-offset: 5px;
 }
@@ -524,10 +510,6 @@ body.compact .section-row {
     gap: 4px;
     padding: 0 5px;
   }
-  body.multi-mode .row,
-  body.multi-mode .shared-scene-body {
-    grid-template-columns: 42px minmax(130px, 1.15fr) 40px 125px minmax(150px, 1fr);
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .sec-pin,
@@ -535,4 +517,39 @@ body.compact .section-row {
     transition: none;
     transform: none;
   }
+}
+
+/* 长稿性能：屏幕外的行跳过布局和绘制（浏览器按记住的尺寸占位），几百上千句时标注 / 搜索不再整页重排 */
+:is(.rows, .sec-block) > .row,
+:is(.rows, .sec-block) > .shared-scene,
+:is(.rows, .sec-block) > .section-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+/* 普通句子沿用共用画面的左侧留白，五列及描述文字保持对齐。 */
+:is(.rows, .sec-block) > .row {
+  padding-left: 24px;
+}
+:is(.rows, .sec-block) > .row .note {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+/* 画面描述太长时只显示前 4 行，末尾省略号；点进去编辑时展开全文（右侧面板也能看全文） */
+.rows .note:not(:focus) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  /* 下留白只在收起时改为透明边框，编辑时保留原来的完整圆角细框。 */
+  padding-bottom: 0;
+  border-bottom: 7px solid transparent;
+}
+.rows .note.clamped:not(:focus) {
+  cursor: pointer;
+}
+body.compact .rows .note:not(:focus) {
+  -webkit-line-clamp: 2;
+}
+body.compact :is(.rows, .sec-block) > .row {
+  contain-intrinsic-size: auto 48px;
 }

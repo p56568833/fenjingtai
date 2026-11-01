@@ -1,7 +1,7 @@
 import { viewState } from '../app/view-state.js';
 /* 口播音频播放：底部口播条（播放 / 暂停、进度、正在说的那句、跟随、语速、单句循环）。
    每句的时间来自 app/state 的时间轴：字幕实测 > 按音频长度推算 > 按语速估算。
-   对外提供一个播放器（playRange / pause / onTick），连播预览、专注标注、面板「听这段」都用它。 */
+   对外提供一个播放器（playRange / pause / onTick），连播预览、面板「听这段」都用它。 */
 import { state } from '../app/state.js';
 import { on } from '../app/events.js';
 import { timeline, timeOf, rowById } from '../app/project-queries.js';
@@ -148,7 +148,7 @@ function updatePlaying(t) {
   if (id === playingId) return;
   playingId = id;
   document.querySelectorAll('.playing').forEach(el => el.classList.remove('playing'));
-  const el = document.querySelector(`.row[data-id="${id}"],.as[data-id="${id}"]`);
+  const el = document.querySelector(`.row[data-id="${id}"]`);
   el?.classList.add('playing');
   const r = rowById(id);
   const txt = $('#vbLine');

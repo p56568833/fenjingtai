@@ -39,13 +39,14 @@ export async function runInspectorScrollTests(t) {
   const project = state.projectId;
   let insertProject = null;
   try {
-    for (const view of ['table', 'check']) {
+    {
+      const view = 'table';
       viewState.view = view;
       viewState.sel = lines[0].id; // 已选句在屏幕外，不能因为开面板而滚回去。
       update('rows');
       await pause(650); // 等切项目的入场动画结束，再测面板引起的位置变化。
       const wrap = $('#tableWrap');
-      const sentence = $(`${view === 'table' ? '.sent' : '.as'}[data-id="${lines[214].id}"]`);
+      const sentence = $(`.sent[data-id="${lines[214].id}"]`);
       sentence.scrollIntoView({ block: 'start' });
       await pause(80);
       wrap.scrollTop += sentence.getBoundingClientRect().top - wrap.getBoundingClientRect().top - 55;
@@ -74,7 +75,7 @@ export async function runInspectorScrollTests(t) {
       await pause(100);
       $('#btnDetail').click();
       // 明确的新导航应覆盖面板的迟后校准。
-      const next = $(`${view === 'table' ? '.sent' : '.as'}[data-id="${lines[250].id}"]`);
+      const next = $(`.sent[data-id="${lines[250].id}"]`);
       next.scrollIntoView({ block: 'center' });
       await pause(150);
       const rect = next.getBoundingClientRect(),
@@ -84,7 +85,7 @@ export async function runInspectorScrollTests(t) {
       await pause(100);
 
       // 增删素材只应原地刷新当前画面的素材卡，不能重建整张表或改变阅读位置。
-      const currentSentence = () => $(`${view === 'table' ? '.sent' : '.as'}[data-id="${lines[214].id}"]`);
+      const currentSentence = () => $(`.sent[data-id="${lines[214].id}"]`);
       const positionOf = el => el.getBoundingClientRect().top - wrap.getBoundingClientRect().top;
       const beforeNode = currentSentence();
       const beforeAdd = positionOf(beforeNode);

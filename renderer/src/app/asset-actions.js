@@ -226,7 +226,8 @@ export function clearShotTimes(row) {
 
 /* 记下素材的真实时长（只是信息缓存，不进撤销） */
 export function rememberDuration(asset, seconds) {
-  if (!asset || !isFinite(seconds) || asset.durationSec === seconds) return;
+  // 导入时探测的时长和播放器读到的常差几十毫秒：差不到一帧不再改项目，免得每次播放都重排画面
+  if (!asset || !isFinite(seconds) || Math.abs(asset.durationSec - seconds) < 0.05) return;
   changeProject(null, () => {
     asset.durationSec = seconds;
   });
