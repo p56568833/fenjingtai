@@ -5,9 +5,8 @@ import { state } from '../app/state.js';
 import { writeBackFailures } from '../app/candidate-sync.js';
 
 import { batchRun, saveAllLabel } from './review-files.js';
-import { retainFrames, paintStrips, paintDoneThumb } from './review-frames.js';
+import { retainFrames, paintStrips } from './review-frames.js';
 
-import { usableSeconds } from '../core/candidate-values.js';
 import { mountReviewPlayback, closeReviewPlayback } from './review-playback.js';
 
 import { stopClip } from './clip-player.js';
@@ -23,11 +22,8 @@ import {
   isPending,
   orderedCandidates,
   shotsOf,
-  openOf,
   trackFill,
-  isIdle,
   rangeText,
-  candName,
 } from './review-model.js';
 import { secText } from '../core/review-format.js';
 
@@ -45,7 +41,7 @@ export function createReviewRenderer({
   cards,
 }) {
   const { showTimeline, followCand } = preview;
-  const { cardHTML, doneHTML, paintMotion } = cards;
+  const { pickHTML, detailHTML, paintMotion } = cards;
   function refreshReviewStatus() {
     refreshVideoReviewButton();
     if (!$('#vrSaveAll')) return;
@@ -64,7 +60,7 @@ export function createReviewRenderer({
     sync.hidden = !fails.length;
     if (fails.length)
       sync.innerHTML = `${fails.length} 份清单没写回：${esc(fails[0][1])} <button class="vr-link" id="vrRetrySync">重试</button>`;
-    // 没有保存任务或写回提醒时，正文直接从页面顶端开始，不保留空的标题栏。
+    // 保存片段和写回提醒放在左栏底部；都没有时整块收起。
     $('#reviewPage .vr-top').hidden = saveAll.hidden && sync.hidden;
   }
 
@@ -97,10 +93,17 @@ export function createReviewRenderer({
       painted.shot = null;
       return renderRework(host, $('#vrNav'), cards);
     }
-    // 左栏：批次 → 画面
+    // 选中的画面和候选：候选列在左栏这个画面下面，右边只放选中那个的详情
+    const g = shots.find(x => x.key === page.curShot);
+    const list = g ? orderedCandidates(g) : [];
+    if (g && !list.some(c => c.id === page.curCand)) page.curCand = (list.find(isPending) || list[0])?.id || null;
+    const shown = list.filter(c => c.id === page.curCand);
+    // 左栏：批次 → 画面 → 当前画面的候选
     const nav = $('#vrNav');
     // 别人改了别处 / 后台保存都会走到这里：左栏内容没变就不重写，悬停、滚动和动效都不被打断
-    const navNext = navHTML(all, shots);
+    const navNext = navHTML(all, shots, x =>
+      x === g ? list.map(c => pickHTML(c, c.id === page.curCand)).join('') : '',
+    );
     if (navNext !== painted.nav || painted.navEl?.parentNode !== nav) {
       nav.innerHTML = navNext;
       painted.nav = navNext;
@@ -113,8 +116,6 @@ export function createReviewRenderer({
     navShown = navKey;
     glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide'); // 左边的高亮块滑到当前画面
 
-    // 右边：选中画面，按句子排
-    const g = shots.find(x => x.key === page.curShot);
     if (!state.candidates.length) {
       closeReviewPlayback();
       painted.shot = null;
@@ -128,46 +129,27 @@ export function createReviewRenderer({
       host.innerHTML = '<p class="vr-empty">这一批没有候选。</p>';
       return;
     }
-    const open = openOf(g);
-    if (!open.some(c => c.id === page.curCand)) page.curCand = open.find(isPending)?.id || open[0]?.id || null;
-    const done = g.cands.filter(c => c.id !== page.curCand && !isPending(c));
+    // 右边：左栏选中那个候选的详情和审核按钮，位置固定不跳；下面是左右拉通的时间轨
     const fill = trackFill(g);
-    // 右边：这个画面的全部视频，只有选中的那个展开成完整卡片，其余收成一行：待审 / 未采用 / 审过的，点一行就展开它
-    const rowOf = (c, cls, tag, tip) =>
-      `<div class="vr-done d-${cls}" data-vr-id="${c.id}" title="${tip}"><span class="vr-tag d-${cls}">${tag}</span><span class="vr-done-title">${esc(candName(c))}</span><span class="vr-done-sub">${esc(c.title || '')}</span><span class="vr-spacer"></span><span class="vr-done-note">${secText(usableSeconds(c))} 秒</span></div>`;
-    const itemHTML = c =>
-      c.id === page.curCand
-        ? cardHTML(c)
-        : isIdle(c)
-          ? rowOf(c, 'idle', '未采用', '它给的那几句已经有通过的主画面，点开还能审')
-          : isPending(c)
-            ? rowOf(c, 'wait', '待审', '点开看画面、审核')
-            : doneHTML(c);
-    const okN = g.cands.filter(c => c.decision === 'ok').length;
-    const headHTML = `<div class="vr-pfill-head"><span>素材 ${g.cands.length} 个 · 通过 ${okN}</span><span class="vr-spacer"></span>${
-      fill
-        ? `<span class="vr-pst ${fill.full ? 'ok' : 'has'}" title="主画面排了多少秒 / 这个画面的口播有多长">已排 ${secText(fill.got)} / 口播 ${secText(fill.dur)} 秒</span>`
-        : ''
-    }</div>`;
+    const fillHTML = fill
+      ? `<span class="vr-pst ${fill.full ? 'ok' : 'has'}" title="主画面排了多少秒 / 这个画面的口播有多长">已排 ${secText(fill.got)} / 口播 ${secText(fill.dur)} 秒</span>`
+      : '';
     const reworkNote = g.cands.find(c => c.reworkNote)?.reworkNote || '';
-    const shotHTML = `<section class="vr-shot" data-vr-shot="${esc(String(g.key))}">
-      <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4>
+    const shotHTML = `<section class="vr-shot vr-desk" data-vr-shot="${esc(String(g.key))}">
+      <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4><span class="vr-spacer"></span>${fillHTML}
       ${reworkNote ? `<p class="vr-need vr-rework-note"><b>原返工意见</b>${esc(reworkNote)}</p>` : ''}</div>
       <div class="vr-split">
         <div class="vr-watch">
           <div class="vr-dock-wrap"><div id="vrDockPlayer" aria-label="对着口播看画面"></div><div class="vr-preview" id="vrPreview" aria-label="候选预览" hidden></div></div>
         </div>
-        <div class="vr-plans"><div class="vr-pbody">${headHTML}<div class="vr-plist">${orderedCandidates(g).map(itemHTML).join('')}</div></div></div>
+        <div class="vr-plans"><div class="vr-pbody">${shown.map(detailHTML).join('')}</div></div>
       </div>
       <div class="vr-timeline" id="vrDockTrack"></div>
     </section>`;
     // 这个画面显示的内容一点没变（协作者改的是别的句子、后台存了文件…）：不重建，正在播的视频、截图和滚动位置都留着
     if (shotHTML === painted.shot && painted.shotEl?.parentNode === host) {
       followCand();
-      paintStrips(
-        host,
-        open.filter(c => c.id === page.curCand),
-      );
+      paintStrips(host, shown);
       return;
     }
     // 同一个画面重画时，右边列表滚到哪还在哪
@@ -187,17 +169,16 @@ export function createReviewRenderer({
     painted.shot = shotHTML;
     painted.shotEl = host.firstElementChild;
     mountPlayback(g);
-    showTimeline();
+    if (sameShot) followCand();
+    else showTimeline();
     if (top) host.scrollTop = top;
-    const shown = open.filter(c => c.id === page.curCand);
     paintMotion(host, g, shown);
     host.querySelector('.vr-shot-head')?.classList.toggle('stuck', host.scrollTop > 2);
     paintStrips(host, shown);
-    for (const c of done) if (c.decision === 'ok' && c.savedPath) paintDoneThumb(c, host);
-    // 截图只给展开的那个候选：换了画面、换了选中，没轮到的截图任务取消
+    // 截图只给选中的那个候选：换了画面、换了选中，没轮到的截图任务取消
     retainFrames(shown);
   }
-  /* 「对着口播看画面」和两条轨嵌在画面下面：播放器放左边，轨道放候选下面 */
+  /* 「对着口播看画面」放左边，两条轨在下面左右拉通 */
   function mountPlayback(g) {
     const player = $('#vrDockPlayer'),
       track = $('#vrDockTrack');

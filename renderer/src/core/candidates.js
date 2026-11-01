@@ -133,8 +133,8 @@ const spanText = c => {
   const r = usedRange(c);
   return `${fmtTime(r.in)}–${fmtTime(r.out)}`;
 };
-/* 已经否掉 / 要换的候选不算「用上」，它的画面可以挪去配别的句子 */
-const dropped = decision => decision === 'no' || decision === 're';
+/* 已经否掉的候选不算「用上」，它的画面可以挪去配别的句子 */
+const dropped = decision => decision === 'no';
 /* 这个候选的画面已经在别的句子上用了：返回那个占用者（项目里已通过或待审、画面不同的候选），没有返回 null */
 export function footageTakenBy(c, others) {
   return others.find(o => o !== c && o.rowId !== c.rowId && !dropped(o.decision) && footageOverlap(c, o)) || null;
@@ -376,8 +376,8 @@ export function planImport(doc, srcFile, rows, existing = [], { tl, reworkReques
           fresh.push({ rec: next, members, shot: s });
         }
         updated.push({ old, next, changed });
-      } else if (raw.review?.decision === 'no') {
-        // 以前已经标成「不要」、被清掉的：同一份清单再导入时不让它回来
+      } else if (raw.review?.decision === 'no' || raw.review?.decision === 're') {
+        // 以前已经标成「不要」（含旧版的「换一个」）、被清掉的：同一份清单再导入时不让它回来
         return;
       } else {
         const rec = { id: 'vc-' + crypto.randomUUID(), ...base, decision: '', note: raw.review?.note || '' };
@@ -471,7 +471,8 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
     let id = typeof raw.id === 'string' && raw.id ? raw.id : 'vc-' + crypto.randomUUID();
     if (seen.has(id)) id = 'vc-' + crypto.randomUUID();
     seen.add(id);
-    const decision = ['ok', 'no', 're'].includes(raw.decision) ? raw.decision : '';
+    // 旧版的「换一个」（re）并成「不要」
+    const decision = raw.decision === 're' ? 'no' : ['ok', 'no'].includes(raw.decision) ? raw.decision : '';
     const assetId = typeof raw.assetId === 'string' && assets[raw.assetId] ? raw.assetId : undefined;
     out.push({
       id,

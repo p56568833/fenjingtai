@@ -204,14 +204,18 @@ function registerFileIpc({ handle, win }) {
     }
     return out;
   });
-  /* 待返工 → 返工单：写到片段保存位置（只写 .json，文件夹必须已存在；先写临时文件再改名） */
+  /* 待返工 → 返工单（只写 .json；先写临时文件再改名）。file 是完整路径就写到那里，文件夹必须已存在；
+     只给文件名就写到软件自己的「返工单」文件夹（不用让人选位置） */
   handle('rework:write', (_e, file, content) => {
-    if (typeof file !== 'string' || !path.isAbsolute(file) || !/\.json$/i.test(file))
-      return { ok: false, error: '路径无效' };
+    if (typeof file !== 'string' || !/\.json$/i.test(file)) return { ok: false, error: '路径无效' };
+    const bare = !path.isAbsolute(file);
+    if (bare && path.basename(file) !== file) return { ok: false, error: '路径无效' };
     try {
-      if (!fs.statSync(path.dirname(file)).isDirectory()) return { ok: false, error: '保存位置不存在' };
-      writeAtomic(file, String(content ?? ''));
-      return { ok: true, path: file };
+      const target = bare ? path.join(app.getPath('userData'), '返工单', file) : file;
+      if (bare) fs.mkdirSync(path.dirname(target), { recursive: true });
+      else if (!fs.statSync(path.dirname(target)).isDirectory()) return { ok: false, error: '保存位置不存在' };
+      writeAtomic(target, String(content ?? ''));
+      return { ok: true, path: target };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
     }

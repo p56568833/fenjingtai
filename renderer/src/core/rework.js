@@ -17,7 +17,7 @@ import { usageList } from './asset-model.js';
 import { CANDIDATE_VERSION, forRange } from './candidate-values.js';
 import { sentenceScope } from './candidate-scope.js';
 
-const REJECT = new Set(['no', 're']);
+const REJECT = new Set(['no']);
 export const isRejected = c => REJECT.has(c?.decision);
 
 /* 返工意见里真正写了字的部分：只有标点、空格的（比如误敲的「，，」）当作没写 */
@@ -79,6 +79,12 @@ const spanOfCand = (c, members) => {
     if (!sp.empty) return { from: sp.from, to: sp.to };
   }
   return forRange(c, members);
+};
+
+/* 通过的候选只挂在备选上（这几句里没有一处是主画面或叠加） */
+const onlyAlt = (c, members) => {
+  const uses = members.flatMap(m => usageList(m).filter(u => u.assetId === c.assetId && !u.off));
+  return !!c.assetId && uses.length > 0 && uses.every(u => u.role === 'alt');
 };
 
 /* 句子有重叠、或者 linked 说连着的几项合成一项：范围取首尾，要求取第一条，要换掉的素材、否掉的候选都并进来 */
@@ -147,7 +153,8 @@ export function reworkShots(rows, candidates) {
       const sp = usageSpan(members, x.assetId);
       item(sp.empty ? 0 : sp.from, sp.empty ? last : sp.to).replaces.push(x);
     }
-    const approved = g.cands.filter(c => c.decision === 'ok');
+    // 通过的候选真正盖住的句子：只放在备选里的不算（画面上看不到它），那几句的「不要」照样要返工
+    const approved = g.cands.filter(c => c.decision === 'ok' && !onlyAlt(c, members));
     const covered = new Set();
     for (const c of approved) {
       const sp = spanOfCand(c, members);
@@ -273,7 +280,6 @@ const rangeOf = members =>
    那几句现在挂着的素材、否掉的候选和理由。shots：groupReworkItems 的结果（一个画面一条）。
    secondsOf(members)：每句要多少秒（含句间停顿），界面按时间轴传进来；不传就不写秒数 */
 export function buildReworkDoc({ title, shots, registry = {}, batchName = () => '', secondsOf = () => null }) {
-  const DEC = { no: '不要', re: '换一个' };
   const ROLE = { main: '主画面', overlay: '叠加', alt: '备选' };
   const nameOf = id => registry[id]?.name || registry[id]?.path || '';
   return {
@@ -283,7 +289,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
     project: title,
     createdAt: new Date().toISOString(),
     sentences: sentenceScope(shots.flatMap(s => s.target.map(m => m.no))).text,
-    reply: `按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单。顶层 reworkId 原样填写本返工单的 id；shots[].lines 逐项照抄这里的 lines，分散的画面分别写，禁止用首尾句号扩成整段，禁止添加返工单以外的画面；可以先回复其中一部分。每段视频的 for 只能写这个画面 for 里列出的句子（要补的就是那几句，同一画面的别的句子不用找），best 要够那几句的长度（看 each 里每句的 seconds）。for 是连续几句的（如整个共用画面），先找一段连续长镜头盖住这几句，实在找不到才按句分开补。真实素材先在 YouTube、B 站找并截好存本机，通用素材先去 Pexels、Mixkit 等素材网站找，尽量不要水印、台标和硬字幕。rejected 里「换一个」的，给同一个 for 再找一段新 key 的视频；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。`,
+    reply: `按每个画面的要求和否掉的理由重新找视频候选，用分镜台候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单。顶层 reworkId 原样填写本返工单的 id；shots[].lines 逐项照抄这里的 lines，分散的画面分别写，禁止用首尾句号扩成整段，禁止添加返工单以外的画面；可以先回复其中一部分。每段视频的 for 只能写这个画面 for 里列出的句子（要补的就是那几句，同一画面的别的句子不用找），best 要够那几句的长度（看 each 里每句的 seconds）。for 是连续几句的（如整个共用画面），先找一段连续长镜头盖住这几句，实在找不到才按句分开补。真实素材先在 YouTube、B 站找并截好存本机，通用素材先去 Pexels、Mixkit 等素材网站找，尽量不要水印、台标和硬字幕。rejected 里是否掉的视频和理由（看 note），给同一个 for 再找新 key 的视频；replace 里是要换掉的素材和不满意的地方；不要再给已经否掉的同一段。`,
     shots: shots.map(s => ({
       lines: rangeOf(s.members),
       for: s.forTexts,
@@ -314,7 +320,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
         url: c.url,
         in: c.in,
         out: c.out,
-        decision: DEC[c.decision],
+        decision: '不要',
         for: c.forText || '',
         note: c.note || '',
         batch: batchName(c),

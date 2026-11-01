@@ -12,8 +12,6 @@ import {
   registerReworkRequest,
 } from '../app/candidate-actions.js';
 
-import { ensureMediaDir } from './review-files.js';
-
 import { assetName } from '../core/asset-model.js';
 import { CANDIDATE_VERSION } from '../core/candidate-values.js';
 
@@ -102,17 +100,12 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
     dismissShotRework(s);
     toast(`${reworkLabel(s)} 不用返工了 · ⌘Z 可撤销`, null, 'ok');
   }
-  /* 待返工页 → 返工单：写到片段保存位置，再把交给 AI 的那句话复制好。
-     only：只写这一项（右边「为这一项生成返工单」），文件名带上句号，不盖掉整页的返工单 */
-  async function writeReworkDoc(only = null) {
+  /* 待返工页 → 返工单：一次写下全部待返工的画面，不用选位置。依次试：片段保存位置 → 这个项目最近一份候选清单所在的
+     文件夹（找素材的 AI 就在那里写清单，看得到）→ 软件自己的「返工单」文件夹；再把交给 AI 的那句话复制好 */
+  async function writeReworkDoc() {
     const pid = state.projectId;
-    if (!reworkList().length) return toast('没有待返工的画面', null, 'info');
-    const dir = await ensureMediaDir();
-    if (!dir || state.projectId !== pid) return;
     renumber();
-    const item = only && reworkList().find(s => s.key === only);
-    if (only && !item) return toast('这一项已经不用返工了', null, 'info');
-    const list = groupReworkItems(item ? [item] : reworkList());
+    const list = groupReworkItems(reworkList());
     if (!list.length) return toast('没有待返工的画面', null, 'info');
     const title = state.title || '未命名项目';
     const tl = timeline();
@@ -123,17 +116,29 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
       batchName: batchOfCand,
       secondsOf: members => memberSeconds(tl, members),
     });
-    const part = item ? `·${safeFileName(reworkLabel(item).replace(/\s/g, ''))}` : '';
-    const file = `${dir.replace(/\/+$/, '')}/返工单·${safeFileName(title)}${part}.json`;
-    const r = await native.writeReworkDoc(file, JSON.stringify(doc, null, 2));
+    const json = JSON.stringify(doc, null, 2);
+    const name = `返工单·${safeFileName(title)}.json`;
+    const listFile = state.candidates
+      .filter(c => c.srcFile)
+      .sort((x, y) => (y.batchAt || 0) - (x.batchAt || 0))[0]?.srcFile;
+    const dirs = [state.mediaDir, listFile && listFile.replace(/\/[^/]*$/, '')].filter(Boolean);
+    let file = '';
+    let r = null;
+    for (const dir of [...dirs, '']) {
+      file = dir ? `${dir.replace(/\/+$/, '')}/${name}` : name;
+      r = await native.writeReworkDoc(file, json);
+      if (r?.ok || state.projectId !== pid) break;
+    }
     if (!r?.ok) return toast('返工单没写进去：' + (r?.error || '未知原因'), null, 'error');
+    file = r.path || file;
     if (state.projectId !== pid) return toast('返工单已写入，但项目已切换，请回到原项目重新生成', null, 'warn');
     registerReworkRequest(doc, list);
     page.reworkDocAt = Date.now();
+    page.reworkDocPath = file;
     renderVideoReview();
     await copyText(
       `读一下「${file}」：这是分镜台的返工单，要补 ${doc.sentences}（${list.length} 个画面）。按每个画面的要求和否掉的理由重新找视频候选，用候选清单格式 v${CANDIDATE_VERSION} 写一份新的候选清单给我导入。顶层 reworkId 必须写 "${doc.id}"；shots[].lines 逐项照抄，分散句子分别写，禁止扩成首尾整段或添加返工单之外的画面；每段视频的 for 只写返工单里这个画面 for 列出的句子，长度按每句的 seconds 找够。`,
-      `返工单已生成（${doc.sentences}），交给 AI 的话已复制`,
+      `返工单已生成（${list.length} 个画面），交给 AI 的话已复制，直接粘贴给它`,
     );
   }
   return { importCandidates, copyCandidateSpec, setReworkNote, setReplaceNote, dismissCurrentRework, writeReworkDoc };

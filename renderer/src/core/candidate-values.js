@@ -2,7 +2,8 @@
 import { fmtTime, parseTime } from './text.js';
 import { assetName, fileUrl } from './asset-model.js';
 export const CANDIDATE_TYPE = 'fenjingtai-candidates';
-export const DECISION = { ok: '通过', no: '不要', re: '换一个' };
+/* 审核结果只有通过 / 不要两种；以前的「换一个」（re）和「不要」作用一样，载入时并成 no */
+export const DECISION = { ok: '通过', no: '不要' };
 export const CANDIDATE_VERSION = 4; // v4：每段视频写明给画面里的哪几句（for）；旧格式一律不再导入
 export const FILL_EPS = 0.5; // 估算口播允许不足半秒的误差。
 export const MARGIN_MAX = 5; // 精选片段每边最多保留五秒下载余量。

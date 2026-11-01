@@ -387,7 +387,7 @@ test('审核结果写回 v4 候选清单：按 句号|编号 对上，通过的�
     f,
     [
       { key: 'A', lines: '5-6', decision: 'ok', note: '', inUse: true },
-      { key: 'B', lines: '5-6', decision: 're', note: '太暗', inUse: false },
+      { key: 'B', lines: '5-6', decision: 'no', note: '太暗', inUse: false },
       { key: 'C', lines: '5-6', decision: 'ok', note: '' },
     ],
     { now: () => 'T' },
@@ -395,7 +395,7 @@ test('审核结果写回 v4 候选清单：按 句号|编号 对上，通过的�
   assert.deepEqual(r, { ok: true, updated: 3 });
   const [a, b, c] = JSON.parse(fs.readFileSync(f, 'utf8')).shots[0].cands;
   assert.deepEqual(a.review, { decision: 'ok', note: '', inUse: true, at: 'T' });
-  assert.deepEqual(b.review, { decision: 're', note: '太暗', at: 'T' }, '没通过的不写 inUse');
+  assert.deepEqual(b.review, { decision: 'no', note: '太暗', at: 'T' }, '没通过的不写 inUse');
   assert.deepEqual(c.review, { decision: 'ok', note: '', inUse: false, at: 'T' }, '通过了但放在备选');
   assert.equal(a.for, '5', '其他字段原样保留');
 });

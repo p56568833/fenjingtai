@@ -5,7 +5,7 @@ import { projectRefresh } from '../core/project-refresh.js';
 
 /* 视频审核：Claude 找好的视频候选在这里过目，通过的自动挂成主画面。
    流程：导入候选清单（JSON，type = fenjingtai-candidates）→ 每个候选截 6 张图 + 只播建议的那几秒
-   → 通过 / 不要 / 换一个 + 意见 → 通过的挂到画面上（角色主画面、片段入出点、画面描述追加来源一行）
+   → 通过 / 不要 + 意见 → 通过的挂到画面上（角色主画面、片段入出点、画面描述追加来源一行）
    → 审核结果自动写回候选清单文件，Claude 读得到 → 顶部可批量保存已通过片段；完整原片要单独点。
    不下载任何文件，直到你点「保存已通过的片段」或「下载完整原片」。
 
@@ -17,7 +17,7 @@ import { projectRefresh } from '../core/project-refresh.js';
      画面已经填满后，别的没审的视频收成「未采用」。截图只给正在看的方案里的候选截。
    · 审完就走：审过的候选收成一行（能撤回），不再有「已通过」页——通过的结果在表格的画面上看；
      「不要」的在待返工里保留；画面有候选通过后，离开审核页时清掉已写回清单的否决项。
-   · 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
+   · 键盘：1 通过 · 2 不要 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
 import { state } from '../app/state.js';
 
 import { on } from '../app/events.js';
@@ -50,7 +50,6 @@ import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/base
 
 import {
   page,
-  touched,
   pendingCount,
   curBatchObj,
   batchLabel,
@@ -58,10 +57,9 @@ import {
   isPending,
   curShots,
   curGroup,
-  openOf,
+  orderedCandidates,
   curReworkItem,
   reworkList,
-  reworkOpen,
 } from './review-model.js';
 import { batchDetail, fmtDay } from '../core/review-format.js';
 import { createReviewCards } from './review-cards.js';
@@ -75,10 +73,12 @@ const preview = createReviewPreview({
   card: id => $('#vrList')?.querySelector(`[data-vr-id="${CSS.escape(id)}"]`),
   selectedCandidate: () => page.curCand,
   pause: pauseReviewPlayback,
+  // 审核页的预览盖在排好的画面上，收起就回到画面时间；待返工页的预览在否掉的候选下面，只是收起
+  closeText: () => (page.mode === 'rework' ? '收起' : '回到画面时间'),
 });
-const { previewHost, previewingId, showTimeline, followCand } = preview;
+const { previewHost, previewingId, showTimeline } = preview;
 const cards = createReviewCards({ root: () => $('#vrList'), preview, page });
-const { stamp, paintLineFocus, play } = cards;
+const { stamp, play } = cards;
 let typing = null;
 const typingSession = el => (typing?.el === el ? typing : (typing = { el, snapped: false }));
 const navigation = createReviewNavigation({ render: renderVideoReview, stop: stopAllVideos, query: $ });
@@ -109,7 +109,6 @@ function renderVideoReview() {
 }
 
 export function setDecision(id, d) {
-  touched.add(id);
   const result = decideCandidate(id, d);
   if (!result || result.error) {
     if (result?.error) toast(result.error, null, 'error');
@@ -220,7 +219,7 @@ function openBatchMenu(anchor) {
   );
   markPopAnchor(anchor);
 }
-/* 键盘：1 通过 · 2 不要 · 3 换一个 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放 / 暂停这段。在意见框里打字时不抢键 */
+/* 键盘：1 通过 · 2 不要 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放 / 暂停这段。在意见框里打字时不抢键 */
 function videoReviewKey(e) {
   if (e.target?.closest?.('.vr-note, select, textarea')) {
     // 意见框回车收起；返工要求是多行的，回车照常换行，Esc 收起
@@ -235,15 +234,33 @@ function videoReviewKey(e) {
     return e.key !== 'Escape' && !e.metaKey;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
-  const open = page.mode === 'rework' ? reworkOpen(curReworkItem()) : openOf(curGroup());
+  // 待返工页只写要求、不审候选：↑↓ ←→ 都是换一项，1 / 2 不起作用，空格只管正在预览的候选
+  if (page.mode === 'rework') {
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (step) {
+      e.preventDefault();
+      const ids = reworkList().map(x => x.key);
+      const j = Math.max(0, Math.min(ids.length - 1, ids.indexOf(page.curRework) + step));
+      if (ids[j] != null) selectRework(ids[j]);
+      return true;
+    }
+    if (e.key !== ' ') return false;
+    e.preventDefault();
+    const pv = previewingId();
+    const c = pv && state.candidates.find(x => x.id === pv);
+    if (c) togglePause(previewHost(), previewOf(c));
+    return true;
+  }
+  // ↑↓ 走左栏这个画面下面的候选，顺序和列表一样
+  const open = orderedCandidates(curGroup());
   const k = open.findIndex(c => c.id === page.curCand);
   const move = d => {
     if (!open.length) return;
     page.curCand = open[Math.max(0, Math.min(open.length - 1, (k < 0 ? 0 : k) + d))].id;
     renderVideoReview();
-    $(`#vrList [data-vr-id="${page.curCand}"]`)?.scrollIntoView({ block: 'nearest' });
+    $(`#vrNav [data-vr-pick="${page.curCand}"]`)?.scrollIntoView({ block: 'nearest' });
   };
-  const DKEYS = { 1: 'ok', 2: 'no', 3: 're' };
+  const DKEYS = { 1: 'ok', 2: 'no' };
   if (DKEYS[e.key]) {
     e.preventDefault();
     if (page.curCand) setDecision(page.curCand, DKEYS[e.key]);
@@ -256,13 +273,6 @@ function videoReviewKey(e) {
   }
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
     e.preventDefault();
-    if (page.mode === 'rework') {
-      const ids = reworkList().map(x => x.key);
-      const i = ids.indexOf(page.curRework);
-      const j = Math.max(0, Math.min(ids.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
-      if (ids[j] != null) selectRework(ids[j]);
-      return true;
-    }
     const shots = curShots();
     const i = shots.findIndex(x => x.key === page.curShot);
     const j = Math.max(0, Math.min(shots.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)));
@@ -295,25 +305,33 @@ export function initVideoReview() {
   $('#tablePage').insertAdjacentHTML(
     'afterend',
     `<main class="workspace-page vr-page" id="reviewPage" aria-label="视频审核" hidden>
-      <div class="vr-top" hidden>
-        <span id="vrSync" class="vr-sync" role="status" hidden></span>
-        <div class="vr-top-r">
-          <button class="btn" id="vrSaveAll" hidden title="把已通过、还没保存的片段都截下来存到本地">保存已通过的片段</button>
-        </div>
-      </div>
       <div class="vr-body">
-        <nav id="vrNav" class="vr-nav" aria-label="批次和画面"></nav>
+        <div class="vr-side">
+          <nav id="vrNav" class="vr-nav" aria-label="批次和画面"></nav>
+          <div class="vr-top" hidden>
+            <span id="vrSync" class="vr-sync" role="status" hidden></span>
+            <button class="btn" id="vrSaveAll" hidden title="把已通过、还没保存的片段都截下来存到本地">保存已通过的片段</button>
+          </div>
+        </div>
         <div id="vrList"></div>
       </div>
     </main>`,
   );
   $('#vrSaveAll').onclick = () => saveAllApproved();
   $('#vrNav').addEventListener('click', e => {
+    // 左栏当前画面下面的候选：点一行，右边换成它的详情
+    const pick = e.target.closest('[data-vr-pick]');
+    if (pick) {
+      if (pick.dataset.vrPick !== page.curCand) {
+        page.curCand = pick.dataset.vrPick;
+        renderVideoReview();
+      }
+      return;
+    }
     const tab = e.target.closest('[data-vr-tab]');
     if (tab) return setMode(tab.dataset.vrTab);
     const rw = e.target.closest('[data-vr-rw]');
     if (rw) return selectRework(rw.dataset.vrRw);
-    if (e.target.closest('#vrReworkDoc')) return writeReworkDoc();
     if (e.target.closest('#vrImport')) return runCommand('import:file');
     if (e.target.closest('#vrCopySpec')) return copyCandidateSpec();
     const menuBtn = e.target.closest('#vrBatchMore, #vrBatchPick');
@@ -346,12 +364,6 @@ export function initVideoReview() {
   $('#vrList').addEventListener('click', e => {
     const t = e.target;
     const card = t.closest('.vr-cand');
-    if (card && card.dataset.vrId !== page.curCand) {
-      page.curCand = card.dataset.vrId;
-      document.querySelectorAll('#vrList .vr-cand').forEach(el => el.classList.toggle('focus', el === card));
-      paintLineFocus(state.candidates.find(x => x.id === page.curCand));
-      followCand();
-    }
     // 盖在左边的候选：收起，回到排好的画面
     if (t.closest('[data-vr-pv-close]')) return showTimeline();
     // 截图：从这一帧开始，在左边播放器里播
@@ -373,36 +385,16 @@ export function initVideoReview() {
       return;
     }
     if (t.closest('[data-vr-rw-off]')) return dismissCurrentRework();
-    const rwDoc = t.closest('[data-vr-rw-doc]');
-    if (rwDoc) return writeReworkDoc(rwDoc.dataset.vrRwDoc);
+    // 新候选到了：去待审页，选好这个画面
+    if (t.closest('[data-vr-rw-review]')) {
+      const s = curReworkItem();
+      if (s) openVideoReview(s.lead.id);
+      return;
+    }
+    if (t.closest('#vrReworkDoc')) return writeReworkDoc();
+    if (t.closest('[data-vr-rw-reveal]')) return page.reworkDocPath && native('revealAsset')(page.reworkDocPath);
     const d = t.closest('[data-vr-d]');
     if (d) return setDecision(d.dataset.vrFor, d.dataset.vrD);
-    const fold = t.closest('[data-vr-fold]');
-    if (fold) {
-      stopAll();
-      touched.delete(fold.dataset.vrFold);
-      if (page.curCand === fold.dataset.vrFold) page.curCand = null;
-      return renderVideoReview();
-    }
-    const go = t.closest('[data-vr-goto]');
-    if (go) {
-      const id = go.dataset.vrGoto;
-      const target = $(`#vrList [data-vr-id="${id}"]`);
-      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      target?.classList.remove('vr-flash');
-      void target?.offsetWidth;
-      target?.classList.add('vr-flash');
-      return;
-    }
-    const doneRow = t.closest('.vr-done[data-vr-id]');
-    if (doneRow && !t.closest('button')) {
-      const id = doneRow.dataset.vrId;
-      touched.add(id); // 和刚审过的一样展开显示
-      page.curCand = id;
-      renderVideoReview();
-      $(`#vrList .vr-cand[data-vr-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
-      return;
-    }
     const p = t.closest('[data-vr-play]');
     if (p) return play(p.dataset.vrPlay);
     const o = t.closest('[data-vr-orig]');
@@ -467,7 +459,8 @@ export function initVideoReview() {
     cards.reset();
     showTimeline();
     page.curBatch = page.curShot = page.curCand = page.curRework = null;
-    touched.clear();
+    page.reworkDocAt = 0;
+    page.reworkDocPath = '';
     clearReviewFrames();
   });
   initCandidateMedia();
@@ -475,11 +468,7 @@ export function initVideoReview() {
   on('candidate-save-progress', renderer.progress);
   on('candidate-media', renderVideoReview);
   on('candidates-changed', ({ resetIds = [], removedIds = [] } = {}) => {
-    const ids = new Set([...resetIds, ...removedIds]);
-    for (const id of ids) {
-      touched.delete(id);
-    }
-    forgetFrames(ids);
+    forgetFrames(new Set([...resetIds, ...removedIds]));
   });
   registerCommand('video:open', openVideoReview);
   registerCommand('video:rework', openRework);

@@ -37,6 +37,8 @@ const us = (n = 0) => usageList(lines()[n]);
 const cand = key => state.candidates.find(c => c.key === key);
 const card = key => $(`[data-vr-id="${cand(key)?.id}"]`);
 const btn = (key, d) => card(key)?.querySelector(`[data-vr-d="${d}"]`);
+/* 左栏当前画面下面的候选：每个候选一行，点一行右边换成它的详情（card） */
+const row = key => $(`#vrNav [data-vr-pick="${cand(key)?.id}"]`);
 /* 左栏顶上的当前批次卡片：点它在菜单里换批次；删除在卡片的「⋯」菜单里 */
 const chooseBatch = id => {
   click('#vrBatchPick');
@@ -321,15 +323,15 @@ export async function runVideoReviewTests(t) {
   t('再点批次卡片收起菜单', !$('.popover'));
   t(
     '左边「对着口播看画面」，右边这个画面的全部视频，下面正片和备选两条轨',
-    !!$(`#vrList .vr-plist [data-vr-id="${cand('A1').id}"]`) &&
-      !!$(`#vrList .vr-plist [data-vr-id="${cand('A2').id}"]`) &&
+    !!$(`#vrNav .vr-nav-cands [data-vr-pick="${cand('A1').id}"]`) &&
+      !!$(`#vrNav .vr-nav-cands [data-vr-pick="${cand('A2').id}"]`) &&
       !!$('#vrList #vrDockTrack #review-pttLane') &&
       !!$('#vrList #vrDockTrack #review-pttAlt'),
   );
   t(
-    '列表上面写正片轨排了几秒 / 口播几秒',
-    /已排 [\d.]+ \/ 口播 [\d.]+ 秒/.test($('#vrList .vr-pfill-head')?.textContent || ''),
-    $('#vrList .vr-pfill-head')?.textContent,
+    '画面标题旁写正片轨排了几秒 / 口播几秒',
+    /已排 [\d.]+ \/ 口播 [\d.]+ 秒/.test($('#vrList .vr-shot-head .vr-pst')?.textContent || ''),
+    $('#vrList .vr-shot-head .vr-pst')?.textContent,
   );
   click('#vrBatchMore');
   t(
@@ -341,7 +343,17 @@ export async function runVideoReviewTests(t) {
   click('#vrBatchMore');
   t('再点「⋯」收起菜单', !$('.popover'));
   t(
-    '每个候选有 9 格截图位（审核页排成 3×3）、建议片段和版权',
+    '候选列在左栏当前画面下面，每个一行；右边只显示选中那个的详情',
+    $$('#vrNav .vr-pick').length === 2 &&
+      $$('#vrNav .vr-nav-cands').length === 1 &&
+      !$('#vrList .vr-pick') &&
+      row('A1')?.classList.contains('on') &&
+      $$('#vrList .vr-cand').length === 1 &&
+      !!card('A1') &&
+      !card('A2'),
+  );
+  t(
+    '每个候选有截图位（审核页每行 3 张）、建议片段和版权',
     card('A1')?.querySelectorAll('.vr-cell').length >= 1 &&
       getComputedStyle(card('A1').querySelector('.vr-strip')).gridTemplateColumns.split(' ').length === 3 &&
       card('A1').textContent.includes('01:41–01:50') &&
@@ -434,11 +446,11 @@ export async function runVideoReviewTests(t) {
   t(
     '右边一栏和左边播放器一样高，内容多了在栏里滚，下面的画面时间条不被挤走',
     Math.abs($('.vr-plans').getBoundingClientRect().height - $('.vr-watch').getBoundingClientRect().height) < 2 &&
-      getComputedStyle($('.vr-plans > .vr-pbody')).overflowY === 'auto',
+      getComputedStyle($('.vr-plans')).overflowY === 'auto',
   );
   t(
     '右边一栏不会横向滚动：已保存的长文件名末尾省略',
-    getComputedStyle($('.vr-plans > .vr-pbody')).overflowX === 'hidden' && $('.vr-plans > .vr-pbody').scrollLeft === 0,
+    getComputedStyle($('.vr-plans')).overflowX === 'hidden' && $('.vr-plans').scrollLeft === 0,
   );
   importLoadedFile(file);
   await pause(30);
@@ -557,10 +569,10 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t('通过了写着「缺了什么」的视频：不再标「只覆盖一部分」', !$('#vrList').textContent.includes('只覆盖一部分'));
   t(
-    '正片轨已经排满：没审的视频收成「未采用」，不算待审',
-    !!$(`#vrList .vr-done.d-idle[data-vr-id="${cand('A2').id}"]`) && !btn('A2', 'ok'),
+    '正片轨已经排满：没审的视频标成「未采用」，不算待审',
+    row('A2')?.classList.contains('d-idle') && row('A2').textContent.includes('未采用') && !btn('A2', 'ok'),
   );
-  click($(`#vrList .vr-done.d-idle[data-vr-id="${cand('A2').id}"]`));
+  click(row('A2'));
   await pause(30);
   t('点开「未采用」的视频还能审', !!btn('A2', 'ok'));
   click(btn('A2', 'ok'));
@@ -577,8 +589,8 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t('撤销通过：候选回到待审，素材拿掉', !cand('A2').decision && !us(0).some(x => x.assetId === a2));
 
-  /* 意见（换画面回来后，审过的 A1 收成了一行：点开再写） */
-  if (!card('A1')?.querySelector('[data-vr-note]')) click(`#vrList .vr-done[data-vr-id="${cand('A1').id}"]`);
+  /* 意见（选中 A1 再写） */
+  if (!card('A1')?.querySelector('[data-vr-note]')) click(row('A1'));
   await pause(30);
   const note = card('A1').querySelector('[data-vr-note]');
   note.value = '再找个近景';
@@ -592,18 +604,23 @@ export async function runVideoReviewTests(t) {
     cand('A1').note === '再找个近景' && writes.at(-1).results.some(r => r.note === '再找个近景'),
   );
 
-  /* 换一个 → 这个画面审完，自动跳到下一个画面（A1 已经填满，撤销后的 A2 是「未采用」，点开再审） */
-  if (!btn('A2', 're')) {
+  /* 不要 → 这个画面审完，自动跳到下一个画面（A1 已经填满，撤销后的 A2 是「未采用」，选中再审） */
+  if (!btn('A2', 'no')) {
     click(`#vrNav [data-vr-goto="${ids[0]}"]`);
     await pause(30);
-    click(`#vrList .vr-done[data-vr-id="${cand('A2').id}"]`);
+    click(row('A2'));
     await pause(30);
   }
-  click(btn('A2', 're'));
+  click(btn('A2', 'no'));
   await pause(30);
   t(
-    '换一个记下来，刚审过的收成一行留在原处；只有选中的那个展开',
-    cand('A2').decision === 're' && !!card('A2') && !!card('A1') && $$('#vrList .vr-cand').length <= 1,
+    '不要记下来：详情留在原处，列表那一行标成「不要」；审核按钮只有通过和不要',
+    cand('A2').decision === 'no' &&
+      !!card('A2') &&
+      row('A2')?.classList.contains('d-no') &&
+      card('A2').querySelectorAll('.vr-decide [data-vr-d]').length === 2 &&
+      !!row('A1') &&
+      $$('#vrList .vr-cand').length === 1,
   );
   await pause(750);
   t(
@@ -631,6 +648,10 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t('键盘 2 = 不要', cand('B1').decision === 'no');
   t(
+    '一个都没通过的画面：左栏写「待返工」，和待返工页说法一致',
+    $(`#vrNav [data-vr-goto="${lines()[3].id}"]`)?.textContent.includes('待返工'),
+  );
+  t(
     '审核快捷键没有改动表格句子的类型',
     lines()
       .slice(0, 3)
@@ -640,27 +661,26 @@ export async function runVideoReviewTests(t) {
   key('ArrowLeft');
   await pause(30);
   t(
-    '← 回到上一个画面：审过的候选收成一行（结果 + 撤回），不再有「已通过」页',
+    '← 回到上一个画面：审过的候选在列表里标着结果，不再有「已通过」页',
     $('#vrNav .vr-nav-shot.on')?.textContent.includes('第 1–3 句') &&
-      $$('#vrList .vr-done').length === 2 &&
-      $$('#vrList .vr-done.d-ok .vr-done-thumbs').length >= 1 &&
-      !$('#vrList .vr-done b') &&
-      !$('#vrList .vr-cand'),
+      $$('#vrNav .vr-pick').length === 2 &&
+      row('A1')?.classList.contains('d-ok') &&
+      row('A2')?.classList.contains('d-no') &&
+      $$('#vrList .vr-cand').length === 1,
   );
-  click($(`#vrList .vr-done[data-vr-id="${cand('A1').id}"] .vr-done-title`));
+  click(row('A1'));
   await pause(30);
   t(
-    '点审过的一行展开成完整卡片看画面，审核结果不变',
-    !!$(`#vrList .vr-cand[data-vr-id="${cand('A1').id}"]`) &&
+    '选中审过的候选：详情看画面，标着结果，有「撤回」，审核结果不变',
+    !!card('A1')?.querySelector('.vr-tag.d-ok') &&
       cand('A1').decision === 'ok' &&
-      !!$(`#vrList [data-vr-fold="${cand('A1').id}"]`),
+      !!card('A1').querySelector('.vr-after [data-vr-d="ok"]'),
   );
-  click(`#vrList [data-vr-fold="${cand('A1').id}"]`);
+  click(row('A2'));
   await pause(30);
-  t(
-    '「收起」收回成一行',
-    !!$(`#vrList .vr-done[data-vr-id="${cand('A1').id}"]`) && !$(`#vrList .vr-cand[data-vr-id="${cand('A1').id}"]`),
-  );
+  t('换选另一个：详情换成它，列表不变', !!card('A2') && !card('A1') && $$('#vrNav .vr-pick').length === 2);
+  click(row('A1'));
+  await pause(30);
 
   /* 顶部批量保存已通过的片段 */
   ffmpegMissing = true;
@@ -695,7 +715,7 @@ export async function runVideoReviewTests(t) {
   );
   t('保存的文件名带上对应的句号：第1-3句_标题', saves[0].name === '第1-3句_福特肉类加工 1922', saves[0].name);
   t('素材上的原片来源还在', state.assets[a1.id]?.source?.page === 'https://archive.org/details/fc-fc-485');
-  t('收起的那一行显示已保存', card('A1').textContent.includes('已保存'));
+  t('详情里显示已保存', card('A1').textContent.includes('已保存'));
 
   /* 撤回通过 */
   const noteBefore = lines()[0].note;
@@ -745,8 +765,8 @@ export async function runVideoReviewTests(t) {
   await pause(80);
   t('切回表格页面', $('#reviewPage').hidden && viewState.view === 'table');
   t(
-    '离开审核页时，没有通过候选的画面里「不要」的候选留着（在待返工里）',
-    cand('B1')?.decision === 'no' && state.candidates.length === 3,
+    '离开审核页时：没有通过候选的画面里「不要」的留着（在待返工里），已有通过的画面里「不要」的清掉',
+    cand('B1')?.decision === 'no' && !cand('A2') && state.candidates.length === 2,
   );
   const again = planImport(
     { ...DOC, shots: [{ ...DOC.shots[1], cands: [{ ...DOC.shots[1].cands[0], review: { decision: 'no' } }] }] },
@@ -760,7 +780,7 @@ export async function runVideoReviewTests(t) {
   click(`[data-detail="${ids[0]}"]`);
   await pause(30);
   const entry = $('#inspector [data-vr-open]');
-  t('画面面板里有「视频候选 · 去审核」入口', !!entry && entry.textContent.includes('视频候选 2 个'));
+  t('画面面板里有「视频候选 · 去审核」入口', !!entry && entry.textContent.includes('视频候选 1 个'));
   click(entry);
   await pause(30);
   t(
@@ -807,7 +827,7 @@ export async function runVideoReviewTests(t) {
   storage.switchProject(pid);
   update('rows');
   await pause(20);
-  t('切回来候选还在', state.candidates.length === 3 && cand('A1').decision === 'ok');
+  t('切回来候选还在', state.candidates.length === 2 && cand('A1').decision === 'ok');
   await flushWriteBack();
 
   /* 删除重复的旧批次：只清审核记录，保留表格素材、其他批次和清单结果。 */
@@ -968,11 +988,12 @@ export async function runVideoReviewTests(t) {
   await pause(60);
   t(
     '整段和单句的候选列在一起，按位置命名',
-    !!$(`#vrList .vr-plist [data-vr-id="${cand('P1a').id}"]`) &&
-      !!$(`#vrList .vr-plist [data-vr-id="${cand('P2').id}"]`) &&
-      $(`#vrList [data-vr-id="${cand('P2').id}"]`)?.textContent.includes('第 1–2 句整段 · 候选 1') &&
-      $(`#vrList [data-vr-id="${cand('P1b').id}"]`)?.textContent.includes('第 2 句 · 候选 1'),
-    [...document.querySelectorAll('#vrList .vr-plist [data-vr-id]')].map(x => x.textContent.slice(0, 30)).join(' | '),
+    !!row('P1a') &&
+      row('P2')?.textContent.includes('第 1–2 句整段 · 候选 1') &&
+      row('P1b')?.textContent.includes('第 2 句 · 候选 1'),
+    $$('#vrNav .vr-pick')
+      .map(x => x.textContent.slice(0, 30))
+      .join(' | '),
   );
   setDecision(cand('P1a').id, 'ok');
   setDecision(cand('P1b').id, 'ok');
@@ -984,8 +1005,8 @@ export async function runVideoReviewTests(t) {
     '单句的只配它那一句',
     !us(1).find(u => u.assetId === aid('P1b'))?.off && us(0).find(u => u.assetId === aid('P1b'))?.off === true,
   );
-  t('排满后列表上写已排 6 / 口播 6 秒', $('#vrList .vr-pfill-head')?.textContent.includes('已排 6 / 口播 6 秒'));
-  click($(`#vrList .vr-done.d-idle[data-vr-id="${cand('P2').id}"]`));
+  t('排满后标题旁写已排 6 / 口播 6 秒', $('#vrList .vr-shot-head .vr-pst')?.textContent.includes('已排 6 / 口播 6 秒'));
+  click(row('P2'));
   await pause(30);
   setDecision(cand('P2').id, 'ok');
   await pause(60);
@@ -1035,7 +1056,7 @@ export async function runVideoReviewTests(t) {
       roleOf('P1a') === 'main' &&
       atOf('P1a')?.start === 0 &&
       atOf('P1a')?.end === 3 &&
-      $('#vrList .vr-pfill-head')?.textContent.includes('已排 3 / 口播 6 秒'),
+      $('#vrList .vr-shot-head .vr-pst')?.textContent.includes('已排 3 / 口播 6 秒'),
     JSON.stringify(us(0).map(u => [u.role, u.at])),
   );
   const p1bAt = atOf('P1b');
@@ -1219,15 +1240,34 @@ export async function runVideoReviewTests(t) {
   setReworkNote([lines()[4]], '结尾画面太暗');
   let replyDoc = null;
   let writeOk = false;
-  window.fjtHooks.writeReworkDoc = async (_file, content) => {
+  const tried = [];
+  window.fjtHooks.writeReworkDoc = async (file, content) => {
     replyDoc = JSON.parse(content);
+    tried.push(file);
     return { ok: writeOk, error: '测试写入失败' };
   };
   openRework();
   await pause(30);
+  t(
+    '待返工页只写要求：没有审核按钮；一个按钮一次生成全部待返工，写明共几项，左栏不再另放按钮',
+    !!$('#vrList .vr-rw-main [data-vr-rw-note]') &&
+      !$('#vrList [data-vr-d]') &&
+      !$('#vrNav .vr-nav-cands') &&
+      $('#vrList #vrReworkDoc')?.textContent.includes('生成返工单（共 2 项）') &&
+      !$('#vrNav #vrReworkDoc') &&
+      !$('#vrNav .vr-rw-sum'),
+  );
   click('#vrReworkDoc');
   await pause(50);
-  t('返工单写入失败时不登记任务，也不显示已生成', !Object.keys(state.reworkRequests).length && !$('#vrNav .vr-bother'));
+  t(
+    '返工单写入失败时不登记任务，也不显示已生成',
+    !Object.keys(state.reworkRequests).length && !$('#vrList .vr-rw-sent'),
+  );
+  t(
+    '返工单不用选位置：先试片段保存位置，写不进去就放到软件自己的返工单文件夹',
+    tried.join() === '/tmp/返工测试/返工单·分散返工测试.json,返工单·分散返工测试.json',
+    tried.join(),
+  );
   writeOk = true;
   click('#vrReworkDoc');
   await pause(50);
@@ -1236,7 +1276,8 @@ export async function runVideoReviewTests(t) {
     replyDoc?.sentences === '第1、5句' &&
       replyDoc.shots.map(s => s.lines).join() === '1,5' &&
       state.reworkRequests[replyDoc.id]?.targets.length === 2 &&
-      state.reworkRequests[replyDoc.id].targets[0].note === '开头换成近景',
+      state.reworkRequests[replyDoc.id].targets[0].note === '开头换成近景' &&
+      !!$('#vrList .vr-rw-sent [data-vr-rw-reveal]'),
   );
   const replyShot = n => ({
     lines: String(n),

@@ -9,17 +9,7 @@ import { slideIn } from '../ui/base/anim.js';
 
 import { runCommand } from '../ui/base/commands.js';
 
-import {
-  page,
-  touched,
-  batches,
-  leadOf,
-  isPending,
-  curShots,
-  curGroup,
-  orderedCandidates,
-  reworkList,
-} from './review-model.js';
+import { page, batches, leadOf, isPending, curShots, curGroup, orderedCandidates, reworkList } from './review-model.js';
 
 /* 导航拥有批次、画面切换和审后跳转；宿主提供重画、停止播放和节点查询。 */
 export function createReviewNavigation({ render: renderVideoReview, stop: stopAll, query: $ }) {
@@ -48,7 +38,6 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
     const dir = order.indexOf(key) >= order.indexOf(page.curShot) ? 1 : -1;
     page.curShot = key;
     page.curCand = null;
-    touched.clear();
     stopAll();
     renderVideoReview();
     $('#vrList')?.scrollTo?.({ top: 0 });
@@ -81,7 +70,6 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
   /* 审核和表格共用视图状态与布局，不登记弹窗，也不盖在表格上。 */
   function openVideoReview(rowId = null) {
     page.mode = 'review';
-    touched.clear();
     page.curCand = null;
     pickDefaults(rowId);
     const wasOpen = viewState.view === 'review';
@@ -96,7 +84,6 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
     if (id === page.curBatch) return;
     page.curBatch = id;
     page.curShot = page.curCand = null;
-    touched.clear();
     stopAll();
     clearTimeout(advanceTimer);
     renderVideoReview();
@@ -107,7 +94,6 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
     if (next === page.mode) return;
     page.mode = next;
     page.curCand = null;
-    touched.clear();
     stopAll();
     clearTimeout(advanceTimer);
     renderVideoReview();
@@ -117,7 +103,6 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
     if (id === page.curRework) return;
     page.curRework = id;
     page.curCand = null;
-    touched.clear();
     stopAll();
     renderVideoReview();
     $('#vrList')?.scrollTo?.({ top: 0 });
@@ -132,7 +117,6 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
       if (own) page.curRework = own.key;
     }
     page.mode = 'rework';
-    touched.clear();
     page.curCand = null;
     const wasOpen = viewState.view === 'review';
     runCommand('view:set', 'review');

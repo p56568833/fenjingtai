@@ -9,7 +9,7 @@ import { previewOf } from './review-frames.js';
 import { candName } from './review-model.js';
 
 /* 宿主提供候选预览位置和卡片位置，组件不查询整张页面。 */
-export function createReviewPreview({ host, card, selectedCandidate, pause: pauseReviewPlayback }) {
+export function createReviewPreview({ host, card, selectedCandidate, pause: pauseReviewPlayback, closeText }) {
   const candOf = id => state.candidates.find(x => x.id === id);
   let shown = null; // 正盖在左边播放的候选 id
 
@@ -29,7 +29,7 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
     if (!host || !c) return false;
     if (shown !== id || !host.querySelector('.vr-stage')) {
       stopClip();
-      host.innerHTML = `<div class="vr-pv-head"><span class="vr-pv-badge">候选</span><span class="vr-pv-title">${esc(candName(c))} · ${fmtTime(c.best?.in ?? c.in)}–${fmtTime(c.best?.out ?? c.out)}</span><button class="vr-pv-close" data-vr-pv-close title="收起候选，回到排好的画面">回到画面时间</button></div>${playerHTML(previewOf(c))}`;
+      host.innerHTML = `<div class="vr-pv-head"><span class="vr-pv-badge">候选</span><span class="vr-pv-title">${esc(candName(c))} · ${fmtTime(c.best?.in ?? c.in)}–${fmtTime(c.best?.out ?? c.out)}</span><button class="vr-pv-close" data-vr-pv-close title="收起这段预览">${closeText()}</button></div>${playerHTML(previewOf(c))}`;
     }
     shown = id;
     host.hidden = false;

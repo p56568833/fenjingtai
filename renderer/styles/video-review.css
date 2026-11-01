@@ -106,9 +106,6 @@
   flex: 1 1 auto;
   min-height: 0;
 }
-.vr-shot.focus h4 {
-  color: var(--accent);
-}
 .vr-shot h4 {
   font-size: 14px;
   font-weight: 800;
@@ -138,12 +135,6 @@
 }
 .vr-cand.d-no {
   opacity: 0.55;
-}
-.vr-cand.d-re {
-  border-color: color-mix(in srgb, var(--c-stock) 45%, var(--hairline));
-  box-shadow:
-    inset 3px 0 0 var(--c-stock),
-    var(--shadow-2);
 }
 .vr-head {
   display: flex;
@@ -264,11 +255,6 @@
 }
 .vr-btn.no.on {
   background: var(--c-b);
-  color: #fff;
-  border-color: transparent;
-}
-.vr-btn.re.on {
-  background: var(--c-stock);
   color: #fff;
   border-color: transparent;
 }
@@ -449,12 +435,6 @@
 .vr-nav-done.re {
   color: #d9820b;
 }
-.vr-cand.focus {
-  box-shadow:
-    0 0 0 2px var(--accent),
-    0 8px 24px -10px color-mix(in srgb, var(--accent) 45%, transparent);
-  transform: translateY(-1px);
-}
 .vr-tag {
   margin-left: auto;
   font-size: 11px;
@@ -475,66 +455,9 @@
   background: color-mix(in srgb, #e5484d 12%, transparent);
   color: #c73338;
 }
-.vr-tag.d-re {
-  background: color-mix(in srgb, #d9820b 14%, transparent);
-  color: #b26a06;
-}
-.vr-done {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow: var(--shadow-2);
-  font-size: 12.5px;
-  color: var(--text-2);
-  /* 审过的一行：点开能看完整卡片（审核结果不变） */
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background-color 0.15s;
-}
 /* 输入状态直接切换，不在进入 / 退出编辑时渐变边框和底色。 */
-/* 属于「基础」，保持在 .vr-done 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
 :is(input, textarea, [contenteditable]) {
   transition: none;
-}
-.vr-done .vr-tag {
-  margin-left: 0;
-}
-.vr-done-title {
-  /* 名字（第几句 · 候选几）完整显示，后面的 AI 标题小字先省略 */
-  flex: 0 0 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  /* 审过的一行：标题和原来的英文 key 一样醒目（key 不再显示） */
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--text);
-}
-.vr-done-sub {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--text-3);
-}
-.vr-done .vr-mini {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.vr-done-note {
-  color: var(--text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
 }
 .vr-empty.small {
   padding: 24px 0;
@@ -720,9 +643,6 @@ body.dark .vr-sync {
 .vr-dpill[data-d='no'] {
   background: var(--c-b);
 }
-.vr-dpill[data-d='re'] {
-  background: var(--c-stock);
-}
 .vr-shot-range {
   font-size: 12px;
   font-weight: 650;
@@ -765,38 +685,6 @@ body.dark .vr-sync {
 }
 .vr-shot-head.stuck::after {
   opacity: 1;
-}
-.vr-top-r {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  flex: none;
-  margin-left: auto;
-}
-.vr-done.has-thumbs {
-  padding: 8px 10px 8px 8px;
-  gap: 12px;
-}
-.vr-done-thumbs {
-  display: grid;
-  grid-template-columns: 132px;
-  flex: none;
-}
-.vr-done-thumbs .vr-cell {
-  font-size: 11px;
-}
-.vr-done-thumbs .vr-cell.ld {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-  color: var(--text-3);
-}
-.vr-done-thumbs .vr-cell {
-  border-radius: 8px;
-}
-.vr-done-thumbs .vr-cell img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .vr-top .vr-sync {
   margin-left: 0;
@@ -858,13 +746,6 @@ body.dark .vr-sync {
 .vr-batch-add:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-.vr-bdate {
-  margin-left: auto;
-  font-size: 11.5px;
-  color: var(--text-2);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 .vr-bprogress {
   display: flex;
@@ -1007,13 +888,6 @@ body.dark .vr-sync {
   letter-spacing: 0.012em;
   color: var(--text);
 }
-.vr-line.hl > .vr-line-text {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-}
-.vr-line.hl > .vr-line-text .vr-line-no {
-  color: var(--accent);
-  font-weight: 700;
-}
 .vr-cov {
   align-self: center;
   padding: 2px 10px;
@@ -1075,24 +949,6 @@ body.dark .vr-cov.miss {
 body.dark .vr-page p.vr-cov-note {
   color: #f0a43a;
 }
-.vr-tag.d-wait {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
-}
-.vr-tag.d-idle {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-  color: var(--text-3);
-}
-.vr-done.d-idle {
-  box-shadow: none;
-  background: transparent;
-  border-style: dashed;
-  color: var(--text-3);
-}
-.vr-done.d-idle .vr-done-title {
-  color: var(--text-2);
-}
-
 /* ── 画面：左边「对着口播看画面」，右边这个画面的视频（通过 / 不要），下面两条轨 ──
    播放器和画面时间轴就是连播预览那一套，各自的实例只看这一个画面（features/review-playback.js） */
 .vr-split {
@@ -1303,53 +1159,6 @@ body:not(.dark) .pt-box.docked .pt-card-note {
 body.dark .vr-pst.ok {
   color: #3ecf8e;
 }
-.vr-pfill-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 12.5px;
-  color: var(--text-2);
-  font-variant-numeric: tabular-nums;
-}
-.vr-plist {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-}
-.vr-plist .vr-cand,
-.vr-plist .vr-done {
-  margin: 0;
-}
-/* 点「也配这句」跳过去：目标候选闪一下 */
-.vr-flash {
-  animation: vr-flash 1.2s ease-out;
-}
-@keyframes vr-flash {
-  0%,
-  30% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
-  }
-  100% {
-    box-shadow: 0 0 0 0 transparent;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .vr-flash {
-    animation: none;
-    outline: 2px solid var(--accent);
-  }
-}
-/* 候选挂在句子下面，和句子文字左对齐 */
-.vr-line-cands {
-  margin: 8px 0 8px 52px;
-}
-.vr-page p.vr-span {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--accent);
-}
 .detail-rework.on span {
   min-width: 0;
   overflow: hidden;
@@ -1425,10 +1234,6 @@ body.dark .vr-pst.ok {
   border-color: transparent;
   color: var(--text-3);
   font-size: 12px;
-}
-.vr-done:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline-2));
-  background: var(--card);
 }
 .inspector .vr-open:hover {
   background: color-mix(in srgb, var(--accent) 14%, var(--card));
@@ -1544,11 +1349,6 @@ body.dark .vr-tab-pill {
   color: var(--text-3);
   cursor: help;
 }
-.vr-rw-sum {
-  margin: 6px 0 10px;
-  font-size: 12px;
-  color: var(--text-2);
-}
 .vr-rw-doc {
   width: 100%;
   margin-top: 4px;
@@ -1595,20 +1395,6 @@ body.dark .vr-tab-pill {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
 }
-.vr-rw-req {
-  margin: 4px 0 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow: var(--shadow-xs);
-}
-/* 当前画面：要换掉的素材，一块一个 */
-.vr-rw-nows {
-  margin-bottom: 14px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--hairline);
-}
 .vr-rw-now {
   display: flex;
   align-items: flex-start;
@@ -1649,10 +1435,6 @@ body.dark .vr-tab-pill {
   font-size: 12px;
   color: var(--text-3);
 }
-.vr-tag.d-out {
-  background: color-mix(in srgb, #d9820b 14%, transparent);
-  color: #b26a06;
-}
 .vr-rw-why {
   display: flex;
   align-items: center;
@@ -1680,25 +1462,6 @@ body.dark .vr-tab-pill {
   font-size: 12px;
   color: var(--text-3);
 }
-.vr-rw-req label.vr-rw-ask span {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--text-3);
-}
-.vr-rw-req textarea {
-  display: block;
-  width: 100%;
-  margin: 8px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--hairline-2);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--text);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.6;
-  resize: vertical;
-}
 .vr-rw-current {
   display: flex;
   flex-wrap: wrap;
@@ -1723,57 +1486,586 @@ body.dark .vr-tab-pill {
 .vr-rw-foot .vr-mini.ghost {
   margin-left: -10px;
 }
-.vr-rw-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 16px 0 8px;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--text);
-}
-.vr-rw-group:first-child {
-  margin-top: 0;
-}
-.vr-rw-group span {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-3);
-}
 .vr-meta .vr-best {
   font-weight: 600;
   color: var(--text);
 }
+/* 窄窗口（最小 980 宽）也保持左右两栏，只把左栏收窄 */
 @media (max-width: 1000px) {
   .vr-body {
     grid-template-columns: 210px minmax(0, 1fr);
   }
-  .vr-done-thumbs {
-    grid-template-columns: 108px;
-  }
-  .vr-line-cands {
-    margin-left: 0;
-  }
-  .vr-split {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .vr-watch {
-    position: static;
-  }
-  /* 窄窗口上下排：播放器回到 16:9，不再撑满高度 */
-  #vrList > .vr-shot {
-    min-height: 0;
-  }
-  .pt-box.docked .pt-stage {
-    flex: none;
-    min-height: 0;
-    aspect-ratio: 16 / 9;
-  }
-  .vr-plans > .vr-pbody {
-    position: static;
-    overflow: visible;
-  }
-  .vr-plans .vr-cand > .vr-row:not(.vr-after) {
-    position: static;
-  }
+}
+
+/* ── 审核页（待审）：一屏一个画面。左边播放器 + 时间轨，右边候选列表 + 选中候选的详情。
+   窗口矮时播放器先缩，候选和审核按钮一直在眼前；整页只用一种浅底，画面本身才是黑的 ── */
+#vrList > .vr-desk {
+  height: 100%;
+  min-height: 460px;
+}
+.vr-desk .vr-shot-head {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 0 0 12px;
+}
+.vr-desk .vr-shot-head::after {
+  display: none;
+}
+.vr-desk .vr-shot-head h4 {
+  margin: 0;
+  gap: 10px;
+}
+.vr-desk .vr-shot-range {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 13px;
+}
+.vr-desk .vr-shot-label {
+  font-size: 18px;
+}
+.vr-desk .vr-rework-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+.vr-desk .vr-split {
+  flex: 1 1 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 36%, 440px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 20px;
+  padding-top: 0;
+  border-top: 0;
+}
+.vr-desk .vr-watch {
+  position: static;
+  min-height: 0;
+}
+.vr-desk .vr-dock-wrap,
+.vr-desk #vrDockPlayer,
+body .vr-desk .vr-watch .pt-box.docked {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+body .vr-desk .vr-watch .pt-box.docked {
+  padding: 0;
+  gap: 10px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.vr-desk .pt-box.docked .pt-stage {
+  flex: 1 1 auto;
+  aspect-ratio: 16 / 9;
+  min-height: 150px;
+  max-height: none;
+  border-radius: 10px;
+}
+.vr-desk .pt-box.docked .pt-sub {
+  height: calc(2 * 1.4em);
+}
+.vr-desk .vr-preview {
+  padding: 0;
+  border-radius: 10px;
+  background: #0d1117;
+  box-shadow: none;
+}
+.vr-desk .vr-pv-head {
+  margin: 0;
+  padding: 8px 10px;
+}
+.vr-desk .vr-pv-badge {
+  background: var(--accent);
+  color: #fff;
+}
+.vr-desk .vr-preview .vr-stage {
+  padding: 0 10px 10px;
+}
+/* 时间轨照旧是深色一块（浅底上看不清色块），左右拉通；窗口矮时先缩播放器，时间轨不被压扁 */
+.vr-desk .vr-timeline {
+  flex: none;
+}
+/* 右边：左栏选中那个候选的详情 */
+.vr-desk .vr-plans > .vr-pbody {
+  padding: 0 4px 0 0;
+}
+/* 左栏：当前画面下面的候选，缩进一级，左边一条细线连着画面；每个两行：名字，状态 · 秒数 · AI 写的标题 */
+.vr-nav-cands {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 8px 16px;
+  padding-left: 8px;
+  border-left: 1px solid var(--hairline-2);
+}
+.vr-pick {
+  --st: var(--text-3);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.vr-pick.d-wait {
+  --st: var(--accent);
+}
+.vr-pick.d-ok {
+  --st: var(--c-real);
+}
+.vr-pick:hover {
+  background: var(--row-hover);
+}
+.vr-pick.on {
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--hairline-2);
+}
+.vr-pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.vr-pick-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vr-pick-name::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--st);
+}
+.vr-pick.d-no .vr-pick-name,
+.vr-pick.d-idle .vr-pick-name {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.vr-pick-sub {
+  padding-left: 12px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.vr-pick-st {
+  font-weight: 600;
+  color: var(--st);
+}
+.vr-desk .vr-detail.vr-cand {
+  margin: 12px 0 2px;
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: none;
+  opacity: 1;
+  transform: none;
+}
+.vr-detail .vr-head {
+  align-items: center;
+}
+.vr-detail .vr-head .vr-tag {
+  margin-left: 0;
+}
+.vr-page .vr-detail p.vr-why {
+  margin: 6px 0 0;
+  color: var(--text-2);
+}
+.vr-page .vr-detail p.vr-cov-note {
+  margin: 4px 0 0;
+}
+.vr-desk .vr-detail .vr-strip {
+  margin: 12px 0 8px;
+}
+.vr-desk .vr-detail .vr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.vr-detail .vr-meta .vr-best {
+  font-weight: 400;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.vr-detail .vr-meta .vr-link {
+  font-size: 12px;
+}
+.vr-desk .vr-detail .vr-decide {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.vr-detail .vr-decide .vr-btn {
+  height: 38px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.vr-desk .vr-detail .vr-note {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 34px;
+  margin-top: 8px;
+}
+.vr-detail .vr-after {
+  margin-top: 8px;
+  font-size: 12px;
+}
+/* 左栏：批次是一行标题 + 细进度条，不再是浮起来的卡片；画面行的待审数用文字，不用实心胶囊 */
+.vr-nav .vr-bh {
+  padding: 4px 4px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.vr-nav .vr-bprogress {
+  margin-top: 8px;
+}
+.vr-nav-shot .vr-nav-n {
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+}
+.vr-nav-shot.on {
+  box-shadow: none;
+}
+.vr-nav .vr-bheader {
+  flex-wrap: nowrap;
+}
+.vr-nav .vr-batch-head {
+  flex: 1;
+}
+.vr-nav .vr-batch-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-nav .vr-bprogress .vr-nav-n {
+  color: var(--accent);
+}
+.vr-nav .vr-batch-head b {
+  min-width: 0;
+}
+/* 左栏：上面批次和画面（可滚动），底部是「保存已通过的片段」和写回提醒，不再单独占页面顶上一整行 */
+.vr-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--hairline);
+  padding-right: 12px;
+}
+.vr-side > .vr-nav {
+  flex: 1;
+  border-right: 0;
+  padding-right: 0;
+}
+.vr-side > .vr-top {
+  flex: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+.vr-side > .vr-top[hidden] {
+  display: none;
+}
+.vr-side .vr-sync {
+  margin-left: 0;
+}
+.vr-side > .vr-nav {
+  overflow-x: hidden;
+}
+.vr-detail .vr-decide .vr-btn {
+  padding: 0 6px;
+  white-space: nowrap;
+}
+/* 中间这一行只有内容那么高，时间轨紧跟在下面，多出来的高度留在最底下；
+   窗口矮时这一行先缩：播放器变小，右栏在自己的高度里滚，不压到时间轨 */
+#vrList > .vr-desk > .vr-split {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.vr-desk .vr-plans {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.vr-desk .vr-plans > .vr-pbody {
+  position: static;
+  overflow: visible;
+}
+.vr-desk .vr-watch {
+  overflow: hidden;
+}
+.vr-detail .vr-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-detail .vr-head .vr-tag,
+.vr-detail .vr-head .vr-mini {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* ── 待返工：只写要求、交给 AI。一栏从上到下：原文 → 现在的画面 → 想要什么样的新画面 + 生成返工单 → 否掉的候选（参考） ── */
+/* 每一段都是「小标题 + 内容」，左边对齐在同一条线上，段与段之间同样的距离；只有输入框和卡片带框 */
+.vr-rw-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding-bottom: 24px;
+}
+.vr-rw-main h5 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+.vr-rw-main h5 span {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+/* 这几句原文：不带框的几行字，句号在左边窄窄一列，和其他段落的左边对齐 */
+.vr-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vr-rw-main .vr-line {
+  padding: 0;
+  border-top: 0;
+}
+.vr-rw-main .vr-line-text {
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 0 6px;
+  padding: 0;
+}
+.vr-rw-main .vr-line-no {
+  text-align: left;
+}
+.vr-page .vr-rw-main .vr-line-text p {
+  font-size: 15px;
+  line-height: 1.65;
+}
+/* 现在的画面：要换掉的素材一个一行（直接改不满意的地方），其余挂着的素材和没画面的句子一行小字 */
+.vr-rw-main .vr-rw-now {
+  margin-bottom: 8px;
+  border-color: var(--hairline);
+  background: var(--card);
+}
+.vr-rw-main .vr-rw-current {
+  margin: 0;
+}
+.vr-rw-blank {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #d9820b 12%, transparent);
+  color: #b26a06;
+}
+body.dark .vr-rw-blank {
+  color: #f0a33a;
+}
+.vr-rw-main .vr-rw-tip {
+  margin: 8px 0 0;
+}
+.vr-rw-ask {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.vr-rw-ask span {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.vr-rw-main textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.vr-rw-main .vr-rw-foot {
+  margin-top: 12px;
+}
+.vr-rw-main .vr-rw-foot .vr-link {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.vr-rw-main .vr-rw-foot .vr-link:hover {
+  color: var(--text);
+}
+.vr-rw .vr-shot-head {
+  position: static;
+  padding: 0 0 14px;
+}
+.vr-rw .vr-shot-head::after {
+  display: none;
+}
+.vr-rw .vr-shot-range {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 13px;
+}
+.vr-rw .vr-shot-label {
+  font-size: 18px;
+}
+.vr-rw .vr-rw-state {
+  padding: 2px 10px;
+}
+/* 新候选到了：一行提示，去待审页审 */
+.vr-rw-go {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  margin-bottom: 18px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 10px;
+  background: var(--filter-active-bg);
+  color: var(--filter-active-tx);
+  font-size: 13px;
+}
+.vr-rw-go span {
+  flex: 1;
+}
+/* 否掉的候选：一行小卡片（封面一帧、名字、否掉的理由），只当参考 */
+.vr-rw-refs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 210px));
+  gap: 10px;
+}
+.vr-rw-ref {
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--card);
+}
+.vr-rw-ref .vr-strip {
+  display: block;
+  margin: 0;
+}
+.vr-rw-ref .vr-cell {
+  border-radius: 0;
+}
+.vr-rw-ref-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px 9px;
+  min-width: 0;
+}
+.vr-rw-ref-body b {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.vr-rw-ref-why {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c73338;
+}
+.vr-rw-ref-why.none {
+  color: var(--text-3);
+}
+body.dark .vr-rw-ref-why:not(.none) {
+  color: #ff8e86;
+}
+.vr-rw-ref-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.vr-rw-ref-foot .vr-link {
+  font-size: 12px;
+}
+/* 预览：在这排卡片下面播，和画面一样宽 */
+.vr-preview.vr-rw-pv {
+  position: static;
+  margin-top: 10px;
+  aspect-ratio: 16 / 9;
+  max-height: 60vh;
+  border-radius: 10px;
+  box-shadow: none;
+}
+.vr-rw-pv .vr-pv-badge {
+  background: var(--accent);
+  color: #fff;
+}
+/* 左栏待返工：一行总数 + 生成返工单 */
+.vr-nav .vr-rw-card .vr-bheader b {
+  font-size: 13.5px;
+}
+.vr-nav .vr-rw-doc {
+  width: 100%;
+  margin-top: 10px;
+}
+
+/* 审核页里的输入框：聚焦时边框变主色、贴着框的一圈淡光，不用全局那种离框 3px 的外描边（会压到上下的字） */
+.vr-page textarea:focus-visible,
+.vr-page input:not([type='checkbox'], [type='radio'], [type='range']):focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+/* 生成过返工单：按钮左边一行小字，写时间、能在访达里找到那份文件 */
+.vr-rw-sent {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 14px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.vr-rw-sent .vr-link {
+  font-size: 12px;
 }

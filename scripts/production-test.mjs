@@ -1714,6 +1714,20 @@ test('候选清单的「要的画面」「缺了什么」「给哪几句」导�
     ],
   );
   assert.equal(back[0].plan, undefined, '不再有方案');
+  const merged = sanitizeProjectCandidates(
+    JSON.parse(
+      JSON.stringify([
+        { ...a, decision: 're' },
+        { ...b, decision: 'no' },
+      ]),
+    ),
+    { rowIds: new Set([1, 2]) },
+  );
+  assert.deepEqual(
+    merged.map(x => x.decision),
+    ['no', 'no'],
+    '旧版的「换一个」载入时并成「不要」',
+  );
 });
 test('候选清单格式 v4 是硬性规定：规范里的示例本身合格，「候选清单格式.md」和软件里的规范一字不差', () => {
   assert.deepEqual(validateCandidateDoc(CANDIDATE_EXAMPLE), []);
@@ -2096,7 +2110,7 @@ test('待返工：否掉了又没通过的画面、对素材点了不满意、�
     in: 0,
     out: 1,
   });
-  const cands = [c('a', 2, 'no'), c('b', 3, 're'), c('d', 3, 'ok'), c('e', 4, '')];
+  const cands = [c('a', 2, 'no'), c('b', 3, 'no'), c('d', 3, 'ok'), c('e', 4, '')];
   let list = reworkShots(rows, cands);
   assert.deepEqual(
     list.map(s => s.lead.id),
@@ -2217,11 +2231,32 @@ test('待返工按句子：共用画面里只对第 1 句的素材不满意，�
     [['1:1-2', '要近景']],
   );
 });
+test('待返工：通过的候选只放在备选上，不算盖住那几句；那几句否掉的照样要返工', () => {
+  const row = (id, no, uses) => ({ id, kind: 'line', no, text: '句' + no, groupId: 'g', assetUsages: uses });
+  const rows = [
+    row(1, 1, [{ assetId: 'w', role: 'alt' }]),
+    row(2, 2, [
+      { assetId: 'w', role: 'alt' },
+      { assetId: 'b', role: 'main' },
+    ]),
+    row(3, 3, [{ assetId: 'w', role: 'alt' }]),
+  ];
+  const cand = (id, forIds, decision, assetId) => ({ id, rowId: 1, forIds, decision, assetId, decidedAt: 10 });
+  const cands = [cand('whole', [1, 2, 3], 'ok', 'w'), cand('two', [2], 'ok', 'b'), cand('x', [3], 'no')];
+  const list = reworkShots(rows, cands);
+  assert.deepEqual(
+    list.map(s => [s.target.map(m => m.no), s.rejected.map(c => c.id)]),
+    [[[3], ['x']]],
+    '整段只在备选上：第 3 句没有画面，否掉的第 3 句候选进待返工',
+  );
+  rows[2].assetUsages = [{ assetId: 'w', role: 'main' }];
+  assert.deepEqual(reworkShots(rows, cands), [], '整段在第 3 句是主画面：盖住了，不用返工');
+});
 test('待返工：同一画面里句子重叠的几项合成一项，返工单也只写一条', () => {
   const row = (id, no) => ({ id, kind: 'line', no, text: '句' + no, groupId: 'g', assetUsages: [] });
   const rows = [row(1, 1), row(2, 2), row(3, 3), row(4, 4)];
   const cand = (id, forIds, decision) => ({ id, rowId: 1, forIds, decision, decidedAt: 10, url: 'https://x/' + id });
-  const cands = [cand('a', [1], 'no'), cand('b', [1, 2, 3, 4], 're'), cand('c', [2], 'no'), cand('p', [3], '')];
+  const cands = [cand('a', [1], 'no'), cand('b', [1, 2, 3, 4], 'no'), cand('c', [2], 'no'), cand('p', [3], '')];
   const list = reworkShots(rows, cands);
   assert.deepEqual(
     list.map(s => [s.key, s.target.map(m => m.no)]),
@@ -2337,7 +2372,7 @@ test('待返工：返工单写句号、要换掉的素材和理由、补充要�
   setAssetRework(rows, rows[0], 'x', { note: '要彩色', at: 1 });
   setRework(rows, rows[0], { note: '再补一个近景', at: 2 });
   const cands = [
-    { id: 'a', rowId: 1, decision: 're', note: '太暗', title: 'A', url: 'https://a', in: 1, out: 2, forText: '7' },
+    { id: 'a', rowId: 1, decision: 'no', note: '太暗', title: 'A', url: 'https://a', in: 1, out: 2, forText: '7' },
   ];
   const doc = buildReworkDoc({
     title: 'T',
@@ -2360,7 +2395,7 @@ test('待返工：返工单写句号、要换掉的素材和理由、补充要�
     url: 'https://a',
     in: 1,
     out: 2,
-    decision: '换一个',
+    decision: '不要',
     for: '7',
     note: '太暗',
     batch: '第 1 批',

@@ -34,8 +34,12 @@ function tabsHTML() {
     `<button class="vr-tab${page.mode === id ? ' on' : ''}" role="tab" aria-selected="${page.mode === id}" data-vr-tab="${id}" title="${tip}">${label}${n ? `<b>${n}</b>` : ''}</button>`;
   return `<div class="vr-tabs" role="tablist">${tab('review', '待审', p, '按批次审核导入的视频候选')}${tab('rework', '待返工', r, '所有批次里没过关、或者你写了要求的画面')}</div>`;
 }
-export function navHTML(all, shots) {
+/* candsOf(画面)：这个画面下面要列的候选（只有选中的画面有），列在画面那一行下面 */
+const candsHTML = html => (html ? `<div class="vr-nav-cands" role="listbox" aria-label="候选">${html}</div>` : '');
+export function navHTML(all, shots, candsOf = () => '') {
   let sec = null;
+  // 一个都没通过、还在待返工页里的画面：这里也叫「待返工」，和待返工页说法一致
+  const rework = new Set(reworkShots(state.rows, state.candidates).map(s => s.lead.id));
   const shotsHTML = shots
     .map(g => {
       const head = g.section !== sec ? `<div class="vr-nav-sec">${esc(g.section || '（没有章节）')}</div>` : '';
@@ -44,11 +48,11 @@ export function navHTML(all, shots) {
         ? `<span class="vr-nav-n">${g.pending} 待审</span>`
         : g.ok
           ? '<span class="vr-nav-done ok">✓ 已通过</span>'
-          : g.re
-            ? '<span class="vr-nav-done re">等新候选</span>'
+          : rework.has(g.key)
+            ? '<span class="vr-nav-done re">待返工</span>'
             : '<span class="vr-nav-done">已审完</span>';
       const label = g.cands[0]?.label ? `<small>${esc(g.cands[0].label)}</small>` : '';
-      return `${head}<button class="vr-nav-shot${g.key === page.curShot ? ' on' : ''}${g.pending ? '' : ' done'}" data-vr-goto="${esc(String(g.key))}"><span>${rangeText(g.lead)}${label}</span>${status}</button>`;
+      return `${head}<button class="vr-nav-shot${g.key === page.curShot ? ' on' : ''}${g.pending ? '' : ' done'}" data-vr-goto="${esc(String(g.key))}"><span>${rangeText(g.lead)}${label}</span>${status}</button>${candsHTML(candsOf(g))}`;
     })
     .join('');
   const b = all.find(x => x.id === page.curBatch);
@@ -70,11 +74,10 @@ export function navHTML(all, shots) {
           <button class="vr-batch-head" id="vrBatchPick" data-vr-batch="${esc(b.id)}" title="${esc(tip)}" aria-label="${esc(batchLabel(b))}，切换批次，共 ${all.length} 批" aria-haspopup="menu">
             <b>${esc(batchLabel(b))}</b><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
           </button>
-          <span class="vr-bdate">${fmtDay(b.at)}</span>
           <button class="vr-batch-more" id="vrBatchMore" title="这一批的操作：保存位置、删除批次" aria-label="批次操作" aria-haspopup="menu">⋯</button>
         </div>
         ${name ? `<div class="vr-bname" title="${esc(name)}">${esc(name)}</div>` : ''}
-        <div class="vr-bprogress">${status}<span class="vr-bcount">已审 ${reviewed}/${n}</span></div>
+        <div class="vr-bprogress">${status}<span class="vr-bcount">${b.at ? `${fmtDay(b.at)} · ` : ''}已审 ${reviewed}/${n}</span></div>
         <div class="vr-bbar" role="progressbar" aria-label="本批审核进度" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${reviewed}"><i style="width:${reviewedPct.toFixed(1)}%"></i></div>
         ${otherPending ? `<div class="vr-bother">其他批次还有 ${otherPending} 个待审</div>` : ''}
       </div>
@@ -96,7 +99,7 @@ function reworkReason(s) {
 const REWORK_HELP =
   '这里列出要重新找画面的句子：审核时否掉、还没有通过的；在右侧面板对素材点了「不满意」的；要 AI 再找一个的。\n生成返工单交给找素材的 AI，新候选导入后在这里审；任何一个候选通过，这一项就离开这一页。';
 
-export function reworkNavHTML(list) {
+export function reworkNavHTML(list, candsOf = () => '') {
   let sec = null;
   const states = list.map(reworkState);
   const items = list
@@ -105,22 +108,12 @@ export function reworkNavHTML(list) {
       const head = section !== sec ? `<div class="vr-nav-sec">${esc(section || '（没有章节）')}</div>` : '';
       sec = section;
       const st = states[i];
-      return `${head}<button class="vr-nav-shot${s.key === page.curRework ? ' on' : ''}" data-vr-rw="${esc(s.key)}" title="${esc(s.target.map(m => m.text).join(''))}"><span>${reworkLabel(s)}<small>${esc(reworkReason(s))}</small></span><span class="vr-nav-done vr-rw-st s-${st.key}">${st.short}</span></button>`;
+      return `${head}<button class="vr-nav-shot${s.key === page.curRework ? ' on' : ''}" data-vr-rw="${esc(s.key)}" title="${esc(s.target.map(m => m.text).join(''))}"><span>${reworkLabel(s)}<small>${esc(reworkReason(s))}</small></span><span class="vr-nav-done vr-rw-st s-${st.key}">${st.short}</span></button>${candsHTML(candsOf(s))}`;
     })
     .join('');
-  const todo = states.filter(x => x.key === 'todo').length;
-  const sum = list.length
-    ? ['todo', 'sent', 'new']
-        .map(k => [k, states.filter(x => x.key === k).length])
-        .filter(([, n]) => n)
-        .map(([k, n]) => `${{ todo: '待发出', sent: '已发出', new: '有候选待审' }[k]} ${n}`)
-        .join(' · ')
-    : '';
+  // 每一项走到哪一步写在下面各自那一行上；这里只写总数。返工单在右边一次生成全部
   return `${tabsHTML()}<div class="vr-picker"><div class="vr-bh vr-rw-card">
-      <div class="vr-bheader"><b>待返工</b><span class="vr-rw-help" title="${esc(REWORK_HELP)}" aria-label="${esc(REWORK_HELP)}">?</span><span class="vr-bdate">${list.length} 项</span></div>
-      ${sum ? `<div class="vr-rw-sum">${sum}</div>` : ''}
-      <button class="btn primary vr-rw-doc" id="vrReworkDoc"${list.length ? '' : ' disabled'} title="把这一页全部写成一份返工单，放在片段保存位置，并复制一句话给找素材的 AI">${todo && todo < list.length ? `生成返工单（全部 ${list.length} 项）` : '生成返工单'}</button>
-      ${page.reworkDocAt ? `<div class="vr-bother">已生成 · ${fmtDay(page.reworkDocAt)}</div>` : ''}
+      <div class="vr-bheader"><b>${list.length ? `${list.length} 项要重新找画面` : '没有要返工的画面'}</b><span class="vr-rw-help" title="${esc(REWORK_HELP)}" aria-label="${esc(REWORK_HELP)}">?</span></div>
     </div></div>
     <div class="vr-shots">${items}</div>`;
 }

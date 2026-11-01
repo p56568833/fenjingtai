@@ -451,7 +451,7 @@ function writeReview(file, results, { now = () => new Date().toISOString(), writ
       const r = map.get(`${s.lines}|${c.key}`);
       if (!r) continue;
       c.review = {
-        decision: ['ok', 'no', 're'].includes(r.decision) ? r.decision : '',
+        decision: ['ok', 'no'].includes(r.decision) ? r.decision : '',
         note: String(r.note || ''),
         ...(r.savedPath ? { savedPath: r.savedPath } : {}),
         ...(r.decision === 'ok' ? { inUse: !!r.inUse } : {}),

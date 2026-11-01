@@ -17,12 +17,11 @@ export const page = {
   mode: 'review', // 'review' 待审（按批次） | 'rework' 待返工（所有批次没过关的画面）
   curRework: null, // 待返工页里选中的那一项（reworkShots 的 key：画面第一句 id + 句子范围）
   reworkDocAt: 0, // 这次打开软件后最近一次生成返工单的时间
+  reworkDocPath: '', // 那份返工单存在哪（「在访达中显示」用）
   curBatch: null, // 正在看的批次
   curShot: null, // 右边显示的画面（画面第一句的 id）
   curCand: null, // 键盘焦点所在的候选
 };
-/* 刚审过的候选先展开留在原处（来得及写意见、撤回），换画面后收成一行 */
-export const touched = new Set();
 
 /* 未采用：它给的那几句在正片轨上已经被通过的视频盖满了，不再算待审（想用还能自己点通过）。
    候选多的时候 isPending 会被调很多次：候选、审核结果、句子都没变就用上次算的 */
@@ -99,7 +98,6 @@ export function shotsOf(batch) {
       section: g.lead ? sectionOf(g.lead.id) : '',
       pending: g.cands.filter(isPending).length,
       ok: g.cands.filter(c => c.decision === 'ok').length,
-      re: g.cands.filter(c => c.decision === 're').length,
     }));
 }
 export const curBatchObj = () => batches().find(b => b.id === page.curBatch) || null;
@@ -160,8 +158,6 @@ export function trackFill(g) {
   const empty = layout.items.length ? mainGaps(layout).reduce((t, x) => t + x.end - x.start, 0) : layout.dur;
   return { got: Math.max(0, layout.dur - empty), dur: layout.dur, full: layout.items.length > 0 && empty === 0 };
 }
-/* 展开着的候选（待审的 + 这次刚审过的），按清单里的先后——↑↓ 换候选也按这个顺序走 */
-export const openOf = g => orderedCandidates(g).filter(c => isPending(c) || touched.has(c.id));
 
 /* ── 待返工：所有批次里没过关（否掉了、一个都没通过）或者你写了要求的画面，按稿子顺序列在一页 ── */
 export const reworkList = () => reworkShots(state.rows, state.candidates);
@@ -177,14 +173,6 @@ export const batchOfCand = c => {
   const b = batches().find(x => x.id === (c.batchId || 'legacy'));
   return b ? `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}` : '';
 };
-/* 待返工页只列还要审或者没过关的候选：否掉的、待审的，和刚在这一页审过的；
-   已通过、正挂在画面上的（包括要换掉的那个）不列——它在「当前画面」里，这里不给「撤回」，免得一点就把画面撤空 */
-export const reworkShown = item => {
-  const out = new Set((item?.replaces || []).map(x => x.assetId));
-  return item ? item.cands.filter(c => c.decision !== 'ok' || (touched.has(c.id) && !out.has(c.assetId))) : [];
-};
-export const reworkOpen = item => reworkShown(item).filter(c => !c.decision || touched.has(c.id));
-
 /* 这一项最近一次写进返工单的时间：返工单里要补的句子盖住了这一项的全部句子 */
 const sentAt = item =>
   Math.max(
