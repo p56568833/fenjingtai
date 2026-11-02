@@ -19,7 +19,8 @@ const MIN_VERSION = '11.6.0';
 const VERIFIED_VERSIONS = Object.freeze(['11.6.0', '11.6.13345', '11.6.13370']);
 const isVerifiedVersion = version => VERIFIED_VERSIONS.includes(String(version ?? ''));
 /* 只认纯数字点分版本（至少三段）；带后缀、空格或缺段的写法都当作认不出 */
-const versionParts = version => (/^\d+(\.\d+){2,}$/.test(String(version ?? '')) ? String(version).split('.').map(Number) : null);
+const versionParts = version =>
+  /^\d+(\.\d+){2,}$/.test(String(version ?? '')) ? String(version).split('.').map(Number) : null;
 function compareVersions(a, b) {
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
     const diff = (a[i] || 0) - (b[i] || 0);
