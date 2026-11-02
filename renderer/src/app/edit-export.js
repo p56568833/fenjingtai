@@ -346,11 +346,6 @@ function bindNativeEvents() {
   return true;
 }
 
-export const jianyingAvailable = () =>
-  typeof native.jianyingDetect === 'function' &&
-  typeof native.jianyingExport === 'function' &&
-  typeof native.onJianyingResult === 'function';
-
 function makeJobId() {
   return `jy_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -456,23 +451,6 @@ export async function startPreparedJianyingExport(
     console.error('通知导出任务已开始失败', error);
   }
   return result;
-}
-
-/* 一步到位版本：保存 → 快照 → 计划 → 原生任务。界面通常先 prepare 预览，再调上面的接口。 */
-export async function startJianyingExport({
-  mode = 'library',
-  destDir = '',
-  draftName = '',
-  options = {},
-  onProgress = null,
-  onJob = null,
-} = {}) {
-  if (!bindNativeEvents()) return { ok: false, ...unavailable() };
-  const captured = captureExportSnapshot();
-  if (!captured.ok) return captured;
-  const prepared = await prepareJianyingExport(captured.snapshot, options);
-  if (!prepared.ok) return prepared;
-  return startPreparedJianyingExport(prepared, { mode, destDir, draftName, onProgress, onJob });
 }
 
 export async function cancelJianyingExport(jobId) {

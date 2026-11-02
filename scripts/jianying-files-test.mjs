@@ -289,6 +289,7 @@ async function runExport(plan, args = {}) {
       now: ids.now,
       freeBytes: args.freeBytes || (() => 1024 * 1024 * 1024),
       commitDir: args.commitDir,
+      writeFile: args.writeFile,
       isRunning: args.isRunning || (() => !!args.running),
       registerDraft: args.registerDraft,
     },
@@ -1094,6 +1095,68 @@ test('原子提交失败：清理暂存目录，不留半成品草稿', async ()
   assert.equal(fs.existsSync(path.join(library, '提交失败草稿')), false);
   assert.equal(stagingDirs(library).length, 0);
   assert.equal(fs.readFileSync(path.join(library, 'root_meta_info.json'), 'utf8'), indexBefore);
+});
+
+/* ── 9b. 提交前失败只清理本任务暂存目录 ── */
+test('提交前失败只清理本任务暂存：别人的 / 无标记的目录原样保留', async () => {
+  const root = tmpRoot('提交前清理');
+  const library = makeLibrary(root);
+  const otherOwned = path.join(library, `${draftPaths.TEMP_PREFIX}别的任务`);
+  const unmarked = path.join(library, `${draftPaths.TEMP_PREFIX}无标记`);
+  fs.mkdirSync(otherOwned);
+  fs.writeFileSync(path.join(otherOwned, 'keep.txt'), '别的任务正在用');
+  fs.writeFileSync(
+    path.join(otherOwned, draftPaths.OWNER_FILE),
+    JSON.stringify({ owner: 'fenjingtai', state: 'building' }),
+  );
+  fs.mkdirSync(unmarked);
+  fs.writeFileSync(path.join(unmarked, 'keep.txt'), '没有所有权标记');
+  const { plan } = makePlan(root);
+  const result = await runExport(plan, {
+    destDir: library,
+    options: { mode: 'library', draftName: '提交前失败' },
+    draftRoot: library,
+    commitDir: () => {
+      throw Object.assign(new Error('模拟 EIO'), { code: 'EIO' });
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(fs.existsSync(path.join(library, '提交前失败')), false);
+  assert.equal(fs.existsSync(otherOwned), true, '别人的暂存目录不能动');
+  assert.equal(fs.existsSync(unmarked), true, '没有所有权标记的目录不能动');
+  assert.deepEqual(
+    stagingDirs(library).sort(),
+    [path.basename(otherOwned), path.basename(unmarked)].sort(),
+    '只清理本任务的暂存目录',
+  );
+});
+
+/* ── 9c. 提交后报告写入失败：草稿必须保留 ── */
+test('提交后报告写入失败：草稿保留、索引照常登记，只记提醒', async () => {
+  const root = tmpRoot('报告失败');
+  const library = makeLibrary(root);
+  const { plan } = makePlan(root);
+  const result = await runExport(plan, {
+    destDir: library,
+    options: { mode: 'library', draftName: '报告失败草稿' },
+    draftRoot: library,
+    writeFile: (file, content) => {
+      if (file.endsWith('fenjingtai-export.json') || file.endsWith('导出说明.md'))
+        throw Object.assign(new Error('模拟报告写入失败'), { code: 'EACCES' });
+      fs.writeFileSync(file, content, 'utf8');
+    },
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.equal(fs.existsSync(path.join(result.draftDir, 'draft_info.json')), true, '提交后的草稿必须保留');
+  assert.equal(fs.existsSync(path.join(result.draftDir, 'draft_meta_info.json')), true);
+  assert.equal(fs.existsSync(result.reportPath), false);
+  assert.equal(
+    result.issues.some(item => item.code === 'report-failed'),
+    true,
+    '报告失败要记在问题列表里',
+  );
+  assert.equal(result.registered, true, '报告失败不影响已经完成的登记');
+  assert.equal(stagingDirs(library).length, 0);
 });
 
 /* ── 10. 旧暂存目录清理只看所有权标记 ── */

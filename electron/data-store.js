@@ -51,6 +51,10 @@ function createStore(dataDir) {
   let loadInfo = { status: 'missing' };
   let loaded = false;
   let cache = null;
+  /* 损坏原件既没能改名、也没能复制保留：原路径上还是唯一一份原件，任何写入都可能把它盖掉。
+     这个状态只能由 retryPreserve() 真正保留成功后解除，不随保存、重新读取或重开界面消失。 */
+  let writeBlocked = false;
+  let writeBlockedReason = '';
 
   function listBackups() {
     try {
@@ -132,20 +136,20 @@ function createStore(dataDir) {
           /* 保留不了原件：下面不往原文件位置写，免得盖掉它 */
         }
       }
+      if (!preserved) {
+        // 原件还在原路径，是唯一一份：不恢复、不写入，等用户先备份或修复。
+        // kept 留空——不能谎称已经保留到某个文件名下。
+        writeBlocked = true;
+        writeBlockedReason = '原始数据文件损坏，且无法改名或复制保留（原文件仍在原位置）；为避免覆盖，已停止写入';
+        loadInfo = { status: 'corrupt', kept: '', error: writeBlockedReason, writeBlocked: true };
+        return (cache = null);
+      }
       for (const b of listBackups()) {
         try {
           const data = JSON.parse(fs.readFileSync(path.join(BACKUPS(), b.f), 'utf8'));
           if (!validLibrary(data)) continue;
           quarantineBroken(data);
           if (!Object.keys(data.projects).length) continue;
-          if (!preserved) {
-            loadInfo = {
-              status: 'corrupt',
-              kept: path.basename(file),
-              error: '损坏的数据文件无法改名保留，没有自动恢复',
-            };
-            return (cache = null);
-          }
           writeAtomic(file, JSON.stringify(data));
           loadInfo = {
             status: 'recovered',
@@ -153,13 +157,19 @@ function createStore(dataDir) {
             fromTime: b.t,
             kept: path.basename(kept),
             error: String(err.message || err),
+            writeBlocked: false,
           };
           return (cache = data);
         } catch {
           /* 这份备份也读不了，试下一份 */
         }
       }
-      loadInfo = { status: 'corrupt', kept: path.basename(kept), error: String(err.message || err) };
+      loadInfo = {
+        status: 'corrupt',
+        kept: path.basename(kept),
+        error: String(err.message || err),
+        writeBlocked: false,
+      };
       return (cache = null);
     }
   }
@@ -188,7 +198,49 @@ function createStore(dataDir) {
     return save(merged);
   }
 
+  function blockedError() {
+    const error = new Error(writeBlockedReason || '原始数据文件尚未安全保留，已停止写入');
+    error.code = 'DATA_WRITE_BLOCKED';
+    error.blocked = true;
+    return error;
+  }
+
+  /* 唯一解除写保护的入口：真的把损坏原件改名或复制保留成功，才允许继续写；
+     时间经过、下一次保存或重开界面都不会自动解除。 */
+  function retryPreserve() {
+    if (!writeBlocked) return true;
+    const file = LIB();
+    if (!fs.existsSync(file)) {
+      // 原件已经不在了（用户手动移走 / 修好），没有覆盖风险
+      writeBlocked = false;
+      writeBlockedReason = '';
+      loadInfo = { ...loadInfo, kept: '', error: '原始数据文件已不在原位置，可以继续写入', writeBlocked: false };
+      return true;
+    }
+    const kept = path.join(dataDir(), `分镜台数据.损坏-${stamp()}.json`);
+    try {
+      fs.renameSync(file, kept);
+    } catch {
+      try {
+        fs.copyFileSync(file, kept);
+      } catch {
+        return false;
+      }
+    }
+    writeBlocked = false;
+    writeBlockedReason = '';
+    loadInfo = {
+      status: 'corrupt',
+      kept: path.basename(kept),
+      error: String(loadInfo?.error || ''),
+      writeBlocked: false,
+    };
+    return true;
+  }
+
   function save(library, { forceBackup = false } = {}) {
+    // 唯一原件还没安全保留：所有保存入口（含全量 savePatch）都在这里被拦下
+    if (writeBlocked) throw blockedError();
     fs.mkdirSync(dataDir(), { recursive: true });
     maybeBackup(Date.now(), { force: forceBackup });
     writeAtomic(LIB(), JSON.stringify(library));
@@ -216,7 +268,13 @@ function createStore(dataDir) {
     readBackup,
     maybeBackup,
     prune,
-    info: () => (backupError ? { ...loadInfo, backupError } : loadInfo),
+    retryPreserve,
+    info: () => ({
+      ...loadInfo,
+      writeBlocked,
+      ...(writeBlocked && writeBlockedReason ? { writeBlockedReason } : {}),
+      ...(backupError ? { backupError } : {}),
+    }),
     paths: { LIB, BACKUPS },
     _resetForTest: () => {
       loaded = false;

@@ -88,16 +88,17 @@ export async function saveCandidateSegment(task, dir) {
     if (!result?.ok) return result;
     const c = matchingCandidate(task);
     if (!c) return { ...result, attached: false };
-    changeProject(
+    const committed = changeProject(
       task.projectId === state.projectId ? '保存视频片段' : null,
       (change, p) => {
         c.savedPath = result.path;
         swapToLocal(c, result.path, p.rows, p.assets || {});
         invalidateProbe();
-        writeBack(p.candidates);
       },
       { projectId: task.projectId },
     );
+    // 修改真的提交了才排写回：失败回滚时不把内容排进外部清单（成功时 mutate 常常返回 undefined）
+    if (committed !== false && !committed?.error) writeBack(projectOf(task.projectId));
     return { ...result, attached: true };
   } catch (error) {
     return { ok: false, error: String(error?.message || error) };
@@ -122,7 +123,7 @@ export function applyMovedPaths(moved) {
       Object.values(p.assets || {}).some(a => moved.has(a.path)) ||
       (p.candidates || []).some(c => moved.has(c.savedPath));
     if (!hit) continue;
-    changeProject(
+    const committed = changeProject(
       null,
       (change, project) => {
         for (const a of Object.values(project.assets || {}))
@@ -132,12 +133,22 @@ export function applyMovedPaths(moved) {
           }
         for (const c of project.candidates || []) if (moved.has(c.savedPath)) c.savedPath = moved.get(c.savedPath);
         syncMirror(project.rows || [], project.assets || {});
-        writeBack(project.candidates || []);
         invalidateProbe();
       },
       { projectId: stored.id },
     );
+    // 回滚的项目不排写回：外部清单不能拿到这次没提交的路径
+    if (committed !== false && !committed?.error) writeBack(projectOf(stored.id));
   }
+}
+/* 批量改名失败：按批次汇总一条提示（不逐文件弹、不自动立刻重试）；成功改了的照常更新引用 */
+function movedFailureText(action, movedCount, failures) {
+  const example = failures.find(f => f.path);
+  const reason = failures[0]?.reason || '未知原因';
+  const detail = example ? `（例如「${assetName(example.path)}」：${reason}）` : `（${reason}）`;
+  const done = movedCount ? `已${action} ${movedCount} 个片段；` : '';
+  const retry = action === '改名' ? '下次改句号时会再试' : '下次打开项目时会再试';
+  return `${done}${failures.length} 个片段没能${action === '改名' ? '按句号改名' : '补上句号'}${detail}。文件仍在原处，${retry}`;
 }
 let tagging = null,
   tagAgain = false;
@@ -153,12 +164,28 @@ export function tagOldSavedClips() {
   const plan = new Map(todo.map(c => [c.savedPath, lineTag(c, state.rows)]).filter(([, tag]) => tag));
   tagging = (async () => {
     const moved = new Map();
-    for (const [old, tag] of plan) {
-      const r = await native.tagSavedClip(old, tag);
-      if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
+    const failures = [];
+    try {
+      // 逐项来：一项失败（返回 ok:false 或抛错）不拖累其他项，已改名的照样记下来
+      for (const [old, tag] of plan) {
+        try {
+          const r = await native.tagSavedClip(old, tag);
+          if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
+          else if (!r?.ok) failures.push({ path: old, reason: r?.error || '改名失败' });
+        } catch (error) {
+          failures.push({ path: old, reason: String(error?.message || error) });
+        }
+      }
+    } finally {
+      // 无论成功、部分失败还是异常，这一轮改成功的映射都要落到项目引用上（磁盘已经改了名）
+      try {
+        applyMovedPaths(moved);
+      } catch (error) {
+        failures.push({ path: '', reason: `引用更新失败：${String(error?.message || error)}` });
+      }
     }
-    applyMovedPaths(moved);
-    if (moved.size && state.projectId === pid) {
+    if (failures.length) notify(movedFailureText('补句号', moved.size, failures), null, 'warn');
+    else if (moved.size && state.projectId === pid) {
       const first = [...moved.values()][0];
       notify(
         `已给 ${moved.size} 个保存过的视频片段补上句号，例如「${assetName(first)}」`,
@@ -206,7 +233,7 @@ export function relinkSavedClips({ quiet = false } = {}) {
     if (!valid.length) return 0;
     let fixed = 0,
       gone = 0;
-    changeProject(
+    const committed = changeProject(
       null,
       (change, project) => {
         for (const { asset, cand, savedPath } of valid) {
@@ -222,10 +249,11 @@ export function relinkSavedClips({ quiet = false } = {}) {
         }
         if (!fixed && !gone) return false;
         invalidateProbe();
-        writeBack(project.candidates);
       },
       { projectId: pid },
     );
+    // 修改提交后才排写回；回滚时不把这次内容排进外部清单
+    if (committed !== false && !committed?.error && (fixed || gone)) writeBack(projectOf(pid));
     if ((!quiet || gone) && (fixed || gone))
       notify(
         [
@@ -242,11 +270,13 @@ export function relinkSavedClips({ quiet = false } = {}) {
   relinking.set(pid, job);
   return job;
 }
+/* 定时 / 载入后的整理入口：任何一步失败都不能留下未处理的 Promise 拒绝 */
 const tidySavedClips = () => {
   const pid = state.projectId;
   return tagOldSavedClips()
     .catch(() => 0)
-    .then(() => (state.projectId === pid ? relinkSavedClips() : 0));
+    .then(() => (state.projectId === pid ? relinkSavedClips() : 0))
+    .catch(() => 0);
 };
 /* 素材换了句子（轨上拖动、改了配哪几句、改稿后句号变了）：文件名开头的「第N句」自动跟着改，不用手动点。
    只改名不移动；改名涉及磁盘，不进撤销（撤销后位置变回去，会再自动改回来）。协作中不自动改，免得两边来回改名 */
@@ -255,7 +285,10 @@ let retagTimer = 0,
   retagAgain = false;
 export function scheduleRetag(delay = 600) {
   clearTimeout(retagTimer);
-  retagTimer = setTimeout(retagLineFiles, delay);
+  retagTimer = setTimeout(() => {
+    // 定时入口自己兜住失败：不能变成未处理的 Promise 拒绝
+    retagLineFiles().catch(() => 0);
+  }, delay);
 }
 export async function retagLineFiles() {
   if (retagging) {
@@ -268,19 +301,32 @@ export async function retagLineFiles() {
   if (!plan.size) return 0;
   retagging = true;
   const moved = new Map();
+  const failures = [];
   try {
+    // 逐项来：一项失败（返回 ok:false 或抛错）不拖累其他项，已改名的照样记下来
     for (const [old, tag] of plan) {
-      const r = await native.retagLineFile(old, tag);
-      if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
+      try {
+        const r = await native.retagLineFile(old, tag);
+        if (r?.ok && r.path && r.path !== old) moved.set(old, r.path);
+        else if (!r?.ok) failures.push({ path: old, reason: r?.error || '改名失败' });
+      } catch (error) {
+        failures.push({ path: old, reason: String(error?.message || error) });
+      }
     }
   } finally {
+    // 无论成功、部分失败还是异常，这一轮改成功的映射都要落到项目引用上（磁盘已经改了名）
+    try {
+      applyMovedPaths(moved);
+    } catch (error) {
+      failures.push({ path: '', reason: `引用更新失败：${String(error?.message || error)}` });
+    }
     retagging = false;
+    if (retagAgain) {
+      retagAgain = false;
+      scheduleRetag(0);
+    }
   }
-  applyMovedPaths(moved);
-  if (retagAgain) {
-    retagAgain = false;
-    scheduleRetag(0);
-  }
+  if (failures.length) notify(movedFailureText('改名', moved.size, failures), null, 'warn');
   return moved.size;
 }
 

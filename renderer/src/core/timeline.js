@@ -137,10 +137,3 @@ export function memberSeconds(timeline, members) {
     return Number.isFinite(next) && next > a.start ? next - a.start : null;
   });
 }
-
-/* 来源说明（界面提示用） */
-export const SOURCE_TEXT = {
-  srt: '剪映字幕实测',
-  fit: '按口播音频时长推算',
-  rate: '按语速估算',
-};

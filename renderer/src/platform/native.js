@@ -101,8 +101,8 @@ export const jianyingRegister = call('jianyingRegister');
 export const jianyingReveal = call('jianyingReveal');
 export const jianyingOpenApp = call('jianyingOpenApp');
 export const jianyingPickFolder = call('jianyingPickFolder');
-export const onJianyingProgress = cb => n()?.onJianyingProgress?.(cb) || (() => {});
-export const onJianyingResult = cb => n()?.onJianyingResult?.(cb) || (() => {});
+export const onJianyingProgress = cb => hook('onJianyingProgress')?.(cb) || (() => {});
+export const onJianyingResult = cb => hook('onJianyingResult')?.(cb) || (() => {});
 
 /* 菜单 / 系统 */
 export const onMenuAction = cb => n().onMenuAction(cb);

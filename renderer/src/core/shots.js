@@ -13,7 +13,6 @@ export const shotMembers = (rows, r) =>
          这样插句 / 拆句 / 并句 / 删句都不用重算范围；解除共用后每句只留下自己那几句的素材。 */
 export const ROLES = { main: '主画面', overlay: '叠加', alt: '备选' };
 export const ROLE_ORDER = ['main', 'overlay', null, 'alt'];
-export const roleLabel = role => ROLES[role] || '未分配';
 export const isRole = v => Object.prototype.hasOwnProperty.call(ROLES, v);
 const usageAt = (m, assetId) => usagesOf(m).find(u => u.assetId === assetId);
 const onRow = (m, assetId) => {

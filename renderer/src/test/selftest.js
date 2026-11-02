@@ -74,6 +74,25 @@ export async function runSelfTest() {
   /* ── 1. 初始渲染 ── */
   t('初始渲染：表格有行', $$('.row').length === rows().length && rows().length > 20, `${$$('.row').length} 行`);
 
+  /* 写保护：损坏原件没保留成功时，保存状态要显示「已停止写入」，绝不能显示「已保存」 */
+  {
+    const { emit } = await import('../app/events.js');
+    emit('save-state', 'blocked');
+    const stateEl = $('#saveState');
+    const textEl = $('#saveTxt');
+    t(
+      '写保护保存状态：明确显示已停止写入，不显示已保存',
+      !!stateEl &&
+        !!textEl &&
+        stateEl.classList.contains('error') &&
+        !stateEl.classList.contains('saving') &&
+        textEl.textContent.includes('已停止写入') &&
+        !textEl.textContent.includes('已保存'),
+      `${textEl?.textContent} | ${stateEl?.className}`,
+    );
+    emit('save-state', 'saved');
+  }
+
   /* ── 2. 标注 + 撤销 ── */
   const firstId = rows()[0].id;
   viewState.sel = firstId;

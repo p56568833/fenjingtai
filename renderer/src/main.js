@@ -56,10 +56,11 @@ function showSaveState(phase) {
     savedFlash = setTimeout(() => el.classList.remove('just-saved'), 1500);
   }
   el.classList.toggle('saving', phase === 'saving');
-  el.classList.toggle('error', phase === 'error');
+  el.classList.toggle('error', phase === 'error' || phase === 'blocked');
   if (phase === 'saving') txt.textContent = '保存中…';
   else if (phase === 'saved')
     txt.textContent = '已保存 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  else if (phase === 'blocked') txt.textContent = '已停止写入，数据文件未保存';
   else txt.textContent = '保存失败，5 秒后重试';
 }
 
@@ -117,6 +118,15 @@ function showDataRecoveryNotice(info) {
     confirmModal(
       '数据文件读取失败，已自动恢复',
       `项目数据文件损坏，已用 ${when} 的自动备份恢复。这份备份之后的改动可能缺失。\n损坏的文件没有删除，已改名为「${info.kept}」留在数据文件夹里。`,
+      '打开数据文件夹',
+      openFolder,
+      { cancelText: '知道了', danger: false },
+    );
+  } else if (info.writeBlocked) {
+    // 原件没能改名 / 复制保留：它还在原位置，不能谎称已经保存到某个文件名下
+    confirmModal(
+      '数据文件读取失败，已停止写入',
+      '项目数据文件损坏，而且没能改名或复制保留，原文件仍在原位置，没有被覆盖。\n为避免继续写入盖掉这份原件，分镜台已停止保存；请先备份或修复数据文件，再重新打开。',
       '打开数据文件夹',
       openFolder,
       { cancelText: '知道了', danger: false },
@@ -255,7 +265,7 @@ async function boot() {
 
   armAnimation();
   renderAll();
-  storage.persist(true); // 载入时做过的数据迁移（老格式素材、类型表）落盘
+  if (!storage.isWriteBlocked()) storage.persist(true); // 载入时做过的数据迁移（老格式素材、类型表）落盘
   revealSavedCursor();
 
   if (fresh)

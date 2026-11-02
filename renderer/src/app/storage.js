@@ -16,11 +16,15 @@ let saveTimer = null;
 let revision = 0;
 let loadInfo = { status: 'ok' };
 let retryTimer = null;
+/* 主进程报告：损坏原件没能改名 / 复制保留，原路径上是唯一一份。这时任何保存都可能覆盖它，
+   必须在渲染层也停手：不自动保存示例库、不显示「已保存」。只有主进程确认保留成功才会解除。 */
+let writeBlocked = false;
 const dirtyIds = new Set(); // 待写盘的项目
 const writeHooks = new Set(); // 项目内容改了（局域网协作据此把改动发给对方）
 let metaDirty = false; // currentId / settings / trash 变了
 let fullDirty = false; // 整库替换（恢复备份）
 export const dataLoadInfo = () => loadInfo;
+export const isWriteBlocked = () => writeBlocked;
 const TRASH_DAYS = 30;
 
 /* 保存状态：saving / saved / error，界面层订阅 'save-state' 显示 */
@@ -29,11 +33,12 @@ const saveHook = phase => emit('save-state', phase);
 export function initStorage() {
   library = native.isNative() ? native.loadData() : null;
   loadInfo = native.dataStatus() || { status: library ? 'ok' : 'missing' };
+  writeBlocked = !!loadInfo?.writeBlocked;
   // 关窗 / 退出时把防抖中的保存同步冲刷掉：普通保存是异步 IPC，进程一退就丢了。
   // 冲刷失败就先拦下这次关闭并报错；用户再关一次才放行，不会被一个坏磁盘困住关不掉
   let closeBlocked = false;
   window.addEventListener('beforeunload', e => {
-    if (!hasPending() || !library) return;
+    if (writeBlocked || !hasPending() || !library) return;
     let saved = false;
     try {
       clearTimeout(saveTimer);
@@ -54,6 +59,11 @@ export function initStorage() {
     // 首次启动：先装载示例再落盘（persist 会用 state 反写当前项目，必须等 state 就绪）
     library = { v: 2, settings: {}, trash: {}, ...(library || {}), ...demoLibrary() };
     loadProjectIntoState(library.projects[library.currentId]);
+    if (writeBlocked) {
+      // 原件还没安全保留：内存里可以看示例，但绝不能当成「第一次打开」自动落盘
+      saveHook('blocked');
+      return false;
+    }
     fullDirty = true;
     persist(true);
     // 数据文件坏了（坏文件已被主进程改名保留）不算「第一次打开」，由界面另行提示
@@ -127,6 +137,7 @@ function takePatch() {
 const SAVE_MAX_WAIT = 2000;
 let pendingSince = 0;
 function schedule(now = false) {
+  if (writeBlocked) return saveHook('blocked');
   const version = ++revision;
   saveHook('saving');
   clearTimeout(saveTimer);
@@ -137,6 +148,7 @@ function schedule(now = false) {
 
 export function persist(now = false) {
   syncFromState();
+  if (writeBlocked) return saveHook('blocked');
   schedule(now);
   notifyWrite(library?.currentId);
 }
@@ -163,6 +175,7 @@ export const collabOf = id => library?.projects?.[id]?.collab || null;
 async function doSave(version) {
   clearTimeout(retryTimer);
   pendingSince = 0;
+  if (writeBlocked) return saveHook('blocked');
   if (!hasPending()) {
     if (version === revision) saveHook('saved');
     return;

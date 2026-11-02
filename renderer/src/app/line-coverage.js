@@ -4,7 +4,6 @@ import { timeline, types } from './project-queries.js';
 import { on } from './events.js';
 import { buildPictureCoverage } from '../core/coverage.js';
 import { missingPaths, missingRevision } from './asset-status.js';
-import { shotSpan } from '../core/timeline.js';
 
 let cached = null,
   key = null;
@@ -37,14 +36,6 @@ export function projectPictureCoverage({ refresh = false } = {}) {
     };
   }
   return cached;
-}
-
-export function shotSeconds(members) {
-  const sp = shotSpan(
-    timeline(),
-    members.map(m => m.id),
-  );
-  return sp ? sp.end - sp.start : null;
 }
 
 /* 是否标红由展示层决定；不需要画面的类型沿用原来的隐藏规则。 */

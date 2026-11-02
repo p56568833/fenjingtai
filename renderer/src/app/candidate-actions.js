@@ -175,12 +175,14 @@ export function deleteCandidateBatch(ids) {
 }
 
 export async function purgeRejectedCandidates() {
-  const pid = state.projectId,
-    cands = state.candidates;
+  const pid = state.projectId;
+  // 捕获这一轮的项目上下文：写回 / 已同步判断都按启动时的 rows 和 candidates，不随后续切项目改主意
+  const context = { rows: state.rows, candidates: state.candidates };
+  const cands = context.candidates;
   if (!cands.some(c => c.decision === 'no')) return [];
-  await flushWriteBack(cands);
+  await flushWriteBack(context);
   if (state.projectId !== pid || state.candidates !== cands) return [];
-  const synced = syncedFiles(cands);
+  const synced = syncedFiles(context);
   const keep = new Set(reworkShots(state.rows, cands).flatMap(s => s.rejected));
   const drop = c => c.decision === 'no' && !keep.has(c) && (!c.srcFile || synced.has(c.srcFile));
   const removed = cands.filter(drop);

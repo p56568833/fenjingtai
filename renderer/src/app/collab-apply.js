@@ -22,7 +22,7 @@ export function applyRemoteProject(s, sum, { full = false } = {}) {
   if (full || sum.structural || sum.fields.has('groupId')) normalizeGroups(project.rows);
   if (full || sum.assets) invalidateProbe();
   // 对方的审核结果写回这台电脑上的候选清单（清单文件只在导入它的那台电脑上，写回只管本机有的）
-  if (full || sum.cands) writeBack(project.candidates || []);
+  if (full || sum.cands) writeBack(project);
   if (s.pid !== state.projectId) {
     storage.markProjectDirty(s.pid);
     return;
