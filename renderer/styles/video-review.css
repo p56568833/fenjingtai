@@ -1974,7 +1974,7 @@ body.dark .vr-rw-blank {
 .vr-rw-go span {
   flex: 1;
 }
-/* 否掉的候选：一行小卡片（封面一帧、名字、否掉的理由），只当参考 */
+/* 否掉的候选：一行小卡片（封面一帧、名字、可编辑的否掉理由） */
 .vr-rw-refs {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 210px));
@@ -2008,15 +2008,15 @@ body.dark .vr-rw-blank {
   text-overflow: ellipsis;
 }
 .vr-rw-ref-why {
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  margin: 3px 0;
+  padding: 6px 8px;
+  resize: vertical;
   font-size: 12px;
   line-height: 1.5;
-  color: #c73338;
-}
-.vr-rw-ref-why.none {
-  color: var(--text-3);
-}
-body.dark .vr-rw-ref-why:not(.none) {
-  color: #ff8e86;
 }
 .vr-rw-ref-foot {
   display: flex;

@@ -4,7 +4,7 @@
    快捷方式）和一个 .zip（给脚本/curl 和软件内更新下载）；再出一个只含应用代码的增量包
    FenJingTai-app.asar.gz（约 1 MB，Electron 本体没变的老用户软件内更新只下它），最后生成 latest.json
    （软件内更新先读它，不占 GitHub API 匿名额度），统一落在临时 .noindex 目录，文件名用 ASCII 方便直链。
-   用法：npm run package */
+   用法：npm run package；只发 Apple 芯片版：npm run package -- --arch=arm64 */
 import { packager } from '@electron/packager';
 import {
   copyFileSync,
@@ -31,6 +31,11 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.env.ELECTRON_MIRROR ||= 'https://npmmirror.com/mirrors/electron/';
+const architectures = [
+  ...new Set((process.argv.find(arg => arg.startsWith('--arch='))?.slice(7) || 'arm64,x64').split(',')),
+];
+if (architectures.some(arch => !['arm64', 'x64'].includes(arch)))
+  throw new Error('--arch 只支持 arm64、x64 或 arm64,x64');
 
 // 先查更新说明的格式：不合格就不打包（规则见 release-manifest.mjs 的 checkNotes 和 AGENTS.md）
 {
@@ -88,6 +93,7 @@ async function buildOne(arch) {
   const runtime = stampRuntime(APP); // 运行时指纹：要在 Info.plist 全部改完之后、签名之前
   // 图标和 Info.plist 都动过了，原有签名已失效；重新 ad-hoc 签一遍，arm64 没签名根本起不来
   sh('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', APP]);
+  sh('/usr/bin/codesign', ['--verify', '--deep', '--strict', APP]);
   utimesSync(APP, new Date(), new Date()); // 摸一下 mtime，让 Finder 刷新图标缓存
 
   // 文件名不带版本号：GitHub 的 releases/latest/download/<文件名> 直链才能跨版本长期有效
@@ -131,7 +137,7 @@ function buildPatch(builds) {
 
 try {
   const builds = [];
-  for (const arch of ['arm64', 'x64']) builds.push(await buildOne(arch));
+  for (const arch of architectures) builds.push(await buildOne(arch));
   const zips = builds.map(b => b.zipPath);
   const patch = buildPatch(builds);
   for (const b of builds) rmSync(b.asar, { force: true });
@@ -142,7 +148,7 @@ try {
   console.log(`[清单] ${manifest}（软件内更新先读它，不占 GitHub API 次数）`);
   console.log(`\n全部完成，发布物在 ${RELEASE_DIR}（arm64 = M 系列芯片，x64 = Intel 芯片）`);
   console.log(
-    `发布：GitHub Release 的 tag 写 v${version}，把目录里的 2 个 zip、2 个 dmg、${patch ? `${PATCH_NAME}、` : ''}latest.json 全部上传。`,
+    `发布：GitHub Release 的 tag 写 v${version}，把目录里的 ${builds.length} 个 zip、${builds.length} 个 dmg、${patch ? `${PATCH_NAME}、` : ''}latest.json 全部上传。`,
   );
   console.log('上传后请删除整个临时构建目录。');
 } catch (error) {

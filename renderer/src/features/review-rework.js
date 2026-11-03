@@ -23,9 +23,9 @@ let lastShown = null;
 const blankLines = target =>
   target.filter(m => !usageList(m).some(u => !u.off && (u.role === 'main' || u.role == null))).map(m => m.no);
 
-/* 否掉的候选：一张小卡片，封面一帧 + 名字 + 当时否掉的理由；「预览」在下面的预览区播 */
+/* 否掉的候选：一张小卡片，封面一帧 + 名字 + 可直接补写的理由；「预览」在下面的预览区播 */
 const refHTML = c =>
-  `<div class="vr-rw-ref" data-vr-id="${c.id}">${stripHTML(c, 1)}<div class="vr-rw-ref-body"><b title="${esc(c.title || '')}">${esc(candName(c))}</b><span class="vr-rw-ref-why${c.note ? '' : ' none'}">${esc(c.note || '没写理由')}</span><span class="vr-rw-ref-foot">${secText(usableSeconds(c))} 秒<button class="vr-link" data-vr-play="${c.id}">▶ 预览</button></span></div></div>`;
+  `<div class="vr-rw-ref" data-vr-id="${c.id}">${stripHTML(c, 1)}<div class="vr-rw-ref-body"><b title="${esc(c.title || '')}">${esc(candName(c))}</b><textarea class="vr-note vr-rw-ref-why" data-vr-note="${c.id}" rows="2" aria-label="${esc(candName(c))}的否掉理由" placeholder="补写否掉理由…">${esc(c.note || '')}</textarea><span class="vr-rw-ref-foot">${secText(usableSeconds(c))} 秒<button class="vr-link" data-vr-play="${c.id}">▶ 预览</button></span></div></div>`;
 
 export function renderRework(host, nav) {
   const list = reworkList();
@@ -104,7 +104,7 @@ export function renderRework(host, nav) {
         </div>
         ${
           refs.length
-            ? `<div class="vr-brief-sec"><h5>否掉的 ${refs.length} 个<span>理由会一起写进返工单；想改判去待审页</span></h5>
+            ? `<div class="vr-brief-sec"><h5>否掉的 ${refs.length} 个<span>理由可直接补写，自动保存并写进返工单</span></h5>
           <div class="vr-rw-refs">${refs.map(refHTML).join('')}</div>
           <div class="vr-preview vr-rw-pv" id="vrPreview" aria-label="候选预览" hidden></div></div>`
             : ''

@@ -10,12 +10,12 @@
 
 ## 下载与安装
 
-支持 **macOS 13（Ventura）及以上**，按 Mac 的芯片选择安装包：
+支持 **macOS 13（Ventura）及以上**。目前新版仅提供 Apple 芯片版，Intel 版暂缓更新，保留 2.1.4 下载：
 
 | 你的 Mac             | 下载                                                                                                           |
 | -------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Apple 芯片（M 系列） | [下载 Apple 芯片版](https://github.com/p56568833/fenjingtai/releases/latest/download/FenJingTai-mac-arm64.dmg) |
-| Intel 芯片           | [下载 Intel 版](https://github.com/p56568833/fenjingtai/releases/latest/download/FenJingTai-mac-x64.dmg)       |
+| Intel 芯片           | [下载 Intel 版 2.1.4](https://github.com/p56568833/fenjingtai/releases/download/v2.1.4/FenJingTai-mac-x64.dmg)       |
 
 不确定芯片类型时，打开屏幕左上角的苹果菜单 →「关于本机」查看。下载后打开 DMG，把「分镜台」拖入「应用程序」。也可在 [Releases](https://github.com/p56568833/fenjingtai/releases) 下载 ZIP 版本或查看更新公告。
 
