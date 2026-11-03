@@ -34,9 +34,7 @@ function tabsHTML() {
     `<button class="vr-tab${page.mode === id ? ' on' : ''}" role="tab" aria-selected="${page.mode === id}" data-vr-tab="${id}" title="${tip}">${label}${n ? `<b>${n}</b>` : ''}</button>`;
   return `<div class="vr-tabs" role="tablist">${tab('review', '待审', p, '按批次审核导入的视频候选')}${tab('rework', '待返工', r, '所有批次里没过关、或者你写了要求的画面')}</div>`;
 }
-/* candsOf(画面)：这个画面下面要列的候选（只有选中的画面有），列在画面那一行下面 */
-const candsHTML = html => (html ? `<div class="vr-nav-cands" role="listbox" aria-label="候选">${html}</div>` : '');
-export function navHTML(all, shots, candsOf = () => '') {
+export function navHTML(all, shots) {
   let sec = null;
   // 一个都没通过、还在待返工页里的画面：这里也叫「待返工」，和待返工页说法一致
   const rework = new Set(reworkShots(state.rows, state.candidates).map(s => s.lead.id));
@@ -52,7 +50,7 @@ export function navHTML(all, shots, candsOf = () => '') {
             ? '<span class="vr-nav-done re">待返工</span>'
             : '<span class="vr-nav-done">已审完</span>';
       const label = g.cands[0]?.label ? `<small>${esc(g.cands[0].label)}</small>` : '';
-      return `${head}<button class="vr-nav-shot${g.key === page.curShot ? ' on' : ''}${g.pending ? '' : ' done'}" data-vr-goto="${esc(String(g.key))}"><span>${rangeText(g.lead)}${label}</span>${status}</button>${candsHTML(candsOf(g))}`;
+      return `${head}<button class="vr-nav-shot${g.key === page.curShot ? ' on' : ''}${g.pending ? '' : ' done'}" data-vr-goto="${esc(String(g.key))}"><span>${rangeText(g.lead)}${label}</span>${status}</button>`;
     })
     .join('');
   const b = all.find(x => x.id === page.curBatch);
@@ -99,7 +97,7 @@ function reworkReason(s) {
 const REWORK_HELP =
   '这里列出要重新找画面的句子：审核时否掉、还没有通过的；在右侧面板对素材点了「不满意」的；要 AI 再找一个的。\n生成返工单交给找素材的 AI，新候选导入后在这里审；任何一个候选通过，这一项就离开这一页。';
 
-export function reworkNavHTML(list, candsOf = () => '') {
+export function reworkNavHTML(list) {
   let sec = null;
   const states = list.map(reworkState);
   const items = list
@@ -108,7 +106,7 @@ export function reworkNavHTML(list, candsOf = () => '') {
       const head = section !== sec ? `<div class="vr-nav-sec">${esc(section || '（没有章节）')}</div>` : '';
       sec = section;
       const st = states[i];
-      return `${head}<button class="vr-nav-shot${s.key === page.curRework ? ' on' : ''}" data-vr-rw="${esc(s.key)}" title="${esc(s.target.map(m => m.text).join(''))}"><span>${reworkLabel(s)}<small>${esc(reworkReason(s))}</small></span><span class="vr-nav-done vr-rw-st s-${st.key}">${st.short}</span></button>${candsHTML(candsOf(s))}`;
+      return `${head}<button class="vr-nav-shot${s.key === page.curRework ? ' on' : ''}" data-vr-rw="${esc(s.key)}" title="${esc(s.target.map(m => m.text).join(''))}"><span>${reworkLabel(s)}<small>${esc(reworkReason(s))}</small></span><span class="vr-nav-done vr-rw-st s-${st.key}">${st.short}</span></button>`;
     })
     .join('');
   // 每一项走到哪一步写在下面各自那一行上；这里只写总数。返工单在右边一次生成全部

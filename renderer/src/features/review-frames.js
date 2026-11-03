@@ -113,7 +113,7 @@ async function grab(job, signal) {
       if (strip)
         strip.innerHTML = error?.outOfRange
           ? `<div class="vr-cell fail">入出点 ${fmtTime(c.in)}–${fmtTime(c.out)} 超出了这个视频的长度（${fmtTime(error.outOfRange)}）：清单里的时间写错了，点「不要」并在意见里写明，让 AI 改</div>`
-          : '<div class="vr-cell fail">截图失败（网站不让读或网络不通），点「播放这段」直接看</div>';
+          : '<div class="vr-cell fail">截图失败（网站不让读或网络不通），可以直接播放看看</div>';
     }
     if (frames.get(orig.id) === cached) frames.delete(orig.id);
   } finally {

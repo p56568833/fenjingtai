@@ -254,9 +254,12 @@
   border-color: transparent;
 }
 .vr-btn.no.on {
-  background: var(--c-b);
-  color: #fff;
+  background: color-mix(in srgb, #e5484d 13%, var(--card));
+  color: #c73338;
   border-color: transparent;
+}
+body.dark .vr-btn.no.on {
+  color: #ff8589;
 }
 /* 选中后按钮是彩色的：去掉中性按钮的白色高光（底下滑块自带质感）；快捷键小框改成半透明白，不再是一块灰白补丁 */
 .vr-btn.on {
@@ -266,6 +269,11 @@
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.32);
   color: #fff;
+}
+.vr-btn.no.on kbd {
+  background: color-mix(in srgb, #e5484d 10%, transparent);
+  border-color: color-mix(in srgb, #e5484d 30%, transparent);
+  color: inherit;
 }
 .vr-note {
   flex: 1;
@@ -641,7 +649,8 @@ body.dark .vr-sync {
     0 1px 2px rgba(16, 24, 40, 0.14);
 }
 .vr-dpill[data-d='no'] {
-  background: var(--c-b);
+  background: color-mix(in srgb, #e5484d 13%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #e5484d 32%, transparent);
 }
 .vr-shot-range {
   font-size: 12px;
@@ -1109,8 +1118,7 @@ body:not(.dark) .pt-box.docked .pt-card-note {
   background: #11151f;
   color: #e9edf5;
 }
-.vr-timeline:empty,
-.vr-timeline:has(> .pt-track[hidden]) {
+.vr-timeline:empty {
   display: none;
 }
 .vr-plans {
@@ -1125,16 +1133,6 @@ body:not(.dark) .pt-box.docked .pt-card-note {
   overflow-x: hidden; /* 卡片里再长的内容也不能把这一栏撑出横向滚动 */
   overscroll-behavior: contain;
   padding: 3px 6px 3px 3px; /* 选中卡片的描边不被裁掉 */
-}
-/* 卡片比这一栏高时，「播放这段 / 通过 / 不要 / 换一个」和意见框钉在栏底，不用往下翻就能审 */
-.vr-plans .vr-cand > .vr-row:not(.vr-after) {
-  position: sticky;
-  bottom: -3px;
-  z-index: 2;
-  margin: 0 -14px;
-  padding: 8px 14px 10px;
-  border-radius: 0 0 12px 12px;
-  background: inherit;
 }
 /* 方案状态：排满了是绿色；还没排满是正常的进行中，用灰色，不用红色吓人 */
 .vr-pst {
@@ -1547,31 +1545,42 @@ body.dark .vr-tab-pill {
 .vr-desk .vr-dock-wrap,
 .vr-desk #vrDockPlayer,
 body .vr-desk .vr-watch .pt-box.docked {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
 }
+/* 左边一整块深色监视器，铺满到时间条：画面区随这一格伸缩，视频按原比例放在里面（object-fit: contain），
+   窗口比例对不上时多出来的是黑边，不会露出浅色空白；字幕在画面下面，白字深底 */
+.vr-desk .vr-watch {
+  border-radius: 12px;
+  background: #0d1117;
+}
 body .vr-desk .vr-watch .pt-box.docked {
-  padding: 0;
-  gap: 10px;
-  border-radius: 0;
+  padding: 10px 10px 0;
+  gap: 0;
+  border-radius: 12px;
   background: transparent;
+  color: #f1f3f7;
   box-shadow: none;
 }
 .vr-desk .pt-box.docked .pt-stage {
-  flex: 1 1 auto;
-  aspect-ratio: 16 / 9;
-  min-height: 150px;
+  flex: 1 1 0;
+  aspect-ratio: auto;
+  min-height: 120px;
   max-height: none;
-  border-radius: 10px;
+  border-radius: 6px;
 }
 .vr-desk .pt-box.docked .pt-sub {
-  height: calc(2 * 1.4em);
+  flex: none;
+  height: calc(2 * 1.45em + 20px);
+  padding: 10px 16px;
+  line-height: 1.45;
+  box-sizing: border-box;
 }
 .vr-desk .vr-preview {
   padding: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #0d1117;
-  box-shadow: none;
+  box-shadow: inset 0 0 0 2px #f0a33a;
 }
 .vr-desk .vr-pv-head {
   margin: 0;
@@ -1584,39 +1593,55 @@ body .vr-desk .vr-watch .pt-box.docked {
 .vr-desk .vr-preview .vr-stage {
   padding: 0 10px 10px;
 }
-/* 时间轨照旧是深色一块（浅底上看不清色块），左右拉通；窗口矮时先缩播放器，时间轨不被压扁 */
+/* 时间轨照旧是深色一块（浅底上看不清色块），左右拉通；窗口矮时先缩播放器，时间轨不被压扁。
+   播放按钮和「画面时间」在同一行：轨本身拆开（display: contents）铺进这一格的网格，标题栏接在按钮右边 */
 .vr-desk .vr-timeline {
   flex: none;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 14px;
+  padding: 10px 12px 12px;
 }
-/* 右边：左栏选中那个候选的详情 */
-.vr-desk .vr-plans > .vr-pbody {
-  padding: 0 4px 0 0;
+.vr-desk .vr-timeline > .pt-track:not([hidden]) {
+  display: contents;
 }
-/* 左栏：当前画面下面的候选，缩进一级，左边一条细线连着画面；每个两行：名字，状态 · 秒数 · AI 写的标题 */
-.vr-nav-cands {
+.vr-desk .vr-timeline > .pt-track > :not(.ptt-bar) {
+  grid-column: 1 / -1;
+}
+.vr-desk .vr-timeline .pt-controls .spacer,
+.vr-desk .vr-timeline .pt-keys {
+  display: none;
+}
+.vr-desk .vr-timeline .pt-controls .btn {
+  height: 28px;
+}
+/* 右栏顶上：这个画面的候选，一个一个标签（圆点 + 名字 + 状态），换行排开；选中的描蓝边 */
+.vr-ctabs {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 2px 0 8px 16px;
-  padding-left: 8px;
-  border-left: 1px solid var(--hairline-2);
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .vr-pick {
   --st: var(--text-3);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
   min-width: 0;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
+  padding: 4px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: var(--card);
   color: var(--text);
   font: inherit;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
-  transition: background-color 0.15s;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
 }
 .vr-pick.d-wait {
   --st: var(--accent);
@@ -1624,16 +1649,20 @@ body .vr-desk .vr-watch .pt-box.docked {
 .vr-pick.d-ok {
   --st: var(--c-real);
 }
+.vr-pick.d-no {
+  --st: #e5484d;
+}
 .vr-pick:hover {
   background: var(--row-hover);
 }
 .vr-pick.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
   background: var(--card);
-  box-shadow: 0 0 0 1px var(--hairline-2);
 }
 .vr-pick:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline-offset: 1px;
 }
 .vr-pick-name {
   display: flex;
@@ -1641,7 +1670,6 @@ body .vr-desk .vr-watch .pt-box.docked {
   gap: 6px;
   min-width: 0;
   overflow: hidden;
-  font-size: 12.5px;
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1659,24 +1687,24 @@ body .vr-desk .vr-watch .pt-box.docked {
   color: var(--text-2);
   font-weight: 500;
 }
-.vr-pick-sub {
-  padding-left: 12px;
-  overflow: hidden;
-  font-size: 11.5px;
-  color: var(--text-3);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-}
 .vr-pick-st {
+  flex: none;
   font-weight: 600;
   color: var(--st);
 }
+.vr-desk .vr-ctabs {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--card);
+}
 .vr-desk .vr-detail.vr-cand {
-  margin: 12px 0 2px;
-  padding: 14px;
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
+  margin: 0;
+  padding: 12px 14px 0;
+  border: 0;
+  border-radius: 0;
   background: var(--card);
   box-shadow: none;
   opacity: 1;
@@ -1695,8 +1723,173 @@ body .vr-desk .vr-watch .pt-box.docked {
 .vr-page .vr-detail p.vr-cov-note {
   margin: 4px 0 0;
 }
-.vr-desk .vr-detail .vr-strip {
-  margin: 12px 0 8px;
+/* 大封面：片段中间的一帧铺满 16:9，整块都能点，点一下在左边监视器里播 */
+.vr-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin: 10px 0 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #0d1117;
+  cursor: pointer;
+}
+.vr-cover:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.vr-desk .vr-plans .vr-cover .vr-strip {
+  position: absolute;
+  inset: 0;
+  display: block;
+  margin: 0;
+  pointer-events: none;
+}
+.vr-cover .vr-cell {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+.vr-cover .vr-cell canvas {
+  object-fit: cover;
+}
+.vr-cover .vr-cell i {
+  display: none;
+}
+.vr-cover-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(10, 13, 20, 0.62);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: background-color 0.15s;
+}
+.vr-cover:hover .vr-cover-play {
+  background: var(--accent);
+}
+.vr-cover-len {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: rgba(10, 13, 20, 0.62);
+  color: #fff;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+/* 封面下面只留判断要用的：一句话说是什么，缺什么（最多两行，悬停看全文） */
+.vr-page .vr-detail p.vr-gist {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.vr-desk .vr-detail p.vr-cov-note {
+  display: -webkit-box;
+  margin: 4px 0 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+/* 更多信息：AI 看到了什么、片段时间、版权、原片链接，平时收着 */
+.vr-more {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.vr-more > summary {
+  width: max-content;
+  cursor: pointer;
+  color: var(--text-2);
+  list-style-position: inside;
+}
+.vr-more > summary:hover {
+  color: var(--text);
+}
+.vr-page .vr-more p.vr-why {
+  margin: 6px 0 4px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.vr-desk .vr-detail .vr-more .vr-meta {
+  margin: 4px 0 0;
+}
+/* 审核按钮、意见、撤回一起钉在栏底：候选说明再长也不会挡住意见框 */
+.vr-desk .vr-detail .vr-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 0 -14px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--hairline);
+  background: var(--card);
+}
+/* 通过的候选排在哪：在主画面的点一下播放头跳过去 */
+.vr-place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+button.vr-place {
+  cursor: pointer;
+}
+button.vr-place:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+.vr-place span {
+  margin-left: auto;
+  color: var(--accent);
+}
+/* 标题下面：这个画面要什么，一行写不下省略，悬停看全文 */
+.vr-shot-need {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.vr-shot-need b {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+.vr-shot-need span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .vr-desk .vr-detail .vr-meta {
   display: flex;
@@ -1730,7 +1923,7 @@ body .vr-desk .vr-watch .pt-box.docked {
   min-width: 0;
   box-sizing: border-box;
   height: 34px;
-  margin-top: 8px;
+  margin: 8px 0 0;
 }
 .vr-detail .vr-after {
   margin-top: 8px;
@@ -1809,17 +2002,38 @@ body .vr-desk .vr-watch .pt-box.docked {
   padding: 0 6px;
   white-space: nowrap;
 }
-/* 中间这一行只有内容那么高，时间轨紧跟在下面，多出来的高度留在最底下；
-   窗口矮时这一行先缩：播放器变小，右栏在自己的高度里滚，不压到时间轨 */
+/* 中间这一行铺满标题和时间条之间的高度：监视器和右栏一样高，时间条贴在最下面。
+   右栏宽度由 review-render.js 按「画面刚好撑满监视器高度」算好写进 --vr-side（360–520px），多出来的宽度都给画面 */
 #vrList > .vr-desk > .vr-split {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-height: 0;
+  grid-template-columns: minmax(0, 1fr) var(--vr-side, 400px);
 }
+/* 右栏是一张卡片：顶上候选标签、中间详情在栏里滚、底下审核按钮和意见钉住 */
 .vr-desk .vr-plans {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--card);
+}
+/* 详情不满一栏时也撑满，审核按钮和意见落在卡片最下面，位置不随内容长短上下跳 */
+.vr-desk .vr-plans > .vr-pbody {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+.vr-desk .vr-plans .vr-detail.vr-cand {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+}
+.vr-desk .vr-detail .vr-foot {
+  margin-top: auto;
 }
 .vr-desk .vr-plans > .vr-pbody {
   position: static;

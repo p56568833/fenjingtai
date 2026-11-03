@@ -57,11 +57,11 @@ const DOC = {
   ],
 };
 
-/* 审核页只显示选中候选的详情：先在列表里选中它，再点结果 */
+/* 审核页只显示选中候选的详情：先在右栏顶上的标签里选中它，再点结果 */
 async function decide(key, d) {
   const id = cand(key)?.id;
   if (!$(`.vr-cand[data-vr-id="${id}"]`)) {
-    $(`#vrNav [data-vr-pick="${id}"]`)?.click();
+    $(`#vrList .vr-ctabs [data-vr-pick="${id}"]`)?.click();
     await pause(20);
   }
   $(`[data-vr-id="${id}"] [data-vr-d="${d}"]`)?.click();

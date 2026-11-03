@@ -150,6 +150,17 @@ export const orderedCandidates = g => {
     return (y.whole ? 1 : 0) - (x.whole ? 1 : 0) || x.from - y.from || x.to - y.to || (a.seq ?? 0) - (b.seq ?? 0);
   });
 };
+/* 通过的候选现在排在哪：主画面第几个、几秒到几秒（相对画面开头，at 是口播里的时间），或在备选轨；没挂上返回 null */
+export function candPlace(c) {
+  if (c.decision !== 'ok' || !c.assetId) return null;
+  const members = reviewIndex().byRow.get(c.rowId)?.members || [];
+  const layout = members.length ? layoutPictures(state.assets || {}, members, timeline()) : null;
+  if (!layout) return null;
+  const it = layout.items.find(x => x.assetId === c.assetId && x.start < layout.dur);
+  if (it)
+    return { alt: false, n: it.n, start: it.start, end: Math.min(it.end, layout.dur), at: layout.start + it.start };
+  return onAlt(c) ? { alt: true } : null;
+}
 /* 正片轨排了多少：{ got（盖住的秒数）, dur（口播秒数）, full }；不知道时间返回 null */
 export function trackFill(g) {
   const members = g?.lead ? shotMembers(state.rows, g.lead) : [];

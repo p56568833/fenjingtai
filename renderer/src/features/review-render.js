@@ -41,7 +41,7 @@ export function createReviewRenderer({
   cards,
 }) {
   const { showTimeline, followCand } = preview;
-  const { pickHTML, detailHTML, paintMotion } = cards;
+  const { tabHTML, detailHTML, paintMotion } = cards;
   function refreshReviewStatus() {
     refreshVideoReviewButton();
     if (!$('#vrSaveAll')) return;
@@ -93,17 +93,15 @@ export function createReviewRenderer({
       painted.shot = null;
       return renderRework(host, $('#vrNav'), cards);
     }
-    // 选中的画面和候选：候选列在左栏这个画面下面，右边只放选中那个的详情
+    // 选中的画面和候选：候选是右栏顶上的一排标签，下面只放选中那个的详情
     const g = shots.find(x => x.key === page.curShot);
     const list = g ? orderedCandidates(g) : [];
     if (g && !list.some(c => c.id === page.curCand)) page.curCand = (list.find(isPending) || list[0])?.id || null;
     const shown = list.filter(c => c.id === page.curCand);
-    // 左栏：批次 → 画面 → 当前画面的候选
+    // 左栏：批次 → 画面
     const nav = $('#vrNav');
     // 别人改了别处 / 后台保存都会走到这里：左栏内容没变就不重写，悬停、滚动和动效都不被打断
-    const navNext = navHTML(all, shots, x =>
-      x === g ? list.map(c => pickHTML(c, c.id === page.curCand)).join('') : '',
-    );
+    const navNext = navHTML(all, shots);
     if (navNext !== painted.nav || painted.navEl?.parentNode !== nav) {
       nav.innerHTML = navNext;
       painted.nav = navNext;
@@ -129,20 +127,23 @@ export function createReviewRenderer({
       host.innerHTML = '<p class="vr-empty">这一批没有候选。</p>';
       return;
     }
-    // 右边：左栏选中那个候选的详情和审核按钮，位置固定不跳；下面是左右拉通的时间轨
+    // 标题下面一直写着这个画面要什么，审核就是拿候选和它比；右边是候选标签 + 选中那个的详情，下面是左右拉通的时间轨
     const fill = trackFill(g);
     const fillHTML = fill
       ? `<span class="vr-pst ${fill.full ? 'ok' : 'has'}" title="主画面排了多少秒 / 这个画面的口播有多长">已排 ${secText(fill.got)} / 口播 ${secText(fill.dur)} 秒</span>`
       : '';
     const reworkNote = g.cands.find(c => c.reworkNote)?.reworkNote || '';
+    const need = (g.lead?.note || '').replace(/\s+/g, ' ').trim();
+    const cur = list.find(c => c.id === page.curCand);
     const shotHTML = `<section class="vr-shot vr-desk" data-vr-shot="${esc(String(g.key))}">
       <div class="vr-shot-head"><h4><span class="vr-shot-range">${rangeText(g.lead)}</span>${g.cands[0]?.label ? `<span class="vr-shot-label">${esc(g.cands[0].label)}</span>` : ''}</h4><span class="vr-spacer"></span>${fillHTML}
+      ${need ? `<p class="vr-shot-need" title="${esc(g.lead.note)}"><b>画面要求</b><span>${esc(need)}</span></p>` : ''}
       ${reworkNote ? `<p class="vr-need vr-rework-note"><b>原返工意见</b>${esc(reworkNote)}</p>` : ''}</div>
       <div class="vr-split">
         <div class="vr-watch">
           <div class="vr-dock-wrap"><div id="vrDockPlayer" aria-label="对着口播看画面"></div><div class="vr-preview" id="vrPreview" aria-label="候选预览" hidden></div></div>
         </div>
-        <div class="vr-plans"><div class="vr-pbody">${shown.map(detailHTML).join('')}</div></div>
+        <div class="vr-plans"><div class="vr-ctabs" role="tablist" aria-label="这个画面的候选">${list.map(c => tabHTML(c, c.id === page.curCand)).join('')}</div><div class="vr-pbody">${shown.map(detailHTML).join('')}</div>${curBlockStyle(cur)}</div>
       </div>
       <div class="vr-timeline" id="vrDockTrack"></div>
     </section>`;
@@ -165,10 +166,13 @@ export function createReviewRenderer({
     } else {
       closeReviewPlayback();
       host.innerHTML = shotHTML;
+      fitSide(host.querySelector('.vr-split'));
     }
     painted.shot = shotHTML;
     painted.shotEl = host.firstElementChild;
     mountPlayback(g);
+    // 换了画面：先按监视器高度定好右栏宽度，再摆「通过 / 不要」的色块，免得色块按默认宽度摆完又对不上
+    if (!sameShot) sizeSide(host.querySelector('.vr-split'));
     if (sameShot) followCand();
     else showTimeline();
     if (top) host.scrollTop = top;
@@ -178,6 +182,47 @@ export function createReviewRenderer({
     // 截图只给选中的那个候选：换了画面、换了选中，没轮到的截图任务取消
     retainFrames(shown);
   }
+  /* 右栏宽度：先让画面按高度撑满监视器（16:9），剩下的宽度给右栏，限制在 360–520px。
+     对不上的部分在监视器里成黑边；窗口再宽也是画面变大，右栏不再变宽 */
+  let sideObs = null;
+  function sizeSide(split) {
+    const box = split?.querySelector('.pt-box.docked');
+    const stage = split?.querySelector('.pt-stage');
+    if (!box || !stage) return false;
+    // 监视器里画面以外占的高度（内边距、字幕）：用实际排出来的尺寸，不写死
+    const chrome = box.getBoundingClientRect().height - stage.getBoundingClientRect().height;
+    const want = ((split.clientHeight - chrome) * 16) / 9;
+    const gap = parseFloat(getComputedStyle(split).columnGap) || 0;
+    const side = `${Math.round(Math.max(360, Math.min(520, split.clientWidth - want - gap)))}px`;
+    if (split.style.getPropertyValue('--vr-side') === side) return false;
+    split.style.setProperty('--vr-side', side);
+    return true;
+  }
+  function fitSide(split) {
+    sideObs?.disconnect();
+    sideObs = null;
+    if (!split) return;
+    sideObs = new ResizeObserver(() => {
+      if (!sizeSide(split)) return;
+      // 右栏变宽变窄后，「通过 / 不要」底下的色块按新的按钮位置直接摆好，不从旧位置滑过来
+      for (const row of split.querySelectorAll('.vr-row.has-glide')) {
+        const pill = row.querySelector(':scope > .vr-dpill');
+        const on = row.querySelector('.vr-btn.on');
+        if (!pill || !on) continue;
+        pill.style.transition = 'none';
+        glide(row, on, 'vr-dpill');
+        void pill.offsetWidth;
+        pill.style.transition = '';
+      }
+    });
+    sideObs.observe(split);
+  }
+  /* 选中的候选在时间条上的色块描一圈蓝框，和右栏对得上。时间条随时会自己重画色块，
+     所以写成一条样式规则跟着候选走，不去改色块本身 */
+  function curBlockStyle(c) {
+    if (c?.decision !== 'ok' || !c.assetId) return '';
+    return `<style>#vrDockTrack .ptt-block[data-ptt="${CSS.escape(c.assetId)}"]:not(.on)::after { box-shadow: inset 0 0 0 2px var(--accent); }</style>`;
+  }
   /* 「对着口播看画面」放左边，两条轨在下面左右拉通 */
   function mountPlayback(g) {
     const player = $('#vrDockPlayer'),
@@ -186,6 +231,7 @@ export function createReviewRenderer({
     mountReviewPlayback({ player, track }, g.lead.id, showTimeline);
   }
   function reset() {
+    fitSide(null);
     reviewProject = navShown = null;
     painted.shot = painted.nav = null;
     painted.shotEl = painted.navEl = null;
@@ -203,6 +249,7 @@ export function createReviewRenderer({
     refreshStatus: refreshReviewStatus,
     reset,
     leave: () => {
+      fitSide(null);
       closeReviewPlayback();
       painted.shot = null;
     },

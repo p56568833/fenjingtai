@@ -1,4 +1,4 @@
-/* 审核页的候选：左栏的一行、右边的详情、通过 / 不要的动效、播放。 */
+/* 审核页的候选：右栏顶上的标签、下面的详情、通过 / 不要的动效、播放。 */
 import { state } from '../app/state.js';
 import { assetName } from '../core/asset-model.js';
 import { fmtTime, fmtLen } from '../core/text.js';
@@ -8,7 +8,8 @@ import { esc } from '../ui/base/dom.js';
 import { glide, pop, SPRING } from '../ui/base/motion.js';
 import { playClip } from './clip-player.js';
 import { stripHTML, previewOf } from './review-frames.js';
-import { candName, isIdle } from './review-model.js';
+import { candName, candPlace, isIdle } from './review-model.js';
+import { circled } from '../core/shot-layout.js';
 
 import { pauseReviewPlayback } from './review-playback.js';
 
@@ -43,14 +44,32 @@ export function createReviewCards({ root, preview, page }) {
     pop(card.querySelector('.vr-tag'), { scale: 1.7, duration: 460 });
     card.animate?.([{ transform: 'scale(0.985)' }, { transform: 'none' }], { duration: 380, easing: SPRING });
   }
-  /* 左栏当前画面下面的候选：每个一行、样子都一样（名字；状态 · 可用秒数 · AI 写的标题），点一行右边换成它的详情 */
-  function pickHTML(c, on) {
+  /* 右栏顶上这个画面的候选：每个一个标签（名字 + 状态，圆点颜色跟状态走），点一个下面换成它的详情；
+     可用秒数和 AI 写的标题放在悬停说明里 */
+  function tabHTML(c, on) {
     const st = c.decision || (isIdle(c) ? 'idle' : 'wait');
     const label = c.decision ? DECISION[c.decision] : st === 'idle' ? '未采用' : '待审';
-    const tip = st === 'idle' ? '它给的那几句已经有通过的主画面，点开还能审' : c.title || '';
-    return `<button class="vr-pick d-${st}${on ? ' on' : ''}" role="option" aria-selected="${!!on}" data-vr-pick="${c.id}" title="${esc(tip)}"><span class="vr-pick-name">${esc(candName(c))}</span><span class="vr-pick-sub"><span class="vr-pick-st">${label}</span> · ${secText(usableSeconds(c))} 秒${c.title ? ` · ${esc(c.title)}` : ''}</span></button>`;
+    const tip = [
+      `${label} · ${secText(usableSeconds(c))} 秒`,
+      c.title,
+      st === 'idle' ? '它给的那几句已经有通过的主画面，点开还能审' : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    return `<button class="vr-pick d-${st}${on ? ' on' : ''}" role="tab" aria-selected="${!!on}" data-vr-pick="${c.id}" title="${esc(tip)}"><span class="vr-pick-name">${esc(candName(c))}</span><span class="vr-pick-st">${label}</span></button>`;
   }
-  /* 审核页选中候选的详情：说明 → 截图 → 来源 → 审核按钮和意见。按钮一直在同一个位置，审完不跳；再点一次同一个结果 = 撤回 */
+  /* 通过的候选排在哪：主画面上的点一下播放头跳过去；在备选轨的说明一下它不播放 */
+  function placeHTML(c) {
+    const at = candPlace(c);
+    if (!at) return '';
+    if (at.alt) return '<p class="vr-place alt">在备选轨：不播放，拖上主画面就能换上去</p>';
+    return `<button class="vr-place" data-vr-seek="${at.at}" title="播放头跳到这一段的开头">在主画面 ${circled(at.n)} · ${secText(at.start)}–${secText(at.end)} 秒<span>跳过去 →</span></button>`;
+  }
+  /* 「更多信息」上次是展开还是收起：换候选、审完重画后照旧 */
+  let moreOpen = false;
+  /* 审核页选中候选的详情：大封面（点一下在左边播）→ 排在哪 → 一句话标题 + 缺什么 → 收起来的更多信息 → 审核按钮和意见。
+     判断要用的只有画面本身和缺的东西；AI 看到了什么、片段时间、版权和链接收进「更多信息」。
+     按钮一直在卡片最下面，审完不跳；再点一次同一个结果 = 撤回 */
   function detailHTML(c) {
     const d = c.decision || '';
     const seg = c.best || c;
@@ -64,15 +83,21 @@ export function createReviewCards({ root, preview, page }) {
         ? `<span class="vr-saved" title="${esc(c.savedPath)}">已保存：${esc(assetName(c.savedPath))}</span><button class="vr-link" data-vr-reveal="${c.id}">在访达中显示</button>`
         : '';
     return `<article class="vr-cand vr-detail${d ? ' d-' + d : ''}" data-vr-id="${c.id}">
-    <div class="vr-head"><strong>${esc(candName(c))}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}<span class="vr-spacer"></span><button class="vr-mini" data-vr-play="${c.id}">▶ 播放这段</button></div>
-    ${c.why ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
-    ${c.limits ? `<p class="vr-cov-note">缺：${esc(c.limits)}</p>` : ''}
-    ${c.short ? `<p class="vr-cov-note">不够长：${esc(c.short)}</p>` : ''}
-    ${stripHTML(c)}
-    <div class="vr-meta"><span class="vr-src-title">${esc(c.title || '')}</span><span class="vr-best"${segTip ? ` title="${esc(segTip)}"` : ''}>片段 ${fmtTime(seg.in)}–${fmtTime(seg.out)}（${fmtLen(seg.out - seg.in)}）</span><span>${esc(c.license || '版权未注明')}</span><button class="vr-link" data-vr-page="${c.id}">原片页面</button><button class="vr-link" data-vr-orig="${c.id}">下载完整原片</button></div>
-    <div class="vr-row vr-decide">${btnOf('ok', 1)}${btnOf('no', 2)}</div>
-    <input class="vr-note" data-vr-note="${c.id}" placeholder="意见（可选）：比如要更近景的、换成冷藏车外景…" value="${esc(c.note || '')}">
-    ${saved || d ? `<div class="vr-row vr-after">${saved}<span class="vr-spacer"></span>${d ? `<button class="vr-link" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button>` : ''}</div>` : ''}
+    <div class="vr-head"><strong>${esc(candName(c))}</strong>${d ? `<span class="vr-tag d-${d}">${DECISION[d]}</span>` : ''}</div>
+    <div class="vr-cover" role="button" tabindex="0" data-vr-play="${c.id}" title="在左边播放器里播这段">${stripHTML(c, 1)}<span class="vr-cover-play" data-vr-play-label>▶ 在左边播放</span><span class="vr-cover-len">${fmtLen(seg.out - seg.in)}</span></div>
+    ${placeHTML(c)}
+    ${c.title || c.why ? `<p class="vr-gist">${esc(c.title || c.why)}</p>` : ''}
+    ${c.limits ? `<p class="vr-cov-note" title="${esc(c.limits)}">缺：${esc(c.limits)}</p>` : ''}
+    ${c.short ? `<p class="vr-cov-note" title="${esc(c.short)}">不够长：${esc(c.short)}</p>` : ''}
+    <details class="vr-more"${moreOpen ? ' open' : ''}><summary>更多信息</summary>
+      ${c.why && c.title ? `<p class="vr-why">${esc(c.why)}</p>` : ''}
+      <div class="vr-meta"><span class="vr-best"${segTip ? ` title="${esc(segTip)}"` : ''}>片段 ${fmtTime(seg.in)}–${fmtTime(seg.out)}（${fmtLen(seg.out - seg.in)}）</span><span>${esc(c.license || '版权未注明')}</span><button class="vr-link" data-vr-page="${c.id}">原片页面</button><button class="vr-link" data-vr-orig="${c.id}">下载完整原片</button></div>
+    </details>
+    <div class="vr-foot">
+      <div class="vr-row vr-decide">${btnOf('ok', 1)}${btnOf('no', 2)}</div>
+      <input class="vr-note" data-vr-note="${c.id}" placeholder="意见（可选）：比如要更近景的、换成冷藏车外景…" value="${esc(c.note || '')}">
+      ${saved || d ? `<div class="vr-row vr-after">${saved}<span class="vr-spacer"></span>${d ? `<button class="vr-link" data-vr-d="${d}" data-vr-for="${c.id}" title="撤回这个审核结果，回到待审">撤回</button>` : ''}</div>` : ''}
+    </div>
   </article>`;
   }
   /* 播放这个候选：审核页在左边播放器里播（候选预览），待返工页在卡片里播。at：从片段里的第几秒开始（点截图） */
@@ -90,9 +115,10 @@ export function createReviewCards({ root, preview, page }) {
   return {
     paintMotion,
     stamp,
-    pickHTML,
+    tabHTML,
     detailHTML,
     play,
+    rememberMore: open => (moreOpen = open),
     reset: () => decisionMemo.clear(),
   };
 }

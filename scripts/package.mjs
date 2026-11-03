@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-/* 一键打发布包：@electron/packager 出 Apple Silicon(arm64) + Intel(x64) 两个 分镜台.app，
+/* 一键打发布包：@electron/packager 默认只出 Apple Silicon(arm64) 版 分镜台.app，
    ad-hoc 签名（macOS 要求至少 ad-hoc 才能启动），每个架构产出一个 .dmg（带「拖到 Applications」
    快捷方式）和一个 .zip（给脚本/curl 和软件内更新下载）；再出一个只含应用代码的增量包
    FenJingTai-app.asar.gz（约 1 MB，Electron 本体没变的老用户软件内更新只下它），最后生成 latest.json
    （软件内更新先读它，不占 GitHub API 匿名额度），统一落在临时 .noindex 目录，文件名用 ASCII 方便直链。
-   用法：npm run package；只发 Apple 芯片版：npm run package -- --arch=arm64 */
+   用法：npm run package；用户明确要求恢复 Intel 发布后，才使用 --arch=arm64,x64 */
 import { packager } from '@electron/packager';
 import {
   copyFileSync,
@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.env.ELECTRON_MIRROR ||= 'https://npmmirror.com/mirrors/electron/';
 const architectures = [
-  ...new Set((process.argv.find(arg => arg.startsWith('--arch='))?.slice(7) || 'arm64,x64').split(',')),
+  ...new Set((process.argv.find(arg => arg.startsWith('--arch='))?.slice(7) || 'arm64').split(',')),
 ];
 if (architectures.some(arch => !['arm64', 'x64'].includes(arch)))
   throw new Error('--arch 只支持 arm64、x64 或 arm64,x64');

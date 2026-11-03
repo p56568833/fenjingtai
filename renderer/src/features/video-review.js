@@ -12,9 +12,9 @@ import { projectRefresh } from '../core/project-refresh.js';
    审核页是一个「收件箱」，和表格共用顶栏：
    · 批次：每次导入算一批。左栏顶上固定一张当前批次卡片（实际句子 · 日期 · 待审数 · 进度条），点它在菜单里
      换批次 / 导入新批次；卡片的「⋯」里是更换保存位置、删除此批次。卡片下面是这一批的全部画面。
-   · 右边分两栏：左边口播一句一行（标这句有没有画面），右边是方案——几个方案时用 Tab 换着看，
-     方案上面一条填满进度，下面按播放顺序 ①②③ 排视频；聚焦哪个视频，左边亮它排到的那几句。
-     画面已经填满后，别的没审的视频收成「未采用」。截图只给正在看的方案里的候选截。
+   · 右边：标题下面写着这个画面要求的画面；左边一整块深色监视器（对着口播看排好的画面），右栏顶上是这个画面
+     的候选标签、下面是选中那个的详情，审核按钮和意见钉在栏底；最下面是左右拉通的画面时间条（播放按钮在条上）。
+     选中的候选在时间条上描蓝框，点色块右栏换成对应的候选。画面已经填满后，别的没审的视频收成「未采用」。
    · 审完就走：审过的候选收成一行（能撤回），不再有「已通过」页——通过的结果在表格的画面上看；
      「不要」的在待返工里保留；画面有候选通过后，离开审核页时清掉已写回清单的否决项。
    · 键盘：1 通过 · 2 不要 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
@@ -38,6 +38,7 @@ import {
   toggleReviewPlayback,
   pauseReviewPlayback,
   reviewPlaybackKey,
+  seekReviewPlayback,
 } from './review-playback.js';
 import { createReviewPreview } from './review-preview.js';
 import { togglePause, seekTrack, stopAllVideos, setVoiceOn } from './clip-player.js';
@@ -251,14 +252,14 @@ function videoReviewKey(e) {
     if (c) togglePause(previewHost(), previewOf(c));
     return true;
   }
-  // ↑↓ 走左栏这个画面下面的候选，顺序和列表一样
+  // ↑↓ 走右栏顶上这个画面的候选，顺序和标签一样
   const open = orderedCandidates(curGroup());
   const k = open.findIndex(c => c.id === page.curCand);
   const move = d => {
     if (!open.length) return;
     page.curCand = open[Math.max(0, Math.min(open.length - 1, (k < 0 ? 0 : k) + d))].id;
     renderVideoReview();
-    $(`#vrNav [data-vr-pick="${page.curCand}"]`)?.scrollIntoView({ block: 'nearest' });
+    $(`#vrList [data-vr-pick="${page.curCand}"]`)?.scrollIntoView({ block: 'nearest' });
   };
   const DKEYS = { 1: 'ok', 2: 'no' };
   if (DKEYS[e.key]) {
@@ -318,16 +319,12 @@ export function initVideoReview() {
     </main>`,
   );
   $('#vrSaveAll').onclick = () => saveAllApproved();
+  const pickCand = id => {
+    if (!id || id === page.curCand) return;
+    page.curCand = id;
+    renderVideoReview();
+  };
   $('#vrNav').addEventListener('click', e => {
-    // 左栏当前画面下面的候选：点一行，右边换成它的详情
-    const pick = e.target.closest('[data-vr-pick]');
-    if (pick) {
-      if (pick.dataset.vrPick !== page.curCand) {
-        page.curCand = pick.dataset.vrPick;
-        renderVideoReview();
-      }
-      return;
-    }
     const tab = e.target.closest('[data-vr-tab]');
     if (tab) return setMode(tab.dataset.vrTab);
     const rw = e.target.closest('[data-vr-rw]');
@@ -355,6 +352,12 @@ export function initVideoReview() {
     },
     true,
   );
+  // 点时间条上的色块：右栏换成这段画面对应的候选（不是审核来的画面就不动）
+  $('#vrList').addEventListener('click', e => {
+    const block = e.target.closest?.('#vrDockTrack .ptt-block[data-ptt]');
+    if (!block) return;
+    pickCand(orderedCandidates(curGroup()).find(c => c.assetId === block.dataset.ptt)?.id);
+  });
   // 往下翻候选时，钉在顶上的画面标题下沿加一道淡影，看得出下面还有内容在滚
   $('#vrList').addEventListener(
     'scroll',
@@ -366,6 +369,15 @@ export function initVideoReview() {
     const card = t.closest('.vr-cand');
     // 盖在左边的候选：收起，回到排好的画面
     if (t.closest('[data-vr-pv-close]')) return showTimeline();
+    // 右栏顶上的候选标签：下面换成它的详情
+    const pick = t.closest('[data-vr-pick]');
+    if (pick) return pickCand(pick.dataset.vrPick);
+    // 「在主画面 ② · 几秒到几秒」：播放头跳到这一段开头
+    const seekTo = t.closest('[data-vr-seek]');
+    if (seekTo) {
+      showTimeline();
+      return seekReviewPlayback(+seekTo.dataset.vrSeek);
+    }
     // 截图：从这一帧开始，在左边播放器里播
     const cell = t.closest('.vr-cand .vr-cell[data-vr-at]');
     if (cell && card) return play(card.dataset.vrId, +cell.dataset.vrAt);
@@ -410,6 +422,22 @@ export function initVideoReview() {
       const c = state.candidates.find(x => x.id === rv.dataset.vrReveal);
       if (c?.savedPath) native('revealAsset')(c.savedPath);
     }
+  });
+  // 「更多信息」展开 / 收起记住，换候选后照旧（toggle 不冒泡，在捕获阶段接）
+  $('#vrList').addEventListener(
+    'toggle',
+    e => {
+      if (e.target.matches?.('details.vr-more')) cards.rememberMore(e.target.open);
+    },
+    true,
+  );
+  // 封面能用键盘打开：回车 / 空格和点一下一样，在左边播
+  $('#vrList').addEventListener('keydown', e => {
+    const cover = e.target.closest?.('.vr-cover[data-vr-play]');
+    if (!cover || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    play(cover.dataset.vrPlay);
   });
   $('#vrList').addEventListener('change', e => {
     if (e.target.matches?.('[data-vr-voice]')) setVoiceOn(e.target.checked); // 「口播声音」开关记住，下次默认照旧

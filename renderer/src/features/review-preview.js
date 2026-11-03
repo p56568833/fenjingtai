@@ -16,10 +16,10 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
   const previewHost = host;
   const previewingId = () => (previewHost() ? shown : null);
 
-  /* 播放按钮上的字（载入中… / ↻ 重播这段）写回右边那张卡片 */
+  /* 播放按钮上的字（载入中… / ↻ 重播这段）写回右边那张卡片；封面上只改中间那块字，不把截图冲掉 */
   const labelFor = id => text => {
-    const btn = card(id)?.querySelector('[data-vr-play]');
-    if (btn) btn.textContent = text;
+    const el = card(id)?.querySelector('[data-vr-play-label]') || card(id)?.querySelector('[data-vr-play]');
+    if (el) el.textContent = text;
   };
 
   /* 在左边播这个候选（盖在排好的画面上面）。at：从片段里的第几秒开始（截图上点的位置） */

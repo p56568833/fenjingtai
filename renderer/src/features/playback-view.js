@@ -20,16 +20,17 @@ import { createShotTrack } from './shot-track.js';
 export function createPlaybackView({ root, playerHost = root, trackHost = null, embedded = false, onPlay }) {
   const prefix = embedded ? 'review-' : '';
   const markup = html => html.replace(/id="(pt\w+)"/g, (_, id) => 'data-pt="' + id + '" id="' + prefix + id + '"');
+  const controls = `<div class="pt-controls"><button class="btn" id="ptPrev" title="上一个画面（←）" aria-label="上一个画面">${ICON_PREV}</button><button class="btn primary" id="ptPlay">${ICON_PLAY}播放</button><button class="btn" id="ptNext" title="下一个画面（→）" aria-label="下一个画面">${ICON_NEXT}</button><span class="pt-time mono" id="ptTime"></span><span class="spacer"></span><span class="pt-keys"><kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个画面</span></div>`;
   playerHost.innerHTML = markup(`<div class="pt-box${embedded ? ' docked' : ''}" role="dialog" aria-label="连播预览">
       <div class="pt-head"><strong id="ptTitle">连播预览</strong><span class="pt-hint" id="ptHint"></span><span class="spacer"></span><button class="btn" id="ptClose">关闭 <kbd>Esc</kbd></button></div>
       <div class="pt-stage" id="ptStage"></div>
       <div class="pt-sub" id="ptSub"></div>
       <div class="pt-meta" id="ptMeta"></div>
       <div class="pt-progress"><div id="ptBar"></div></div>
-      ${trackHost ? '' : '<div class="pt-track" id="ptTrack" hidden></div>'}
-      <div class="pt-controls"><button class="btn" id="ptPrev" title="上一个画面（←）" aria-label="上一个画面">${ICON_PREV}</button><button class="btn primary" id="ptPlay">${ICON_PLAY}播放</button><button class="btn" id="ptNext" title="下一个画面（→）" aria-label="下一个画面">${ICON_NEXT}</button><span class="pt-time mono" id="ptTime"></span><span class="spacer"></span><span class="pt-keys"><kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个画面</span></div>
+      ${trackHost ? '' : `<div class="pt-track" id="ptTrack" hidden></div>${controls}`}
     </div>`);
-  if (trackHost) trackHost.innerHTML = markup('<div class="pt-track" id="ptTrack" hidden></div>');
+  // 时间条单独放的（审核页）：播放按钮跟着时间条走，管的就是轨上的播放头
+  if (trackHost) trackHost.innerHTML = markup(`${controls}<div class="pt-track" id="ptTrack" hidden></div>`);
   const $ = s => root.querySelector(s);
   let open = false;
   let units = []; // [{members, start, end, layout}]
@@ -427,6 +428,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     start,
     close,
     pause: stop,
+    seek,
     refresh: refreshSoon,
     handleKey,
     remote() {

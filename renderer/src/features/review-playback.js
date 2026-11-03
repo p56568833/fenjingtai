@@ -30,6 +30,7 @@ export const pauseReviewPlayback = () => {
   if (view?.snapshot().playing) view.pause();
 };
 export const toggleReviewPlayback = () => view?.toggle() || false;
+export const seekReviewPlayback = t => view?.seek(t);
 export const reviewPlaybackKey = e => view?.handleKey(e) || false;
 export const reviewPlaybackState = () => view?.snapshot();
 on('project-committed', change => (change.source === 'remote' ? view?.remote() : view?.refresh()));
