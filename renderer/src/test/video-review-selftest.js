@@ -483,6 +483,42 @@ export async function runVideoReviewTests(t) {
   await pause(20);
   t('再按空格：排好的画面停下，候选也没被打开', !playthroughState().playing && $('#vrPreview').hidden);
   {
+    const cover = card('A1').querySelector('[data-vr-play]');
+    click(cover);
+    cover.focus();
+    // 时间轨会阻止鼠标按下的默认动作，焦点可能仍在候选封面上。
+    const ruler = $('#review-pttRuler');
+    const rect = ruler.getBoundingClientRect();
+    const at = {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerId: 12,
+      clientX: rect.left + rect.width * 0.4,
+      clientY: rect.top + rect.height / 2,
+    };
+    ruler.dispatchEvent(new PointerEvent('pointerdown', at));
+    ruler.dispatchEvent(new PointerEvent('pointerup', at));
+    const position = playthroughState().time;
+    t('点击时间轨立即收起候选，显示轨上画面', $('#vrPreview').hidden && !$('#vrPreview video'));
+    const space = () =>
+      cover.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    space();
+    t('点轨后焦点仍在封面：空格播放时间轨，不返回候选', $('#vrPreview').hidden && playthroughState().playing);
+    space();
+    t(
+      '再按空格暂停时间轨并保留点选位置',
+      $('#vrPreview').hidden && !playthroughState().playing && Math.abs(playthroughState().time - position) < 0.1,
+    );
+    click('#review-ptPlay');
+    t('点轨后播放按钮同样播放时间轨画面', $('#vrPreview').hidden && playthroughState().playing);
+    click('#review-ptPlay');
+    space();
+    t('播放按钮暂停后，空格仍继续时间轨', $('#vrPreview').hidden && playthroughState().playing);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    cover.blur();
+  }
+  {
     const player = $('#vrDockPlayer .pt-box');
     const track = $('#review-ptTrack');
     const before = playthroughState().time;

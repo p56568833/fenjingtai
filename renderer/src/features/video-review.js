@@ -435,12 +435,11 @@ export function initVideoReview() {
     },
     true,
   );
-  // 封面能用键盘打开；候选已在预览时，空格交给页面暂停 / 继续，焦点留在封面上也不重播。
+  // 回车打开封面；空格始终由页面控制当前播放器，不因封面残留焦点重新打开候选。
   $('#vrList').addEventListener('keydown', e => {
     const cover = e.target.closest?.('.vr-cover[data-vr-play]');
-    if (!cover || (e.key !== 'Enter' && e.key !== ' ')) return;
+    if (!cover || e.key !== 'Enter') return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
-    if (e.key === ' ' && previewingId()) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.repeat) return;
