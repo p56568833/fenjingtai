@@ -403,6 +403,71 @@ export async function runVideoReviewTests(t) {
   t('点「回到画面时间」：候选收起，回到排好的画面', $('#vrPreview').hidden && !$('#vrPreview video'));
   click(card('A1').querySelector('[data-vr-play]'));
   await pause(20);
+  {
+    // 模拟片段已播到中途，断言实际的暂停 / 继续与位置；不能只检查候选是否还显示。
+    const cover = card('A1').querySelector('[data-vr-play]');
+    const video = $('#vrPreview video');
+    const src = video.getAttribute('src');
+    let paused = false;
+    let time = 105;
+    let plays = 0;
+    let pauses = 0;
+    Object.defineProperties(video, {
+      paused: { configurable: true, get: () => paused },
+      currentTime: {
+        configurable: true,
+        get: () => time,
+        set: value => {
+          time = value;
+        },
+      },
+      play: {
+        configurable: true,
+        value: () => {
+          paused = false;
+          plays++;
+          return Promise.resolve();
+        },
+      },
+      pause: {
+        configurable: true,
+        value: () => {
+          paused = true;
+          pauses++;
+        },
+      },
+    });
+    const space = (target, repeat = false) =>
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', repeat, bubbles: true, cancelable: true }));
+    try {
+      cover.focus();
+      space(cover);
+      t(
+        '焦点留在候选封面时按空格：暂停当前片段，保留播放位置和视频',
+        paused &&
+          pauses === 1 &&
+          plays === 0 &&
+          time === 105 &&
+          video.getAttribute('src') === src &&
+          $('#vrPreview video') === video &&
+          !playthroughState().playing,
+      );
+      space(cover, true);
+      t('按住空格不会连续切换候选播放状态', paused && pauses === 1 && plays === 0);
+      space(cover);
+      t(
+        '封面上再按空格：从暂停位置继续播放',
+        !paused && plays === 1 && pauses === 1 && time === 105 && video.getAttribute('src') === src,
+      );
+      space($('#vrPreview [data-vr-pp]'));
+      t('焦点在播放器按钮时空格同样暂停当前位置', paused && pauses === 2 && time === 105);
+      space(document);
+      t('页面空白处空格同样继续当前候选', !paused && plays === 2 && time === 105);
+    } finally {
+      for (const name of ['paused', 'currentTime', 'play', 'pause']) delete video[name];
+      cover.blur();
+    }
+  }
   document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
   await pause(30);
   t(

@@ -235,6 +235,10 @@ function videoReviewKey(e) {
     return e.key !== 'Escape' && !e.metaKey;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
+  if (e.key === ' ' && e.repeat) {
+    e.preventDefault();
+    return true;
+  }
   // 待返工页只写要求、不审候选：↑↓ ←→ 都是换一项，1 / 2 不起作用，空格只管正在预览的候选
   if (page.mode === 'rework') {
     const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
@@ -431,12 +435,15 @@ export function initVideoReview() {
     },
     true,
   );
-  // 封面能用键盘打开：回车 / 空格和点一下一样，在左边播
+  // 封面能用键盘打开；候选已在预览时，空格交给页面暂停 / 继续，焦点留在封面上也不重播。
   $('#vrList').addEventListener('keydown', e => {
     const cover = e.target.closest?.('.vr-cover[data-vr-play]');
     if (!cover || (e.key !== 'Enter' && e.key !== ' ')) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+    if (e.key === ' ' && previewingId()) return;
     e.preventDefault();
     e.stopPropagation();
+    if (e.repeat) return;
     play(cover.dataset.vrPlay);
   });
   $('#vrList').addEventListener('change', e => {
