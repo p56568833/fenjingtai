@@ -33,6 +33,7 @@ import {
   validGroup,
   normalizeGroups,
 } from '../renderer/src/core/shots.js';
+import { normalizeReviewBatches } from '../renderer/src/core/review-batches.js';
 import { candidateBatches } from '../renderer/src/core/candidate-queries.js';
 import { sentenceScope, normalizeReworkRequests } from '../renderer/src/core/candidate-scope.js';
 import { normalizeProjectRows, reconcileDraft } from '../renderer/src/core/project-import.js';
@@ -2858,22 +2859,57 @@ test('旧版批注 MD 导入和项目 JSON 回读保留手动时间、素材返�
   test('失败解码释放名额，后续任务仍可执行', () => assert.equal(active, 0));
 }
 
-test('审核名单：旧批号和 AI 批名不影响实际句子名称，重号不会改号或丢名单', () => {
+test('审核名单：忽略 AI 批名，旧批号重复时仍有稳定且唯一的编号', () => {
   const c = (id, batchId, batchAt, batchNo) => ({ id, batchId, batchAt, batchNo, rowId: 1, batchName: '第1-625句' });
   const cands = [c('a', 'b1', 100, 1), c('b', 'b2', 200, 2), c('x', 'mine', 300, 3), c('y', 'theirs', 310, 3)];
   const rows = [{ id: 1, kind: 'line', no: 28 }];
   const before = JSON.stringify(cands);
   const labels = list => candidateBatches(list, rows).map(b => [b.id, b.label]);
   assert.deepEqual(labels(cands), [
-    ['theirs', '第28句'],
-    ['mine', '第28句'],
-    ['b2', '第28句'],
-    ['b1', '第28句'],
+    ['theirs', '素材批次 04'],
+    ['mine', '素材批次 03'],
+    ['b2', '素材批次 02'],
+    ['b1', '素材批次 01'],
   ]);
   assert.deepEqual(labels([...cands].reverse()), labels(cands));
   assert.equal(JSON.stringify(cands), before, '旧数据只改变显示，不修改候选和批注');
   cands[0].batchAt = 310;
   assert.deepEqual(labels([...cands].reverse()), labels(cands), '同一导入时间也有确定顺序');
+});
+
+test('批次编号和自定名称随项目保存、导出；删除批次不占用别人的编号', () => {
+  const candidates = [
+    { batchId: 'a', batchAt: 1, rowId: 1, forIds: [1] },
+    { batchId: 'b', batchAt: 2, rowId: 1, forIds: [1] },
+  ];
+  const metadata = normalizeReviewBatches({}, candidates);
+  metadata.b.title = '工厂近景';
+  const project = normalizeProjectData({ candidates, reviewBatches: metadata });
+  for (const scope of ['storage', 'exchange', 'history'])
+    assert.deepEqual(projectData(project, scope).reviewBatches, metadata);
+  const back = normalizeProjectData(JSON.parse(buildProjectJson(project)));
+  back.candidates = back.candidates.filter(c => c.batchId === 'b');
+  const rows = [{ id: 1, kind: 'line', no: 9 }];
+  const b = candidateBatches(back.candidates, rows, back.reviewBatches)[0];
+  assert.equal(b.label, '素材批次 02 · 工厂近景');
+  assert.equal(b.detail, '第9句');
+  const next = normalizeReviewBatches(back.reviewBatches, [...back.candidates, { batchId: 'c', batchAt: 3 }]);
+  assert.equal(next.c.number, 3);
+  const empty = normalizeReviewBatches(next, []);
+  assert.equal(normalizeReviewBatches(empty, [{ batchId: 'd' }]).d.number, 4);
+  assert.equal(projectRefresh({ fields: ['reviewBatches'], rowIds: [], rowFields: [] }).review, true);
+});
+
+test('返工单路径随项目和素材包保存，解包后对应新的文件位置', () => {
+  const reworkRequests = { 'rw-files': { at: 1, path: '/old/返工单.json', targets: [{ rowIds: [1], note: '' }] } };
+  assert.deepEqual(normalizeReworkRequests(reworkRequests), reworkRequests);
+  const project = { rows: [], reworkRequests };
+  const files = packPlan(project);
+  assert.equal(files.get('/old/返工单.json'), '返工单/返工单.json');
+  const packed = toPacked(project, files);
+  assert.equal(packed.reworkRequests['rw-files'].path, '返工单/返工单.json');
+  const unpacked = fromPacked(packed, '/new');
+  assert.equal(unpacked.reworkRequests['rw-files'].path, '/new/返工单/返工单.json');
 });
 
 test('句子名称：连续才合并，分散逐项列出，较多时显示数量；重复视频不重复计句数', () => {
@@ -2883,21 +2919,18 @@ test('句子名称：连续才合并，分散逐项列出，较多时显示数�
   const cands = rows.map(r => ({ rowId: r.id, batchId: 'a', batchKind: 'rework' }));
   cands.push({ ...cands[0] });
   const b = candidateBatches(cands, rows)[0];
-  assert.equal(b.label, '返工素材 · 共12句');
+  assert.equal(b.label, '返工批次 01');
   assert.ok(b.detail.startsWith('第1、11、21句'.replace('句', '')));
   assert.equal(b.scope.count, 12);
   const shared = [
     { id: 1, no: 35, kind: 'line', groupId: 'g' },
     { id: 2, no: 36, kind: 'line', groupId: 'g' },
   ];
-  assert.equal(
-    candidateBatches([{ rowId: 2, batchId: 'b', batchName: '按批注重找' }], shared)[0].label,
-    '第35–36句 · 重找',
-  );
+  assert.equal(candidateBatches([{ rowId: 2, batchId: 'b', batchName: '按批注重找' }], shared)[0].label, '返工批次 01');
   shared[0].no = 40;
   shared[1].no = 41;
-  assert.equal(candidateBatches([{ rowId: 2 }], shared)[0].label, '第40–41句', '改稿后跟随当前句号，不读旧 lines');
-  assert.equal(candidateBatches([{ rowId: 999 }], shared)[0].label, '句子已移除');
+  assert.equal(candidateBatches([{ rowId: 2 }], shared)[0].detail, '第40–41句', '改稿后跟随当前句号，不读旧 lines');
+  assert.equal(candidateBatches([{ rowId: 999 }], shared)[0].detail, '句子已移除');
 });
 
 test('返工单：首尾分散画面逐项列出，带可校验的对应标记和原意见', () => {

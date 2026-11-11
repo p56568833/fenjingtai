@@ -8,7 +8,8 @@ import { on } from '../app/events.js';
 import { update } from '../app/project-events.js';
 import { rowById, types, timeline } from '../app/project-queries.js';
 import { setShotNote } from '../app/actions.js';
-import { removeUsage, addRefsToShot, autoAssignRoles } from '../app/asset-actions.js';
+import { addRefsToShot, autoAssignRoles } from '../app/asset-actions.js';
+import { removeFromShot, approvedCandidateOf } from '../app/candidate-actions.js';
 import { usageList } from '../core/asset-model.js';
 import { ROLES, shotMembers } from '../core/shots.js';
 import { shotSpan } from '../core/timeline.js';
@@ -25,6 +26,7 @@ import { openMenu, closePop, markPopAnchor, popOpenFor } from './base/popover.js
 import { preserveReadingPosition } from './reading-position.js';
 import { initLineSelection } from './line-selection.js';
 import { patchHTML } from './base/html-patch.js';
+import { enter, leave, cancelLeave } from './base/motion.js';
 
 const $ = s => document.querySelector(s);
 let detailOpen = false;
@@ -73,14 +75,37 @@ function voiceParts(members) {
   };
 }
 
+let lastSwap = 0; // 上一次换画面的时刻：按住方向键连续换句时不反复淡入
 export function renderInspector(force = false) {
   const panel = $('#inspector');
+  const wasHidden = panel.hidden;
   const changeLayout = () => {
     panel.hidden = !detailOpen;
     document.querySelector('.workspace').classList.toggle('has-inspector', detailOpen);
   };
-  if (panel.hidden !== !detailOpen) preserveReadingPosition(changeLayout);
-  else changeLayout();
+  if (detailOpen && panel._leaving) {
+    // 正在收起又点开：收起的动画撤掉，面板留在原地
+    cancelLeave(panel);
+    panel._leaving = false;
+  }
+  if (panel.hidden === !detailOpen) changeLayout();
+  else if (detailOpen) preserveReadingPosition(changeLayout);
+  else if (!panel._leaving) {
+    // 收起：面板先朝右滑出去再让出位置，和打开时滑进来对应
+    panel._leaving = true;
+    leave(
+      panel,
+      [
+        { opacity: 1, transform: 'none' },
+        { opacity: 0, transform: 'translateX(16px)' },
+      ],
+      { duration: 150, easing: 'cubic-bezier(0.4, 0, 1, 1)' },
+      () => {
+        panel._leaving = false;
+        if (!detailOpen) preserveReadingPosition(changeLayout);
+      },
+    );
+  }
   $('#btnDetail').setAttribute('aria-expanded', String(detailOpen));
   $('#btnDetail').classList.toggle('active', detailOpen);
   if (!detailOpen) return;
@@ -101,7 +126,7 @@ export function renderInspector(force = false) {
       <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span></div>
       ${voice.meta}
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
-      <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button><button class="btn" id="reworkShot" title="这个画面还缺镜头：写下要什么，生成返工单交给 AI 去找">再找一个…</button></div>
+      <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；审核通过的视频会撤回通过、回到待审；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button><button class="btn" id="reworkShot" title="这个画面还缺镜头：写下要什么，生成返工单交给 AI 去找">再找一个…</button></div>
       ${(() => {
         const rw = members.find(m => m.rework && !m.rework.assetId)?.rework;
         return rw
@@ -123,6 +148,10 @@ export function renderInspector(force = false) {
   panel._lineRevision = (panel._lineRevision || 0) + 1;
   patchHTML(panel, html, { fresh: !sameShot });
   panel._html = html;
+  // 面板开着时换到另一个画面：新内容轻轻浮上来（刚打开那次有整块滑入，不叠加）
+  const now = performance.now();
+  if (!sameShot && !wasHidden && now - lastSwap > 400) enter(panel.children, { y: 6, duration: 240, stagger: 30 });
+  if (!sameShot) lastSwap = now;
   hydrateAssetCards();
   markNoteClamp();
 }
@@ -151,11 +180,18 @@ function panelRow() {
   return r && panel.dataset.project === state.projectId ? r : null;
 }
 
+/* 审核通过的视频移除 = 撤回通过（和画面轨上删除一样），别的素材只解除关联 */
+function removeAsset(r, assetId) {
+  const res = removeFromShot(r, assetId);
+  if (res.error) toast(res.error, null, 'error');
+  else if (res.withdrawn) toast('已从画面上移除，视频回到待审 · ⌘Z 可撤销', null, 'ok');
+}
+
 function openRemoveMenu(anchor, r) {
   if (popOpenFor(anchor)) return closePop();
   const usages = usageList(r);
   if (usages.length === 1) {
-    removeUsage(r, 0);
+    removeAsset(r, usages[0].assetId);
     return renderInspector(true);
   }
   if (!usages.length) return;
@@ -165,7 +201,7 @@ function openRemoveMenu(anchor, r) {
       orderedUsages(r)
         .map(({ u, index }) => {
           const asset = state.assets[u.assetId] || u;
-          return `<div class="pop-item" data-remove-usage="${index}" data-remove-asset="${esc(u.assetId)}" data-remove-row="${r.id}" data-remove-project="${esc(state.projectId)}"><span class="main">${esc(asset.name || assetName(asset.path || '') || '未命名素材')}<span class="desc">${esc(ROLES[u.role] || '未分配')}</span></span></div>`;
+          return `<div class="pop-item" data-remove-usage="${index}" data-remove-asset="${esc(u.assetId)}" data-remove-row="${r.id}" data-remove-project="${esc(state.projectId)}"><span class="main">${esc(asset.name || assetName(asset.path || '') || '未命名素材')}<span class="desc">${esc(ROLES[u.role] || '未分配')}${approvedCandidateOf(u.assetId) ? ' · 撤回通过，回到待审' : ''}</span></span></div>`;
         })
         .join(''),
   );
@@ -200,9 +236,8 @@ export function initInspector() {
     closePop();
     if (panel.hidden || !r || r.id !== +remove.dataset.removeRow || state.projectId !== remove.dataset.removeProject)
       return;
-    const index = usageList(r).findIndex(u => u.assetId === remove.dataset.removeAsset);
-    if (index < 0) return;
-    removeUsage(r, index);
+    if (!usageList(r).some(u => u.assetId === remove.dataset.removeAsset)) return;
+    removeAsset(r, remove.dataset.removeAsset);
     renderInspector(true);
   });
   panel.addEventListener('click', async e => {

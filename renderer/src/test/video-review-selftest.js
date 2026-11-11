@@ -306,7 +306,8 @@ export async function runVideoReviewTests(t) {
   t(
     '左栏顶上固定当前批次卡片（实际句子、待审数、进度条、「⋯」），下面列出这一批的全部画面',
     !!curBatchHead() &&
-      curBatchHead().textContent.includes('第1–4句') &&
+      curBatchHead().textContent.includes('素材批次') &&
+      $('#vrNav .vr-bname')?.textContent.includes('第1–4句') &&
       $('#vrNav .vr-picker .vr-bprogress').textContent.includes('3 待审') &&
       !!$('#vrNav .vr-picker .vr-bbar') &&
       $$('#vrNav .vr-shots .vr-nav-shot').length === 2 &&
@@ -322,6 +323,20 @@ export async function runVideoReviewTests(t) {
   );
   click('#vrBatchPick');
   t('再点批次卡片收起菜单', !$('.popover'));
+  click('#vrBatchMore');
+  click('.popover [data-vrb="rename"]');
+  $('#vrBatchNameInput').value = '工厂近景';
+  click('#vrBatchNameSave');
+  t(
+    '批次可补充名称，编号和句子范围保留',
+    curBatchHead()?.textContent.includes('素材批次 01 · 工厂近景') &&
+      $('#vrNav .vr-bname')?.textContent.includes('第1–4句'),
+  );
+  undo();
+  t(
+    '撤销批次改名恢复默认名称',
+    curBatchHead()?.textContent.includes('素材批次 01') && !curBatchHead()?.textContent.includes('工厂近景'),
+  );
   t(
     '左边「对着口播看画面」，右边这个画面的全部视频，下面正片和备选两条轨，播放按钮在时间条上',
     !!row('A1') &&
@@ -903,6 +918,27 @@ export async function runVideoReviewTests(t) {
   );
   t('清单里已经标成「不要」的，再导入不会回来', again.added.length === 0);
 
+  /* 详情面板「移除素材」移除审核通过的视频：和画面轨上删除一样撤回通过，不能留下「通过」却不在画面上的候选 */
+  click(`[data-detail="${ids[0]}"]`);
+  await pause(30);
+  const passedId = cand('A1').assetId;
+  click('#inspector #removeAsset');
+  await pause(30);
+  const removeItem = $(`.popover [data-remove-asset="${passedId}"]`);
+  t('移除菜单标明审核通过的视频会撤回通过', !removeItem || removeItem.textContent.includes('撤回通过'));
+  if (removeItem) click(removeItem);
+  await pause(30);
+  t(
+    '详情面板移除审核通过的视频：撤回通过、回到待审，画面上也拿掉',
+    !cand('A1').decision && !us(0).some(x => x.assetId === passedId),
+    JSON.stringify({ d: cand('A1').decision, us: us(0).map(x => x.assetId) }),
+  );
+  undo();
+  await pause(30);
+  t('⌘Z 恢复通过和画面', cand('A1').decision === 'ok' && us(0).some(x => x.assetId === cand('A1').assetId));
+  click('#btnDetail');
+  await pause(30);
+
   /* 右侧面板入口 */
   click(`[data-detail="${ids[0]}"]`);
   await pause(30);
@@ -1020,8 +1056,8 @@ export async function runVideoReviewTests(t) {
   t(
     '删旧名单后自动切到剩余名单，句子名称和待审数量更新',
     curBatchHead()?.dataset.vrBatch === newBatch &&
-      curBatchHead().textContent.includes('第1–4句') &&
-      !$('#vrNav .vr-bname') &&
+      curBatchHead().textContent.includes('返工批次 02') &&
+      $('#vrNav .vr-bname')?.textContent.includes('第1–4句') &&
       // 第 1–3 句已经被旧名单通过的视频盖满：新名单里给这几句的两个收成「未采用」，只剩第 4 句待审
       $('#vtBadge').textContent === '1',
     `${curBatchHead()?.textContent} / ${$('#vtBadge').textContent}`,
@@ -1048,7 +1084,7 @@ export async function runVideoReviewTests(t) {
   await pause(30);
   t(
     '重新载入项目后删除已保存，剩余名单仍按实际句子命名',
-    state.candidates.length === 3 && curBatchHead()?.textContent.includes('第1–4句'),
+    state.candidates.length === 3 && curBatchHead()?.textContent.includes('返工批次 02'),
   );
   deleteBatch();
   click('#mOk');
@@ -1058,7 +1094,7 @@ export async function runVideoReviewTests(t) {
     !state.candidates.length &&
       !$('#vrBatchPick') &&
       !$('#vrBatchMore') &&
-      !!$('#vrNav #vrImport') &&
+      !!$('#vrList [data-vr-act="import"]') &&
       $('#vrList').textContent.includes('还没有视频候选'),
   );
   undo();
@@ -1392,7 +1428,7 @@ export async function runVideoReviewTests(t) {
   window.fjtHooks.writeReworkDoc = async (file, content) => {
     replyDoc = JSON.parse(content);
     tried.push(file);
-    return { ok: writeOk, error: '测试写入失败' };
+    return { ok: writeOk, path: writeOk ? file : undefined, error: '测试写入失败' };
   };
   openRework();
   await pause(30);
@@ -1413,7 +1449,9 @@ export async function runVideoReviewTests(t) {
   );
   t(
     '返工单不用选位置：先试片段保存位置，写不进去就放到软件自己的返工单文件夹',
-    tried.join() === '/tmp/返工测试/返工单·分散返工测试.json,返工单·分散返工测试.json',
+    tried.length === 2 &&
+      /^\/tmp\/返工测试\/返工单·分散返工测试·[\d_-]+\.json$/.test(tried[0]) &&
+      tried[0].split('/').pop() === tried[1],
     tried.join(),
   );
   writeOk = true;
@@ -1460,7 +1498,8 @@ export async function runVideoReviewTests(t) {
   await pause(40);
   t(
     '返回素材按实际分散句子命名，忽略 AI 的整段批名，并显示原批注',
-    curBatchHead()?.textContent.includes('第1、5句 · 重找') &&
+    curBatchHead()?.textContent.includes('返工批次 01') &&
+      $('#vrNav .vr-bname')?.textContent.includes('第1、5句') &&
       $('#vrList .vr-rework-note')?.textContent.includes('开头换成近景') &&
       !curBatchHead()?.textContent.includes('999') &&
       state.candidates.length === 2,
@@ -1474,6 +1513,14 @@ export async function runVideoReviewTests(t) {
     state.reworkRequests[replyDoc.id]?.targets[1].note === '结尾画面太暗' &&
       state.candidates.every(c => c.reworkId === replyDoc.id),
   );
+  click('#vrBatchMore');
+  t(
+    '返工批次操作显示对应返工单时间和原文件入口',
+    $('.popover')?.textContent.includes('返工单 ·') &&
+      !!$('.popover [data-vrb="request"]') &&
+      state.reworkRequests[replyDoc.id]?.path === tried.at(-1),
+  );
+  click('#vrBatchMore');
   delete window.fjtHooks.writeReworkDoc;
   storage.switchProject(original);
   storage.deleteProject(reworkPid);
@@ -1498,12 +1545,103 @@ export async function runVideoReviewTests(t) {
   const item = menu?.querySelector('.vr-bpick');
   t(
     '很多分散句子的名单显示数量与完整句号，菜单宽度受限且文字不溢出',
-    item?.textContent.includes('视频素材 · 共12句') &&
+    item?.textContent.includes('素材批次 01') &&
       item?.querySelector('.desc')?.textContent.includes('第1、3、5、7、9、11、13、15、17、19、21、23句') &&
       menu.getBoundingClientRect().width <= 442 &&
       item.scrollWidth <= item.clientWidth + 1,
   );
   click('#vrBatchPick');
+  const layoutCandidates = state.candidates;
+  state.candidates = Array.from({ length: 16 }, (_, i) =>
+    layoutCandidates.map((c, j) => ({
+      ...c,
+      id: `scroll-${i}-${j}`,
+      batchId: `scroll-batch-${i}`,
+      batchNo: i + 1,
+      batchAt: i + 1,
+      decision: i % 2 ? '' : 'no',
+    })),
+  ).flat();
+  update('rows');
+  click('#vrBatchPick');
+  const longMenu = $('.popover');
+  await pause(300); // 弹出缩放动画结束后再量位置，避免把动画中的坐标当成滚动位移。
+  const scrollList = longMenu.querySelector('.vr-bpick-list');
+  const scrollFooter = longMenu.querySelector('[data-vrb="import"]');
+  const footerTop = scrollFooter.getBoundingClientRect().top;
+  scrollList.scrollTop = scrollList.scrollHeight;
+  const scrollLast = scrollList.lastElementChild;
+  scrollLast.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  await pause(30);
+  t(
+    '16 批长列表只在内部滚动，底部入口固定，悬停没有脱离行的高亮块',
+    scrollList.scrollHeight > scrollList.clientHeight &&
+      scrollList.scrollTop > 0 &&
+      getComputedStyle(longMenu).overflowY === 'hidden' &&
+      !longMenu.querySelector('.pop-glide') &&
+      Math.abs(scrollFooter.getBoundingClientRect().top - footerTop) < 1 &&
+      scrollFooter.getBoundingClientRect().bottom <= longMenu.getBoundingClientRect().bottom,
+    JSON.stringify({
+      scroll: scrollList.scrollTop,
+      height: scrollList.clientHeight,
+      full: scrollList.scrollHeight,
+      footerTop,
+      after: scrollFooter.getBoundingClientRect().top,
+      bottom: scrollFooter.getBoundingClientRect().bottom,
+      menuBottom: longMenu.getBoundingClientRect().bottom,
+    }),
+  );
+  const scrollFirst = scrollList.querySelector('.vr-bpick');
+  scrollFirst.focus({ preventScroll: true });
+  scrollFirst.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  await pause(30);
+  const scrollFocused = document.activeElement.getBoundingClientRect();
+  const scrollViewport = scrollList.getBoundingClientRect();
+  t(
+    '键盘选择会把对应批次带进列表视口，底部入口位置保持固定',
+    scrollFocused.top >= scrollViewport.top - 1 &&
+      scrollFocused.bottom <= scrollViewport.bottom + 1 &&
+      Math.abs(scrollFooter.getBoundingClientRect().top - footerTop) < 1,
+    JSON.stringify({
+      focusTop: scrollFocused.top,
+      focusBottom: scrollFocused.bottom,
+      top: scrollViewport.top,
+      bottom: scrollViewport.bottom,
+      footerTop,
+      after: scrollFooter.getBoundingClientRect().top,
+    }),
+  );
+  t(
+    '零通过的批次明确显示已审完及通过数量，不冒充通过状态',
+    scrollLast.querySelector('.vr-bpick-st')?.textContent.includes('已审完') &&
+      scrollLast.querySelector('.vr-bpick-st')?.textContent.includes('通过 0/12') &&
+      !scrollLast.querySelector('.vr-bpick-st')?.textContent.includes('✓'),
+  );
+  const groups = $$('.popover .vr-bpick-group').map(x => x.textContent);
+  const order = $$('.popover .vr-bpick').map(x => !!x.querySelector('.vr-bpick-st.wait'));
+  t(
+    '还有待审的批次排在最上面一组，已审完的在下面',
+    groups.length === 2 &&
+      groups[0].includes('还有待审 · 8 批') &&
+      groups[1].includes('已审完 · 8 批') &&
+      order.indexOf(false) === 8 &&
+      !order.slice(8).some(Boolean) &&
+      scrollList.firstElementChild.classList.contains('vr-bpick-group'),
+    JSON.stringify({ groups, order }),
+  );
+  click('#vrBatchPick');
+  const doneBatch = state.candidates.find(c => c.decision === 'no').batchId;
+  chooseBatch(doneBatch);
+  await pause(30);
+  const hint = $('#vrNav [data-vr-next-batch]');
+  t('当前批次审完、别的批次还有待审：提示可以直接点过去', !!hint && hint.textContent.includes('去审'));
+  click(hint);
+  await pause(30);
+  t(
+    '点提示跳到最新一个还有待审的批次',
+    page.curBatch === 'scroll-batch-15' && $('#vrNav .vr-bprogress')?.textContent.includes('待审'),
+    page.curBatch,
+  );
   storage.switchProject(original);
   storage.deleteProject(layoutPid);
 

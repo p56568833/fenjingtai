@@ -52,6 +52,7 @@ function currentProject() {
       types: types().list,
       voice: state.voice,
       candidates: state.candidates,
+      reviewBatches: state.reviewBatches,
       reworkRequests: state.reworkRequests,
       mediaDir: state.mediaDir,
     }),

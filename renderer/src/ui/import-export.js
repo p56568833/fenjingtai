@@ -187,6 +187,7 @@ async function exportProjectJson() {
       types: types().list,
       voice: state.voice,
       candidates: state.candidates,
+      reviewBatches: state.reviewBatches,
       reworkRequests: state.reworkRequests,
       mediaDir: state.mediaDir,
     }),
@@ -293,7 +294,10 @@ export function initImportExport() {
   document.addEventListener(
     'click',
     async e => {
-      const pop = document.querySelector('.popover');
+      // 空项目里的起步按钮：和菜单里的「粘贴稿子文本 / 选择稿子文件」是同一件事
+      const start = e.target.closest && e.target.closest('.empty-start [data-start]');
+      if (start) return start.dataset.start === 'paste' ? openPaste() : importFromFile();
+      const pop = document.querySelector('.popover:not(.pop-leaving)');
       const imp = e.target.closest && e.target.closest('.pop-item[data-imp]');
       if (imp && pop) {
         closePop();

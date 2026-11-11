@@ -168,6 +168,9 @@ body.dark .pop-sep {
     transform: scale(0.94) translateY(-6px);
   }
 }
+.popover.pop-leaving {
+  pointer-events: none;
+}
 /* 翻到锚点上方的菜单：从下往上长出来 */
 .popover.pop-up {
   animation-name: popoverUp;

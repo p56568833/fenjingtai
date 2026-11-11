@@ -140,7 +140,7 @@ export function initSections() {
     'click',
     e => {
       const item = e.target.closest && e.target.closest('[data-sec-act]');
-      if (item && document.querySelector('.popover')) onMenuAction(item);
+      if (item && document.querySelector('.popover:not(.pop-leaving)')) onMenuAction(item);
     },
     true,
   );

@@ -9,9 +9,8 @@ import { shotMembers } from '../core/shots.js';
 import { itemAt, circled, MIN_LEN } from '../core/shot-layout.js';
 import { movePicture, trimPicture, rollPictures } from '../core/shot-edit.js';
 import { moveAlt, mainSlotAt, swapIntoMain, insertIntoMain, dropToAlt } from '../core/shot-tracks.js';
-import { setShotTimes, arrangeShot, clearShotTimes, setFitDone, setFreeze, removeUsage } from '../app/asset-actions.js';
-import { decideCandidate } from '../app/candidate-actions.js';
-import { usageList } from '../core/asset-model.js';
+import { setShotTimes, arrangeShot, clearShotTimes, setFitDone, setFreeze } from '../app/asset-actions.js';
+import { approvedCandidateOf, removeFromShot } from '../app/candidate-actions.js';
 import { esc, toast } from '../ui/base/dom.js';
 import { openMenu, closePop, popEl } from '../ui/base/popover.js';
 
@@ -220,21 +219,12 @@ export function createShotTrack({
       else if (act === 'remove') removePicture(row, id);
     });
   }
-  const approvedCand = assetId => {
-    const cid = state.assets?.[assetId]?.source?.candidate;
-    return cid ? state.candidates?.find(c => c.id === cid && c.decision === 'ok' && c.assetId === assetId) : null;
-  };
+  const approvedCand = approvedCandidateOf;
   function removePicture(row, assetId) {
     if (pick === assetId) pick = null;
-    const cand = approvedCand(assetId);
-    if (cand) {
-      const r = decideCandidate(cand.id, 'ok'); // 再点一次「通过」= 撤回
-      if (r?.error) toast(r.error, null, 'error');
-      else toast('已从画面上删除，视频回到待审 · ⌘Z 可撤销', null, 'ok');
-      return;
-    }
-    const index = usageList(row).findIndex(x => x.assetId === assetId);
-    if (index >= 0) removeUsage(row, index);
+    const r = removeFromShot(row, assetId);
+    if (r.error) toast(r.error, null, 'error');
+    else if (r.withdrawn) toast('已从画面上删除，视频回到待审 · ⌘Z 可撤销', null, 'ok');
   }
 
   function movePlayhead(t) {

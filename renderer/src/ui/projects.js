@@ -200,7 +200,7 @@ export function initProjects() {
   document.addEventListener(
     'click',
     async e => {
-      if (!document.querySelector('.popover')) return;
+      if (!document.querySelector('.popover:not(.pop-leaving)')) return;
       const del = e.target.closest('[data-projdel]');
       if (del) {
         e.stopPropagation();

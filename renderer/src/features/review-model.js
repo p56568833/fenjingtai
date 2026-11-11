@@ -76,7 +76,7 @@ export const leadOf = c => reviewIndex().byRow.get(c.rowId)?.lead || null;
 /* 批次：按导入时间新的在前；1.8 以前导入的没有批次，归成「之前导入的」 */
 export const batches = () => {
   const index = reviewIndex();
-  return (index.batches ||= candidateBatches(state.candidates, state.rows));
+  return (index.batches ||= candidateBatches(state.candidates, state.rows, state.reviewBatches));
 };
 
 export const batchLabel = b => b.label;

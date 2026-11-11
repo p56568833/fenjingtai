@@ -54,6 +54,8 @@ export function navHTML(all, shots) {
     })
     .join('');
   const b = all.find(x => x.id === page.curBatch);
+  // 一个候选都没有：右边的空状态里已经有「复制格式规范 / 导入候选清单」，左栏不再重复放一遍
+  if (!b && !state.candidates.length) return tabsHTML();
   if (!b)
     return `${tabsHTML()}<button class="vr-batch-add" id="vrImport" title="把 Claude 找好的候选清单（.json）导进来；也可以直接拖进窗口">＋ 导入候选清单…</button>
       <button class="vr-batch-add ghost" id="vrCopySpec" title="候选清单必须按这份规范写才能导入">复制格式规范（发给找素材的 AI）</button>`;
@@ -61,10 +63,15 @@ export function navHTML(all, shots) {
   const pending = b.cands.filter(isPending).length;
   const reviewed = n - pending;
   const reviewedPct = n ? (reviewed / n) * 100 : 0;
-  const status = pending ? `<span class="vr-nav-n">${pending} 待审</span>` : '<span class="vr-bdone">✓ 已审完</span>';
+  const ok = b.cands.filter(c => c.decision === 'ok').length;
+  const status = pending
+    ? `<span class="vr-nav-n">${pending} 待审</span>`
+    : '<span class="vr-batch-reviewed">已审完</span>';
   const name = batchDetail(b);
   const others = all.filter(x => x !== b);
   const otherPending = others.reduce((s, x) => s + x.cands.filter(isPending).length, 0);
+  // 还有待审的别的批次（新的在前）：提示可以直接点过去，不用在一长串批次里翻
+  const nextPending = others.find(x => x.cands.some(isPending));
   const tip = `${batchLabel(b)}${b.at ? ` · ${fmtDay(b.at)}` : ''}\n点击切换批次（共 ${all.length} 批）`;
   return `${tabsHTML()}<div class="vr-picker">
       <div class="vr-bh${pending ? '' : ' complete'}">
@@ -72,12 +79,13 @@ export function navHTML(all, shots) {
           <button class="vr-batch-head" id="vrBatchPick" data-vr-batch="${esc(b.id)}" title="${esc(tip)}" aria-label="${esc(batchLabel(b))}，切换批次，共 ${all.length} 批" aria-haspopup="menu">
             <b>${esc(batchLabel(b))}</b><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
           </button>
-          <button class="vr-batch-more" id="vrBatchMore" title="这一批的操作：保存位置、删除批次" aria-label="批次操作" aria-haspopup="menu">⋯</button>
+          <button class="vr-batch-more" id="vrBatchMore" title="这一批的操作：重命名、返工单、保存位置、删除" aria-label="批次操作" aria-haspopup="menu">⋯</button>
         </div>
         ${name ? `<div class="vr-bname" title="${esc(name)}">${esc(name)}</div>` : ''}
-        <div class="vr-bprogress">${status}<span class="vr-bcount">${b.at ? `${fmtDay(b.at)} · ` : ''}已审 ${reviewed}/${n}</span></div>
+        <div class="vr-bprogress">${status}<span class="vr-bcount">已审 ${reviewed}/${n} · 通过 ${ok}/${n}</span></div>
+        ${b.at ? `<div class="vr-batch-date">${fmtDay(b.at)}</div>` : ''}
         <div class="vr-bbar" role="progressbar" aria-label="本批审核进度" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${reviewed}"><i style="width:${reviewedPct.toFixed(1)}%"></i></div>
-        ${otherPending ? `<div class="vr-bother">其他批次还有 ${otherPending} 个待审</div>` : ''}
+        ${otherPending ? `<button class="vr-bother" data-vr-next-batch="${esc(nextPending.id)}" title="去${esc(batchLabel(nextPending))}">其他批次还有 ${otherPending} 个待审<span>去审 ›</span></button>` : ''}
       </div>
     </div>
     <div class="vr-shots">${shotsHTML}</div>`;

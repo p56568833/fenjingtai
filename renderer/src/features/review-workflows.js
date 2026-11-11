@@ -117,7 +117,10 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
       secondsOf: members => memberSeconds(tl, members),
     });
     const json = JSON.stringify(doc, null, 2);
-    const name = `返工单·${safeFileName(title)}.json`;
+    const date = new Date(doc.createdAt);
+    const pad = (n, width = 2) => String(n).padStart(width, '0');
+    const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}-${pad(date.getMilliseconds(), 3)}`;
+    const name = `返工单·${safeFileName(title)}·${stamp}.json`;
     const listFile = state.candidates
       .filter(c => c.srcFile)
       .sort((x, y) => (y.batchAt || 0) - (x.batchAt || 0))[0]?.srcFile;
@@ -132,7 +135,7 @@ export function createReviewWorkflows({ open: openVideoReview, render: renderVid
     if (!r?.ok) return toast('返工单没写进去：' + (r?.error || '未知原因'), null, 'error');
     file = r.path || file;
     if (state.projectId !== pid) return toast('返工单已写入，但项目已切换，请回到原项目重新生成', null, 'warn');
-    registerReworkRequest(doc, list);
+    registerReworkRequest(doc, list, file);
     page.reworkDocAt = Date.now();
     page.reworkDocPath = file;
     renderVideoReview();

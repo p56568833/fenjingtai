@@ -62,6 +62,20 @@
   position: relative;
   height: 4px;
   border-radius: 2px;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 鼠标移到时间条上：色条变粗一点，看得出这里可以点、可以拖 */
+.seg-timeline:hover .segbar {
+  transform: scaleY(1.75);
+}
+/* 换句：上下两个小三角和文字滑到新位置；拖动时间条时紧跟鼠标，不拖尾 */
+.seg-pointer,
+.seg-selection {
+  transition: left 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.seg-timeline:has(.seg-seek:active) .seg-pointer,
+.seg-timeline:has(.seg-seek:active) .seg-selection {
+  transition: none;
 }
 .segbar .seg {
   position: absolute;

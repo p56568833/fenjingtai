@@ -4,20 +4,23 @@ import { rowById, renumber, timeline } from './project-queries.js';
 import { changeProject, editProjectFields } from './project-change.js';
 import { forgetPurged } from './undo.js';
 import { writeBack, flushWriteBack, syncedFiles } from './candidate-sync.js';
-import { assetName } from '../core/asset-model.js';
+import { assetName, usageList } from '../core/asset-model.js';
+import { removeUsage } from './asset-actions.js';
 import { fmtTime } from '../core/text.js';
 import { planImport, footageTakenBy } from '../core/candidates.js';
 import { attachCandidate, detachCandidate } from '../core/candidate-placement.js';
 import { DECISION } from '../core/candidate-values.js';
+import { normalizeReviewBatches } from '../core/review-batches.js';
 import { reworkShots, resolveOnApprove, setRework, setAssetRework, dismissRework, reworkText } from '../core/rework.js';
 
 /* shots：groupReworkItems 的结果（一个画面一条，和返工单里的 shots 一一对应）。forIds：要补的那几句，回复的 for 只能落在这里 */
-export function registerReworkRequest(doc, shots) {
+export function registerReworkRequest(doc, shots, path = '') {
   return changeProject('生成返工单', () => {
     state.reworkRequests = {
       ...state.reworkRequests,
       [doc.id]: {
         at: Date.parse(doc.createdAt),
+        path,
         targets: shots.map((s, i) => ({
           rowIds: s.members.map(m => m.id),
           forIds: s.target.map(m => m.id),
@@ -76,6 +79,10 @@ export function importCandidateData(doc, srcFile) {
       : {}),
   };
   const result = changeProject('导入视频候选', change => {
+    const metadata = normalizeReviewBatches(state.reviewBatches, state.candidates);
+    const number = Math.max(0, ...Object.values(metadata).map(b => b.number)) + 1;
+    batch.batchNo = number;
+    state.reviewBatches = { ...metadata, [batch.batchId]: { number, title: '' } };
     let reset = 0;
     const resetIds = [];
     for (const { old, next, changed } of plan.updated) {
@@ -148,6 +155,26 @@ export function decideCandidate(id, decision) {
   return result;
 }
 
+/* 这个素材是不是审核通过后挂上画面的视频：是就返回那条通过的候选 */
+export function approvedCandidateOf(assetId) {
+  const cid = state.assets?.[assetId]?.source?.candidate;
+  return cid ? state.candidates.find(c => c.id === cid && c.decision === 'ok' && c.assetId === assetId) || null : null;
+}
+
+/* 从画面上删一个素材（画面轨、详情面板都走这里）：审核通过的视频 = 撤回通过、回到待审，
+   不能只解除关联——否则候选还标着「通过」，画面却空了，这几句的其他候选又会冒回待审。
+   返回 { withdrawn } 或 { error }；其余素材只解除关联，本地文件保留 */
+export function removeFromShot(row, assetId) {
+  const cand = approvedCandidateOf(assetId);
+  if (cand) {
+    const r = decideCandidate(cand.id, 'ok'); // 再点一次「通过」= 撤回
+    return r?.error ? { error: r.error } : { withdrawn: true };
+  }
+  const index = usageList(row).findIndex(u => u.assetId === assetId);
+  if (index >= 0) removeUsage(row, index);
+  return { withdrawn: false };
+}
+
 /* 意见打字即存；同一次编辑（session）只拍一张快照，撤销回到这次编辑前 */
 export function setCandidateNote(id, text, session) {
   const c = state.candidates.find(x => x.id === id);
@@ -166,11 +193,22 @@ export function deleteCandidateBatch(ids) {
   // 清单仍保留原审核结果，删除审核批次不等于否决视频。
   writeBack();
   return changeProject('删除视频审核批次', change => {
+    state.reviewBatches = normalizeReviewBatches(state.reviewBatches, state.candidates);
     for (const c of removed) invalidateCandidate(c);
     state.candidates = state.candidates.filter(c => !ids.has(c.id));
     change.emit('candidates-changed', { removedIds: removed.map(c => c.id) });
 
     return removed;
+  });
+}
+
+export function renameCandidateBatch(id, title) {
+  if (!state.candidates.some(c => (c.batchId || 'legacy') === id)) return false;
+  return changeProject('重命名审核批次', () => {
+    const metadata = normalizeReviewBatches(state.reviewBatches, state.candidates);
+    metadata[id] = { ...metadata[id], title: String(title).trim().slice(0, 40) };
+    state.reviewBatches = metadata;
+    return true;
   });
 }
 

@@ -74,6 +74,49 @@
 .vr-empty {
   text-align: center;
   padding: 50px 0;
+  color: var(--text-3);
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+/* 还没有候选：三步说明 + 两个按钮，不再只有一行字 */
+.vr-start {
+  padding: min(14vh, 120px) 20px 40px;
+  color: var(--text);
+  animation: emptyIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.vr-start h3 {
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.vr-steps {
+  list-style: none;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 18px 0 24px;
+  text-align: left;
+}
+.vr-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.vr-steps b {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
 }
 .vr-shot {
   padding: 14px 0 6px;
@@ -195,6 +238,16 @@
   place-items: center;
   color: #8b93a3;
   font-size: 11px;
+}
+.vr-cell.ld::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.08) 50%, transparent 70%);
+  animation: shimmer 1.25s ease-in-out infinite;
+}
+.vr-cell canvas {
+  animation: thumbIn 0.3s ease-out;
 }
 .vr-cell.fail {
   grid-column: 1 / -1;
@@ -783,8 +836,23 @@ body.dark .vr-sync {
 }
 .vr-bother {
   margin-top: 9px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 11px;
   color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  text-align: left;
+}
+.vr-bother span {
+  color: var(--accent);
+  font-weight: 600;
+}
+.vr-bother:hover span {
+  text-decoration: underline;
 }
 .vr-bname {
   margin-top: 7px;
@@ -1180,13 +1248,39 @@ body.dark .vr-pst.ok {
   color: color-mix(in srgb, var(--accent) 70%, var(--text-2));
 }
 /* 换批次的菜单 */
-.popover:has(.vr-bpick-list) {
+.popover.vr-batch-picker {
+  display: flex;
+  flex-direction: column;
   width: min(440px, calc(100vw - 32px));
+  max-height: min(70vh, calc(100vh - 24px));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.vr-batch-picker > :not(.vr-bpick-list) {
+  flex-shrink: 0;
 }
 .vr-bpick-list {
-  min-width: 290px;
-  max-height: 52vh;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.vr-batch-picker .pop-item:hover,
+.vr-batch-picker .pop-item:focus-visible {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.vr-batch-picker .pop-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.vr-bpick-group {
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.vr-bpick-group:first-child {
+  padding-top: 2px;
 }
 .vr-bpick .main {
   flex: 1;
@@ -1201,7 +1295,8 @@ body.dark .vr-pst.ok {
   overflow-wrap: anywhere;
 }
 .vr-bpick-date {
-  margin-left: 8px;
+  display: block;
+  margin-top: 4px;
   font-size: 11.5px;
   font-weight: 400;
   color: var(--text-3);
@@ -1211,7 +1306,30 @@ body.dark .vr-pst.ok {
   margin-left: auto;
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--c-real);
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+}
+.vr-bpick-st small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.vr-batch-date,
+.vr-batch-reviewed {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.vr-batch-date {
+  margin-top: 6px;
+}
+.popover .vr-request-label {
+  letter-spacing: normal;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 /* 连播预览：字幕三行时不被压扁盖到下面那行（弹窗高度不够就整体滚动） */
 /* 属于「连播预览与画面时间轴」，保持在 .vr-bpick-st 之后：两条优先级相同，又没法确认不会命中同一元素，先后不动 */
@@ -1222,7 +1340,9 @@ body.dark .vr-pst.ok {
   color: var(--accent);
 }
 .vr-bpick .chk {
-  margin-left: 6px;
+  margin-left: 0;
+  color: var(--accent);
+  font-size: 11px;
 }
 .vr-bpick.cur {
   background: color-mix(in srgb, var(--accent) 7%, transparent);

@@ -322,6 +322,7 @@ export function applyImport(rows, title, { mode = 'replace' } = {}) {
       state.candidates = state.candidates.filter(c => alive.has(c.rowId));
     } else {
       state.candidates = [];
+      state.reviewBatches = {};
       state.reworkRequests = {};
       state.timing = null;
     }

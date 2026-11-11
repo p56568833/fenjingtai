@@ -2,8 +2,10 @@ import { shotMembers, usageSpan } from './shots.js';
 import { usageList, assetName } from './asset-model.js';
 import { lineTag, hasLineTag, tagOf } from './candidate-placement.js';
 import { candidateScope } from './candidate-scope.js';
+import { normalizeReviewBatches } from './review-batches.js';
 
-export function candidateBatches(candidates, rows = []) {
+export function candidateBatches(candidates, rows = [], metadata = {}) {
+  const names = normalizeReviewBatches(metadata, candidates);
   const map = new Map();
   for (const c of candidates) {
     const id = c.batchId || 'legacy';
@@ -17,12 +19,9 @@ export function candidateBatches(candidates, rows = []) {
       const scope = candidateScope(b.cands, rows);
       // 旧名单中明确写过返工 / 重找的，也沿用新显示方式；原名仅供溯源。
       const rework = b.cands.some(c => c.reworkId || c.batchKind === 'rework') || /返工|重找|批注/.test(b.name);
-      const label = !scope.count
-        ? '句子已移除'
-        : scope.compact
-          ? `${scope.text}${rework ? ' · 重找' : ''}`
-          : `${rework ? '返工素材' : '视频素材'} · 共${scope.count}句`;
-      return { ...b, label, scope, detail: scope.compact ? '' : scope.text };
+      const { number, title } = names[b.id];
+      const label = `${rework ? '返工批次' : '素材批次'} ${String(number).padStart(2, '0')}${title ? ` · ${title}` : ''}`;
+      return { ...b, label, number, title, rework, scope, detail: scope.text };
     });
 }
 

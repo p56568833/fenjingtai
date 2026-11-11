@@ -37,6 +37,9 @@ body.dark ::-webkit-scrollbar-thumb {
   border: 0;
   background: color-mix(in srgb, var(--card) 60%, transparent);
   padding: 4px;
+  transition:
+    background-color 0.16s,
+    box-shadow 0.16s;
 }
 .row-asset:hover {
   border-color: var(--accent);
@@ -61,10 +64,36 @@ body.dark ::-webkit-scrollbar-thumb {
   overflow: hidden;
   position: relative;
 }
-.asset-thumb img {
+.asset-thumb img,
+.asset-thumb canvas {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  /* 缩略图取到后淡入，不是「啪」地出现；悬停素材卡时画面微微放大 */
+  animation: thumbIn 0.3s ease-out;
+  transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.row-asset:hover .asset-thumb img,
+.row-asset:hover .asset-thumb canvas,
+.asset-open:hover .asset-thumb img,
+.asset-open:hover .asset-thumb canvas {
+  transform: scale(1.07);
+}
+@keyframes thumbIn {
+  from {
+    opacity: 0;
+  }
+}
+/* 缩略图还在取：一道微光扫过去，代替原来的「…」 */
+.asset-thumb[data-preview-path]:not(:has(img, canvas), .thumb-missing, .thumb-unsupported, .thumb-nopreview) {
+  font-size: 0;
+}
+.asset-thumb[data-preview-path]:not(:has(img, canvas), .thumb-missing, .thumb-unsupported, .thumb-nopreview)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(120, 132, 158, 0.22) 50%, transparent 70%);
+  animation: shimmer 1.25s ease-in-out infinite;
 }
 .asset-caption {
   min-width: 0;

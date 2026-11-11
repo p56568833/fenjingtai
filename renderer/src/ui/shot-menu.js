@@ -218,7 +218,7 @@ export function initShotMenu() {
         return;
       }
       const item = e.target.closest && e.target.closest('[data-shot-act]');
-      if (item && document.querySelector('.popover')) onShotAction(item);
+      if (item && document.querySelector('.popover:not(.pop-leaving)')) onShotAction(item);
     },
     true,
   );

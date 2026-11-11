@@ -3,6 +3,7 @@
 import { normalizeTypes } from './types.js';
 import { normalizeReworkRequests } from './candidate-scope.js';
 import { noteLine } from './candidate-values.js';
+import { normalizeReviewBatches } from './review-batches.js';
 
 export const PROJECT_FIELDS = Object.freeze({
   title: { initial: () => '', history: true, shared: 'meta' },
@@ -12,6 +13,12 @@ export const PROJECT_FIELDS = Object.freeze({
   timing: { initial: () => null, history: true, shared: 'meta', omit: value => !value },
   voice: { initial: () => null, history: true, shared: 'meta', omit: value => !value },
   candidates: { initial: () => [], history: true, shared: 'candidates', omit: value => !value?.length },
+  reviewBatches: {
+    initial: () => ({}),
+    history: true,
+    shared: 'meta',
+    omit: value => !Object.keys(value || {}).length,
+  },
   reworkRequests: {
     initial: () => ({}),
     history: true,
@@ -68,6 +75,7 @@ export function normalizeProjectData(project) {
     : [];
   // 2.1.4 起审核结果只有通过 / 不要：旧的「换一个」（re）并成「不要」，意见原样保留
   for (const c of data.candidates) if (c.decision === 're') c.decision = 'no';
+  data.reviewBatches = normalizeReviewBatches(data.reviewBatches, data.candidates);
   // 2.1.4 以前通过候选会往画面描述里追加一行来源（「视频：标题｜时间段｜版权｜网址」）：摘掉，来源只记在素材上
   const sourceLines = new Set(data.candidates.filter(c => c.decision === 'ok' && c.url).map(noteLine));
   if (sourceLines.size)

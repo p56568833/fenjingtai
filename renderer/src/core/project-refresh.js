@@ -25,7 +25,7 @@ export function projectRefresh(change) {
       change.timing ||
       change.assets ||
       change.candidates ||
-      has('types', 'voice', 'timing', 'speechRate', 'mediaDir', 'reworkRequests')
+      has('types', 'voice', 'timing', 'speechRate', 'mediaDir', 'reworkRequests', 'reviewBatches')
     ),
     focus: !!(all || rowChange || change.timing || has('types', 'voice', 'timing', 'speechRate')),
   };

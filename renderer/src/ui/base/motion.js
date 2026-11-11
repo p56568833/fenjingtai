@@ -316,6 +316,22 @@ export function flash(el) {
   });
 }
 
+/* 换了内容：新内容依次轻轻浮上来（只动位置和透明度，不影响量尺寸）。els 可以是一个元素或一组 */
+export function enter(els, { x = 0, y = 8, duration = 300, stagger = 40, delay = 0 } = {}) {
+  if (reduced()) return;
+  const list = els instanceof Element ? [els] : [...(els || [])];
+  list.forEach((el, i) => {
+    if (!canAnimate(el)) return;
+    el.animate(
+      [
+        { opacity: 0, transform: `translate(${x}px, ${y}px)` },
+        { opacity: 1, transform: 'none' },
+      ],
+      { duration, delay: delay + i * stagger, easing: EASE_OUT, fill: 'backwards' },
+    );
+  });
+}
+
 /* 元素先播完离场动画再真正收起（done 里做 hidden / 去 class）；不能动画就立刻收 */
 export function leave(el, keyframes, opts, done) {
   if (!canAnimate(el) || !el.isConnected || !el.getClientRects().length) return done();

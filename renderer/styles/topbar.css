@@ -236,6 +236,16 @@ body.dark .vt-pill {
     transform: rotate(45deg) scale(0.2);
   }
 }
+/* 深浅色按钮：换图标时新图标转着弹出来 */
+#btnTheme svg {
+  animation: themeIcon 0.5s cubic-bezier(0.34, 1.45, 0.5, 1);
+}
+@keyframes themeIcon {
+  from {
+    transform: rotate(-70deg) scale(0.5);
+    opacity: 0;
+  }
+}
 @media (max-width: 1200px) {
   .topbar {
     gap: 7px;

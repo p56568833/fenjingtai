@@ -50,7 +50,12 @@ export function normalizeReworkRequests(value, idMap = new Map()) {
           : {}),
         note: typeof t.note === 'string' ? t.note : '',
       }));
-    if (targets.length) out[id] = { at: Number(request.at) || 0, targets };
+    if (targets.length)
+      out[id] = {
+        at: Number(request.at) || 0,
+        targets,
+        ...(typeof request.path === 'string' && request.path.startsWith('/') ? { path: request.path } : {}),
+      };
   }
   return out;
 }

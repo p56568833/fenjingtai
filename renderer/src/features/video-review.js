@@ -25,6 +25,7 @@ import {
   decideCandidate,
   setCandidateNote,
   deleteCandidateBatch,
+  renameCandidateBatch,
   purgeRejectedCandidates,
 } from '../app/candidate-actions.js';
 import { flushWriteBack } from '../app/candidate-sync.js';
@@ -47,6 +48,7 @@ import { toast, confirmModal, esc } from '../ui/base/dom.js';
 import { slideIn } from '../ui/base/anim.js';
 import { roll, pop } from '../ui/base/motion.js';
 import { registerCommand, runCommand } from '../ui/base/commands.js';
+import { registerModal } from '../ui/base/modal.js';
 import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from '../ui/base/popover.js';
 
 import {
@@ -162,7 +164,7 @@ function confirmDeleteBatch() {
   const ids = new Set(batch.cands.map(c => c.id));
   confirmModal(
     '删除这个批次？',
-    `将从视频审核中移除「${batchLabel(batch)}」的 ${ids.size} 个候选。\n\n已通过并挂到表格的素材、已下载文件和原候选清单都会保留。删除后可用 ⌘Z 撤销。`,
+    `将从视频审核中移除「${batchLabel(batch)}」的 ${ids.size} 个候选。\n范围：${batchDetail(batch)}\n\n已通过并挂到表格的素材、已下载文件和原候选清单都会保留。删除后可用 ⌘Z 撤销。`,
     '删除此批次',
     () => {
       if (state.projectId !== pid) return;
@@ -182,18 +184,24 @@ const stopAll = stopAllVideos;
    有来源文件的只清确实写进了清单的；写失败的留在项目里（下次离开审核页再试）。 */
 const purgeRejected = purgeRejectedCandidates;
 
-/* 换批次的菜单：新的在上，每批写待审数 / 审完，当前批次打勾；最下面是导入新批次 */
+/* 换批次的菜单：还有待审的批次排在最上面（批次一多，老批次里漏审的不用往下翻），其余按新的在上；
+   每批写待审数 / 审完，当前批次打勾；最下面是导入新批次 */
 function openBatchPicker(anchor) {
   const all = batches();
-  const items = all
-    .map(b => {
-      const p = b.cands.filter(isPending).length;
-      const okN = b.cands.filter(c => c.decision === 'ok').length;
-      const name = batchDetail(b);
-      const tip = [batchLabel(b), name, fmtDay(b.at), `原清单名称：${b.name}`].filter(Boolean).join('\n');
-      return `<div class="pop-item vr-bpick${b.id === page.curBatch ? ' cur' : ''}" data-vrb="pick" data-id="${esc(b.id)}" title="${esc(tip)}"><span class="main"><span>${esc(batchLabel(b))}${b.at ? `<span class="vr-bpick-date">${fmtDay(b.at)}</span>` : ''}</span>${name ? `<span class="desc">${esc(name)}</span>` : ''}</span><span class="vr-bpick-st${p ? ' wait' : ''}">${p ? `${p} 待审` : `✓ ${okN}/${b.cands.length}`}</span>${b.id === page.curBatch ? '<span class="chk">✓</span>' : ''}</div>`;
-    })
-    .join('');
+  const waiting = all.filter(b => b.cands.some(isPending));
+  const done = all.filter(b => !waiting.includes(b));
+  const item = b => {
+    const p = b.cands.filter(isPending).length;
+    const okN = b.cands.filter(c => c.decision === 'ok').length;
+    const name = batchDetail(b);
+    const tip = [batchLabel(b), name, fmtDay(b.at), `原清单名称：${b.name}`].filter(Boolean).join('\n');
+    return `<div class="pop-item vr-bpick${b.id === page.curBatch ? ' cur' : ''}" data-vrb="pick" data-id="${esc(b.id)}" title="${esc(tip)}"><span class="main"><span>${esc(batchLabel(b))}</span>${name ? `<span class="desc">${esc(name)}</span>` : ''}${b.at ? `<span class="vr-bpick-date">${fmtDay(b.at)}</span>` : ''}</span><span class="vr-bpick-st${p ? ' wait' : ''}"><span>${p ? `待审 ${p} 个` : '已审完'}</span><small>通过 ${okN}/${b.cands.length}</small>${b.id === page.curBatch ? '<span class="chk">✓ 当前</span>' : ''}</span></div>`;
+  };
+  const group = (title, list) => `<div class="vr-bpick-group">${title}</div>${list.map(item).join('')}`;
+  const items =
+    waiting.length && done.length
+      ? group(`还有待审 · ${waiting.length} 批`, waiting) + group(`已审完 · ${done.length} 批`, done)
+      : all.map(item).join('');
   openMenu(
     anchor,
     `<div class="p-title">选择批次 · 共 ${all.length} 批</div>
@@ -201,9 +209,49 @@ function openBatchPicker(anchor) {
       <div class="pop-sep"></div>
       <div class="pop-item" data-vrb="import"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">导入新批次…<span class="desc">Claude 找好的候选清单（.json），也可以直接拖进窗口</span></span></div>
       <div class="pop-item" data-vrb="spec"><svg class="mi" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span class="main">复制候选清单格式规范<span class="desc">发给找素材的 AI，按 v${CANDIDATE_VERSION} 格式写才能导入</span></span></div>`,
+    { className: 'vr-batch-picker', hoverGlide: false },
   );
   markPopAnchor(anchor);
-  popEl?.querySelector('.vr-bpick.cur')?.scrollIntoView({ block: 'nearest' });
+  // 有待审的批次时停在最上面，让它们先被看到；当前批次本身还有待审，就在这一组里，照常露出来
+  const cur = all.find(b => b.id === page.curBatch);
+  if (!waiting.length || waiting.includes(cur))
+    popEl?.querySelector('.vr-bpick.cur')?.scrollIntoView({ block: 'nearest' });
+}
+
+let namingBatch = null;
+function openBatchName() {
+  const b = curBatchObj();
+  if (!b) return;
+  namingBatch = { id: b.id, projectId: state.projectId };
+  $('#vrBatchNameTitle').textContent = `重命名${b.rework ? '返工' : '素材'}批次 ${String(b.number).padStart(2, '0')}`;
+  $('#vrBatchNameInput').value = b.title;
+  $('#vrBatchNameMask').classList.add('show');
+  $('#vrBatchNameInput').focus();
+  $('#vrBatchNameInput').select();
+}
+function closeBatchName() {
+  $('#vrBatchNameMask').classList.remove('show');
+  namingBatch = null;
+}
+function saveBatchName() {
+  const target = namingBatch;
+  const title = $('#vrBatchNameInput').value;
+  closeBatchName();
+  if (target?.projectId === state.projectId && renameCandidateBatch(target.id, title))
+    toast(title.trim() ? '批次已改名 · ⌘Z 可撤销' : '已恢复默认批次名称 · ⌘Z 可撤销', null, 'ok');
+}
+
+function batchReworkLinks(batch) {
+  const ids = [...new Set(batch.cands.map(c => c.reworkId).filter(Boolean))];
+  return ids
+    .map(id => {
+      const request = state.reworkRequests[id];
+      const label = `返工单${request?.at ? ` · ${fmtDay(request.at)}` : ` · ${id}`}`;
+      return request?.path
+        ? `<div class="pop-item" data-vrb="request" data-request="${esc(id)}"><span class="main">${esc(label)}<span class="desc">在访达中显示对应返工单</span></span></div>`
+        : `<div class="p-title vr-request-label" title="${esc(id)}">${esc(label)}${request ? '' : '（未记录）'}</div>`;
+    })
+    .join('');
 }
 
 /* 批次「⋯」菜单：保存位置（平时不占主界面）、删除此批次（危险操作收进菜单） */
@@ -214,6 +262,8 @@ function openBatchMenu(anchor) {
   openMenu(
     anchor,
     `<div class="p-title">${esc(batchLabel(batch))}${batch.at ? ` · ${fmtDay(batch.at)}` : ''}</div>
+      <div class="pop-item" data-vrb="rename"><span class="main">重命名批次…<span class="desc">补充便于辨认的名称，批次编号保持不变</span></span></div>
+      ${batchReworkLinks(batch)}
       <div class="pop-item" data-vrb="dir"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="main">更换保存位置…<span class="desc vr-pop-path">${esc(state.mediaDir || '还没选（第一次保存片段时会问）')}</span></span></div>
       <div class="pop-sep"></div>
       <div class="pop-item danger${locked ? ' disabled' : ''}" id="vrDeleteBatch" data-vrb="delete" title="${locked ? '片段保存完成后可以删除批次' : '移除这一批的审核候选，保留表格素材和本地文件'}"><svg class="mi" viewBox="0 0 24 24"><path d="M4 7h16M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/></svg><span class="main">删除此批次<span class="desc">${batch.cands.length} 个候选 · 表格里的素材和本地文件保留</span></span></div>`,
@@ -307,6 +357,21 @@ function videoReviewKey(e) {
 }
 
 export function initVideoReview() {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `<div class="modal-mask" id="vrBatchNameMask"><div class="modal">
+      <h3 id="vrBatchNameTitle">重命名批次</h3>
+      <label for="vrBatchNameInput">补充名称（留空恢复默认名称）</label>
+      <input class="project-name-input" id="vrBatchNameInput" type="text" maxlength="40" autocomplete="off" placeholder="比如：工厂近景" />
+      <div class="m-btns"><button class="btn" id="vrBatchNameCancel">取消</button><button class="btn primary" id="vrBatchNameSave">保存</button></div>
+    </div></div>`,
+  );
+  $('#vrBatchNameCancel').onclick = closeBatchName;
+  $('#vrBatchNameSave').onclick = saveBatchName;
+  $('#vrBatchNameMask').onclick = e => {
+    if (e.target.id === 'vrBatchNameMask') closeBatchName();
+  };
+  registerModal('vrBatchNameMask', { close: closeBatchName, enter: saveBatchName });
   $('#tablePage').insertAdjacentHTML(
     'afterend',
     `<main class="workspace-page vr-page" id="reviewPage" aria-label="视频审核" hidden>
@@ -335,6 +400,8 @@ export function initVideoReview() {
     if (rw) return selectRework(rw.dataset.vrRw);
     if (e.target.closest('#vrImport')) return runCommand('import:file');
     if (e.target.closest('#vrCopySpec')) return copyCandidateSpec();
+    const next = e.target.closest('[data-vr-next-batch]');
+    if (next) return selectBatch(next.dataset.vrNextBatch);
     const menuBtn = e.target.closest('#vrBatchMore, #vrBatchPick');
     if (menuBtn) {
       e.stopPropagation(); // 不让全局「点外面收起菜单」把刚打开的菜单又关掉
@@ -356,6 +423,12 @@ export function initVideoReview() {
     },
     true,
   );
+  // 空状态里的两个按钮：和左栏的「导入候选清单 / 复制格式规范」是同一件事
+  $('#vrList').addEventListener('click', e => {
+    const act = e.target.closest('[data-vr-act]')?.dataset.vrAct;
+    if (act === 'import') runCommand('import:file');
+    if (act === 'spec') copyCandidateSpec();
+  });
   // 点时间条上的色块：右栏换成这段画面对应的候选（不是审核来的画面就不动）
   $('#vrList').addEventListener('click', e => {
     const block = e.target.closest?.('#vrDockTrack .ptt-block[data-ptt]');
@@ -483,12 +556,17 @@ export function initVideoReview() {
     closePop();
     const act = it.dataset.vrb;
     if (act === 'dir') ensureMediaDir(true);
-    else if (act === 'delete') confirmDeleteBatch();
+    else if (act === 'rename') openBatchName();
+    else if (act === 'request') {
+      const path = state.reworkRequests[it.dataset.request]?.path;
+      if (path) native('revealAsset')(path);
+    } else if (act === 'delete') confirmDeleteBatch();
     else if (act === 'pick') selectBatch(it.dataset.id);
     else if (act === 'import') runCommand('import:file');
     else if (act === 'spec') copyCandidateSpec();
   });
   on('project-loaded', () => {
+    closeBatchName();
     renderer.reset();
     cards.reset();
     showTimeline();

@@ -65,6 +65,21 @@ function keepAssets(before, after) {
   }
 }
 
+/* 空项目：一句话说明下一步，两个按钮直接开始（和「导入」菜单里的前两项是同一件事） */
+const START_HTML = `<div class="empty-start">
+  <svg class="empty-art" viewBox="0 0 96 96" aria-hidden="true">
+    <rect class="art-sheet" x="20" y="12" width="56" height="72" rx="9" />
+    <path class="art-line l1" d="M32 32h32" /><path class="art-line l2" d="M32 46h32" /><path class="art-line l3" d="M32 60h20" />
+  </svg>
+  <h3>把口播稿放进来</h3>
+  <p>整篇放进来就行，会自动按标点分成一句一行。</p>
+  <div class="empty-acts">
+    <button class="btn primary" data-start="paste">粘贴稿子</button>
+    <button class="btn" data-start="file">选择稿子文件</button>
+  </div>
+  <small>也可以把 MD / TXT / Word 文件直接拖进窗口</small>
+</div>`;
+
 export function renderTable() {
   document.querySelector('#thead').style.display = '';
   const dh = document.querySelector('#durHeading');
@@ -132,7 +147,11 @@ export function renderTable() {
   }
   flushScene();
   if (!top.length)
-    top.push({ key: 'empty', html: `<div class="empty-hint">这个筛选下没有句子<br>点上方筛选条切回「全部」</div>` });
+    top.push(
+      state.rows.length
+        ? { key: 'empty', html: `<div class="empty-hint">这个筛选下没有句子<br>点上方筛选条切回「全部」</div>` }
+        : { key: 'start', html: START_HTML },
+    );
 
   patchChildren(wrap, top, { fresh: anim, onReplace: keepAssets });
   paintNumbers(wrap, scenes);

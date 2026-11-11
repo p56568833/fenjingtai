@@ -13,7 +13,7 @@ import { stopClip } from './clip-player.js';
 
 import { esc } from '../ui/base/dom.js';
 
-import { glide } from '../ui/base/motion.js';
+import { glide, enter, reduced, EASE_OUT } from '../ui/base/motion.js';
 
 import {
   page,
@@ -77,7 +77,18 @@ export function createReviewRenderer({
   }
 
   /* 上次写进页面的内容：一样就不重写（见 paintVideoReview） */
-  const painted = { nav: null, navEl: null, shot: null, shotEl: null };
+  const painted = { nav: null, navEl: null, shot: null, shotEl: null, cand: null };
+  /* 批次进度条：左栏整块重画后，从上一次的长度长到现在的长度（同一批才长，换批次直接到位） */
+  let barMemo = { key: null, w: null };
+  let lastShotSwap = 0;
+  function growBar(nav) {
+    const bar = nav.querySelector('.vr-bbar i');
+    const key = `${state.projectId}|${page.curBatch}`;
+    const w = bar?.style.width || null;
+    if (bar && barMemo.key === key && barMemo.w && barMemo.w !== w && !reduced() && bar.animate)
+      bar.animate([{ width: barMemo.w }, { width: w }], { duration: 460, easing: EASE_OUT });
+    barMemo = { key, w };
+  }
   function paintVideoReview() {
     refreshVideoReviewButton();
     const host = $('#vrList');
@@ -106,6 +117,7 @@ export function createReviewRenderer({
       nav.innerHTML = navNext;
       painted.nav = navNext;
       painted.navEl = nav.firstElementChild;
+      growBar(nav);
     }
     paintTabs(nav);
     // 换了画面才把它滚进视野：保存片段等后台重画时，不把你正在翻的左栏拽回去
@@ -117,8 +129,22 @@ export function createReviewRenderer({
     if (!state.candidates.length) {
       closeReviewPlayback();
       painted.shot = null;
-      host.innerHTML =
-        '<p class="vr-empty">还没有视频候选。先点左边「复制格式规范」发给找素材的 AI，让它按规范写好候选清单（.json），再拖进窗口或点「导入候选清单」。</p>';
+      host.innerHTML = `<div class="vr-empty vr-start">
+        <svg class="empty-art" viewBox="0 0 96 96" aria-hidden="true">
+          <rect class="art-sheet" x="12" y="22" width="72" height="52" rx="10" />
+          <path class="art-play" d="M42 38.5v19l16-9.5z" />
+        </svg>
+        <h3>还没有视频候选</h3>
+        <ol class="vr-steps">
+          <li><b>1</b><span>复制格式规范，发给找素材的 AI</span></li>
+          <li><b>2</b><span>让它按规范写好候选清单（.json）</span></li>
+          <li><b>3</b><span>把清单拖进窗口，或点「导入候选清单」</span></li>
+        </ol>
+        <div class="empty-acts">
+          <button class="btn primary" data-vr-act="spec">复制格式规范</button>
+          <button class="btn" data-vr-act="import">导入候选清单…</button>
+        </div>
+      </div>`;
       return;
     }
     if (!g) {
@@ -163,12 +189,20 @@ export function createReviewRenderer({
       next.innerHTML = shotHTML;
       host.querySelector('.vr-shot-head').replaceWith(next.content.querySelector('.vr-shot-head'));
       host.querySelector('.vr-plans').replaceWith(next.content.querySelector('.vr-plans'));
+      // 换了候选：新候选的详情从右边轻轻滑进来（审核结果变了重画的不动）
+      if (painted.cand !== page.curCand) enter(host.querySelector('.vr-pbody'), { x: 10, y: 0, duration: 260 });
     } else {
       closeReviewPlayback();
       host.innerHTML = shotHTML;
       fitSide(host.querySelector('.vr-split'));
+      // 换了画面：标题、播放器、候选、时间轨依次浮上来（连续快速翻画面时不反复播）
+      const now = performance.now();
+      if (now - lastShotSwap > 400)
+        enter(host.querySelectorAll('.vr-shot-head, .vr-watch, .vr-plans, .vr-timeline'), { y: 10, stagger: 45 });
+      lastShotSwap = now;
     }
     painted.shot = shotHTML;
+    painted.cand = page.curCand;
     painted.shotEl = host.firstElementChild;
     mountPlayback(g);
     // 换了画面：先按监视器高度定好右栏宽度，再摆「通过 / 不要」的色块，免得色块按默认宽度摆完又对不上
@@ -233,7 +267,8 @@ export function createReviewRenderer({
   function reset() {
     fitSide(null);
     reviewProject = navShown = null;
-    painted.shot = painted.nav = null;
+    barMemo = { key: null, w: null };
+    painted.shot = painted.nav = painted.cand = null;
     painted.shotEl = painted.navEl = null;
   }
   function progress({ label, percent }) {

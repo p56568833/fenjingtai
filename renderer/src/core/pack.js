@@ -41,6 +41,7 @@ export function packPlan(project, { includeAlt = true } = {}) {
   for (const c of project.candidates || [])
     if (c.savedPath && (!c.assetId || used.has(c.assetId))) add(c.savedPath, '素材');
   for (const c of project.candidates || []) add(c.srcFile, '候选清单');
+  for (const r of Object.values(project.reworkRequests || {})) add(r.path, '返工单');
   if (project.voice) add(project.voice.path, '口播');
   return files;
 }
@@ -57,6 +58,10 @@ function rewrite(project, map) {
       const n = map(c[k]);
       if (n) c[k] = n;
     }
+  }
+  for (const r of Object.values(p.reworkRequests || {})) {
+    const n = map(r.path);
+    if (n) r.path = n;
   }
   if (p.voice) {
     const n = map(p.voice.path);

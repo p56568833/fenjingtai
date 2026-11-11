@@ -326,7 +326,7 @@ export function initEdit() {
     'click',
     e => {
       const item = e.target.closest && e.target.closest('.pop-item[data-t]');
-      if (item && document.querySelector('.popover')) {
+      if (item && document.querySelector('.popover:not(.pop-leaving)')) {
         const t = item.dataset.t || null;
         if (currentSelection().length) {
           closePop();

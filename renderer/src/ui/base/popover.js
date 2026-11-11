@@ -1,13 +1,27 @@
 /* 弹出菜单的通用部分：定位 / 键盘导航 / 点外面关闭。菜单内容和菜单项点击由各模块自己处理。 */
-import { glide } from './motion.js';
+import { glide, reduced } from './motion.js';
 
 export let popEl = null;
 let lastInput = 'mouse'; // 最近一次是键盘还是鼠标：键盘打开的菜单直接把焦点放到第一项
-export const closePop = ({ restoreFocus = false } = {}) => {
+/* 收起：菜单朝打开它的那一角缩回去再消失（0.12 秒，期间点不到、也不算「菜单开着」）。
+   马上要换成另一个菜单时（instant）直接撤掉，两个菜单不叠在一起。 */
+function dismiss(el, instant) {
+  if (instant || reduced() || typeof el.animate !== 'function') return el.remove();
+  el.classList.add('pop-leaving');
+  el.inert = true;
+  el.animate(
+    [
+      { opacity: 1, transform: 'none' },
+      { opacity: 0, transform: 'scale(0.96)' },
+    ],
+    { duration: 120, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' },
+  ).onfinish = () => el.remove();
+}
+export const closePop = ({ restoreFocus = false, instant = false } = {}) => {
   const anchor = popEl?._anchor;
   const hadFocus = popEl?.contains(document.activeElement);
   setAnchorOpen(anchor, false);
-  popEl && popEl.remove();
+  popEl && dismiss(popEl, instant);
   popEl = null;
   // 焦点还给锚点只为键盘操作：用鼠标点过菜单里的输入框再点外面关掉时不还，按钮上不会留着一圈蓝框
   if ((restoreFocus || (hadFocus && lastInput === 'key')) && anchor?.isConnected && typeof anchor.focus === 'function')
@@ -50,7 +64,9 @@ function menuKey(e) {
     const n = items.length;
     if (!n) return;
     const next = e.key === 'ArrowDown' ? (i + 1 + n) % n : (i - 1 + n) % n;
-    items[i < 0 ? 0 : next].focus({ preventScroll: true });
+    const target = items[i < 0 ? 0 : next];
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   } else if ((e.key === 'Enter' || e.key === ' ') && i >= 0 && ['DIV', 'BUTTON'].includes(items[i].tagName)) {
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -74,7 +90,7 @@ function setAnchorOpen(anchor, open) {
 }
 
 export function openMenu(anchor, html, opts = {}) {
-  closePop();
+  closePop({ instant: true });
   popEl = document.createElement('div');
   popEl.className = 'popover';
   if (opts.className) popEl.classList.add(opts.className);
@@ -111,7 +127,7 @@ export function openMenu(anchor, html, opts = {}) {
   popEl.style.top = y + 'px';
   popEl.style.visibility = '';
   wireMenuA11y();
-  wireHoverGlide(popEl);
+  if (opts.hoverGlide !== false) wireHoverGlide(popEl);
 }
 /* 菜单里的灰色高亮块跟着鼠标（或键盘焦点）在项之间滑，像 macOS 的菜单；
    鼠标移出后再进来，高亮块在新位置淡入，不从上次的位置飞过来 */

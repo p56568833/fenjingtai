@@ -38,6 +38,16 @@ body.dark .toast {
   min-width: 10px;
   text-align: center;
 }
+/* 提示条出现时，前面的对勾弹一下 */
+.toast.show .tick {
+  animation: tickPop 0.46s 0.08s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+@keyframes tickPop {
+  from {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+}
 .toast[data-kind='info'] .tick {
   color: var(--text-3);
 }
