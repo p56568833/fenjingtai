@@ -366,6 +366,35 @@ test('主机保存过的片段，访客从主机取到本机后：两边不会�
   assert.equal(localChanges(guest.rep, guest.p), null);
 });
 
+test('本地候选缓存路径 peerPath 只保留在本机，不传给对方；原链接未变时更新候选仍保留，改了链接才清掉', () => {
+  const project = sample();
+  project.candidates = [
+    {
+      id: 'cp1',
+      key: 'k1',
+      rowId: 3,
+      forIds: [3],
+      title: '本地片段',
+      url: '/Users/host/素材/clip.mp4',
+      in: 0,
+      out: 5,
+      decision: '',
+    },
+  ];
+  const { host, guest, settle } = pair(project);
+  guest.p.candidates[0].peerPath = '/Users/guest/候选缓存/p1/clip.mp4';
+  settle();
+  assert.equal(host.p.candidates[0].peerPath, undefined, 'peerPath 不同步到主机');
+  assert.equal(localChanges(guest.rep, guest.p), null, '只设 peerPath 不产生同步操作');
+  host.p.candidates[0].note = '挺好的';
+  settle();
+  assert.equal(guest.p.candidates[0].note, '挺好的');
+  assert.equal(guest.p.candidates[0].peerPath, '/Users/guest/候选缓存/p1/clip.mp4', 'url 没变时保留本机缓存');
+  host.p.candidates[0].url = '/Users/host/素材/clip-v2.mp4';
+  settle();
+  assert.equal(guest.p.candidates[0].peerPath, undefined, 'url 变了清掉旧缓存');
+});
+
 test('口播音频：访客把它定位到自己电脑上，主机的口播路径不变；主机改了时长访客照常收到', () => {
   const project = sample();
   project.voice = { path: '/Users/host/口播.wav', name: '口播.wav', duration: 60 };

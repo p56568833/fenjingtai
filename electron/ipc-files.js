@@ -192,12 +192,14 @@ function registerFileIpc({ handle, win }) {
     return r.filePaths[0];
   });
   /* 批量探测本地文件是否还在（文件失联检测） */
+  const diskPathOf = p => (typeof p === 'string' && p.startsWith('/') ? p.replace(/#t=[\d.,]+$/, '') : p);
   handle('assets:probe', (_e, paths) => {
     const out = {};
     for (const p of Array.isArray(paths) ? paths : []) {
       if (typeof p !== 'string' || !p) continue;
+      const dp = diskPathOf(p);
       try {
-        out[p] = { exists: path.isAbsolute(p) && fs.existsSync(p) && fs.statSync(p).isFile() };
+        out[p] = { exists: path.isAbsolute(dp) && fs.existsSync(dp) && fs.statSync(dp).isFile() };
       } catch {
         out[p] = { exists: false };
       }
@@ -221,7 +223,8 @@ function registerFileIpc({ handle, win }) {
     }
   });
   handle('assets:reveal', (_e, p) => {
-    if (typeof p === 'string' && path.isAbsolute(p) && fs.existsSync(p)) shell.showItemInFolder(p);
+    const dp = diskPathOf(p);
+    if (typeof dp === 'string' && path.isAbsolute(dp) && fs.existsSync(dp)) shell.showItemInFolder(dp);
   });
   handle('assets:open', async (_e, value) => {
     if (typeof value !== 'string') return '无法打开这个引用';
@@ -230,9 +233,10 @@ function registerFileIpc({ handle, win }) {
         await shell.openExternal(new URL(value).href);
         return '';
       }
-      if (!path.isAbsolute(value) || !fs.existsSync(value)) return '文件不存在，请更新素材路径';
-      if (!new RegExp(`\\.(${ASSET_EXTS.join('|')})$`, 'i').test(value)) return '请从访达打开这个文件类型';
-      return await shell.openPath(value);
+      const dp = diskPathOf(value);
+      if (!path.isAbsolute(dp) || !fs.existsSync(dp)) return '文件不存在，请更新素材路径';
+      if (!new RegExp(`\\.(${ASSET_EXTS.join('|')})$`, 'i').test(dp)) return '请从访达打开这个文件类型';
+      return await shell.openPath(dp);
     } catch {
       return '无法打开这个素材';
     }
@@ -256,13 +260,14 @@ function registerFileIpc({ handle, win }) {
     return k < 1 ? img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: 'good' }) : img;
   }
   handle('assets:preview', async (_e, value) => {
-    if (typeof value !== 'string' || !path.isAbsolute(value)) return null;
-    if (!IMAGE_RE.test(value) && !VIDEO_RE.test(value)) return null;
+    const dp = diskPathOf(value);
+    if (typeof dp !== 'string' || !path.isAbsolute(dp)) return null;
+    if (!IMAGE_RE.test(dp) && !VIDEO_RE.test(dp)) return null;
     try {
-      if (!(await fs.promises.stat(value)).isFile()) return null;
-      const img = await thumbnail(value);
+      if (!(await fs.promises.stat(dp)).isFile()) return null;
+      const img = await thumbnail(dp);
       if (!img || img.isEmpty()) return null;
-      return /\.png$/i.test(value) ? img.toDataURL() : `data:image/jpeg;base64,${img.toJPEG(82).toString('base64')}`;
+      return /\.png$/i.test(dp) ? img.toDataURL() : `data:image/jpeg;base64,${img.toJPEG(82).toString('base64')}`;
     } catch {
       return null;
     }

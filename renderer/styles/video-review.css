@@ -21,12 +21,16 @@
   flex-wrap: wrap;
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: #15181f;
+  gap: 12px;
+  background: linear-gradient(180deg, #151a24 0%, #10141d 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
   color: #dfe5ee;
-  padding: 7px 10px;
+  padding: 8px 12px;
   border-radius: 0 0 8px 8px;
   font-size: 12px;
+}
+.vr-bar.has-segs {
+  padding-top: 18px;
 }
 .vr-spacer {
   flex: 1;
@@ -606,54 +610,88 @@ body.dark .vr-btn.no.on {
   text-align: center;
 }
 .vr-pp {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
+  display: inline-grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
   color: #fff;
   cursor: pointer;
   font-size: 11px;
   flex: none;
+  transition: background-color 0.15s;
+}
+.vr-pp:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 .vr-track {
   position: relative;
   flex: 1;
-  height: 8px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.14);
+  height: 18px;
+  display: flex;
+  align-items: center;
   cursor: pointer;
+  user-select: none;
 }
-.vr-cover {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 0;
-  border-radius: 4px;
-  background: rgba(59, 116, 232, 0.35);
+.vr-rail {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 .vr-fill {
   position: absolute;
   inset: 0 auto 0 0;
   width: 0;
-  border-radius: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+}
+.vr-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
   background: #fff;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 3;
+  transition: transform 0.12s ease;
+}
+.vr-track:hover .vr-thumb {
+  transform: translate(-50%, -50%) scale(1.2);
 }
 .vr-tick {
   position: absolute;
-  top: -4px;
-  bottom: -4px;
+  top: 3px;
+  bottom: 3px;
   width: 2px;
   margin-left: -1px;
-  background: #f5c542;
+  border-radius: 1px;
+  background: #f6c85f;
+  box-shadow: 0 0 0 1px rgba(10, 14, 22, 0.78);
+  pointer-events: none;
+  z-index: 2;
 }
-.vr-tick::after {
-  content: attr(data-no);
+.vr-seg-no {
   position: absolute;
-  top: -14px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: calc(100% - 1px);
   font-size: 10.5px;
-  color: #f5c542;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #f6c85f;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  white-space: nowrap;
 }
 .vr-time {
   font-variant-numeric: tabular-nums;
@@ -1183,8 +1221,11 @@ body:not(.dark) .pt-box.docked .pt-card-note {
   margin-top: 14px;
   padding: 2px;
   border-radius: 12px;
-  background: #11151f;
+  background: #10141d;
   color: #e9edf5;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 1px 3px rgba(15, 23, 42, 0.08);
 }
 .vr-timeline:empty {
   display: none;
@@ -1720,9 +1761,9 @@ body .vr-desk .vr-watch .pt-box.docked {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 8px 16px;
+  gap: 8px 14px;
   margin-top: 14px;
-  padding: 10px 12px 12px;
+  padding: 10px 14px 12px;
 }
 .vr-desk .vr-timeline > .pt-track:not([hidden]) {
   display: contents;
@@ -1730,12 +1771,43 @@ body .vr-desk .vr-watch .pt-box.docked {
 .vr-desk .vr-timeline > .pt-track > :not(.ptt-bar) {
   grid-column: 1 / -1;
 }
+.vr-desk .vr-timeline .pt-controls {
+  gap: 5px;
+}
 .vr-desk .vr-timeline .pt-controls .spacer,
 .vr-desk .vr-timeline .pt-keys {
   display: none;
 }
 .vr-desk .vr-timeline .pt-controls .btn {
   height: 28px;
+  border-radius: 7px;
+  box-shadow: none;
+}
+.vr-desk .vr-timeline .pt-controls .btn:not(.primary) {
+  width: 28px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.07);
+  color: #e9edf5;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.vr-desk .vr-timeline .pt-controls .btn:not(.primary):hover {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.vr-desk .vr-timeline .pt-controls .btn.primary {
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.vr-desk .vr-timeline .pt-time {
+  margin-left: 6px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #d8e0ee;
+}
+.vr-desk .vr-timeline .ptt-bar {
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 /* 右栏顶上：这个画面的候选，一个一个标签（圆点 + 名字 + 状态），换行排开；选中的描蓝边 */
 .vr-ctabs {

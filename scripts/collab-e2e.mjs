@@ -1,6 +1,6 @@
 /* 局域网协作端到端测试：在本机起两个隐藏的分镜台（各用一份临时数据），一个开始共享、一个用配对码加入，
    互相改、插句、撤销、看对方停在哪句，最后停止共享。用法：node scripts/collab-e2e.mjs */
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -558,6 +558,149 @@ try {
     );
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  await step(
+    '待审本地候选视频：B 在审核页自动从 A 拉取到缓存并截出预览图，通过后素材指向 B 的缓存且不影响 A',
+    async () => {
+      const ffmpeg = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'].find(p =>
+        fs.existsSync(p),
+      );
+      assert.ok(ffmpeg, '需要本机 ffmpeg 来生成协作测试视频');
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), '分镜台协作候选-'));
+      const real1 = path.join(dir, '真实1.mp4');
+      const real2 = path.join(dir, '真实2.mp4');
+      execFileSync(ffmpeg, ['-y', '-f', 'lavfi', '-i', 'color=c=blue:s=320x240:d=2', '-pix_fmt', 'yuv420p', real1], {
+        stdio: 'pipe',
+      });
+      fs.copyFileSync(real1, real2);
+      // 构造一个 B 磁盘上找不到的原路径 url，A 本机通过 peerPath 持有真实视频文件，模拟跨两台电脑的本地路径差异
+      const fake1 = path.join(dir, '仅A存在', '镜头1.mp4');
+      const fake2 = path.join(dir, '仅A存在', '镜头2.mp4');
+      await run(
+        A.p,
+        async (fake1, fake2, real1, real2) => {
+          const { state } = await import('./src/app/state.js');
+          const { changeProject } = await import('./src/app/project-change.js');
+          const rows = state.rows.filter(x => x.kind === 'line');
+          const r1 = rows.at(-2);
+          const r2 = rows.at(-1);
+          changeProject('加本地候选', () => {
+            state.candidates.push(
+              {
+                id: 'e2eL1',
+                key: 'l1',
+                lines: String(r1.no || 20),
+                forText: String(r1.no || 20),
+                forIds: [r1.id],
+                rowId: r1.id,
+                title: '本地候选一',
+                url: fake1,
+                in: 0,
+                out: 2,
+                best: { in: 0, out: 2 },
+                batchId: 'b-e2e',
+                batchNo: 99,
+                decision: '',
+              },
+              {
+                id: 'e2eL2',
+                key: 'l2',
+                lines: String(r2.no || 21),
+                forText: String(r2.no || 21),
+                forIds: [r2.id],
+                rowId: r2.id,
+                title: '本地候选二',
+                url: fake2,
+                in: 0,
+                out: 2,
+                best: { in: 0, out: 2 },
+                batchId: 'b-e2e',
+                batchNo: 99,
+                decision: '',
+              },
+            );
+            const a1 = state.candidates.find(c => c.id === 'e2eL1');
+            const a2 = state.candidates.find(c => c.id === 'e2eL2');
+            a1.peerPath = real1;
+            a2.peerPath = real2;
+          });
+        },
+        fake1,
+        fake2,
+        real1,
+        real2,
+      );
+      await until(
+        B.p,
+        async () => (await import('./src/app/state.js')).state.candidates.some(c => c.id === 'e2eL2'),
+        'B 收到两条本地候选',
+      );
+      const missBefore = await run(B.p, async () =>
+        (await import('./src/app/collab.js')).missingFiles().then(l => l.filter(x => x.kind === 'cand').length),
+      );
+      assert.equal(missBefore, 2, '未缓存前协作缺文件列表应计入两条待审本地候选');
+      // 打开 B 的视频审核页并选中 e2eL1：自动从 A 拉取到缓存目录并生成截图条
+      await run(B.p, async () => {
+        const { state } = await import('./src/app/state.js');
+        const { runCommand } = await import('./src/ui/base/commands.js');
+        const c = state.candidates.find(x => x.id === 'e2eL1');
+        runCommand('video:open', c.rowId);
+      });
+      const cached1 = await until(
+        B.p,
+        async () => (await import('./src/app/state.js')).state.candidates.find(c => c.id === 'e2eL1')?.peerPath,
+        'B 自动拉取 e2eL1 到缓存',
+        10000,
+      );
+      assert.ok(fs.existsSync(cached1), 'B 的缓存视频文件真实存在');
+      assert.ok(fs.readFileSync(cached1).equals(fs.readFileSync(real1)), '缓存内容与 A 一致');
+      await until(
+        B.p,
+        () => !!document.querySelector('#vrList [data-vr-id="e2eL1"] .vr-strip .vr-cell canvas'),
+        'B 审核页截出画面',
+        10000,
+      );
+      // 同批次另一条 e2eL2 也会被后台预取（或随即可用）
+      const cached2 = await until(
+        B.p,
+        async () => (await import('./src/app/state.js')).state.candidates.find(c => c.id === 'e2eL2')?.peerPath,
+        'B 后台预取同批 e2eL2',
+        10000,
+      );
+      assert.ok(fs.existsSync(cached2));
+      // B 点「通过」e2eL1：挂上分镜表的素材路径立即指向 B 的缓存文件，A 不被改写
+      const bApproved = await run(B.p, async () => {
+        const { decideCandidate } = await import('./src/app/candidate-actions.js');
+        const { state } = await import('./src/app/state.js');
+        decideCandidate('e2eL1', 'ok');
+        const c = state.candidates.find(x => x.id === 'e2eL1');
+        return { assetId: c.assetId, path: state.assets[c.assetId]?.path };
+      });
+      assert.equal(bApproved.path, cached1, '通过后 B 的素材立即指向本机缓存文件');
+      await until(
+        A.p,
+        async id => (await import('./src/app/state.js')).state.candidates.find(c => c.id === id)?.decision === 'ok',
+        'A 同步收到通过结果',
+        5000,
+        'e2eL1',
+      );
+      const aAssetPath = await run(
+        A.p,
+        async id => {
+          const { state } = await import('./src/app/state.js');
+          return state.assets[id]?.path || '';
+        },
+        bApproved.assetId,
+      );
+      assert.notEqual(aAssetPath, cached1, 'A 自己的素材路径不会被 B 的缓存路径污染');
+      assert.equal(aAssetPath, real1, 'A 保留自己本机的文件位置');
+      await run(B.p, async () => {
+        const { runCommand } = await import('./src/ui/base/commands.js');
+        runCommand('video:close');
+      });
+      fs.rmSync(dir, { recursive: true, force: true });
+    },
+  );
 
   let beforeStopMine, beforeStopTheirs;
   await step('A 停止共享：B 的项目变成普通项目，内容保留', async () => {

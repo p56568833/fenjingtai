@@ -104,7 +104,7 @@ export function followMovedPaths(moved) {
    （快照里是待审 / 通过，说明撤销的正是那次否决，照常恢复） */
 const purged = new Set();
 export const forgetPurged = ids => ids.forEach(id => purged.add(id));
-function keepBackgroundResults(prevAssets, prevVoice) {
+function keepBackgroundResults(prevAssets, prevVoice, prevCandidates = []) {
   for (const [id, a] of Object.entries(state.assets)) {
     const cur = prevAssets[id];
     if (cur?.durationSec && cur.path === a.path) a.durationSec = cur.durationSec;
@@ -112,6 +112,12 @@ function keepBackgroundResults(prevAssets, prevVoice) {
   if (state.voice && prevVoice?.duration && prevVoice.path === state.voice.path)
     state.voice.duration = prevVoice.duration;
   state.candidates = state.candidates.filter(c => !(purged.has(c.id) && c.decision === 'no'));
+  const prevById = new Map(prevCandidates.map(c => [c.id, c]));
+  for (const c of state.candidates) {
+    if (c.peerPath) continue;
+    const prev = prevById.get(c.id);
+    if (prev?.peerPath && prev.url === c.url) c.peerPath = prev.peerPath;
+  }
 }
 export const canUndo = () => stack.length > 0;
 export const canRedo = () => redoStack.length > 0;
@@ -124,9 +130,10 @@ function prepareSnapshot(u) {
 
 function restoreSnapshotData(u, p = prepareSnapshot(u)) {
   const prevAssets = state.assets || {},
-    prevVoice = state.voice;
+    prevVoice = state.voice,
+    prevCandidates = state.candidates || [];
   applyProjectData(state, p, 'history');
-  keepBackgroundResults(prevAssets, prevVoice);
+  keepBackgroundResults(prevAssets, prevVoice, prevCandidates);
   viewState.multi = null;
   if (u.sel != null && state.rows.some(r => r.id === u.sel && r.kind === 'line')) viewState.sel = u.sel;
   else if (viewState.sel != null && !state.rows.some(r => r.id === viewState.sel)) {

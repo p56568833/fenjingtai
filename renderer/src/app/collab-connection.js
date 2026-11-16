@@ -157,6 +157,7 @@ export function createCollabConnection({
     if (redo) send(s, redo);
     saveMeta(s);
     applyRemoteProject(s, null, { full: true });
+    files.bindApprovedPeerPaths(s.pid);
     discovery.sync();
     changed();
     sendPresence(true);

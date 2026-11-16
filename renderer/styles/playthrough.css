@@ -187,14 +187,14 @@
 .pt-track {
   --ptt-tx: #c4ccda;
   --ptt-tx2: #9ba5b7;
-  --ptt-tx3: #8d97a9;
-  --ptt-line: rgba(255, 255, 255, 0.08);
-  --ptt-sep: rgba(255, 255, 255, 0.32);
+  --ptt-tx3: #94a0b4;
+  --ptt-line: rgba(255, 255, 255, 0.1);
+  --ptt-sep: rgba(255, 255, 255, 0.92);
   --ptt-hover: rgba(255, 255, 255, 0.04);
-  --ptt-stripe1: rgba(255, 255, 255, 0.03);
-  --ptt-stripe2: rgba(255, 255, 255, 0.055);
-  --ptt-a: #35558c;
-  --ptt-b: #2c6b55;
+  --ptt-stripe1: rgba(255, 255, 255, 0.022);
+  --ptt-stripe2: rgba(255, 255, 255, 0.042);
+  --ptt-a: #395d9a;
+  --ptt-b: #2e735c;
   --ptt-a-hold: #263a5c;
   --ptt-b-hold: #22483b;
   --ptt-hold-bd: rgba(255, 255, 255, 0.28);
@@ -213,9 +213,9 @@
   display: grid;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  background: #10141d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .pt-track[hidden] {
   display: none;
@@ -231,7 +231,10 @@
   font-weight: 650;
 }
 .ptt-mode {
-  color: var(--ptt-tx2);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #aeb8ca;
   font-size: 11px;
 }
 /* 操作说明收进「?」：鼠标放上去才显示 */
@@ -240,7 +243,7 @@
   place-items: center;
   width: 16px;
   height: 16px;
-  margin-left: -4px;
+  margin-left: -2px;
   border-radius: 50%;
   border: 1px solid var(--ptt-btn-bd);
   color: var(--ptt-tx2);
@@ -288,12 +291,13 @@
   position: relative;
   height: 48px;
   margin-top: 0;
-  border-radius: 0;
+  border-radius: 6px;
   background: repeating-linear-gradient(
     -45deg,
     var(--ptt-stripe1) 0 6px,
     var(--ptt-stripe2) 6px 12px
   ); /* 斜纹 = 空着（黑屏） */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   cursor: pointer;
   user-select: none;
   touch-action: none;
@@ -301,7 +305,7 @@
 }
 .ptt-ruler {
   position: relative;
-  height: 30px;
+  height: 26px;
   margin-top: 0;
   cursor: pointer;
   user-select: none;
@@ -322,29 +326,48 @@
   border-width: 8px 6px 0;
   border-color: var(--ptt-head) transparent transparent;
   pointer-events: none;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.35));
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
 }
 .ptt-tick {
   position: absolute;
-  top: 8px;
+  top: 4px;
   transform: translateX(-50%);
-  font-size: 10.5px;
+  font-size: 10px;
   font-family: var(--mono);
   color: var(--ptt-tx3);
   pointer-events: none;
 }
+.ptt-tick::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 15px;
+  width: 1px;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.22);
+}
 .ptt-tick:first-child {
   transform: none;
 }
-/* 句子分界：两条轨上一道实线（不写字、不能点） */
+.ptt-tick:first-child::after {
+  left: 0;
+}
+/* 句子分界：两条轨上一道高反差白线（双侧深色护边，叠在亮色视频胶片上也锐利清晰） */
 .ptt-sep {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 0;
-  border-left: 1.5px solid var(--ptt-sep);
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  margin-left: -1px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--ptt-sep);
+  box-shadow:
+    -1px 0 0 rgba(8, 11, 18, 0.82),
+    1px 0 0 rgba(8, 11, 18, 0.82),
+    0 0 5px rgba(0, 0, 0, 0.4);
   pointer-events: none;
-  z-index: 1;
+  z-index: 4;
 }
 /* 色块：直角，没选中时不描边，相邻两段之间留一道暗缝（剪映那样） */
 .ptt-block {
@@ -488,9 +511,10 @@
   align-self: flex-start;
   min-width: 0;
   margin: 6px 0 0 4px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: rgba(10, 14, 22, 0.72);
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(10, 14, 22, 0.76);
+  backdrop-filter: blur(4px);
   color: #fff;
   font-size: 11px;
   line-height: 16px;
@@ -550,7 +574,7 @@
   margin-left: -1.5px;
   background: #f0a33a;
   pointer-events: none;
-  z-index: 5;
+  z-index: 6;
 }
 .ptt-insert[hidden] {
   display: none;
@@ -576,7 +600,7 @@
   background: var(--ptt-head);
   border-radius: 0;
   pointer-events: none;
-  z-index: 3;
+  z-index: 5;
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.35);
 }
 .ptt-empty {
@@ -649,18 +673,23 @@
 }
 /* 没有备选时收成一条细线；拖着正片往下走时展开，好放 */
 .ptt-lane.alt.empty {
-  height: 8px;
-  margin-top: 6px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
   transition: height 0.14s ease;
 }
 .ptt-lanes:has(.ptt-lane.alt.empty) .ptt-lname.alt {
   padding-top: 0;
-  line-height: 20px;
+  line-height: 18px;
+  font-size: 10.5px;
+  color: var(--ptt-tx3);
 }
 .ptt-lanes.dragging .ptt-lane.alt.empty {
   height: 34px;
   margin-top: 0;
-  box-shadow: inset 0 0 0 1px var(--ptt-sep);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
 }
 /* 备选画面：和正片同款色块，半透明 */
 .ptt-block.alt {

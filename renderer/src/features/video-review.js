@@ -19,6 +19,8 @@ import { projectRefresh } from '../core/project-refresh.js';
      「不要」的在待返工里保留；画面有候选通过后，离开审核页时清掉已写回清单的否决项。
    · 键盘：1 通过 · 2 不要 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放这段；一个画面审完自动跳到下一个。 */
 import { state } from '../app/state.js';
+import { viewState } from '../app/view-state.js';
+import { collabSession, ensureCandidateFile } from '../app/collab.js';
 
 import { on } from '../app/events.js';
 import {
@@ -33,7 +35,7 @@ import { isCandidateBusy, relinkSavedClips, initCandidateMedia } from '../app/ca
 import { saveAllApproved, autoSaveApproved, downloadOriginal, ensureMediaDir, batchRun } from './review-files.js';
 import { forgetFrames, clearReviewFrames, previewOf } from './review-frames.js';
 
-import { CANDIDATE_VERSION } from '../core/candidate-values.js';
+import { CANDIDATE_VERSION, localVideoPath } from '../core/candidate-values.js';
 import {
   isReviewPlaybackOpen,
   toggleReviewPlayback,
@@ -107,8 +109,64 @@ const renderer = createReviewRenderer({
 });
 const { importCandidates, copyCandidateSpec, setReworkNote, setReplaceNote, dismissCurrentRework, writeReworkDoc } =
   createReviewWorkflows({ open: openVideoReview, render: renderVideoReview });
+
+/* 协作时后台静默按批顺序预取缺失的本地候选，让同事切到下一句就能秒开 */
+let prefetchToken = 0;
+let prefetchKey = '';
+let prefetching = false;
+let prefetchAgain = false;
+const peerMissingMemo = new Set();
+async function prefetchPeerCandidates() {
+  const cur = collabSession();
+  if (viewState.view !== 'review' || page.mode === 'rework' || cur?.status !== 'online') return;
+  const batch = curBatchObj();
+  if (!batch) return;
+  const pid = state.projectId;
+  const myToken = prefetchToken;
+  prefetching = true;
+  try {
+    for (const c of batch.cands) {
+      if (
+        prefetchToken !== myToken ||
+        viewState.view !== 'review' ||
+        page.mode === 'rework' ||
+        state.projectId !== pid ||
+        collabSession(pid)?.status !== 'online'
+      )
+        break;
+      const src = localVideoPath(c.url);
+      if (!src || c.decision === 'no' || c.savedPath || c.peerPath) continue;
+      const missKey = `${pid}|${src}`;
+      if (peerMissingMemo.has(missKey)) continue;
+      const got = await ensureCandidateFile(c.id, pid).catch(() => null);
+      if (got && !got.ok && !got.offline) peerMissingMemo.add(missKey);
+    }
+  } finally {
+    prefetching = false;
+    if (prefetchAgain) {
+      prefetchAgain = false;
+      prefetchPeerCandidates();
+    }
+  }
+}
+function schedulePeerPrefetch(force = false) {
+  const key = `${state.projectId}|${page.curBatch || ''}`;
+  if (prefetching) {
+    if (force || key !== prefetchKey) {
+      prefetchToken++;
+      prefetchKey = key;
+      prefetchAgain = true;
+    }
+    return;
+  }
+  prefetchKey = key;
+  if (force) prefetchToken++;
+  prefetchPeerCandidates();
+}
+
 function renderVideoReview() {
   renderer.render();
+  if (viewState.view === 'review' && page.mode !== 'rework') schedulePeerPrefetch();
 }
 
 export function setDecision(id, d) {
@@ -538,6 +596,8 @@ export function initVideoReview() {
   on('view-refresh', renderVideoReview);
   on('view', ({ from, view }) => {
     if (from === 'review') {
+      prefetchToken++;
+      prefetchAgain = false;
       renderer.leave();
       stopAll();
       cancelAdvance();
@@ -545,6 +605,13 @@ export function initVideoReview() {
       slideIn($('#tablePage'), 1);
     }
     if (view === 'review') renderVideoReview();
+  });
+  on('collab-status', () => {
+    if (collabSession()?.status === 'online') peerMissingMemo.clear();
+    if (viewState.view === 'review') {
+      renderVideoReview();
+      if (page.mode !== 'rework') schedulePeerPrefetch(true);
+    }
   });
   $('#vrSync').addEventListener('click', e => {
     if (e.target.closest('#vrRetrySync')) flushWriteBack().then(renderer.refreshStatus);
@@ -566,6 +633,9 @@ export function initVideoReview() {
     else if (act === 'spec') copyCandidateSpec();
   });
   on('project-loaded', () => {
+    prefetchToken++;
+    prefetchAgain = false;
+    peerMissingMemo.clear();
     closeBatchName();
     renderer.reset();
     cards.reset();

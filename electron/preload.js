@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('native', {
   collabFileInfo: file => ipcRenderer.invoke('collab:file-info', file),
   collabFindFiles: req => ipcRenderer.invoke('collab:find-files', req),
   collabFindCancel: token => ipcRenderer.invoke('collab:find-cancel', token),
+  collabCacheDir: projectId => ipcRenderer.invoke('collab:cache-dir', projectId),
   onCollabEvent: cb => ipcRenderer.on('collab:event', (_e, evt) => cb(evt)),
   // 应用内更新
   checkUpdate: opts => ipcRenderer.invoke('update:check', opts),

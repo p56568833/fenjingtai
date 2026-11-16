@@ -3388,5 +3388,41 @@ test('命令遗漏和重复登记明确失败，合法命令只执行一次', ()
   assert.equal(runCommand('audit:once', 2), true);
   assert.equal(n, 2);
 });
+test('本地视频带 #t= 片段时类型识别、文件名、fileUrl 与可用时长计算正常', async () => {
+  const { stripLocalFrag, fileUrl, assetName } = await import('../renderer/src/core/asset-model.js');
+  const { sanitizeProjectCandidates } = await import('../renderer/src/core/candidates.js');
+  const p = '/Users/a/素材/第 1 句.mp4#t=1,5';
+  assert.equal(stripLocalFrag(p), '/Users/a/素材/第 1 句.mp4');
+  assert.equal(kindOf(p), 'video');
+  assert.equal(assetName(p), '第 1 句.mp4');
+  assert.equal(fileUrl(p), 'file:///Users/a/%E7%B4%A0%E6%9D%90/%E7%AC%AC%201%20%E5%8F%A5.mp4');
+  assert.equal(stripLocalFrag('https://x.com/v.mp4#t=1,5'), 'https://x.com/v.mp4#t=1,5');
+  assert.equal(coverOf({ kind: 'video', asset: { path: p }, usage: {}, start: 0, slotEnd: 4 }, 4).verdict, 'ok');
+  const cleaned = sanitizeProjectCandidates(
+    [
+      {
+        id: 'vc-1',
+        rowId: 1,
+        forIds: [1],
+        url: '/Users/a/b.mp4',
+        in: 0,
+        out: 5,
+        peerPath: '/Users/b/候选缓存/p1/b.mp4',
+      },
+      {
+        id: 'vc-2',
+        rowId: 1,
+        forIds: [1],
+        url: '/Users/a/b.mp4',
+        in: 0,
+        out: 5,
+        peerPath: '/Users/b/bad/../x.mp4',
+      },
+    ],
+    { rowIds: new Set([1]) },
+  );
+  assert.equal(cleaned[0].peerPath, '/Users/b/候选缓存/p1/b.mp4');
+  assert.equal(cleaned[1].peerPath, undefined);
+});
 
 console.log(`${count} 项数据回归通过`);

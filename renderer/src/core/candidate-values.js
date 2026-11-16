@@ -32,8 +32,8 @@ export function cleanBest(b, tin, tout) {
 export const noteLine = c =>
   `视频：${c.title || assetName(c.url)}｜${fmtTime(c.in)}–${fmtTime(c.out)}｜${c.license || '版权未注明'}｜${c.page || c.url}`;
 export const remotePath = c => `${c.url.split('#')[0]}#t=${c.in},${c.out}`;
-/* 候选也可以是这台电脑上的视频文件（自己截好的片段，自己审）：完整路径或 file:// 地址，只认视频扩展名。
-   返回规整后的完整路径，不是本机视频就返回空串；协作的人那边没有这个文件，看不到这段 */
+/* 候选也可以是这台电脑上的视频文件（自己截好的片段）：完整路径或 file:// 地址，只认视频扩展名。
+   返回规整后的完整路径，不是本机视频就返回空串；局域网协作时可自动传给同事审 */
 const LOCAL_VIDEO_RE = /\.(mp4|m4v|mov|webm|mkv)$/i;
 export function localVideoPath(u) {
   let s = String(u ?? '').trim();

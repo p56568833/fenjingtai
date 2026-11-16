@@ -35,9 +35,11 @@ export function shotTrackHTML({ unit: u, assets, tl, ti, pick, toneOf }) {
   const step = [1, 2, 5, 10, 15, 30].find(s => dur / s <= 14) || 60;
   let ticks = '';
   for (let x = 0; x <= dur + 1e-6; x += step) ticks += `<span class="ptt-tick" style="left:${pct(x)}">${x}s</span>`;
-  // 句子分界（第 2 句起）：两条轨上各画一道实线，不写字、不能点；刻度尺上不画
-  const cuts = u.members.slice(1).map(m => (tl.times.get(m.id)?.start ?? u.start) - u.start);
-  const seps = cuts.map(at => `<span class="ptt-sep" style="left:${pct(at)}"></span>`).join('');
+  // 句子分界（第 2 句起）：两条轨上各画一道高反差实线，不写字、不能点；刻度尺上不画
+  const cuts = u.members.slice(1).map(m => ({ no: m.no, at: (tl.times.get(m.id)?.start ?? u.start) - u.start }));
+  const seps = cuts
+    .map(({ no, at }) => `<span class="ptt-sep" style="left:${pct(at)}" title="第 ${no} 句起点"></span>`)
+    .join('');
   const bareSeps = seps;
   // 句间停顿里延续的上一段画面：画成同色的淡尾巴，和预览里看到的对上
   const holds = items

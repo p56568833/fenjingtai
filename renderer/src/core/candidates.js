@@ -372,6 +372,7 @@ export function planImport(doc, srcFile, rows, existing = [], { tl, reworkReques
         if (changed) {
           delete next.assetId;
           delete next.savedPath;
+          delete next.peerPath;
           delete next.decidedAt;
           fresh.push({ rec: next, members, shot: s });
         }
@@ -499,6 +500,9 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
       note: String(raw.note || ''),
       ...(assetId ? { assetId } : {}),
       ...(assetId && typeof raw.savedPath === 'string' && raw.savedPath ? { savedPath: raw.savedPath } : {}),
+      ...(typeof raw.peerPath === 'string' && localVideoPath(raw.peerPath)
+        ? { peerPath: localVideoPath(raw.peerPath) }
+        : {}),
       ...(Number.isFinite(raw.decidedAt) ? { decidedAt: raw.decidedAt } : {}),
       ...(typeof raw.batchId === 'string' ? { batchId: raw.batchId } : {}),
       ...(Number.isFinite(raw.batchAt) ? { batchAt: raw.batchAt } : {}),

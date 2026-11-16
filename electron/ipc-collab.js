@@ -1,8 +1,11 @@
 /* 局域网协作的通道：开 / 关共享、找局域网里的主机、连接、收发消息。消息内容由界面进程解释 */
 const { execFile } = require('node:child_process');
+const fs = require('node:fs');
 const os = require('node:os');
+const path = require('node:path');
 const { createCollabNet } = require('./collab-net');
 const { fingerprint, findByContent } = require('./file-match');
+const { safeFileName } = require('./fs-utils');
 const { segmentFileBase } = require('./video-tools');
 
 /* 这台电脑在「系统设置 → 通用 → 共享」里的名字（取不到就用主机名） */
@@ -104,6 +107,11 @@ function registerCollabIpc({ handle, win, app }) {
   });
   handle('collab:find-cancel', (_e, token) => {
     if (finds.has(text(token))) finds.set(text(token), true);
+  });
+  handle('collab:cache-dir', (_e, projectId) => {
+    const dir = path.join(app.getPath('userData'), '候选缓存', safeFileName(String(projectId || 'default'), 'default'));
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
   });
   // 保存失败可能取消退出；等窗口确实关闭后才断开协作。
   app.on('will-quit', () => collab.dispose());

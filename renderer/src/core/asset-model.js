@@ -16,15 +16,18 @@ export const VIDEO_EXT = /\.(mp4|mov|mkv|webm|m4v|avi)$/i;
 export const AUDIO_EXT = /\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i;
 export const DOC_EXT = /\.(pdf|txt|md|csv|pptx|docx)$/i;
 export const LINK_RE = /^https?:\/\//i;
+const LOCAL_FRAG_RE = /#t=[\d.,]+$/;
+export const stripLocalFrag = p => (typeof p === 'string' && p.startsWith('/') ? p.replace(LOCAL_FRAG_RE, '') : p);
 
 export function kindOf(ref) {
   if (typeof ref !== 'string' || !ref.trim()) return null;
   // 在线视频文件（.mp4 / .webm …，可带 #t= 片段）当视频处理：能预览、能设片段（视频审核）
   if (LINK_RE.test(ref)) return VIDEO_EXT.test(ref.split(/[?#]/)[0]) ? 'video' : 'link';
-  if (IMAGE_EXT.test(ref)) return 'image';
-  if (VIDEO_EXT.test(ref)) return 'video';
-  if (AUDIO_EXT.test(ref)) return 'audio';
-  if (DOC_EXT.test(ref)) return 'doc';
+  const clean = stripLocalFrag(ref);
+  if (IMAGE_EXT.test(clean)) return 'image';
+  if (VIDEO_EXT.test(clean)) return 'video';
+  if (AUDIO_EXT.test(clean)) return 'audio';
+  if (DOC_EXT.test(clean)) return 'doc';
   return null;
 }
 export const KIND_LABEL = { image: '图片', video: '视频', audio: '音频', doc: '文档', link: '链接' };
@@ -36,13 +39,13 @@ export function assetName(ref) {
       return decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() || u.hostname);
     }
   } catch {}
-  return String(ref).split(/[\\/]/).pop() || String(ref);
+  return String(stripLocalFrag(ref)).split(/[\\/]/).pop() || String(ref);
 }
 
 /* <video>/<img> 用的本地文件地址（逐段编码，#、? 等字符不破坏 URL） */
 export function fileUrl(p) {
   if (LINK_RE.test(p)) return p;
-  const q = String(p).split('/').map(encodeURIComponent).join('/');
+  const q = String(stripLocalFrag(p)).split('/').map(encodeURIComponent).join('/');
   return p.startsWith('/') ? 'file://' + q : 'file:///' + q;
 }
 

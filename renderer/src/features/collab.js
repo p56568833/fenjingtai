@@ -292,29 +292,35 @@ async function fetchItems(items) {
   if (!cur || cur.status !== 'online') return toast('对方现在不在线，连上后再取', null, 'warn');
   if (!items.length) return toast('没有要取的文件', null, 'info');
   if (collab.findProgress()) return toast('正在本机找已有的文件，找完再取', null, 'info');
-  // 存到这个项目的素材文件夹（和「保存已通过的片段」同一个）；第一次问一下放哪
+  const needMediaDir = items.some(i => i.kind !== 'cand');
+  const needCacheDir = items.some(i => i.kind === 'cand');
+  // 正式素材 / 口播存到项目素材文件夹；待审候选视频存到分镜台本机缓存目录（不弹窗打断）
   let dir = state.mediaDir;
-  if (!dir) {
+  if (needMediaDir && !dir) {
     dir = await native.pickFolder('');
     if (!dir) return;
     setMediaDirectory(state.projectId, dir);
   }
+  const cacheDir = needCacheDir ? await native.collabCacheDir(state.projectId).catch(() => '') : '';
+  if (needCacheDir && !cacheDir) return toast('无法创建候选缓存目录', null, 'error');
+  if (needCacheDir) items = items.map(i => (i.kind === 'cand' ? { ...i, dir: cacheDir } : i));
   const who = cur.peer || '对方';
-  // 先在素材文件夹里认：内容一样的文件已经在了就直接用，不再传；认不了（对方没回文件信息等）也不耽误，照常全部取
-  const found = await collab.findLocal(items, [dir]);
+  // 先在素材文件夹和缓存目录里认：内容一样的文件已经在了就直接用，不再传；认不了（对方没回文件信息等）也不耽误，照常全部取
+  const searchDirs = [...new Set([dir, cacheDir].filter(Boolean))];
+  const found = searchDirs.length ? await collab.findLocal(items, searchDirs) : { got: [], rest: items };
   if (found.canceled) return refreshMissing();
   const known = found.got?.length || 0;
   if (!found.error) items = found.rest;
   if (!items.length) {
     refreshMissing();
-    return toast(`素材文件夹里已经有这 ${known} 个文件，直接用上了，不用再传`, null, 'ok');
+    return toast(`本机已经有这 ${known} 个文件，直接用上了，不用再传`, null, 'ok');
   }
   toast(
-    `${known ? `素材文件夹里已有 ${known} 个，` : ''}正在从 ${who} 那里取 ${items.length} 个文件…`,
+    `${known ? `本机已有 ${known} 个，` : ''}正在从 ${who} 那里取 ${items.length} 个文件…`,
     { label: '取消', cb: collab.cancelFetch },
     'info',
   );
-  const r = await collab.fetchFiles(items, dir);
+  const r = await collab.fetchFiles(items, dir || cacheDir);
   if (r.error) return toast(r.error, null, 'error');
   const first = r.got[0]?.local;
   if (r.failed.length)
@@ -544,7 +550,8 @@ export function initCollab() {
   });
   on('collab-files', () => (open || menuOpen()) && render());
   on('project-committed', change => {
-    if (change.projectId === state.projectId && change.assets && (open || menuOpen())) refreshMissing();
+    if (change.projectId === state.projectId && (change.assets || change.candidates) && (open || menuOpen()))
+      refreshMissing();
   });
   on('collab-presence', () => {
     paintPresence();

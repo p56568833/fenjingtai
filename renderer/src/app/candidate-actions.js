@@ -94,6 +94,7 @@ export function importCandidateData(doc, srcFile) {
         }
         delete old.assetId;
         delete old.savedPath;
+        delete old.peerPath;
         delete old.decidedAt;
         resetIds.push(old.id);
       }

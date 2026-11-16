@@ -25,8 +25,8 @@ export function coverageOf(item, shotDur) {
   const file = !online && finite(item.asset?.durationSec) ? item.asset.durationSec : null;
   const clip = validClip(item.usage?.clip) ? item.usage.clip : null;
   let usable = clip ? clip.out - clip.in : file;
-  // 在线视频（还没保存）没标片段：地址里的 #t=入,出 就是要截的那段
-  if (usable == null && online) {
+  // 在线或本机待保存视频没标片段：地址里的 #t=入,出 就是要截的那段
+  if (usable == null) {
     const m = path.match(/#t=([\d.]+),([\d.]+)/);
     if (m && +m[2] > +m[1]) usable = +m[2] - +m[1];
   }

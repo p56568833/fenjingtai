@@ -84,6 +84,7 @@ export const collabFileCancel = call('collabFileCancel');
 export const collabFileInfo = call('collabFileInfo');
 export const collabFindFiles = call('collabFindFiles');
 export const collabFindCancel = call('collabFindCancel');
+export const collabCacheDir = call('collabCacheDir');
 export const onCollabEvent = cb => n()?.onCollabEvent?.(cb);
 
 /* 应用内更新 */

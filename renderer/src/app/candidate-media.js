@@ -10,8 +10,9 @@ import { writeBack } from './candidate-sync.js';
 import { followMovedPaths } from './undo.js';
 import { invalidateProbe, probePaths, isMissing } from './asset-actions.js';
 import { swapToLocal, fileTitle, staleOnlineClips, hasLineTag, lineTag } from '../core/candidate-placement.js';
+import { localVideoPath, remotePath } from '../core/candidate-values.js';
 import { assetName, syncMirror, referencedAssetIds } from '../core/asset-model.js';
-import { fetchClip, collabSession } from './collab.js';
+import { fetchClip, collabSession, ensureCandidateFile } from './collab.js';
 import { retagPlan } from '../core/candidate-queries.js';
 import * as native from '../platform/native.js';
 
@@ -33,6 +34,7 @@ export function captureSaveTask(id) {
     version: candidateVersion(c),
     source: sourceOf(c),
     url: c.url,
+    localSource: c.peerPath || '',
     start: c.in,
     end: c.out,
     name: fileTitle(c, state.rows),
@@ -68,23 +70,35 @@ export async function saveCandidateSegment(task, dir) {
   emit('candidate-media');
   let result;
   try {
-    // 协作中：对方保存过同一段就从他电脑上拷，拷不到再从网站截取
+    // 协作中：对方保存过同一段就从他电脑上拷，拷不到再从网站（或从同事电脑拉来的缓存源）截取
     const progress = p => emit('candidate-progress', { projectId: task.projectId, id: task.candidateId, p });
     const copying = fetchClip(
       task.projectId,
       { id: task.candidateId, url: task.url, in: task.start, out: task.end },
       { dir, name: task.name, onProgress: progress },
     );
-    result =
-      (copying && (await copying)) ||
-      (await native.saveVideoSegment({
-        url: task.url,
+    result = copying && (await copying);
+    if (!result) {
+      let localUrl = task.url;
+      if (localVideoPath(localUrl)) {
+        const probe = await probePaths([localUrl, task.localSource].filter(Boolean));
+        if (isMissing(probe[localUrl])) {
+          if (task.localSource && !isMissing(probe[task.localSource])) localUrl = task.localSource;
+          else if (collabSession(task.projectId)?.status === 'online') {
+            const got = await ensureCandidateFile(task.candidateId, task.projectId).catch(() => null);
+            if (got?.ok && got.path) localUrl = got.path;
+          }
+        }
+      }
+      result = await native.saveVideoSegment({
+        url: localUrl,
         start: task.start,
         end: task.end,
         name: task.name,
         dir,
         token,
-      }));
+      });
+    }
     if (!result?.ok) return result;
     const c = matchingCandidate(task);
     if (!c) return { ...result, attached: false };
@@ -270,12 +284,44 @@ export function relinkSavedClips({ quiet = false } = {}) {
   relinking.set(pid, job);
   return job;
 }
+/* 清理已从磁盘删除的同事缓存路径，避免继续使用失效的本地缓存 */
+async function pruneMissingPeerClips() {
+  const pid = state.projectId;
+  const list = state.candidates.filter(c => c.peerPath);
+  if (!list.length) return 0;
+  const info = await probePaths(list.map(c => c.peerPath));
+  const p = projectOf(pid);
+  if (!p) return 0;
+  const gone = list.filter(c => p.candidates.includes(c) && isMissing(info[c.peerPath]));
+  if (!gone.length) return 0;
+  changeProject(
+    null,
+    (change, project) => {
+      for (const c of gone) {
+        if (!project.candidates.includes(c)) continue;
+        const dead = c.peerPath;
+        delete c.peerPath;
+        const a = c.assetId ? project.assets?.[c.assetId] : null;
+        if (a && a.path === dead && c.url) {
+          a.path = remotePath(c);
+          a.name = c.title || assetName(c.url);
+          delete a.durationSec;
+        }
+      }
+      syncMirror(project.rows || [], project.assets || {});
+      invalidateProbe();
+    },
+    { projectId: pid },
+  );
+  return gone.length;
+}
 /* 定时 / 载入后的整理入口：任何一步失败都不能留下未处理的 Promise 拒绝 */
 const tidySavedClips = () => {
   const pid = state.projectId;
   return tagOldSavedClips()
     .catch(() => 0)
     .then(() => (state.projectId === pid ? relinkSavedClips() : 0))
+    .then(() => (state.projectId === pid ? pruneMissingPeerClips() : 0))
     .catch(() => 0);
 };
 /* 素材换了句子（轨上拖动、改了配哪几句、改稿后句号变了）：文件名开头的「第N句」自动跟着改，不用手动点。

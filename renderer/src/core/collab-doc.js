@@ -16,7 +16,7 @@ export const COLLAB_PROTO = 1;
 export const META_KEYS = projectFieldKeys('sharedMeta');
 const ROW_SKIP = new Set(['no', 'assets']); // 句号现算；素材文本镜像里是本机路径，各自生成
 const ASSET_SKIP = new Set(['durationSec']); // 时长是各自读文件得到的
-const CAND_LOCAL = ['savedPath', 'srcFile'];
+const CAND_LOCAL = ['savedPath', 'srcFile', 'peerPath'];
 
 /* 键排好序的 JSON：同样的内容一定得到同样的字符串 */
 export function stable(v) {
@@ -217,6 +217,7 @@ export function sharedCand(c) {
 function mergeCand(existing, shared) {
   const keep = {};
   if (existing.srcFile) keep.srcFile = existing.srcFile;
+  if (existing.peerPath && existing.url === shared.url) keep.peerPath = existing.peerPath;
   if (existing.savedPath && existing.url === shared.url && existing.in === shared.in && existing.out === shared.out)
     keep.savedPath = existing.savedPath;
   for (const k of Object.keys(existing)) delete existing[k];

@@ -74,10 +74,16 @@ export const fileProgress = files.fileProgress;
 export const missingFiles = files.missingFiles;
 export const fetchFiles = files.fetchFiles;
 export const fetchClip = files.fetchClip;
+export const ensureCandidateFile = files.ensureCandidateFile;
 export const cancelFetch = files.cancelFetch;
 export const findProgress = files.findProgress;
 export const findLocal = files.findLocal;
 export const cancelFind = files.cancelFind;
+
+on('project-committed', change => {
+  if (change?.projectId && (change.candidates || change.assets || change.full))
+    files.bindApprovedPeerPaths(change.projectId);
+});
 
 /* ── 状态（给界面） ── */
 function sessionView(s) {
