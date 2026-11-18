@@ -17,21 +17,52 @@ export const stripHTML = (c, n = cellsFor(previewOf(c))) =>
   `<div class="vr-strip" data-n="${n}">${'<div class="vr-cell ld">载入中…</div>'.repeat(n)}</div>`;
 const stripOf = job => (job.host.isConnected ? job.host.querySelector(`[data-vr-id="${job.c.id}"] .vr-strip`) : null);
 /* 渲染后把截图放进卡片：截过的直接放，没截的排队去截 */
+const clearFresh = cv => {
+  if (cv?.classList.contains('fresh')) cv.classList.remove('fresh');
+};
+function syncStrip(strip, cells, total, done, { animateNew = false } = {}) {
+  if (!strip) return;
+  if (!animateNew) for (const item of cells) clearFresh(item.cell.querySelector('canvas'));
+  const want = done ? cells.length : Math.max(total, cells.length);
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i].cell;
+    const cur = strip.children[i];
+    if (cur === cell) continue;
+    if (cur) cur.replaceWith(cell);
+    else strip.append(cell);
+    if (animateNew && strip.isConnected) {
+      const cv = cell.querySelector('canvas');
+      if (cv?.classList.contains('fresh')) setTimeout(() => clearFresh(cv), 350);
+    }
+  }
+  if (!done) {
+    for (let i = cells.length; i < want; i++) {
+      const cur = strip.children[i];
+      if (!cur) strip.append(loadingCell());
+      else if (!cur.classList.contains('ld')) cur.replaceWith(loadingCell());
+    }
+  }
+  while (strip.children.length > want) strip.lastElementChild.remove();
+}
 export function paintStrips(host, cands) {
   for (const c of cands) {
     const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
     if (!strip) continue;
     const n = +strip.dataset.n || cellsFor(previewOf(c));
-    const got = getFrames(c, n);
-    if (got && got.length) strip.replaceChildren(...got.map(x => x.cell));
-    else queueFrames(c, host, n);
+    const cached = getCached(c, n);
+    if (cached && (cached.done || cached.cells.length)) syncStrip(strip, cached.cells, n, cached.done);
+    if (!cached) queueFrames(c, host, n);
   }
 }
-const signature = (c, n) =>
-  JSON.stringify([state.projectId, c.url, c.in, c.out, c.savedPath || '', c.peerPath || '', n]);
-const getFrames = (c, n) => {
+const contentSig = (c, n) => {
+  const b = cleanBest(c?.best, c?.in, c?.out);
+  return JSON.stringify([state.projectId, c.url, c.in, c.out, b?.in ?? null, b?.out ?? null, n]);
+};
+const sourceSig = (c, n) => JSON.stringify([contentSig(c, n), c.savedPath || '', c.peerPath || '']);
+const getCached = (c, n) => {
   const cached = frames.get(c.id);
-  return cached?.signature === signature(c, n) ? cached.cells : null;
+  if (!cached || cached.contentSig !== contentSig(c, n)) return null;
+  return cached.done || cached.sourceSig === sourceSig(c, n) ? cached : null;
 };
 export function forgetFrames(ids) {
   for (const id of ids) {
@@ -50,10 +81,12 @@ export function retainFrames(candidates) {
 }
 /* 审核页自己最多排两个截图任务（还要和全应用共用 withDecodeSlot 的名额）；任务绑定项目和素材内容，换项目 / 更新候选就取消旧结果。 */
 function queueFrames(c, host, n) {
-  const sig = signature(c, n);
-  if (getFrames(c, n) || queue.some(q => q.c.id === c.id && q.signature === sig)) return;
+  const csig = contentSig(c, n);
+  const ssig = sourceSig(c, n);
+  if (getCached(c, n) || queue.some(q => q.c.id === c.id && q.sourceSig === ssig)) return;
+  for (let i = queue.length - 1; i >= 0; i--) if (queue[i].c.id === c.id) queue.splice(i, 1);
   if (active.has(c.id)) active.get(c.id).abort();
-  queue.push({ host, c: { ...c }, n, signature: sig, projectId: state.projectId });
+  queue.push({ host, c: { ...c }, n, contentSig: csig, sourceSig: ssig, projectId: state.projectId });
   pump();
 }
 function pump() {
@@ -73,11 +106,11 @@ async function grab(job, signal) {
   const orig = job.c;
   let c = previewOf(orig); // 截图和播放一样，只截真正要用的那几秒
   const cells = [];
-  const cached = { signature: job.signature, cells };
+  const cached = { contentSig: job.contentSig, sourceSig: job.sourceSig, cells, done: false };
   const valid = () =>
     !signal.aborted &&
     state.projectId === job.projectId &&
-    state.candidates.some(x => x.id === orig.id && signature(x, job.n) === job.signature);
+    state.candidates.some(x => x.id === orig.id && contentSig(x, job.n) === job.contentSig);
   if (!valid()) return;
   frames.set(orig.id, cached);
   while (frames.size > 60) frames.delete(frames.keys().next().value);
@@ -105,10 +138,10 @@ async function grab(job, signal) {
       throw Object.assign(new Error('同事电脑上找不到文件'), { peerMissing: true });
     }
     const live = state.candidates.find(x => x.id === orig.id);
-    if (!live || live.url !== orig.url || live.in !== orig.in || live.out !== orig.out) throw err;
+    if (!live || contentSig(live, job.n) !== job.contentSig) throw err;
     orig.peerPath = got.path;
-    job.signature = signature(live, job.n);
-    cached.signature = job.signature;
+    job.sourceSig = sourceSig(live, job.n);
+    cached.sourceSig = job.sourceSig;
     c = previewOf({ ...orig, peerPath: got.path });
     await load(c.url);
   };
@@ -130,14 +163,16 @@ async function grab(job, signal) {
     if (Number.isFinite(v.duration) && c.in >= v.duration - 0.05)
       throw Object.assign(new Error('入出点超出视频长度'), { outOfRange: v.duration });
     const n = job.n;
+    if (!n && valid()) {
+      cached.done = true;
+      syncStrip(stripOf(job), cells, n, true, { animateNew: true });
+    }
     for (let i = 0; i < n && valid(); i++) {
       const t = c.in + (Math.max(0, c.out - c.in) * (i + 0.5)) / n;
       cells.push({ cell: await frameAt(v, t, fmtTime(t + (c.local ? orig.in : 0)), signal, t - c.in) });
       if (!valid()) break;
-      stripOf(job)?.replaceChildren(
-        ...cells.map(x => x.cell),
-        ...Array.from({ length: n - cells.length }, () => loadingCell()),
-      );
+      if (i + 1 >= n) cached.done = true;
+      syncStrip(stripOf(job), cells, n, cached.done, { animateNew: true });
     }
   } catch (error) {
     if (valid()) {
@@ -155,13 +190,15 @@ async function grab(job, signal) {
     }
     if (frames.get(orig.id) === cached) frames.delete(orig.id);
   } finally {
-    if (!valid() && frames.get(orig.id) === cached) frames.delete(orig.id);
+    if ((!valid() || !cached.done) && frames.get(orig.id) === cached) frames.delete(orig.id);
     releaseMedia(v);
   }
 }
 async function frameAt(v, t, label, signal, rel) {
   await seekVideoFrame(v, t, { signal });
   const cv = drawVideoFrame(v);
+  cv.classList.add('fresh');
+  cv.addEventListener('animationend', () => clearFresh(cv), { once: true });
   const cell = document.createElement('div');
   cell.className = 'vr-cell';
   // 点这张就从这里开始播（片段里的第几秒）

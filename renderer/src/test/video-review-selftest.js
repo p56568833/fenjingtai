@@ -8,6 +8,7 @@ import { viewState } from '../app/view-state.js';
    同一画面再通过的也当主画面、撤回、不要 / 清除、写回候选清单、只保存那几秒、完整原片要确认、撤销、切项目保留。
    原生能力全部用 window.fjtHooks 替身，不碰网络和磁盘。 */
 import { state } from '../app/state.js';
+import { emit } from '../app/events.js';
 import { update } from '../app/project-events.js';
 import * as storage from '../app/storage.js';
 import { undo, redo, clearUndo } from '../app/undo.js';
@@ -19,7 +20,7 @@ import { importLoadedFile } from '../ui/import-export.js';
 import { setDecision, openRework } from '../features/video-review.js';
 import { page } from '../features/review-model.js';
 import { reviewPlaybackState as playthroughState } from '../features/review-playback.js';
-import { importCandidateData, setReworkNote } from '../app/candidate-actions.js';
+import { importCandidateData, setCandidateNote, setReworkNote } from '../app/candidate-actions.js';
 import { parseLines, parseClock, planImport, lineTag } from '../core/candidates.js';
 import { confirmModal } from '../ui/base/dom.js';
 import { anyModalOpen, topModal, menuAllowed } from '../ui/base/modal.js';
@@ -413,6 +414,24 @@ export async function runVideoReviewTests(t) {
       $('#vrPreview .vr-pv-title')?.textContent.includes('01:41–01:50'),
     $('#vrPreview .vr-pv-title')?.textContent,
   );
+  {
+    const pvVideo = $('#vrPreview video.vr-player');
+    const pvSrc = pvVideo.getAttribute('src');
+    setCandidateNote(cand('A1').id, '临时审核备注');
+    await pause(30);
+    const lbl = card('A1').querySelector('[data-vr-play-label]')?.textContent;
+    t(
+      '同候选意见修改触发局部重画时，左侧候选预览不中断且保留播放按钮状态',
+      !$('#vrPreview').hidden &&
+        $('#vrPreview video.vr-player') === pvVideo &&
+        pvVideo.getAttribute('src') === pvSrc &&
+        !!lbl &&
+        lbl !== '▶ 在左边播放',
+      JSON.stringify({ hidden: $('#vrPreview')?.hidden, sameVideo: $('#vrPreview video.vr-player') === pvVideo, lbl }),
+    );
+    undo();
+    await pause(30);
+  }
   click('#vrPreview [data-vr-pv-close]');
   await pause(20);
   t('点「回到画面时间」：候选收起，回到排好的画面', $('#vrPreview').hidden && !$('#vrPreview video'));
@@ -1644,6 +1663,100 @@ export async function runVideoReviewTests(t) {
   );
   storage.switchProject(original);
   storage.deleteProject(layoutPid);
+
+  const fxCover = window.native?.fixtureInfo?.();
+  if (fxCover?.hasVideo) {
+    storage.createProject('封面防闪测试', parseAny('第一句口播。\n第二句口播。'));
+    const coverPid = state.projectId;
+    const sample = fxCover.dir + '/样片.mp4';
+    importCandidateData(
+      {
+        type: 'fenjingtai-candidates',
+        version: 4,
+        project: state.title,
+        batch: '封面防闪',
+        shots: [
+          {
+            lines: '1',
+            label: '本地样片',
+            cands: [
+              {
+                key: 'K1',
+                for: '1',
+                title: '样片一',
+                url: sample,
+                in: 0,
+                out: 2,
+                best: { in: 0, out: 1.8 },
+                license: '测试',
+                why: '测试',
+              },
+              {
+                key: 'K2',
+                for: '1',
+                title: '样片二',
+                url: sample,
+                in: 0.2,
+                out: 1.8,
+                best: { in: 0.2, out: 1.6 },
+                license: '测试',
+                why: '测试',
+              },
+            ],
+          },
+        ],
+      },
+      '',
+    );
+    runCommand('video:open');
+    const waitFor = async (fn, ms = 4000) => {
+      for (let i = 0; i < ms / 20 && !fn(); i++) await pause(20);
+      return !!fn();
+    };
+    const strip1 = () => card('K1')?.querySelector('.vr-cover .vr-strip');
+    const gotCanvas = await waitFor(() => strip1()?.querySelector('canvas'));
+    const settled = await waitFor(() => !strip1()?.querySelector('canvas.fresh'), 800);
+    const cv1 = strip1()?.querySelector('canvas');
+    let stripMutations = 0;
+    const obs = strip1() ? new MutationObserver(() => stripMutations++) : null;
+    if (obs && strip1())
+      obs.observe(strip1(), { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+    update('rows');
+    emit('candidate-media');
+    await pause(50);
+    obs?.disconnect();
+    t(
+      '当前画面不变的后台或协作刷新不拆装候选封面节点，也不重播入场动画',
+      gotCanvas && settled && stripMutations === 0 && strip1()?.querySelector('canvas') === cv1,
+      JSON.stringify({ gotCanvas, settled, stripMutations }),
+    );
+    click(row('K2'));
+    await pause(30);
+    click(row('K1'));
+    await pause(30);
+    const cachedCv = strip1()?.querySelector('canvas');
+    t(
+      '切回已截图候选从缓存重挂封面时直接稳定显示，不带入场动画',
+      !!cachedCv && cachedCv === cv1 && !cachedCv.classList.contains('fresh'),
+    );
+    click(card('K1').querySelector('[data-vr-play]'));
+    const played = await waitFor(() => card('K1')?.querySelector('[data-vr-play-label]')?.textContent === '↻ 重播这段');
+    const pvVideo = $('#vrPreview video.vr-player');
+    const pvSrc = pvVideo?.getAttribute('src');
+    setCandidateNote(cand('K1').id, '保留预览');
+    await pause(30);
+    t(
+      '本地候选正在左侧预览时更新同一候选意见，预览不中断且保留播放按钮文字',
+      played &&
+        !$('#vrPreview').hidden &&
+        $('#vrPreview video.vr-player') === pvVideo &&
+        pvVideo.getAttribute('src') === pvSrc &&
+        card('K1')?.querySelector('[data-vr-play-label]')?.textContent === '↻ 重播这段',
+    );
+    click('#vrPreview [data-vr-pv-close]');
+    storage.switchProject(original);
+    storage.deleteProject(coverPid);
+  }
 
   /* 清场 */
   storage.switchProject(original);

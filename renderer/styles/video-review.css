@@ -250,7 +250,7 @@
   background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.08) 50%, transparent 70%);
   animation: shimmer 1.25s ease-in-out infinite;
 }
-.vr-cell canvas {
+.vr-cell canvas.fresh {
   animation: thumbIn 0.3s ease-out;
 }
 .vr-cell.fail {

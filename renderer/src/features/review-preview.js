@@ -9,15 +9,20 @@ import { previewOf } from './review-frames.js';
 import { candName } from './review-model.js';
 
 /* 宿主提供候选预览位置和卡片位置，组件不查询整张页面。 */
+const candPlayKey = c => JSON.stringify([c.url, c.in, c.out, c.best?.in ?? null, c.best?.out ?? null]);
+
 export function createReviewPreview({ host, card, selectedCandidate, pause: pauseReviewPlayback, closeText }) {
   const candOf = id => state.candidates.find(x => x.id === id);
   let shown = null; // 正盖在左边播放的候选 id
+  let shownKey = '';
+  let shownLabel = '';
 
   const previewHost = host;
   const previewingId = () => (previewHost() ? shown : null);
 
   /* 播放按钮上的字（载入中… / ↻ 重播这段）写回右边那张卡片；封面上只改中间那块字，不把截图冲掉 */
   const labelFor = id => text => {
+    if (shown === id) shownLabel = text;
     const el = card(id)?.querySelector('[data-vr-play-label]') || card(id)?.querySelector('[data-vr-play]');
     if (el) el.textContent = text;
   };
@@ -32,6 +37,8 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
       host.innerHTML = `<div class="vr-pv-head"><span class="vr-pv-badge">候选</span><span class="vr-pv-title">${esc(candName(c))} · ${fmtTime(c.best?.in ?? c.in)}–${fmtTime(c.best?.out ?? c.out)}</span><button class="vr-pv-close" data-vr-pv-close title="收起这段预览">${closeText()}</button></div>${playerHTML(previewOf(c))}`;
     }
     shown = id;
+    shownKey = candPlayKey(c);
+    shownLabel = '';
     host.hidden = false;
     host.parentElement?.classList.add('previewing');
     host.querySelector('.vr-stage').hidden = false;
@@ -53,6 +60,8 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
     const host = previewHost();
     if (shown) stopClip();
     shown = null;
+    shownKey = '';
+    shownLabel = '';
     if (host) {
       host.hidden = true;
       host.replaceChildren();
@@ -60,9 +69,12 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
     }
   }
 
-  /* 选中的候选换了：正在左边播的不是它了，收起来 */
+  /* 选中的候选换了（或片段变了）：正在左边播的不是它了，收起来；仍在播同一候选时保留卡片按钮状态文字 */
   function followCand() {
-    if (shown && shown !== selectedCandidate()) showTimeline();
+    if (!shown) return;
+    const c = candOf(shown);
+    if (shown !== selectedCandidate() || !c || candPlayKey(c) !== shownKey) return showTimeline();
+    if (shownLabel) labelFor(shown)(shownLabel);
   }
 
   return { previewHost, previewingId, showPreview, showTimeline, followCand };

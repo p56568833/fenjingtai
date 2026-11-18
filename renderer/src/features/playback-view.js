@@ -188,19 +188,19 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     if (track.deferRefresh()) return;
     {
       const keep = units[trackUnit]?.members[0]?.id;
-      const mediaSignature = () =>
-        JSON.stringify(
-          units.map(u => [
-            u.start,
-            u.end,
-            u.layout?.items.map(it => [it.assetId, it.asset.path, it.start, it.end, it.usage.clip]),
-          ]),
-        );
-      const previousMedia = mediaSignature();
+      const unitSig = u =>
+        u
+          ? JSON.stringify([
+              u.start,
+              u.end,
+              u.layout?.items.map(it => [it.assetId, it.asset.path, it.start, it.end, it.usage.clip]),
+            ])
+          : '';
+      const previousMedia = unitSig(units[current]);
       buildUnits();
-      // 排布变了（比如播放时刚记下视频真实时长）也不清空画面：重新上屏，旧画面留到新画面解出首帧，不闪黑
-      const changedMedia = previousMedia !== mediaSignature();
       const i = keep != null ? unitOfRow(keep) : -1;
+      // 排布变了（比如播放时刚记下视频真实时长）也不清空画面：重新上屏，旧画面留到新画面解出首帧，不闪黑
+      const changedMedia = i !== current || previousMedia !== unitSig(units[i]);
       if (range && i >= 0) range = { start: units[i].start, end: units[i].end };
       trackUnit = -1;
       if (changedMedia || /\|(?:card|gap)$/.test(shownKey)) shownKey = '';
@@ -208,6 +208,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
       const t = currentTime();
       tick(t);
       if (i >= 0 && trackUnit !== i) renderTrack(i);
+      if (!changedMedia && !range && i >= 0) prefetchNext(i, t);
     }
   }
 

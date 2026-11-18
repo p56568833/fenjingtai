@@ -100,6 +100,7 @@ export function createReviewRenderer({
     refreshReviewStatus();
 
     if (page.mode === 'rework') {
+      showTimeline();
       closeReviewPlayback();
       painted.shot = null;
       return renderRework(host, $('#vrNav'), cards);
@@ -127,6 +128,7 @@ export function createReviewRenderer({
     glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide'); // 左边的高亮块滑到当前画面
 
     if (!state.candidates.length) {
+      showTimeline();
       closeReviewPlayback();
       painted.shot = null;
       host.innerHTML = `<div class="vr-empty vr-start">
@@ -148,6 +150,7 @@ export function createReviewRenderer({
       return;
     }
     if (!g) {
+      showTimeline();
       closeReviewPlayback();
       painted.shot = null;
       host.innerHTML = '<p class="vr-empty">这一批没有候选。</p>';
@@ -182,7 +185,7 @@ export function createReviewRenderer({
     // 同一个画面重画时，右边列表滚到哪还在哪
     const sameShot = painted.shotEl?.parentNode === host && painted.shotEl.dataset.vrShot === String(g.key);
     const top = sameShot ? host.scrollTop : 0;
-    stopClip(); // 重画会换掉播放器：先停掉，口播声音不会留在后台继续放
+    if (!sameShot) stopClip(); // 整块重画会换掉播放器：先停掉，口播声音不会留在后台继续放
     if (sameShot) {
       // 同一画面仅更新标题和候选列表；播放器、时间轨与正在拖动的节点保持连接。
       const next = document.createElement('template');
@@ -285,6 +288,7 @@ export function createReviewRenderer({
     reset,
     leave: () => {
       fitSide(null);
+      showTimeline();
       closeReviewPlayback();
       painted.shot = null;
     },
