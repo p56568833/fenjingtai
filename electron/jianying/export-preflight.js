@@ -198,9 +198,19 @@ async function inspectExport({ plan, target, fs, path, media, signal, freeBytes 
             planId,
             `素材「${assetLabel(asset)}」不是可用的图片格式（${info.videoCodec}）`,
           );
+      } else if (asset.kind === 'audio') {
+        if (info.hasAudio === false)
+          addMediaIssue(
+            BLOCK,
+            'audio-missing',
+            planId,
+            info.hasVideo === true
+              ? `口播源是视频「${assetLabel(asset)}」，但它没有音轨`
+              : `音频素材「${assetLabel(asset)}」里没有可用的音轨`,
+          );
       }
       const known = Number(info.durationUs);
-      if (!(known > 0) || asset.kind !== 'video') continue;
+      if (!(known > 0) || (asset.kind !== 'video' && asset.kind !== 'audio')) continue;
       const wanted = Math.max(
         0,
         ...[...(plan.tracks?.video || []), ...(plan.tracks?.audio || [])]
@@ -234,15 +244,7 @@ async function inspectExport({ plan, target, fs, path, media, signal, freeBytes 
     const info = probeInfo.get(asset.path);
     // 视频容器（哪怕探测到只有音轨）也抽成 m4a：剪映 audios 素材只认音频容器
     const videoLike = VIDEO_FILE_RE.test(asset.path) || info?.hasVideo === true;
-    if (info && info.hasVideo === true && info.hasAudio === false) {
-      noteIssue(
-        issues,
-        BLOCK,
-        'audio-missing',
-        `口播源是视频「${asset.name || path.basename(asset.path)}」，但它没有音轨`,
-      );
-      continue;
-    }
+    if (info && info.hasAudio === false) continue; // 第 2 步已报 audio-missing 阻塞
     if (!videoLike) continue;
     if (!mediaAvailable || typeof media.extractAudio !== 'function') {
       noteIssue(
@@ -329,11 +331,13 @@ async function inspectExport({ plan, target, fs, path, media, signal, freeBytes 
   /* 备选素材：只在用户勾选时随草稿附带（不进时间线、不登记素材库），交付时说明清楚 */
   const altCopies = [];
   const altNamer = paths.resourceNamer();
+  const seenAlt = new Set();
   for (const alt of Array.isArray(plan?.altAssets) ? plan.altAssets : []) {
     if (!paths.isAbsolutePath(alt?.path)) {
       noteIssue(issues, INFO, 'alt-skipped', `备选素材「${alt?.name || '未命名'}」没有本地路径，未随草稿复制`);
       continue;
     }
+    if (seenAlt.has(alt.path)) continue;
     let altStat = null;
     try {
       altStat = fs.statSync(alt.path);
@@ -347,6 +351,7 @@ async function inspectExport({ plan, target, fs, path, media, signal, freeBytes 
       );
       continue;
     }
+    seenAlt.add(alt.path);
     altCopies.push({
       source: alt.path,
       targetName: altNamer.nameOf(alt.path, alt.name || alt.path),

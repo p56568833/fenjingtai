@@ -24,7 +24,7 @@ export function createReviewCards({ root, preview, page }) {
     const sec = host.querySelector('.vr-shot');
     if (!sec) return;
     for (const c of open) {
-      const card = sec.querySelector(`[data-vr-id="${c.id}"]`);
+      const card = sec.querySelector(`[data-vr-id="${CSS.escape(String(c.id))}"]`);
       const on = card?.querySelector('.vr-btn.on[data-vr-d]');
       const before = decisionMemo.has(c.id) ? decisionMemo.get(c.id) : c.decision || ''; // 第一次看到：不算变化
       decisionMemo.set(c.id, c.decision || '');
@@ -39,7 +39,7 @@ export function createReviewCards({ root, preview, page }) {
     }
   }
   function stamp(id) {
-    const card = $(`[data-vr-id="${id}"]`);
+    const card = $(`[data-vr-id="${CSS.escape(String(id))}"]`);
     if (!card) return;
     pop(card.querySelector('.vr-tag'), { scale: 1.7, duration: 460 });
     card.animate?.([{ transform: 'scale(0.985)' }, { transform: 'none' }], { duration: 380, easing: SPRING });
@@ -104,7 +104,7 @@ export function createReviewCards({ root, preview, page }) {
   function play(id, at = null) {
     if (previewHost()) return showPreview(id, { at });
     const c = state.candidates.find(x => x.id === id);
-    const card = $(`[data-vr-id="${id}"]`);
+    const card = $(`[data-vr-id="${CSS.escape(String(id))}"]`);
     if (!c || !card) return;
     const btn = card.querySelector('[data-vr-play]');
     pauseReviewPlayback(); // 下面嵌着的「对着口播看画面」先停，免得两路口播一起响

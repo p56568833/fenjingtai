@@ -12,6 +12,7 @@ import {
   annotateSelection,
   setSentenceText,
   typeNote,
+  typeSub,
 } from '../app/actions.js';
 import { esc, composing, toast, readEditable } from './base/dom.js';
 import { rowBadges } from './badges.js';
@@ -19,7 +20,25 @@ import { registerEditFlush } from './base/edit-session.js';
 import { staleBlock } from './base/keyed-patch.js';
 import { renderSelectionOnly, selectedMemberOrOwner } from './base/selection.js';
 import { markPopAnchor, closePop } from './base/popover.js';
+import { paintSearch } from './base/search-paint.js';
 import { openTypePopover } from './popover.js';
+
+const EDITABLE_SENT = '.sent[contenteditable="true"], .sent[contenteditable="plaintext-only"]';
+const EDITABLE_NAME = '.name[contenteditable="true"], .name[contenteditable="plaintext-only"]';
+
+function insertPlainText(text) {
+  if (typeof document.execCommand === 'function' && document.execCommand('insertText', false, text)) return;
+  const sel = getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const node = document.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
 
 /* ── 光标工具 ── */
 function caretState(el) {
@@ -55,16 +74,15 @@ function placeCaret(el, caret) {
 /* ── 进入 / 提交句子编辑 ── */
 export function startEdit(el, { inserting = false } = {}) {
   // 连续编辑修复：上一句还在编辑时，先原地提交（不触发整页重建），再进新句
-  for (const s of document.querySelectorAll('.sent[contenteditable="true"]')) {
+  for (const s of document.querySelectorAll(EDITABLE_SENT)) {
     if (s !== el) commitSentEdit(s);
   }
   el._inserting = inserting;
   el._projectId = state.projectId;
-  // 改字时不标红：去掉没画面的标记，提交后重新标
-  if (el.querySelector('.gap-txt')) {
-    const plain = el.textContent;
-    el.textContent = plain;
-  }
+  // 始终用纯文本进入编辑：清掉 .gap-txt 标红与搜索高亮 <mark>，提交后重新恢复
+  const row = rowById(+el.dataset.id);
+  el.textContent = row ? row.text : el.textContent;
+  // 保持 contenteditable="true" 以兼容既有 UI 自测选择器；富文本与换行在 paste/beforeinput 中严格拦截
   el.contentEditable = 'true';
   el.spellcheck = false;
   el.focus();
@@ -93,14 +111,24 @@ function commitSentEdit(el) {
     else el.innerHTML = esc(r.text); // 老句不允许被清空
   }
   el._inserting = false;
-  if (el.isConnected) rowBadges([r.id]); // 没画面的字重新标红（编辑时去掉了）
+  if (el.isConnected) {
+    rowBadges([r.id]); // 没画面的字重新标红（编辑时去掉了）
+    if (viewState.query) paintSearch(el.closest('.row'));
+  }
 }
 
-/* 切换视图 / 重建界面前把进行中的编辑提交掉（改字、批注、章节改名），不丢输入 */
+/* 切换视图 / 重建界面前把进行中的编辑提交掉（改字、批注、中文字幕、章节改名），不丢输入 */
 function flushPendingEdits() {
-  for (const s of [...document.querySelectorAll('.sent[contenteditable="true"]')]) commitSentEdit(s);
-  for (const n of [...document.querySelectorAll('.name[contenteditable="true"]')])
+  for (const s of [...document.querySelectorAll(EDITABLE_SENT)]) commitSentEdit(s);
+  for (const n of [...document.querySelectorAll(EDITABLE_NAME)])
     n.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  const active = document.activeElement;
+  if (active?.classList?.contains('sent-sub')) {
+    active._composing = false;
+    const r = rowById(+active.dataset.id);
+    if (subEdit && r && readEditable(active) !== (r.sub || '')) onSubInput(active);
+    subEdit = null;
+  }
 }
 
 /* Enter：句尾空出新句子接着写；句中从光标处拆开；句首只提交 */
@@ -120,13 +148,13 @@ function splitSent(el) {
     const nid = insertAfter(r.id);
     if (nid != null)
       setTimeout(() => {
-        const nel = document.querySelector(`.row[data-id="${nid}"] .sent`);
+        const nel = document.querySelector(`#rows .row[data-id="${nid}"] .sent`);
         if (nel) startEdit(nel, { inserting: true });
       }, 0);
     return;
   }
   el.contentEditable = 'false'; // 先退出编辑态：重渲染后旧元素不能再把全文写回
-  const nid = splitAt(r.id, offset);
+  const nid = splitAt(r.id, offset, full);
   if (!nid) {
     commitSentEdit(el);
     return;
@@ -150,6 +178,30 @@ function onNoteInput(el) {
 function focusNextNote(el) {
   const notes = [...document.querySelectorAll('#rows .note')];
   const next = notes[notes.indexOf(el) + 1];
+  if (next) {
+    next.focus();
+    placeCaret(next, next.textContent.length);
+  } else el.blur();
+}
+
+/* ── 中文字幕：原地内联编辑 + Enter 跳下一句 ── */
+let subEdit = null; // { projectId, id, baseline, snapped }
+
+function onSubFocus(el) {
+  const r = rowById(+el.dataset.id);
+  if (el.querySelector('mark')) el.textContent = r ? r.sub || '' : readEditable(el);
+  subEdit = r ? { projectId: state.projectId, id: r.id, baseline: r.sub || '', snapped: false } : null;
+}
+function onSubInput(el) {
+  if ((subEdit && subEdit.projectId !== state.projectId) || el._composing) return;
+  const r = rowById(+el.dataset.id);
+  if (!r) return;
+  staleBlock(el);
+  typeSub(r, readEditable(el), subEdit);
+}
+function focusNextSub(el) {
+  const subs = [...document.querySelectorAll('#rows .sent-sub')];
+  const next = subs[subs.indexOf(el) + 1];
   if (next) {
     next.focus();
     placeCaret(next, next.textContent.length);
@@ -247,17 +299,53 @@ export function initEdit() {
 
   rows.addEventListener('focusin', e => {
     if (e.target.classList.contains('note')) onNoteFocus(e.target);
+    else if (e.target.classList.contains('sent-sub')) onSubFocus(e.target);
   });
   rows.addEventListener('focusout', e => {
     const el = e.target;
     if (el.classList.contains('sent') && el.isContentEditable) commitSentEdit(el);
     if (el.classList.contains('note')) {
+      el._composing = false;
+      const r = rowById(+el.dataset.id);
+      if (noteEdit && r && readEditable(el) !== (r.note || '')) onNoteInput(el);
       if (!el.textContent.trim()) el.innerHTML = '';
       noteEdit = null;
+    }
+    if (el.classList.contains('sent-sub')) {
+      el._composing = false;
+      const r = rowById(+el.dataset.id);
+      if (subEdit && r && readEditable(el) !== (r.sub || '')) onSubInput(el);
+      if (!el.textContent.trim()) el.innerHTML = '';
+      subEdit = null;
+      if (el.isConnected && viewState.query) {
+        const row = el.closest('.row');
+        setTimeout(() => {
+          if (row?.isConnected && el !== document.activeElement) paintSearch(row);
+        }, 0);
+      }
+    }
+  });
+  rows.addEventListener('paste', e => {
+    const sent = e.target.closest?.('.sent');
+    if (!sent || !sent.isContentEditable) return;
+    e.preventDefault();
+    const clean = (e.clipboardData?.getData('text/plain') ?? '').replace(/\r?\n+/g, ' ');
+    insertPlainText(clean);
+  });
+  rows.addEventListener('beforeinput', e => {
+    const sent = e.target.closest?.('.sent');
+    if (!sent || !sent.isContentEditable) return;
+    if (/^format|^insert(?:Paragraph|LineBreak)$/.test(e.inputType)) {
+      e.preventDefault();
+    } else if (e.inputType === 'insertFromDrop') {
+      e.preventDefault();
+      const raw = e.dataTransfer?.getData('text/plain') ?? '';
+      if (raw) insertPlainText(raw.replace(/\r?\n+/g, ' '));
     }
   });
   rows.addEventListener('input', e => {
     if (e.target.classList.contains('note') && !e.isComposing) onNoteInput(e.target);
+    else if (e.target.classList.contains('sent-sub') && !e.isComposing) onSubInput(e.target);
   });
   rows.addEventListener('compositionstart', e => {
     e.target._composing = true;
@@ -265,6 +353,7 @@ export function initEdit() {
   rows.addEventListener('compositionend', e => {
     e.target._composing = false;
     if (e.target.classList.contains('note')) onNoteInput(e.target);
+    else if (e.target.classList.contains('sent-sub')) onSubInput(e.target);
   });
 
   rows.addEventListener(
@@ -273,12 +362,16 @@ export function initEdit() {
       const el = e.target;
       const isSent = el.classList && el.classList.contains('sent') && el.isContentEditable;
       const isNote = el.classList && el.classList.contains('note');
-      if (!isSent && !isNote) return;
+      const isSub = el.classList && el.classList.contains('sent-sub');
+      if (!isSent && !isNote && !isSub) return;
+      if (e.metaKey || e.ctrlKey) return; // 全局快捷键（⌘F / ⇧⌘E / ⌘/ / ⌘Z 等）放行冒泡
       if (composing(e)) return; // 输入法组合中：交给输入法
+      let consumed = false;
       if (isSent) {
         if (e.key === 'Enter') {
           e.preventDefault();
           splitSent(el);
+          consumed = true;
         } else if (e.key === 'Escape') {
           e.preventDefault();
           const r = rowById(+el.dataset.id);
@@ -288,16 +381,18 @@ export function initEdit() {
             el.textContent = r.text;
             el.blur();
           }
+          consumed = true;
         } else if (e.key === 'Backspace') {
           const cs = caretState(el);
           if (cs && cs.collapsed && cs.offset === 0) {
+            const currentText = el.textContent;
             el.contentEditable = 'false'; // 同 splitSent：防止重渲染后的回调写回旧文本
-            const res = mergeToPrev(+el.dataset.id);
+            const res = mergeToPrev(+el.dataset.id, currentText);
             if (res) {
               e.preventDefault();
               setTimeout(() => {
                 // 等 update('rows') 重建 DOM 后再定位
-                const next = document.querySelector(`.row[data-id="${res.id}"] .sent`);
+                const next = document.querySelector(`#rows .row[data-id="${res.id}"] .sent`);
                 if (next) {
                   startEdit(next);
                   placeCaret(next, res.seam);
@@ -306,17 +401,29 @@ export function initEdit() {
             } else {
               el.contentEditable = 'true'; // 章节首句之类合并不了：回到编辑态
             }
+            consumed = true;
           }
         }
-      } else {
+      } else if (isNote) {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           focusNextNote(el);
+          consumed = true;
         } else if (e.key === 'Escape') {
           el.blur();
+          consumed = true;
+        }
+      } else if (isSub) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          focusNextSub(el);
+          consumed = true;
+        } else if (e.key === 'Escape') {
+          el.blur();
+          consumed = true;
         }
       }
-      e.stopPropagation();
+      if (consumed) e.stopPropagation();
     },
     true,
   );

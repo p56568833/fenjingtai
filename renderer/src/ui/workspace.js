@@ -15,11 +15,12 @@ import { renderToolbar, initToolbar } from './toolbar.js';
 import { renderInspector, initInspector, isInspectorOpen, openInspectorFor } from './inspector.js';
 import { initReview } from './review.js';
 import { rowBadges } from './badges.js';
+import { refreshThumb } from './asset-thumbs.js';
 import { refreshMissing, resetMissing } from './asset-files.js';
 import { renderStats } from './render-stats.js';
 import { initOverview, renderOverview, renderOverviewSelection } from './timeline-overview.js';
 import { preserveReadingPosition } from './reading-position.js';
-import { registerCommand } from './base/commands.js';
+import { registerCommand, runCommand } from './base/commands.js';
 import { scrollGuard } from './base/scroll-guard.js';
 import { selectedMemberOrOwner } from './base/selection.js';
 
@@ -34,6 +35,7 @@ export function jumpTo(id, { preserveFilter = false } = {}) {
   if (!rowById(id)) return;
   cancelJump?.();
   closePop();
+  if (viewState.view === 'review') runCommand('view:set', 'table');
   const filtered = !preserveFilter && viewState.filter !== 'all';
   if (!preserveFilter) viewState.filter = 'all';
   viewState.multi = null;
@@ -43,7 +45,7 @@ export function jumpTo(id, { preserveFilter = false } = {}) {
   if (filtered) emit('view-refresh');
   else update('selection');
   // 章节标题会吸顶，当前坐标不是章节起点；定位首句也能让浏览器展开屏幕外的正文。
-  const el = document.querySelector(`.row[data-id="${viewState.sel}"]`);
+  const el = viewState.sel != null ? document.querySelector(`#rows .row[data-id="${viewState.sel}"]`) : null;
   const releaseOutline = beginOutlineJump(viewState.sel);
   // 跳过去后不再给那句闪一圈光（切章节时整组画面框会「散开」一下，看着晃）；选中底色已经标出是哪句
   el?.scrollIntoView({ block: 'center' });
@@ -84,8 +86,8 @@ export function revealSavedCursor() {
   frame = requestAnimationFrame(() => {
     if (!guard.active()) return;
     guard.cancel();
-    if (viewState.sel !== sel || state.projectId !== projectId || viewState.view !== view) return;
-    const el = document.querySelector(`.row[data-id="${sel}"]`);
+    if (sel == null || viewState.sel !== sel || state.projectId !== projectId || viewState.view !== view) return;
+    const el = document.querySelector(`#rows .row[data-id="${sel}"]`);
     el?.scrollIntoView({ block: 'center' });
   });
 }
@@ -99,7 +101,8 @@ function renderRepairHint() {
 }
 
 function onMissingChanged() {
-  rowBadges();
+  if (viewState.view === 'table') preserveReadingPosition(() => rowBadges());
+  else rowBadges();
   renderOverview();
   if (isInspectorOpen() && !$('#inspector').contains(document.activeElement)) renderInspector(true);
 }
@@ -133,26 +136,34 @@ function initColumnResizer() {
     handle.setPointerCapture(e.pointerId);
     const start = e.clientX,
       w = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--note-width')) || 250;
+    const stop = save => {
+      handle.onpointermove = null;
+      handle.onpointerup = null;
+      handle.onpointercancel = null;
+      handle.onlostpointercapture = null;
+      if (!save) return;
+      try {
+        localStorage.setItem(
+          'fjz:noteWidth',
+          getComputedStyle(document.documentElement).getPropertyValue('--note-width').trim(),
+        );
+      } catch {}
+    };
     handle.onpointermove = ev =>
       document.documentElement.style.setProperty(
         '--note-width',
         Math.max(160, Math.min(520, w + start - ev.clientX)) + 'px',
       );
-    handle.onpointerup = () => {
-      handle.onpointermove = null;
-      try {
-        localStorage.setItem(
-          'fjz:noteWidth',
-          getComputedStyle(document.documentElement).getPropertyValue('--note-width'),
-        );
-      } catch {}
-    };
+    handle.onpointerup = () => stop(true);
+    handle.onpointercancel = () => stop(false);
+    handle.onlostpointercapture = () => stop(false);
   };
   let width = null;
   try {
     width = localStorage.getItem('fjz:noteWidth');
   } catch {}
-  if (/^\d+px$/.test(width || '')) document.documentElement.style.setProperty('--note-width', width);
+  if (/^\d+(?:\.\d+)?px$/.test((width || '').trim()))
+    document.documentElement.style.setProperty('--note-width', width.trim());
 }
 
 export function initWorkspace() {
@@ -196,6 +207,13 @@ export function initWorkspace() {
   document.addEventListener('keydown', toggleFit, true);
   // 任意 data-jump（节奏色条 / 章节目录 / 交稿检查）：跳到那句
   document.addEventListener('click', e => {
+    // 表格素材卡里的缩略图「重试」按钮：只重新生成缩略图，不顺带打开右侧面板
+    const retry = e.target.closest('[data-thumb-retry]');
+    if (retry && !retry.closest('#inspector')) {
+      e.stopPropagation();
+      refreshThumb(retry.dataset.thumbRetry);
+      return;
+    }
     const jump = e.target.closest('[data-jump]');
     if (jump) jumpTo(+jump.dataset.jump);
     // 点句子里的素材卡 / 徽标 / 「共用画面」标题：打开右侧面板
@@ -206,6 +224,14 @@ export function initWorkspace() {
       const id = shared && !detail.closest('.row') ? selectedMemberOrOwner(ownerId) : ownerId;
       openInspectorFor(id);
     }
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const assetCard = e.target.closest?.('.row-asset[data-detail]');
+    if (!assetCard || e.target !== assetCard) return;
+    e.preventDefault();
+    e.stopPropagation();
+    assetCard.click();
   });
   initColumnResizer();
 }

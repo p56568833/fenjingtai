@@ -24,10 +24,10 @@ export function applyRemoteProject(s, sum, { full = false } = {}) {
   // 对方的审核结果写回这台电脑上的候选清单（清单文件只在导入它的那台电脑上，写回只管本机有的）
   if (full || sum.cands) writeBack(project);
   if (s.pid !== state.projectId) {
-    storage.markProjectDirty(s.pid);
+    storage.markProjectDirty(s.pid, { silentWrite: true });
     return;
   }
-  storage.persist();
+  storage.persist(false, { silentWrite: true });
   // 对方的改动已经写进数据、界面还没开始刷新：要和刷新前比一比的（镜头轨认「对方改了这个画面」）先看
   const events = [];
   const has = id => state.rows.some(r => r.id === id && r.kind === 'line');
@@ -62,6 +62,7 @@ export function applyRemoteProject(s, sum, { full = false } = {}) {
         sum.structural ||
         sum.fields.has('text') ||
         sum.fields.has('time') ||
+        sum.meta.has('timing') ||
         sum.meta.has('voice') ||
         sum.meta.has('speechRate'),
       assets: full || sum.assets || sum.fields.has('assetUsages') || sum.fields.has('groupId'),

@@ -5,6 +5,7 @@
   min-height: 0;
   position: relative;
   overflow: hidden;
+  --inspector-width: 330px;
 }
 .side-title {
   font-size: 12px;
@@ -22,7 +23,8 @@
   min-width: 0;
 }
 .workspace.has-inspector .select-tools {
-  left: calc((100% - 340px) / 2);
+  left: calc((100% - var(--inspector-width)) / 2);
+  max-width: calc(100% - var(--inspector-width) - 32px);
 }
 /* 审核与表格共用顶栏，作为两个同级页面占据剩余空间。 */
 .workspace-page {
@@ -33,6 +35,9 @@
   min-width: 0;
 }
 @media (max-width: 1200px) {
+  .workspace {
+    --inspector-width: 300px;
+  }
   .workspace.has-inspector .outline {
     display: none;
   }

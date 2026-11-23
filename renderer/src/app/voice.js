@@ -2,18 +2,24 @@
    有了它，没对字幕时每句的时间按「字数比例铺满音频总长」推算（见 core/timeline.js）。 */
 import { changeProject } from './project-change.js';
 import { state } from './state.js';
+import { projectForId } from './storage.js';
 import { notify } from './events.js';
 import { assetName, AUDIO_EXT, VIDEO_EXT } from '../core/asset-model.js';
 
 export const isVoiceFile = p => AUDIO_EXT.test(p || '') || VIDEO_EXT.test(p || '');
 
-export function setVoice(path, duration) {
+export function setVoice(path, duration, { projectId = state.projectId } = {}) {
+  if (projectId !== state.projectId) return false;
   if (!path || !isVoiceFile(path)) {
     notify('口播音频需要是音频或视频文件（mp3 / wav / m4a / mp4 / mov…）', null, 'warn');
     return false;
   }
   return changeProject(state.voice ? '更换口播音频' : '导入口播音频', change => {
-    state.voice = { path, name: assetName(path), duration: isFinite(duration) && duration > 0 ? duration : null };
+    state.voice = {
+      path,
+      name: assetName(path),
+      duration: Number.isFinite(duration) && duration > 0 ? duration : null,
+    };
 
     change.notify(
       state.timing
@@ -27,12 +33,19 @@ export function setVoice(path, duration) {
 }
 
 /* 音频元数据读到后补上时长（不进撤销） */
-export function setVoiceDuration(duration) {
-  if (!state.voice || !(isFinite(duration) && duration > 0)) return;
-  if (Math.abs((state.voice.duration || 0) - duration) < 0.01) return;
-  changeProject(null, change => {
-    state.voice.duration = duration;
-  });
+export function setVoiceDuration(duration, { projectId = state.projectId, expectedPath = state.voice?.path } = {}) {
+  if (!Number.isFinite(duration) || duration <= 0 || !expectedPath) return;
+  const target = projectForId(projectId);
+  if (!target?.voice || target.voice.path !== expectedPath) return;
+  if (Math.abs((target.voice.duration || 0) - duration) < 0.01) return;
+  changeProject(
+    null,
+    (_change, project) => {
+      if (!project.voice || project.voice.path !== expectedPath) return false;
+      project.voice.duration = duration;
+    },
+    { projectId },
+  );
 }
 
 export function clearVoice() {

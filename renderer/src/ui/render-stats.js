@@ -75,7 +75,7 @@ function patchFilters(filters, items) {
     filters.innerHTML = items
       .map(
         f =>
-          `<button class="${f.cls}" data-f="${f.id}" aria-pressed="${f.cls.includes(' active')}"><span class="dot" style="background:${f.color}"></span><span class="lb">${esc(f.label)}</span><span class="n">${f.n}</span></button>`,
+          `<button class="${esc(f.cls)}" data-f="${esc(f.id)}" aria-pressed="${f.cls.includes(' active')}"><span class="dot" style="background:${esc(f.color)}"></span><span class="lb">${esc(f.label)}</span><span class="n">${esc(f.n)}</span></button>`,
       )
       .join('');
     return true;

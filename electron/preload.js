@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('native', {
   saveDataSync: patch => ipcRenderer.sendSync('data:save-sync', patch), // 退出前冲刷用
   listBackups: () => ipcRenderer.invoke('data:backups'),
   restoreBackup: f => ipcRenderer.invoke('data:restore-backup', f),
+  retryPreserve: () => ipcRenderer.invoke('data:retry-preserve'),
   openDataFolder: () => ipcRenderer.invoke('data:open-folder'),
   crashLogs: () => ipcRenderer.invoke('crash:list'),
   clearCrashLogs: () => ipcRenderer.invoke('crash:clear'),
@@ -59,7 +60,7 @@ contextBridge.exposeInMainWorld('native', {
   exportFile: (name, content) => ipcRenderer.invoke('dialog:export', name, content),
   importFile: kind => ipcRenderer.invoke('dialog:import', kind), // kind='srt' 时只列字幕文件；返回 {name, ext, content} | {error} | null
   readScriptFile: file => ipcRenderer.invoke('file:read-script', file), // 拖入的稿子 / 字幕 / docx
-  onMenuAction: cb => ipcRenderer.on('menu-action', (_e, action) => cb(action)),
+  onMenuAction: cb => subscribe('menu-action', cb),
   // 视频审核（1.5）
   pickFolder: current => ipcRenderer.invoke('dialog:pick-folder', current),
   saveVideoSegment: req => ipcRenderer.invoke('video:save-segment', req),
@@ -67,8 +68,8 @@ contextBridge.exposeInMainWorld('native', {
   cancelDownload: url => ipcRenderer.invoke('video:cancel-download', url),
   tagSavedClip: (p, tag) => ipcRenderer.invoke('video:tag-saved', p, tag),
   retagLineFile: (p, tag) => ipcRenderer.invoke('asset:retag-line', p, tag),
-  onSegmentProgress: cb => ipcRenderer.on('video:segment-progress', (_e, p) => cb(p)),
-  onDownloadProgress: cb => ipcRenderer.on('video:download-progress', (_e, p) => cb(p)),
+  onSegmentProgress: cb => subscribe('video:segment-progress', cb),
+  onDownloadProgress: cb => subscribe('video:download-progress', cb),
   writeCandidateReview: (file, results) => ipcRenderer.invoke('candidates:write-back', file, results),
   writeReworkDoc: (file, content) => ipcRenderer.invoke('rework:write', file, content),
   revealAsset: p => ipcRenderer.invoke('assets:reveal', p),
@@ -79,7 +80,7 @@ contextBridge.exposeInMainWorld('native', {
   packPickDest: current => ipcRenderer.invoke('pack:pick-dest', current),
   packExtract: req => ipcRenderer.invoke('pack:extract', req),
   packCancel: () => ipcRenderer.invoke('pack:cancel'),
-  onPackProgress: cb => ipcRenderer.on('pack:progress', (_e, p) => cb(p)),
+  onPackProgress: cb => subscribe('pack:progress', cb),
   // 局域网协作（2.0）
   collabMachine: () => ipcRenderer.invoke('collab:machine'),
   collabHostStart: info => ipcRenderer.invoke('collab:host-start', info),
@@ -99,13 +100,13 @@ contextBridge.exposeInMainWorld('native', {
   collabFindFiles: req => ipcRenderer.invoke('collab:find-files', req),
   collabFindCancel: token => ipcRenderer.invoke('collab:find-cancel', token),
   collabCacheDir: projectId => ipcRenderer.invoke('collab:cache-dir', projectId),
-  onCollabEvent: cb => ipcRenderer.on('collab:event', (_e, evt) => cb(evt)),
+  onCollabEvent: cb => subscribe('collab:event', cb),
   // 应用内更新
   checkUpdate: opts => ipcRenderer.invoke('update:check', opts),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   cancelUpdate: () => ipcRenderer.invoke('update:cancel'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
-  onUpdateProgress: cb => ipcRenderer.on('update:progress', (_e, p) => cb(p)),
+  onUpdateProgress: cb => subscribe('update:progress', cb),
   // 导出到剪映（11.6 草稿适配）
   jianyingDetect: () => ipcRenderer.invoke('jianying:detect'),
   jianyingExport: req => ipcRenderer.invoke('jianying:export', req), // 立即返回 { ok, jobId } 或 { ok:false, error }

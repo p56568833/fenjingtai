@@ -79,7 +79,7 @@ function renderSelTypes(show) {
     list
       .map(
         (t, i) =>
-          `<button class="sel-type" data-sel-type="${esc(t.id)}" title="标成「${esc(t.full)}」（${i + 1}）"><span class="dot" style="background:${t.color}"></span>${esc(t.label)}</button>`,
+          `<button class="sel-type" data-sel-type="${esc(t.id)}" title="标成「${esc(t.full)}」（${i + 1}）"><span class="dot" style="background:${esc(t.color)}"></span>${esc(t.label)}</button>`,
       )
       .join('') + `<button class="sel-type clear" data-sel-type="" title="清除这些句子的标注（⌫）">清除</button>`;
 }

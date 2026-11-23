@@ -7,7 +7,17 @@ import { referencedAssetIds, usageList } from './asset-model.js';
 
 export const PACK_VERSION = 1;
 const LINK = /^[a-z][a-z0-9+.-]*:/i;
-const isLocal = p => typeof p === 'string' && p.startsWith('/');
+const FRAG_RE = /(#t=[\d.,]+)$/;
+const PACK_DIRS = new Set(['素材', '候选清单', '返工单', '口播']);
+const splitFrag = p => {
+  if (typeof p !== 'string') return ['', ''];
+  const m = p.match(FRAG_RE);
+  return m ? [p.slice(0, m.index), m[1]] : [p, ''];
+};
+const isLocal = p => {
+  const [clean] = splitFrag(p);
+  return typeof clean === 'string' && clean.startsWith('/');
+};
 const baseName = p => p.split('/').pop() || 'file';
 
 function splitExt(name) {
@@ -15,10 +25,13 @@ function splitExt(name) {
   return i > 0 ? [name.slice(0, i), name.slice(i)] : [name, ''];
 }
 
-/* 包内相对路径：不是绝对路径、不是链接、没有 . / .. 段 */
+/* 包内相对路径：必须落在包内目录（素材/、候选清单/、返工单/、口播/）下，不含 . / .. 段 */
 export function isPackRel(p) {
   if (typeof p !== 'string' || !p || p.startsWith('/') || LINK.test(p) || p.includes('\\')) return false;
-  return p.split('/').every(s => s && s !== '.' && s !== '..');
+  const [clean] = splitFrag(p);
+  const segs = clean.split('/');
+  if (segs.length < 2 || !PACK_DIRS.has(segs[0])) return false;
+  return segs.every(s => s && s !== '.' && s !== '..');
 }
 
 /* opts.includeAlt：备选素材也带上（默认带） */
@@ -27,44 +40,55 @@ export function packPlan(project, { includeAlt = true } = {}) {
   const assets = project.assets || {};
   const used = new Set();
   for (const r of rows) for (const u of usageList(r)) if (includeAlt || u.role !== 'alt') used.add(u.assetId);
-  const files = new Map(); // 本地绝对路径 → 包内相对路径
+  const files = new Map(); // 本地绝对路径（不含 #t= 片段）→ 包内相对路径
   const taken = new Set();
   const add = (src, folder) => {
-    if (!isLocal(src) || files.has(src)) return;
-    const [stem, ext] = splitExt(baseName(src));
+    if (!isLocal(src)) return;
+    const [clean] = splitFrag(src);
+    if (files.has(clean)) return;
+    const [stem, ext] = splitExt(baseName(clean));
     let rel = `${folder}/${stem}${ext}`;
     for (let i = 2; taken.has(rel.toLowerCase()); i++) rel = `${folder}/${stem} (${i})${ext}`;
     taken.add(rel.toLowerCase());
-    files.set(src, rel);
+    files.set(clean, rel);
   };
   for (const id of referencedAssetIds(rows)) if (used.has(id)) add(assets[id]?.path, '素材');
-  for (const c of project.candidates || [])
+  for (const c of project.candidates || []) {
     if (c.savedPath && (!c.assetId || used.has(c.assetId))) add(c.savedPath, '素材');
+    if (isLocal(c.url)) add(c.url, '素材');
+  }
   for (const c of project.candidates || []) add(c.srcFile, '候选清单');
   for (const r of Object.values(project.reworkRequests || {})) add(r.path, '返工单');
   if (project.voice) add(project.voice.path, '口播');
   return files;
 }
 
-/* 按映射改写项目里的路径（toPacked / fromPacked 共用）；map(path) 返回新路径或 null（不改） */
+/* 按映射改写项目里的路径（toPacked / fromPacked 共用）；map(path) 返回新路径或 null（不改），自动保留 #t= 后缀 */
 function rewrite(project, map) {
   const p = structuredClone(project);
+  const mapPath = raw => {
+    if (typeof raw !== 'string' || !raw) return null;
+    const [clean, frag] = splitFrag(raw);
+    const mapped = map(clean);
+    return mapped ? mapped + frag : null;
+  };
   for (const a of Object.values(p.assets || {})) {
-    const n = map(a.path);
+    const n = mapPath(a.path);
     if (n) a.path = n;
   }
   for (const c of p.candidates || []) {
-    for (const k of ['savedPath', 'srcFile']) {
-      const n = map(c[k]);
+    for (const k of ['savedPath', 'srcFile', 'url']) {
+      const n = mapPath(c[k]);
       if (n) c[k] = n;
     }
+    delete c.peerPath;
   }
   for (const r of Object.values(p.reworkRequests || {})) {
-    const n = map(r.path);
+    const n = mapPath(r.path);
     if (n) r.path = n;
   }
   if (p.voice) {
-    const n = map(p.voice.path);
+    const n = mapPath(p.voice.path);
     if (n) p.voice = { ...p.voice, path: n };
   }
   for (const r of p.rows || []) {
@@ -72,11 +96,11 @@ function rewrite(project, map) {
     if (typeof r.assets === 'string' && r.assets)
       r.assets = r.assets
         .split('\n')
-        .map(x => map(x) || x)
+        .map(x => mapPath(x) || x)
         .join('\n');
     for (const u of r.assetUsages || []) {
       if (u && typeof u.path === 'string') {
-        const n = map(u.path);
+        const n = mapPath(u.path);
         if (n) u.path = n;
       }
     }

@@ -1,13 +1,15 @@
 /* 按稿件顺序搜索：正文定位到具体句子，共用画面描述只算一次。 */
 import { lineAt } from './timeline.js';
 export function searchLineIds(lines, query) {
-  const q = query.trim().toLowerCase();
+  const q = String(query ?? '')
+    .trim()
+    .toLowerCase();
   if (!q) return [];
   const contains = text => (text || '').toLowerCase().includes(q);
   const textIds = new Set();
   const textGroups = new Set();
   for (const r of lines) {
-    if (!contains(r.text)) continue;
+    if (!contains(r.text) && !contains(r.sub)) continue;
     textIds.add(r.id);
     if (r.groupId) textGroups.add(r.groupId);
   }
@@ -31,15 +33,18 @@ const RANGE = /\s*(?:-|–|—|~|～|到|至)\s*/;
 const DOT_TIME = /^\d{1,3}\.\d{2}(?:\.\d{2})?$/;
 function parseNo(s) {
   const m = /^(?:#|第)?\s*(\d{1,6})\s*句?$/.exec(s);
-  return m ? Number(m[1]) : null;
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n > 0 ? n : null;
 }
 function parseTime(s) {
   if (DOT_TIME.test(s)) s = s.replaceAll('.', ':');
-  let m = /^(\d{1,3}):(\d{1,2})(?::(\d{1,2}))?(?:\.\d+)?$/.exec(s);
+  let m = /^(\d{1,3}):(\d{1,2})(?::(\d{1,2}))?(\.\d+)?$/.exec(s);
   if (m) {
+    const frac = m[4] ? Number(m[4]) : 0;
     const [a, b, c] = [Number(m[1]), Number(m[2]), m[3] == null ? null : Number(m[3])];
-    if (c == null) return b < 60 ? a * 60 + b : null;
-    return b < 60 && c < 60 ? a * 3600 + b * 60 + c : null;
+    if (c == null) return b < 60 ? a * 60 + b + frac : null;
+    return b < 60 && c < 60 ? a * 3600 + b * 60 + c + frac : null;
   }
   m = /^(?:(\d{1,2})\s*(?:小时|时))?\s*(?:(\d{1,3})\s*分(?:钟)?)?\s*(?:(\d{1,3}(?:\.\d+)?)\s*秒)?$/.exec(s);
   if (!m || (m[1] == null && m[2] == null && m[3] == null)) return null;

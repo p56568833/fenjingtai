@@ -56,6 +56,7 @@ function modalHtml() {
           <label><span>画幅</span><select id="jyCanvas">${CANVAS_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}</select></label>
           <label><span>帧率</span><select id="jyFps">${FPS_OPTIONS.map(f => `<option value="${f}">${f} fps</option>`).join('')}</select></label>
           <label class="jy-check"><input type="checkbox" id="jySubs"> 生成可编辑字幕（文字轨）</label>
+          <label id="jySubLangRow" hidden><span>字幕语言</span><select id="jySubLang"><option value="zh">中文字幕</option><option value="en">英文字幕</option><option value="bilingual">中英双语</option></select></label>
           <label class="jy-check"><input type="checkbox" id="jyAlt"> 复制备选素材（不上时间线）</label>
         </div>
         <p class="jy-hint">这些设置只影响这次生成的草稿，不改变分镜台里的项目排布。</p>
@@ -138,6 +139,10 @@ function applyForm(state) {
   $('#jyCanvas').value = canvasValue(form.options);
   $('#jyFps').value = String(form.options.fps);
   $('#jySubs').checked = !!form.options.subtitles;
+  const subLang = $('#jySubLang');
+  if (subLang) {
+    subLang.value = ['zh', 'en', 'bilingual'].includes(form.options.subtitleLang) ? form.options.subtitleLang : 'zh';
+  }
   $('#jyAlt').checked = !!form.options.altAssets;
   $('#jyConfirm').checked = !!form.confirm;
 }
@@ -259,7 +264,7 @@ function renderIssues(host, issues, scope, context) {
     list
       .map((issue, index) => {
         const level = levelOf(issue);
-        const row = typeof context.locateIssue === 'function' ? context.locateIssue(issue) : null;
+        const row = typeof context.locateIssue === 'function' ? context.locateIssue(issue, scope) : null;
         const where = issueWhere(issue, row);
         const text = esc(issue.message || issue.code || '待处理');
         if (!row)
@@ -427,6 +432,8 @@ export function renderJianyingExportView(state, context = {}) {
   if (state.pane === 'run') renderRun(state);
   else if (state.pane === 'done') renderDone(state, context);
   else {
+    const subLangRow = $('#jySubLangRow');
+    if (subLangRow) subLangRow.hidden = !(state.bilingual && state.form.options.subtitles);
     renderDestRow(state);
     renderAssetsLine(state.prepared);
     renderSummary(state);

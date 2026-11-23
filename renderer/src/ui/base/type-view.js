@@ -13,7 +13,7 @@ export function chipHTML(r) {
   const t = types().get(r.type);
   if (!r.type) return `<div class="tchip t-none">未标注 <kbd>1-${types().list.length}</kbd>${ARROW}</div>`;
   if (!t) return `<div class="tchip typed" style="--tc:#8a93a6">未知类型${ARROW}</div>`;
-  return `<div class="tchip typed" style="--tc:${t.color}" title="${esc(t.full)}">${typeIcon(t)}${esc(t.label)}${ARROW}</div>`;
+  return `<div class="tchip typed" style="--tc:${esc(t.color)}" title="${esc(t.full)}">${typeIcon(t)}${esc(t.label)}${ARROW}</div>`;
 }
 
 /* 标注菜单（表格类型格） */
@@ -21,7 +21,7 @@ export function typeMenuItems(attr, isOn) {
   return types()
     .list.map(
       (t, i) =>
-        `<div class="pop-item" ${attr}="${t.id}"><span class="k">${i + 1}</span><span class="pdot" style="background:${t.color}"></span><span>${esc(t.full)}</span>${isOn(t.id) ? '<span class="chk">✓</span>' : ''}</div>`,
+        `<div class="pop-item" ${attr}="${esc(t.id)}"><span class="k">${i + 1}</span><span class="pdot" style="background:${esc(t.color)}"></span><span>${esc(t.full)}</span>${isOn(t.id) ? '<span class="chk">✓</span>' : ''}</div>`,
     )
     .join('');
 }

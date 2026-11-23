@@ -22,9 +22,13 @@ export function coverageOf(item, shotDur) {
   if (item.kind !== 'video') return { need, verdict: 'still' };
   const path = item.asset?.path || '';
   const online = LINK_RE.test(path);
-  const file = !online && finite(item.asset?.durationSec) ? item.asset.durationSec : null;
+  const file = !online && finite(item.asset?.durationSec) && item.asset.durationSec > 0 ? item.asset.durationSec : null;
   const clip = validClip(item.usage?.clip) ? item.usage.clip : null;
-  let usable = clip ? clip.out - clip.in : file;
+  let usable = clip
+    ? file != null
+      ? Math.max(0, Math.min(clip.out, file) - Math.max(0, clip.in))
+      : clip.out - clip.in
+    : file;
   // 在线或本机待保存视频没标片段：地址里的 #t=入,出 就是要截的那段
   if (usable == null) {
     const m = path.match(/#t=([\d.]+),([\d.]+)/);
@@ -214,14 +218,16 @@ export function blankShots(rows, registry, tl, types) {
     if (!lead.type || !ti.needsVisual(lead.type)) continue;
     const cov = lineCoverage(registry, members, tl) || [];
     const lines = cov.filter(x => x.state !== 'ok');
-    if (lines.length && !cov.every(x => x.state === 'empty')) out.push({ lead, lines });
+    if (lines.length && cov.some(x => x.hasPicture)) out.push({ lead, lines });
   }
   return out;
 }
 /* 「第 436–437 句」「第 436、438 句」 */
 export function linesText(nos) {
+  const sorted = [...new Set((nos || []).filter(n => finite(n)))].sort((a, b) => a - b);
+  if (!sorted.length) return '';
   const runs = [];
-  for (const n of nos) {
+  for (const n of sorted) {
     const last = runs[runs.length - 1];
     if (last && n === last[1] + 1) last[1] = n;
     else runs.push([n, n]);

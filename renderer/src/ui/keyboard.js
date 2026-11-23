@@ -8,7 +8,7 @@ import { composing, isEditing } from './base/dom.js';
 import { historyCommand } from './base/history.js';
 import { cycleView } from './render.js';
 import { renderSelectionOnly } from './base/selection.js';
-import { closePop } from './base/popover.js';
+import { closePop, popEl } from './base/popover.js';
 import { openSearch, closeSearch } from './search.js';
 import { runCommand } from './base/commands.js';
 
@@ -21,22 +21,23 @@ function moveTo(dir) {
   viewState.multi = null;
   closePop();
   renderSelectionOnly();
-  const el = document.querySelector(`[data-id="${viewState.sel}"]`);
+  const el = viewState.sel != null ? document.querySelector(`#rows .row[data-id="${viewState.sel}"]`) : null;
   el && el.scrollIntoView({ block: 'nearest' });
 }
 
 export function initKeyboard() {
   document.addEventListener('keydown', e => {
     const mod = e.metaKey || e.ctrlKey;
+    const keyLower = e.key.toLowerCase();
 
     // 弹窗开着时的按键由 modal.js 统一处理（Esc 关最上层 / Enter 确认），不会走到这里
 
-    if (mod && (e.key === 'f' || e.key === 'F')) {
+    if (mod && keyLower === 'f') {
       e.preventDefault();
       openSearch();
       return;
     }
-    if (mod && (e.key === 't' || e.key === 'T')) {
+    if (mod && keyLower === 't') {
       e.preventDefault();
       cycleView();
       return;
@@ -44,15 +45,15 @@ export function initKeyboard() {
 
     // 以事件来源判断是否在编辑：隐藏窗口里焦点不总是落得稳，只看 activeElement 会把表单里的退格误当删除句子
     const editing = isEditing(e.target);
-    if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
+    if (mod && (keyLower === 'z' || keyLower === 'y')) {
       // 编辑文字时交给浏览器撤销输入；否则撤销 / 重做项目改动（⇧⌘Z 或 ⌘Y 重做）
       if (!editing) {
         e.preventDefault();
-        historyCommand(e.shiftKey || e.key === 'y' ? 'redo' : 'undo', 'key');
+        historyCommand(e.shiftKey || keyLower === 'y' ? 'redo' : 'undo', 'key');
       }
       return;
     }
-    if (mod && e.shiftKey && (e.key === 'e' || e.key === 'E')) {
+    if (mod && e.shiftKey && keyLower === 'e') {
       e.preventDefault();
       runCommand('pdf:open'); // ⇧⌘E 导出 PDF
       return;
@@ -72,14 +73,22 @@ export function initKeyboard() {
     if (editing) return; // 编辑中的其余按键由 edit.js 处理
 
     if (e.key === 'Escape') {
+      if (popEl) {
+        closePop();
+        return;
+      }
+      if (document.querySelector('#searchbar.show')) {
+        closeSearch();
+        return;
+      }
       if (viewState.multi) {
         viewState.multi = null;
         renderSelectionOnly();
       }
-      closePop();
-      closeSearch();
       return;
     }
+    // 焦点在按钮、链接、复选框等交互控件上时，放行单键快捷键，避免 Space / Enter / 数字键误触发播放或改标注
+    if (e.target?.closest?.('button, a, [role="button"], [role="checkbox"], .row-select')) return;
     // 空格：播放 / 暂停口播（有口播音频时；没有就不占用这个键）
     // 空格：从选中的这句打开「对着口播看画面」
     if (e.key === ' ' && !mod && state.voice && viewState.sel) {
@@ -105,7 +114,7 @@ export function initKeyboard() {
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      const row = document.querySelector(`.row[data-id="${viewState.sel}"]`);
+      const row = viewState.sel != null ? document.querySelector(`#rows .row[data-id="${viewState.sel}"]`) : null;
       const note = (row?.closest('.shared-scene') || row)?.querySelector('.note');
       if (note) note.focus();
       return;

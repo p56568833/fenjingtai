@@ -2,7 +2,14 @@
 const { app, Menu, shell } = require('electron');
 
 function buildMenu({ win, dataDir }) {
-  const send = type => () => win()?.webContents.send('menu-action', { type });
+  const send = type => () => {
+    const w = win();
+    if (!w || w.isDestroyed()) return;
+    if (w.isMinimized()) w.restore();
+    if (!w.isVisible()) w.show();
+    w.focus();
+    w.webContents.send('menu-action', { type });
+  };
   const template = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     {
@@ -11,12 +18,14 @@ function buildMenu({ win, dataDir }) {
         { label: '新建项目', accelerator: 'CmdOrCtrl+N', click: send('new-project') },
         { label: '导入稿子…', accelerator: 'CmdOrCtrl+O', click: send('import') },
         { label: '对齐剪映字幕（SRT）…', accelerator: 'Shift+CmdOrCtrl+O', click: send('import-srt') },
+        { label: '导入中文字幕（SRT）…', click: send('import-zh-srt') },
         { label: '导入口播音频…', accelerator: 'Alt+CmdOrCtrl+O', click: send('import-voice') },
         { type: 'separator' },
         {
           label: '导出',
           submenu: [
             { label: 'PDF 分镜脚本…', accelerator: 'CmdOrCtrl+Shift+E', click: send('export:pdf') },
+            { label: '字幕文件（SRT）…', click: send('export:srt') },
             { type: 'separator' },
             { label: '导出到剪映…', click: send('export:jianying') },
             { label: '项目文件…', click: send('export:json') },
@@ -46,6 +55,7 @@ function buildMenu({ win, dataDir }) {
       submenu: [
         { label: '切换视图（审核 / 表格）', accelerator: 'CmdOrCtrl+T', click: send('toggle-view') },
         { label: '连播预览（从选中的句子开始）', click: send('playthrough') },
+        { label: '英配中字模式（英文稿 + 中文字幕）', click: send('toggle-bilingual-mode') },
         { type: 'separator' },
         { label: '浅色 / 深色主题', accelerator: 'CmdOrCtrl+L', click: send('toggle-theme') },
         { label: '主题跟随系统', click: send('theme-system') },

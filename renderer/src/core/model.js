@@ -7,6 +7,7 @@
    @property {number} id           项目内唯一，只增不复用
    @property {RowKind} kind
    @property {string} text
+   @property {string} [sub]         双语模式下的中文译文/字幕（单句级可编辑）
    @property {number} [no]          句号（渲染前 renumber 现算，不可靠存储）
    @property {string|null} [type]   标注类型 id（见 Project.types）
    @property {string} [note]        画面描述 / 备注，可多行
@@ -46,7 +47,9 @@
    @property {Object<string, Asset>} assets
    @property {TypeDef[]} [types]       没有时用默认五类
    @property {number} [speechRate]     字 / 秒
+   @property {''|'en-zh'} [langMode]   双语模式（'en-zh' = 英配中字模式；空串 = 常规单语）
    @property {{name:string,at:number,duration:number,cues:Array,raw?:string}} [timing]  对齐用的剪映字幕（raw：导入时的 SRT 原文）
+   @property {{name:string,at:number,duration:number,cues:Array,raw?:string}} [subTiming]  独立中文字幕轨（绝不覆盖 row.time）
    @property {{path:string,name:string,duration:number|null}} [voice]       口播音频
    @property {Object[]} [candidates] 视频候选及审核结果
    @property {string} [mediaDir]     本机片段保存位置，不随普通编辑撤销

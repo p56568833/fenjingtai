@@ -6,6 +6,7 @@ import { rowById } from '../app/project-queries.js';
 import { shotMembers } from '../core/shots.js';
 
 import { slideIn } from '../ui/base/anim.js';
+import { isEditingIn } from '../ui/base/edit-session.js';
 
 import { runCommand } from '../ui/base/commands.js';
 
@@ -34,6 +35,7 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
   }
   function selectShot(key) {
     if (key === page.curShot) return;
+    cancelAdvance();
     const order = curShots().map(x => x.key);
     const dir = order.indexOf(key) >= order.indexOf(page.curShot) ? 1 : -1;
     page.curShot = key;
@@ -55,9 +57,20 @@ export function createReviewNavigation({ render: renderVideoReview, stop: stopAl
       return;
     }
     clearTimeout(advanceTimer);
+    const pid = state.projectId;
+    const batch = page.curBatch;
     const from = page.curShot;
     advanceTimer = setTimeout(() => {
-      if (page.curShot !== from || viewState.view !== 'review') return;
+      advanceTimer = null;
+      if (
+        state.projectId !== pid ||
+        page.curBatch !== batch ||
+        page.curShot !== from ||
+        page.mode !== 'review' ||
+        viewState.view !== 'review' ||
+        isEditingIn('#vrList')
+      )
+        return;
       const shots = curShots();
       if (shots.find(x => x.key === from)?.pending) return renderVideoReview(); // 中途撤销了：留在这个画面
       const i = shots.findIndex(x => x.key === from);

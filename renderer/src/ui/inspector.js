@@ -39,15 +39,13 @@ const ASSET_TIPS =
   '也可以把文件直接拖进这里或句子上。移除只解除关联，保留本地文件；⌘Z 可撤销。' +
   '输入自动保存；共用画面的描述、素材和视频片段整组共用一份。链接与路径随项目保存，本地素材需随交稿另行打包。';
 
-/* 这个画面在口播里的时间段，拆成两块分别放（「对着口播看画面」只在工具条上）：
-   - meta：口播时间 + 片段够不够长的提醒，放在「素材与片段」标题下面（说的是素材和口播对不对得上）
-   - listen：「听这段口播」，放在原文旁边（听的是这几句话） */
-function voiceParts(members) {
+/* 这个画面在口播里的时间段 + 片段够不够长的提醒，放在「素材与片段」标题下面 */
+function voiceMeta(members) {
   const span = shotSpan(
     timeline(),
     members.map(r => r.id),
   );
-  if (!span) return { meta: '', listen: '' };
+  if (!span) return '';
   const src = timeline().source;
   const how = src === 'srt' ? '字幕实测' : src === 'fit' ? '按口播音频推算' : '按语速估算';
   const len = span.end - span.start;
@@ -67,12 +65,7 @@ function voiceParts(members) {
     : videos
       ? '<p class="voice-ok">视频可用片段都够盖住各自要占的时间</p>'
       : '';
-  return {
-    meta: `<div class="voice-block"><div class="voice-line"><b>口播</b><span class="mono">${fmtTc(span.start)}–${fmtTc(span.end)}</span><span>${fmtLen(len)} · ${how}</span></div>${compare}</div>`,
-    listen: state.voice
-      ? `<button class="text-button listen-btn" data-voice-range="${members[0].id}">▶ 听这段口播</button>`
-      : '',
-  };
+  return `<div class="voice-block"><div class="voice-line"><b>口播</b><span class="mono">${fmtTc(span.start)}–${fmtTc(span.end)}</span><span>${fmtLen(len)} · ${how}</span></div>${compare}</div>`;
 }
 
 let lastSwap = 0; // 上一次换画面的时刻：按住方向键连续换句时不反复淡入
@@ -120,11 +113,11 @@ export function renderInspector(force = false) {
   const members = shotMembers(state.rows, r);
   const ti = types();
   const visual = !r.type || ti.needsVisual(r.type);
-  const voice = voiceParts(members);
-  const html = `<div class="side-title">${members.length > 1 ? sharedScenes(state.rows).get(r.groupId)?.label : '第 ' + r.no + ' 句'}</div>
+  const voiceBlock = voiceMeta(members);
+  const html = `<div class="side-title">${members.length > 1 ? esc(sharedScenes(state.rows).get(r.groupId)?.label) : '第 ' + r.no + ' 句'}</div>
     <section class="detail-assets">
       <div class="asset-list-title">素材与片段<span class="info-tip" tabindex="0" title="${esc(ASSET_TIPS)}" aria-label="${esc(ASSET_TIPS)}">ⓘ</span></div>
-      ${voice.meta}
+      ${voiceBlock}
       <div class="asset-list">${inspectorAssets(r, { missing: missingPaths() })}</div>
       <div class="detail-buttons"><button class="btn" id="attachAsset">添加素材</button><button class="btn" id="removeAsset" title="只解除关联，保留本地文件；审核通过的视频会撤回通过、回到待审；⌘Z 可撤销"${usageList(r).length ? '' : ' disabled'}>移除素材</button><button class="btn" id="reworkShot" title="这个画面还缺镜头：写下要什么，生成返工单交给 AI 去找">再找一个…</button></div>
       ${(() => {
@@ -164,13 +157,19 @@ function markNoteClamp() {
 }
 
 /* 打开右侧面板看这个画面的素材 */
+let openingInspector = false;
 export function openInspectorFor(id) {
   const r = rowById(id);
   if (!r || r.kind !== 'line') return;
   viewState.sel = id;
   viewState.multi = null;
   detailOpen = true;
-  update('selection');
+  openingInspector = true;
+  try {
+    update('selection');
+  } finally {
+    openingInspector = false;
+  }
   renderInspector(true);
 }
 
@@ -210,7 +209,8 @@ function openRemoveMenu(anchor, r) {
 
 export function initInspector() {
   // 在面板里打过字 / 改过值：页面上的内容已经和记下的不一样，下次刷新按数据重画（撤销回原样时不会以为「没变」）
-  for (const type of ['input', 'change']) $('#inspector').addEventListener(type, e => (e.currentTarget._html = null));
+  for (const type of ['input', 'change', 'compositionend'])
+    $('#inspector').addEventListener(type, e => (e.currentTarget._html = null));
   registerCommand('inspector:open', openInspectorFor);
   registerCommand('inspector:refresh', () => renderInspector(true));
   registerCommand('assets:load-thumbs', hydrateAssetCards); // 别的页面（待返工）画了素材缩略图位，交给这里懒加载
@@ -223,7 +223,7 @@ export function initInspector() {
     detailOpen = !detailOpen;
     renderInspector(true);
   };
-  on('cursor', () => renderInspector());
+  on('cursor', () => !openingInspector && renderInspector());
   on('collab-status', () => renderInspector(true)); // 局域网协作连上 / 断开：失联素材上的「从对方电脑取」跟着变
   on('durations', () => renderInspector()); // 读到了文件时长：卡片上的「文件 / 可用」补上数（正在输入时不打断）
 
@@ -282,6 +282,11 @@ export function initInspector() {
       runCommand('assets:relocate', r, +relocate.dataset.relocateUsage, () => renderInspector(true));
       return;
     }
+    const retry = e.target.closest('[data-thumb-retry]');
+    if (retry) {
+      e.stopPropagation();
+      return refreshThumb(retry.dataset.thumbRetry);
+    }
     const clipBtn = e.target.closest('[data-clip-usage]');
     if (clipBtn) return runCommand('preview:usage', r, +clipBtn.dataset.clipUsage);
     const pvBtn = e.target.closest('[data-preview-usage]');
@@ -292,21 +297,42 @@ export function initInspector() {
       if (error) toast(error, null, 'error');
       return;
     }
-    const retry = e.target.closest('[data-thumb-retry]');
-    if (retry) return refreshThumb(retry.dataset.thumbRetry);
-    const vr = e.target.closest('[data-voice-range]');
-    if (vr) return runCommand('voice:play-shot', +vr.dataset.voiceRange);
+  });
+  panel.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const pvBtn = e.target.closest?.('.asset-open[data-preview-usage]');
+    if (!pvBtn || e.target !== pvBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pvBtn.click();
   });
 
   panel.addEventListener('focusin', e => {
     if (e.target.id === 'detailNote') session = { snapped: false };
   });
   panel.addEventListener('focusout', e => {
-    if (e.target.id === 'detailNote') markNoteClamp(); // 编辑完收回 4 行
+    if (e.target.id === 'detailNote') {
+      e.target._composing = false;
+      const r = panelRow();
+      if (r && e.target.value !== (r.note || '')) setShotNote(r, e.target.value, { session });
+      markNoteClamp(); // 编辑完收回 4 行
+    }
+  });
+  panel.addEventListener('compositionstart', e => {
+    if (e.target.id === 'detailNote') e.target._composing = true;
+  });
+  panel.addEventListener('compositionend', e => {
+    if (e.target.id === 'detailNote') {
+      e.target._composing = false;
+      const r = panelRow();
+      if (r) setShotNote(r, e.target.value, { session });
+    }
   });
   panel.addEventListener('input', e => {
-    const r = panelRow();
-    if (!r) return;
-    if (e.target.id === 'detailNote') setShotNote(r, e.target.value, { session });
+    if (e.target.id === 'detailNote') {
+      if (e.isComposing || e.target._composing) return;
+      const r = panelRow();
+      if (r) setShotNote(r, e.target.value, { session });
+    }
   });
 }

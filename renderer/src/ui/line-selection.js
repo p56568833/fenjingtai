@@ -55,7 +55,12 @@ export function initLineSelection(panel, panelRow, render) {
     if (!gesture) return;
     const g = gesture;
     gesture = null;
-    if (g.dragged) suppressClick = true;
+    if (g.dragged) {
+      suppressClick = true;
+      setTimeout(() => {
+        suppressClick = false;
+      }, 0);
+    }
     if (panel.hasPointerCapture(g.pointerId)) panel.releasePointerCapture(g.pointerId);
     if (g.dragged && g.strip.isConnected) render();
   };
@@ -91,6 +96,7 @@ export function initLineSelection(panel, panelRow, render) {
       if (!valid(g)) return cancel();
       if (!(e.buttons & 1)) return cancel();
       const cells = [...g.strip.querySelectorAll('[data-line]')];
+      if (!cells.length) return cancel();
       // 按每格真实边界命中；拖出左右边界时钳到首尾句，格间缝隙取邻近句。
       let nearest = cells[0],
         distance = Infinity;
@@ -153,6 +159,7 @@ export function initLineSelection(panel, panelRow, render) {
   );
   panel.addEventListener('click', e => {
     if (suppressClick) {
+      suppressClick = false;
       e.stopImmediatePropagation();
       return;
     }

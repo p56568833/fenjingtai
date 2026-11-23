@@ -6,10 +6,11 @@ import { clearUndo } from '../app/undo.js';
 import { renameProject } from '../app/actions.js';
 import * as native from '../platform/native.js';
 import { toast, confirmModal, esc } from './base/dom.js';
-import { openMenu, closePop, popOpenFor, markPopAnchor } from './base/popover.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor, popEl } from './base/popover.js';
 import { armAnimation, slideIn } from './base/anim.js';
 import { registerCommand, runCommand } from './base/commands.js';
-import { registerModal } from './base/modal.js';
+import { registerModal, anyModalOpen } from './base/modal.js';
+import { flushPendingEdits } from './base/edit-session.js';
 
 const timeAgo = t => {
   const s = (Date.now() - t) / 1000;
@@ -36,13 +37,16 @@ function afterProjectChange(msg) {
   if (msg) toast(msg, null, 'ok');
 }
 
+let backupMenuSeq = 0;
+
 function openProjectsMenu(anchor) {
+  backupMenuSeq++;
   const list = storage
     .allProjects()
     .map(p => {
       const cur = p.id === state.projectId;
       return `<div class="pop-item pi-even" data-proj="${esc(p.id)}">${FOLDER}
-      <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}${p.collab ? ` · <span class="proj-collab">${p.collab.role === 'host' ? '共享中' : '协作'}</span>` : ''}</span></span>
+      <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}${p.langMode === 'en-zh' ? ' · <span class="proj-bilingual">英配中字</span>' : ''}${p.collab ? ` · <span class="proj-collab">${p.collab.role === 'host' ? '共享中' : '协作'}</span>` : ''}</span></span>
       ${cur ? '<span class="chk">✓</span>' : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${TRASH_PATH}"/></svg></button>`}
     </div>`;
     })
@@ -65,6 +69,7 @@ function openProjectsMenu(anchor) {
 }
 
 function openTrashMenu(anchor) {
+  backupMenuSeq++;
   const list = storage.trashList();
   openMenu(
     anchor,
@@ -84,7 +89,10 @@ function openTrashMenu(anchor) {
 }
 
 async function openBackupMenu(anchor) {
-  const list = await native.listBackups();
+  const seq = ++backupMenuSeq;
+  const pid = state.projectId;
+  const list = (await native.listBackups()) || [];
+  if (seq !== backupMenuSeq || state.projectId !== pid || anyModalOpen() || popEl || !anchor?.isConnected) return;
   openMenu(
     anchor,
     back('projects', '项目') +
@@ -104,7 +112,10 @@ async function openBackupMenu(anchor) {
 
 /* 选了一个备份：列出里面的项目，可以只取回一个（作为新项目，不动现有项目），或整库替换 */
 async function openBackupDetail(anchor, file) {
+  const seq = ++backupMenuSeq;
+  const pid = state.projectId;
   const r = await native.restoreBackup(file);
+  if (seq !== backupMenuSeq || state.projectId !== pid || anyModalOpen() || popEl || !anchor?.isConnected) return;
   if (!r?.ok) return toast('备份读取失败', null, 'error');
   const projects = Object.values(r.data.projects || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   openMenu(
@@ -131,6 +142,7 @@ function confirmDelete(id) {
     '删除后 30 天内可以在「项目 → 最近删除」里找回。',
     '删除',
     () => {
+      flushPendingEdits();
       if (storage.allProjects().length <= 1) return toast('至少保留一个项目', null, 'warn');
       const wasCurrent = id === state.projectId;
       if (storage.deleteProject(id)) {
@@ -167,6 +179,7 @@ function saveProjectName() {
 
 /* 新建空项目：原生菜单和项目菜单共用，随后在对话框中起名。 */
 function newEmptyProject() {
+  flushPendingEdits();
   storage.createProject('未命名项目', []);
   afterProjectChange();
   openProjectName();
@@ -210,7 +223,10 @@ export function initProjects() {
       const proj = e.target.closest('[data-proj]');
       if (proj) {
         const id = proj.dataset.proj;
-        if (id !== state.projectId && storage.switchProject(id)) afterProjectChange(`已切换到「${state.title}」`);
+        if (id !== state.projectId) {
+          flushPendingEdits();
+          if (storage.switchProject(id)) afterProjectChange(`已切换到「${state.title}」`);
+        }
         closePop();
         return;
       }
@@ -259,6 +275,7 @@ export function initProjects() {
           '当前所有项目会被备份里的版本整个替换（用于数据损坏时兜底）。',
           '整库恢复',
           async () => {
+            flushPendingEdits();
             const r = await native.restoreBackup(f);
             if (r?.ok && storage.restoreLibrary(r.data)) afterProjectChange('已恢复到备份');
             else toast('备份读取失败', null, 'error');

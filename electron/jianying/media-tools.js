@@ -115,7 +115,15 @@ function createMediaTools({ find = findFfmpeg, spawnProcess = spawn, probeTimeou
           (Number(durationMatch[1]) * 3600 + Number(durationMatch[2]) * 60 + Number(durationMatch[3])) * 1000000,
         )
       : 0;
-    const video = text.match(/Stream #\d+:\d+.*?:\s*Video:\s*([^,\s]+)[^\n]*?(\d{2,5})x(\d{2,5})/);
+    let video = null;
+    for (const line of text.split(/\r?\n/)) {
+      if (/\(attached pic\)/i.test(line)) continue;
+      const m = line.match(/Stream #\d+:\d+.*?:\s*Video:\s*([^,\s]+).*?(\d{2,5})x(\d{2,5})/);
+      if (m) {
+        video = m;
+        break;
+      }
+    }
     const audio = /Stream #\d+:\d+.*?:\s*Audio:/.test(text);
     return {
       durationUs,

@@ -5,10 +5,32 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
-const { findEocd, eocdInfo, parseCentralDirectory, localDataStart } = require('./zip-directory');
+const { findEocd, eocdInfo, zip64Directory, parseCentralDirectory, localDataStart } = require('./zip-directory');
 
-const SCRIPT_EXTS = ['md', 'markdown', 'txt', 'docx', 'json', 'srt', 'vtt', 'zip'];
+const SCRIPT_EXTS = ['md', 'markdown', 'txt', 'docx', 'json', 'srt', 'vtt', 'ass', 'zip'];
 const MAX_BYTES = 30 * 1024 * 1024;
+
+function looksLatinWin1252(buf) {
+  const len = Math.min(buf.length, 65536);
+  let asciiLetters = 0;
+  let high = 0;
+  let isolatedHigh = 0;
+  let win1252Punct = 0;
+  for (let i = 0; i < len; i++) {
+    const b = buf[i];
+    if ((b >= 0x41 && b <= 0x5a) || (b >= 0x61 && b <= 0x7a)) asciiLetters++;
+    else if (b >= 0x80) {
+      high++;
+      const prevHigh = i > 0 && buf[i - 1] >= 0x80;
+      const nextHigh = i + 1 < len && buf[i + 1] >= 0x80;
+      if (!prevHigh && !nextHigh) isolatedHigh++;
+      if (b === 0x85 || (b >= 0x91 && b <= 0x97)) win1252Punct++;
+    }
+  }
+  if (!high || asciiLetters < 4) return false;
+  if (high / len > 0.15 || asciiLetters < high * 2) return false;
+  return isolatedHigh * 2 >= high || win1252Punct * 2 >= high;
+}
 
 function decodeText(buf) {
   if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) return buf.subarray(3).toString('utf8');
@@ -17,11 +39,14 @@ function decodeText(buf) {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(buf);
   } catch {
-    for (const enc of ['gb18030', 'gbk', 'big5']) {
+    const fallbacks = looksLatinWin1252(buf)
+      ? ['windows-1252', 'gb18030', 'gbk', 'big5']
+      : ['gb18030', 'gbk', 'big5', 'windows-1252'];
+    for (const enc of fallbacks) {
       try {
-        return new TextDecoder(enc).decode(buf);
+        return new TextDecoder(enc, { fatal: true }).decode(buf);
       } catch {
-        /* 这个运行时没有这个编码，换下一个 */
+        /* 这个运行时不支持该编码，或字节序列不合法，换下一个 */
       }
     }
     return buf.toString('utf8');
@@ -32,42 +57,134 @@ function decodeText(buf) {
 function readZipEntry(buf, wanted) {
   const eocd = findEocd(buf);
   if (eocd < 0) throw new Error('不是有效的 docx（找不到 ZIP 目录）');
-  const { count, cdSize, cdStart } = eocdInfo(buf, eocd);
-  const entry = parseCentralDirectory(buf.subarray(cdStart, cdStart + cdSize), count).find(e => e.name === wanted);
+  let { count, cdSize, cdStart, zip64At } = eocdInfo(buf, eocd);
+  if (zip64At != null) {
+    if (!Number.isSafeInteger(zip64At) || zip64At < 0 || zip64At + 56 > buf.length)
+      throw new Error('docx ZIP64 目录损坏');
+    ({ count, cdSize, cdStart } = zip64Directory(buf.subarray(zip64At, zip64At + 56)));
+  }
+  if (
+    !Number.isSafeInteger(cdStart) ||
+    !Number.isSafeInteger(cdSize) ||
+    cdStart < 0 ||
+    cdSize < 0 ||
+    cdStart + cdSize > buf.length
+  )
+    throw new Error('docx 内部结构损坏');
+  const target = String(wanted || '').toLowerCase();
+  const entry = parseCentralDirectory(buf.subarray(cdStart, cdStart + cdSize), count).find(
+    e => e.name.toLowerCase() === target,
+  );
   if (!entry) return null;
+  if (!Number.isSafeInteger(entry.local) || entry.local < 0 || entry.local + 30 > buf.length)
+    throw new Error('docx 内部结构损坏');
   const start = localDataStart(buf.subarray(entry.local, entry.local + 30), entry.local);
-  if (start < 0) throw new Error('docx 内部结构损坏');
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(entry.csize) ||
+    start < 0 ||
+    entry.csize < 0 ||
+    start + entry.csize > buf.length
+  )
+    throw new Error('docx 内部结构损坏');
   const data = buf.subarray(start, start + entry.csize);
-  if (entry.method === 0) return data;
-  if (entry.method === 8) return zlib.inflateRawSync(data);
+  if (entry.method === 0) {
+    if (data.length > MAX_BYTES) throw new Error('docx 正文太大');
+    return data;
+  }
+  if (entry.method === 8) return zlib.inflateRawSync(data, { maxOutputLength: MAX_BYTES });
   throw new Error('docx 使用了不支持的压缩方式');
 }
 
+const XML_ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
 const decodeXml = s =>
-  s
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
-    .replace(/&amp;/g, '&');
+  s.replace(/&(lt|gt|quot|apos|amp|#x([0-9a-f]+)|#(\d+));/gi, (m, name, hex, dec) => {
+    if (hex != null) {
+      const cp = parseInt(hex, 16);
+      return Number.isSafeInteger(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+    }
+    if (dec != null) {
+      const cp = parseInt(dec, 10);
+      return Number.isSafeInteger(cp) && cp >= 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+    }
+    return XML_ENTITIES[name.toLowerCase()] ?? m;
+  });
+
+function stripElement(xml, tag) {
+  const re = new RegExp(`<${tag}(?=[\\s/>])[^>]*?(?:\\/>|>)|<\\/${tag}>`, 'g');
+  let out = '';
+  let last = 0;
+  let depth = 0;
+  for (const m of xml.matchAll(re)) {
+    const tok = m[0];
+    if (tok.startsWith('</')) {
+      if (depth > 0) {
+        depth--;
+        if (depth === 0) last = m.index + tok.length;
+      }
+    } else if (tok.endsWith('/>')) {
+      if (depth === 0) {
+        out += xml.slice(last, m.index);
+        last = m.index + tok.length;
+      }
+    } else {
+      if (depth === 0) out += xml.slice(last, m.index);
+      depth++;
+    }
+  }
+  if (depth === 0) out += xml.slice(last);
+  return out;
+}
+
+function extractParagraphs(body) {
+  const re = /<w:p(?=[\s/>])[^>]*?(?:\/>|>)|<\/w:p>/g;
+  const paragraphs = [];
+  const stack = [];
+  let cursor = 0;
+  for (const m of body.matchAll(re)) {
+    const tok = m[0];
+    if (tok.startsWith('</')) {
+      if (!stack.length) continue;
+      const top = stack.pop();
+      top.chunks.push(body.slice(cursor, m.index));
+      paragraphs[top.slot] = top.chunks.join('');
+      cursor = m.index + tok.length;
+    } else if (tok.endsWith('/>')) {
+      if (stack.length) stack[stack.length - 1].chunks.push(body.slice(cursor, m.index));
+      else paragraphs.push('');
+      cursor = m.index + tok.length;
+    } else {
+      if (stack.length) stack[stack.length - 1].chunks.push(body.slice(cursor, m.index));
+      const slot = paragraphs.length;
+      paragraphs.push('');
+      stack.push({ slot, chunks: [] });
+      cursor = m.index + tok.length;
+    }
+  }
+  while (stack.length) {
+    const top = stack.pop();
+    paragraphs[top.slot] = top.chunks.join('');
+  }
+  return paragraphs;
+}
 
 /* 标题样式：英文版 Heading1 / Title，中文版常见 styleId 为 1、2…，也可能直接叫「标题 1」 */
 const HEADING_STYLE = /<w:pStyle\s+w:val="(?:Heading\d*|heading\s*\d*|Title|\d|标题\s*\d*)"/i;
+const PARA_TOKEN_RE =
+  /<w:t(?:\s[^>]*)?(?<!\/)>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*?(?:\/>|>[\s\S]*?<\/w:tab>)|<w:(?:br|cr)\b[^>]*?(?:\/>|>[\s\S]*?<\/w:(?:br|cr)>)|<w:noBreakHyphen\b[^>]*?(?:\/>|>[\s\S]*?<\/w:noBreakHyphen>)/g;
 
 function docxToText(buf) {
   const xmlBuf = readZipEntry(buf, 'word/document.xml');
   if (!xmlBuf) throw new Error('docx 里没有正文（word/document.xml）');
-  const xml = xmlBuf.toString('utf8');
-  const body = xml.replace(/<w:del\b[\s\S]*?<\/w:del>/g, ''); // 修订模式下已删除的文字不要
+  let body = xmlBuf.toString('utf8');
+  for (const tag of ['w:del', 'w:moveFrom', 'mc:Fallback', 'w:instrText']) body = stripElement(body, tag);
   const out = [];
-  for (const m of body.matchAll(/<w:p\b[^>]*?(?:\/>|>([\s\S]*?)<\/w:p>)/g)) {
-    const inner = m[1] || '';
+  for (const inner of extractParagraphs(body)) {
     let text = '';
-    for (const t of inner.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:(?:br|cr)\b[^>]*\/>/g)) {
+    for (const t of inner.matchAll(PARA_TOKEN_RE)) {
       if (t[1] != null) text += decodeXml(t[1]);
       else if (t[0].startsWith('<w:tab')) text += ' ';
+      else if (t[0].startsWith('<w:noBreakHyphen')) text += '-';
       else text += '\n';
     }
     text = text.replace(/\s+$/g, '');
@@ -75,9 +192,10 @@ function docxToText(buf) {
       out.push('');
       continue;
     }
-    const pPr = (inner.match(/<w:pPr>[\s\S]*?<\/w:pPr>/) || [''])[0];
+    const pPr = (inner.match(/<w:pPr\b[^>]*>[\s\S]*?<\/w:pPr>/) || [''])[0];
     const heading = HEADING_STYLE.test(pPr) || /<w:outlineLvl\s+w:val="[0-5]"/.test(pPr);
-    out.push(heading && text.length <= 60 && !text.includes('\n') ? `## ${text.trim()}` : text);
+    const maxHeadingLen = /[A-Za-z]/.test(text) ? 140 : 60;
+    out.push(heading && text.length <= maxHeadingLen && !text.includes('\n') ? `## ${text.trim()}` : text);
   }
   return out
     .join('\n')

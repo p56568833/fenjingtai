@@ -68,8 +68,8 @@ function normalizeProbe(raw) {
   /* 有些损坏的图片 ffprobe 仍能给出 image2 流，但尺寸是 0：这种不算可用素材 */
   if (video && (!width || !height))
     return failure(CODES.PROBE_FAILED, '素材文件已损坏或不是可用的媒体文件（读不到画面尺寸）');
-  const durationSec = Number(raw.format?.duration ?? video?.duration ?? 0);
-  const durationUs = Number.isFinite(durationSec) && durationSec > 0 ? Math.round(durationSec * 1000000) : 0;
+  const durationSec = positive(raw.format?.duration) || positive(video?.duration) || positive(audio?.duration);
+  const durationUs = durationSec > 0 ? Math.round(durationSec * 1000000) : 0;
   const rotation = rotationOf(video);
   const quarterTurn = Math.abs(Math.round(rotation)) % 180 === 90;
   return {
@@ -80,7 +80,7 @@ function normalizeProbe(raw) {
     rotation,
     displayWidth: quarterTurn ? height : width,
     displayHeight: quarterTurn ? width : height,
-    frameRate: parseFrameRate(video?.avg_frame_rate ?? video?.r_frame_rate),
+    frameRate: parseFrameRate(video?.avg_frame_rate) ?? parseFrameRate(video?.r_frame_rate),
     videoCodec: text(video?.codec_name),
     audioCodec: text(audio?.codec_name),
     hasVideo: !!video,

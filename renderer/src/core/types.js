@@ -78,7 +78,7 @@ export function normalizeTypes(list) {
           .trim()
           .slice(0, 30) || label,
       color: HEX.test(raw.color) ? raw.color.toLowerCase() : PALETTE[out.length % PALETTE.length],
-      icon: ICONS[raw.icon] ? raw.icon : 'dot',
+      icon: typeof raw.icon === 'string' && Object.hasOwn(ICONS, raw.icon) ? raw.icon : 'dot',
       visual: raw.visual !== false,
     });
     if (out.length >= MAX_TYPES) break;

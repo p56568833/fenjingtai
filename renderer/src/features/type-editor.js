@@ -2,6 +2,7 @@
    在弹窗里改的是草稿，点「保存」才生效，一次保存 = 一步撤销。
    删掉正在用的类型时，必须选好这些句子改成什么（别的类型或清除标注）。 */
 import { state } from '../app/state.js';
+import { on } from '../app/events.js';
 import { types } from '../app/project-queries.js';
 import { setProjectTypes } from '../app/types-actions.js';
 import { DEFAULT_TYPES, ICONS, MAX_TYPES, PALETTE, newTypeId, defaultTypes, typeUsage } from '../core/types.js';
@@ -101,7 +102,10 @@ function save() {
   if (empty) return toast('每个类型都要有个名字', null, 'warn');
   const labels = draft.map(t => t.label);
   if (new Set(labels).size !== labels.length) return toast('类型名字不能重复', null, 'warn');
-  const remap = Object.fromEntries(removed);
+  const validIds = new Set(draft.map(t => t.id));
+  const remap = Object.fromEntries(
+    [...removed].map(([oldId, targetId]) => [oldId, targetId && validIds.has(targetId) ? targetId : null]),
+  );
   setProjectTypes(
     draft.map(t => ({ ...t, full: t.full || t.label })),
     { remap, asDefault: $('#teDefault').checked },
@@ -151,8 +155,9 @@ export function initTypeEditor() {
   $('#teReset').onclick = () => {
     collect();
     const keep = new Set(DEFAULT_TYPES.map(t => t.id));
-    for (const t of draft) if (!keep.has(t.id)) removed.set(t.id, null);
+    for (const t of draft) if (!keep.has(t.id) && types().has(t.id)) removed.set(t.id, null);
     for (const id of keep) removed.delete(id);
+    for (const [oldId, targetId] of removed) if (targetId && !keep.has(targetId)) removed.set(oldId, null);
     draft = defaultTypes();
     render();
   };
@@ -166,9 +171,11 @@ export function initTypeEditor() {
     if (b.dataset.te === 'del' && draft.length > 1) {
       const [gone] = draft.splice(i, 1);
       if (types().has(gone.id)) removed.set(gone.id, null);
+      for (const [oldId, targetId] of removed) if (targetId === gone.id) removed.set(oldId, null);
     }
     render();
   });
+  on('project-loaded', close);
   // 颜色 / 图标改了：左边的预览图标跟着变
   $('#teList').addEventListener('input', e => {
     const row = e.target.closest('.te-row');

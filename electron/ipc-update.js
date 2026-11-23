@@ -55,9 +55,10 @@ function registerUpdateIpc({ handle, isSelftest }) {
     if (update.prepared?.version === info.version) return { ok: true, version: info.version };
     const ctl = new AbortController();
     update.ctl = ctl;
-    const dir = fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台更新-'));
+    let dir = null;
     const onProgress = (got, total) => sendUpdate(e, { phase: 'download', got, total });
     try {
+      dir = fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台更新-'));
       let p = null;
       let verified = false;
       // ① 增量：只下应用代码（约 1 MB），套在当前应用上；任何一步不成就退回完整安装包
@@ -100,8 +101,8 @@ function registerUpdateIpc({ handle, isSelftest }) {
       update.prepared = { ...p, target: where.app, version: info.version };
       return { ok: true, version: info.version, verified };
     } finally {
-      update.ctl = null;
-      fs.rmSync(dir, { recursive: true, force: true });
+      if (update.ctl === ctl) update.ctl = null;
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
     }
   });
   handle('update:cancel', () => {

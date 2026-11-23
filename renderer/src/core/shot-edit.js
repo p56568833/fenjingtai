@@ -28,18 +28,22 @@ export function movePicture(items, index, start, dur) {
   const lo = index ? Math.min(entries[index - 1].end, dur) : 0;
   const hi = index + 1 < entries.length ? Math.min(entries[index + 1].start, dur) : dur;
   if (dest === index) {
+    if (ceil1(lo) > floor1(hi - len)) return null;
     original.start = round1(clamp(round1(start), ceil1(lo), floor1(hi - len)));
     original.end = round1(original.start + len);
   } else if (dest > index) {
     // 往右越过 index+1 … dest：放在 dest 的右边，到下一段（或口播末尾）之前
     const crossed = entries.slice(index + 1, dest + 1);
     const limit = dest + 1 < entries.length ? Math.min(entries[dest + 1].start, dur) : dur;
-    const shift = round1(clamp(entries[dest].end + len - limit, 0, crossed[0].start - lo));
+    const destEnd = Math.min(entries[dest].end, dur);
+    const shift = round1(clamp(destEnd + len - limit, 0, Math.max(0, crossed[0].start - lo)));
     for (const e of crossed) {
       e.start = round1(e.start - shift);
-      e.end = round1(e.end - shift);
+      e.end = round1(Math.min(e.end, dur) - shift);
     }
-    original.start = round1(clamp(round1(start), entries[dest].end, Math.max(entries[dest].end, limit - len)));
+    const minStart = Math.min(entries[dest].end, dur);
+    if (minStart > limit - len + 1e-6) return null;
+    original.start = round1(clamp(round1(start), minStart, limit - len));
     original.end = round1(original.start + len);
     entries.splice(index, 1);
     entries.splice(dest, 0, original);
@@ -47,12 +51,15 @@ export function movePicture(items, index, start, dur) {
     // 往左越过 dest … index-1：放在 dest 的左边，上一段（或开头）之后
     const crossed = entries.slice(dest, index);
     const limit = dest ? Math.min(entries[dest - 1].end, dur) : 0;
-    const shift = round1(clamp(limit + len - entries[dest].start, 0, hi - Math.min(crossed.at(-1).end, dur)));
+    const shift = round1(
+      clamp(limit + len - entries[dest].start, 0, Math.max(0, hi - Math.min(crossed.at(-1).end, dur))),
+    );
     for (const e of crossed) {
       e.start = round1(e.start + shift);
-      e.end = round1(e.end + shift);
+      e.end = round1(Math.min(e.end, dur) + shift);
     }
-    const end = clamp(round1(start + len), Math.min(entries[dest].start, limit + len), entries[dest].start);
+    if (limit + len > entries[dest].start + 1e-6) return null;
+    const end = clamp(round1(start + len), limit + len, entries[dest].start);
     original.start = round1(end - len);
     original.end = round1(end);
     entries.splice(index, 1);
@@ -104,7 +111,13 @@ export function trimPicture(items, index, edge, value, dur) {
   const changed = Math.abs(entry.start - it.start) > 0.05 || Math.abs(entry.end - oldEnd) > 0.05;
   if (video && changed) {
     const cin = edge === 'start' ? Math.max(src.from, src.cin + entry.start - it.start) : src.cin;
-    const endLimit = edge === 'start' ? src.cin + Math.min(src.usable, oldEnd - it.start) : src.to;
+    const keepClipOut = edge === 'end' && (it.usage?.fitDone || it.usage?.freeze);
+    const endLimit =
+      edge === 'start'
+        ? src.cin + Math.min(src.usable, oldEnd - it.start)
+        : keepClipOut
+          ? src.cin + src.usable
+          : src.to;
     entry.clip = {
       in: round1(cin),
       out: round1(Math.min(endLimit, cin + entry.end - entry.start)),

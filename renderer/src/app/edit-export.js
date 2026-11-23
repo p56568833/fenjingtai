@@ -8,6 +8,7 @@ import { saveCurrentProject } from './project-change.js';
 import { probePaths } from './asset-actions.js';
 import { buildEditExportPlan } from '../core/edit-export-plan.js';
 import { kindOf } from '../core/asset-model.js';
+import { projectData } from '../core/project-data.js';
 import * as native from '../platform/native.js';
 
 export const EXPORT_DEFAULTS = Object.freeze({
@@ -18,6 +19,7 @@ export const EXPORT_DEFAULTS = Object.freeze({
   altAssets: false,
 });
 const PREFS_KEY = 'jianyingExport';
+const SUBTITLE_LANGS = new Set(['source', 'zh', 'en', 'bilingual']);
 const LOCAL_PATH = /^\/(?!\/)/; // 本机素材只认绝对路径；链接素材交给计划标问题
 
 /* ── 本机偏好 ── */
@@ -31,6 +33,9 @@ function normalizeOptions(raw = {}) {
     fps: [24, 25, 30, 50, 60].includes(fps) ? fps : EXPORT_DEFAULTS.fps,
     subtitles: !!raw.subtitles,
     altAssets: !!raw.altAssets,
+    ...(typeof raw.subtitleLang === 'string' && SUBTITLE_LANGS.has(raw.subtitleLang)
+      ? { subtitleLang: raw.subtitleLang }
+      : {}),
   };
 }
 
@@ -77,15 +82,12 @@ export function captureExportSnapshot() {
   }
   let snapshot;
   try {
+    const data = projectData(state, 'state');
     snapshot = structuredClone({
+      ...data,
+      id: state.projectId,
       projectId: state.projectId,
-      title: state.title || '未命名项目',
-      rows: state.rows,
-      assets: state.assets || {},
-      types: state.types,
-      speechRate: state.speechRate,
-      voice: state.voice || null,
-      timing: state.timing || null,
+      title: data.title || '未命名项目',
       updatedAt: Number(currentProject()?.updatedAt) || Date.now(),
     });
   } catch (error) {
@@ -324,14 +326,25 @@ export async function registerJianyingDraft(draftDir) {
 
 /* ── 任务：jobId + projectId + 快照一次绑定 ── */
 const jobs = new Map(); // jobId → job
+const earlyEvents = new Map(); // started.jobId !== reqJobId 且事件先于 invoke 返回时暂存
+let startingJobs = 0;
+let jobSeq = 0;
 let listenersReady = false;
 
 function bindNativeEvents() {
   if (listenersReady) return true;
   if (typeof native.onJianyingProgress !== 'function' || typeof native.onJianyingResult !== 'function') return false;
   native.onJianyingProgress(progress => {
-    const job = jobs.get(progress?.jobId);
-    if (!job) return; // 别的窗口 / 上一次任务：不串台
+    const id = progress?.jobId;
+    const job = jobs.get(id);
+    if (!job) {
+      if (startingJobs > 0 && id) {
+        const buf = earlyEvents.get(id) || { progress: [], result: null };
+        buf.progress.push(progress);
+        earlyEvents.set(id, buf);
+      }
+      return; // 别的窗口 / 上一次任务：不串台
+    }
     try {
       job.onProgress?.(progress);
     } catch (error) {
@@ -339,15 +352,21 @@ function bindNativeEvents() {
     }
   });
   native.onJianyingResult(result => {
-    const job = jobs.get(result?.jobId);
-    if (job) finishJob(job, result);
+    const id = result?.jobId;
+    const job = jobs.get(id);
+    if (job) return finishJob(job, result);
+    if (startingJobs > 0 && id) {
+      const buf = earlyEvents.get(id) || { progress: [], result: null };
+      if (!buf.result) buf.result = result;
+      earlyEvents.set(id, buf);
+    }
   });
   listenersReady = true;
   return true;
 }
 
 function makeJobId() {
-  return `jy_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return `jy_${Date.now().toString(36)}_${(++jobSeq).toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function finishJob(job, raw) {
@@ -431,24 +450,44 @@ export async function startPreparedJianyingExport(
     job.resolve = resolve;
   });
   let started;
+  startingJobs++;
   try {
     started = await native.jianyingExport(req);
   } catch (error) {
+    if (startingJobs === 1) earlyEvents.clear();
     finishJob(job, { ok: false, error: '启动剪映导出任务失败：' + (error?.message || error) });
     return result;
+  } finally {
+    startingJobs--;
   }
   if (!started || started.ok === false) {
+    if (startingJobs === 0) earlyEvents.clear();
     finishJob(job, { ok: false, error: started?.error || '剪映导出任务没能启动' });
     return result;
   }
-  if (started.jobId && started.jobId !== jobId) {
-    jobs.set(started.jobId, job);
-    job.nativeJobId = started.jobId;
+  const nativeId = started.jobId && started.jobId !== jobId ? started.jobId : '';
+  if (nativeId && !job.settled) {
+    jobs.set(nativeId, job);
+    job.nativeJobId = nativeId;
   }
+  const early = nativeId ? earlyEvents.get(nativeId) : null;
+  if (nativeId) earlyEvents.delete(nativeId);
+  if (startingJobs === 0) earlyEvents.clear();
   try {
     onJob?.({ jobId: job.nativeJobId || jobId, projectId: job.projectId });
   } catch (error) {
     console.error('通知导出任务已开始失败', error);
+  }
+  if (early) {
+    for (const progress of early.progress) {
+      if (job.settled) break;
+      try {
+        job.onProgress?.(progress);
+      } catch (error) {
+        console.error('处理剪映导出进度失败', error);
+      }
+    }
+    if (early.result && !job.settled) finishJob(job, early.result);
   }
   return result;
 }

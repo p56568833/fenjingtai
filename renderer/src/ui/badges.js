@@ -14,8 +14,9 @@ import { charRangesForTimes } from '../core/text.js';
 import { patchHTML } from './base/html-patch.js';
 
 function statusText(r) {
-  const clipTodo = usageList(r).some(u => u.clip && u.clip.needsAdjust);
-  const rework = r.rework || usageList(r).some(u => u.rework);
+  const members = shotMembers(state.rows, r);
+  const clipTodo = members.some(m => usageList(m).some(u => u.clip && u.clip.needsAdjust));
+  const rework = members.some(m => m.rework || usageList(m).some(u => u.rework));
   return [clipTodo ? '片段待调整' : '', rework ? '待返工' : ''].filter(Boolean).join(' · ');
 }
 

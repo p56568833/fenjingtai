@@ -3,9 +3,10 @@
    · 导入 ZIP：选好素材解压到哪（默认「影片 › 分镜台素材 › 项目名」），解压、把路径换成新位置，作为新项目打开
    打包和解压都在主进程里做（边读边写，不占内存），这里只管弹窗、进度和取消。 */
 import { state } from '../app/state.js';
-import { types } from '../app/project-queries.js';
+import { on } from '../app/events.js';
 import { saveCurrentProject } from '../app/project-change.js';
 import { packPlan, toPacked, fromPacked } from '../core/pack.js';
+import { projectData } from '../core/project-data.js';
 import { buildProjectJson } from '../core/project-json.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
@@ -15,7 +16,9 @@ import { registerCommand, runCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
 let busy = null; // 'export' | 'import'
-let plan = null; // { files: Map, sizes }
+let inspecting = false;
+let openSeq = 0;
+let plan = null; // { projectId, files: Map, sizes }
 let pending = null; // 待导入的压缩包 { zip, title, parent, bytes, files }
 
 function fmtBytes(n) {
@@ -42,25 +45,15 @@ function resetProgress(box) {
 
 /* ── 导出 ── */
 function currentProject() {
-  return JSON.parse(
-    buildProjectJson({
-      title: state.title || '未命名项目',
-      rows: state.rows,
-      assets: state.assets || {},
-      speechRate: state.speechRate,
-      timing: state.timing,
-      types: types().list,
-      voice: state.voice,
-      candidates: state.candidates,
-      reviewBatches: state.reviewBatches,
-      reworkRequests: state.reworkRequests,
-      mediaDir: state.mediaDir,
-    }),
-  );
+  const data = projectData(state, 'exchange');
+  return JSON.parse(buildProjectJson({ ...data, title: data.title || '未命名项目' }));
 }
 
 async function openExport() {
   if (busy) return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完', null, 'info');
+  const seq = ++openSeq;
+  const pid = state.projectId;
+  plan = null;
   const box = $('#packExportMask');
   resetProgress(box);
   box.querySelector('input[value="json"]').checked = true;
@@ -68,8 +61,14 @@ async function openExport() {
   $('#packSummary').textContent = '正在统计用到的素材…';
   box.classList.add('show');
   const files = packPlan(currentProject());
-  const sizes = (await native.packSizes([...files.keys()])) || {};
-  plan = { files, sizes };
+  let sizes;
+  try {
+    sizes = (await native.packSizes([...files.keys()])) || {};
+  } catch {
+    sizes = {};
+  }
+  if (seq !== openSeq || state.projectId !== pid || !box.classList.contains('show')) return;
+  plan = { projectId: pid, files, sizes };
   renderSummary();
 }
 function renderSummary() {
@@ -90,6 +89,7 @@ function setExportBusy(on) {
 }
 function closeExport() {
   if (busy === 'export') return native.packCancel();
+  openSeq++;
   $('#packExportMask').classList.remove('show');
   plan = null;
 }
@@ -99,7 +99,7 @@ async function goExport() {
     closeExport();
     return runCommand('export:project-json');
   }
-  if (!plan) return;
+  if (!plan || plan.projectId !== state.projectId || busy) return;
   saveCurrentProject();
   // 找不到的文件不进包，项目里也保持原路径（导入后显示失联，而不是指向包里不存在的文件）
   const present = new Map([...plan.files].filter(([p]) => plan.sizes[p]?.exists));
@@ -115,11 +115,13 @@ async function goExport() {
       project: JSON.stringify(project, null, 2),
       files,
     });
+  } catch (err) {
+    return toast('打包失败：' + (err?.message || '未知原因'), null, 'error');
   } finally {
     busy = null;
     setExportBusy(false);
+    resetProgress($('#packExportMask'));
   }
-  resetProgress($('#packExportMask'));
   if (r?.canceled) return toast('已取消打包', null, 'info');
   if (!r?.ok) return toast('打包失败：' + (r?.error || '未知原因'), null, 'error');
   $('#packExportMask').classList.remove('show');
@@ -133,9 +135,18 @@ async function goExport() {
 
 /* ── 导入 ── */
 async function importPackFile(file) {
-  if (busy) return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完', null, 'info');
+  if (busy || inspecting)
+    return toast(busy === 'export' ? '正在打包，等这一个做完' : '正在解压导入，等这一个做完', null, 'info');
   if (!file?.path) return toast('没拿到这个压缩包的路径', null, 'error');
-  const info = await native.packInspect(file.path);
+  inspecting = true;
+  let info;
+  try {
+    info = await native.packInspect(file.path);
+  } catch (err) {
+    return toast('读不了这个压缩包：' + (err?.message || '未知原因'), null, 'error');
+  } finally {
+    inspecting = false;
+  }
   if (!info?.ok) return toast(info?.error || '读不了这个压缩包', null, 'error');
   pending = { ...info, zip: file.path, title: info.title || file.name.replace(/\.zip$/i, '') };
   const box = $('#packImportMask');
@@ -175,11 +186,13 @@ async function goImport() {
   let r;
   try {
     r = await native.packExtract({ zip: job.zip, parent: job.parent, name: job.title });
+  } catch (err) {
+    return toast('解压失败：' + (err?.message || '未知原因'), null, 'error');
   } finally {
     busy = null;
     setImportBusy(false);
+    resetProgress($('#packImportMask'));
   }
-  resetProgress($('#packImportMask'));
   if (r?.canceled) return toast('已取消导入，解了一半的文件已清掉', null, 'info');
   if (!r?.ok) return toast('解压失败：' + (r?.error || '未知原因'), null, 'error');
   let proj;
@@ -218,6 +231,9 @@ export function initProjectPack() {
   native.onPackProgress(p => {
     if (p?.op === 'export' && busy === 'export') setProgress($('#packExportMask'), p.done, p.total, '正在打包');
     if (p?.op === 'import' && busy === 'import') setProgress($('#packImportMask'), p.done, p.total, '正在解压');
+  });
+  on('project-loaded', () => {
+    if (busy !== 'export') closeExport();
   });
   registerCommand('pack:export-open', openExport);
   registerCommand('pack:import', importPackFile);

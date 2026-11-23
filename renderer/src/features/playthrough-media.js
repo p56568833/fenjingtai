@@ -38,7 +38,7 @@ export function createPreviewMedia(stage) {
       done = true;
       fn();
     };
-    if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(() => requestAnimationFrame(go));
+    if (el.requestVideoFrameCallback && !el.paused) el.requestVideoFrameCallback(() => requestAnimationFrame(go));
     else requestAnimationFrame(() => requestAnimationFrame(go));
     setTimeout(go, 300);
   }
@@ -106,7 +106,9 @@ export function createPreviewMedia(stage) {
       el.dataset.in = String(item.usage.clip?.in || 0);
       el.dataset.out = String(item.usage.clip?.out ?? '');
       listen('loadedmetadata', () => {
-        const target = Math.min(rec.target, Math.max(0, el.duration - 0.04));
+        const target = Number.isFinite(el.duration)
+          ? Math.min(rec.target, Math.max(0, el.duration - 0.04))
+          : rec.target;
         if (Math.abs(el.currentTime - target) > 0.001) el.currentTime = target;
         videoReady(rec);
       });
@@ -146,9 +148,12 @@ export function createPreviewMedia(stage) {
       if (rec.failed) failed();
       else if (item.kind === 'image') reveal(rec);
       else if (rec.el.readyState >= 1) {
-        if (Math.abs(rec.el.currentTime - target) > 0.04) {
+        const clamped = Number.isFinite(rec.el.duration)
+          ? Math.min(target, Math.max(0, rec.el.duration - 0.04))
+          : target;
+        if (Math.abs(rec.el.currentTime - clamped) > 0.04) {
           rec.ready = false;
-          rec.el.currentTime = target;
+          rec.el.currentTime = clamped;
         } else if (rec.ready) reveal(rec);
         else videoReady(rec);
       }

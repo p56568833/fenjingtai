@@ -12,11 +12,16 @@ const TILE = 64; // 每格大约多宽（px）
 const STEP = 0.5; // 时间点取整：同一段片段裁剪前后、重画前后用同一批截图
 const W = 96;
 const MAX = 400;
+const MAX_FAILS = 2; // 单次超时不永久拉黑，连续多次失败或明确读不出才暂停尝试
 const shots = new Map(); // `${src}|${t}` → canvas（缓存的原图，用时复制一份）
-const failed = new Set(); // 读不出来的文件：不再反复尝试
-const jobs = new Map(); // src → { want: Set<t> }
+const failCounts = new Map(); // src → 失败次数
+const jobs = new Map(); // src → { src, want: Set<t>, epoch }
+const activeControllers = new Set();
 const queue = [];
 let running = 0;
+let epoch = 0;
+
+const isBlocked = src => (failCounts.get(src) || 0) >= MAX_FAILS;
 
 const keyOf = (src, t) => `${src}|${t}`;
 const snap = t => Math.max(0, Math.round(t / STEP) * STEP);
@@ -61,7 +66,7 @@ function paintBlock(block) {
     film.classList.add('img');
     return;
   }
-  if (failed.has(src)) return film.replaceChildren();
+  if (isBlocked(src)) return film.replaceChildren();
   const cells = [];
   for (let i = 0; i < n; i++) {
     const t = snap(from + (len * (i + 0.5)) / n);
@@ -94,7 +99,7 @@ function fill(cell, src, t) {
 function want(src, t) {
   let job = jobs.get(src);
   if (!job) {
-    job = { src, want: new Set() };
+    job = { src, want: new Set(), epoch };
     jobs.set(src, job);
     queue.push(job);
   }
@@ -104,35 +109,45 @@ function want(src, t) {
 function pump() {
   while (running < 2 && queue.length) {
     const job = queue.shift();
+    if (job.epoch !== epoch) {
+      if (jobs.get(job.src) === job) jobs.delete(job.src);
+      continue;
+    }
+    const controller = new AbortController();
+    activeControllers.add(controller);
     running++;
-    withDecodeSlot(() => grab(job)).finally(() => {
+    withDecodeSlot(() => grab(job, controller.signal)).finally(() => {
+      activeControllers.delete(controller);
       running--;
       if (jobs.get(job.src) === job) jobs.delete(job.src);
       // 截完的那一下又要了新的时间点（重画、裁剪）：再排一次
-      for (const t of job.want) want(job.src, t);
+      if (job.epoch === epoch) for (const t of job.want) want(job.src, t);
       pump();
     });
   }
 }
 
-async function grab(job) {
+async function grab(job, signal) {
   const v = document.createElement('video');
   v.muted = true;
   v.preload = 'auto';
   try {
-    const ready = loadMetadata(v, 20000);
+    if (signal.aborted || job.epoch !== epoch) return;
+    const ready = loadMetadata(v, 20000, { signal });
     v.src = job.src;
     await ready;
-    while (job.want.size) {
+    while (job.want.size && !signal.aborted && job.epoch === epoch) {
       const t = [...job.want].sort((a, b) => a - b)[0];
       job.want.delete(t);
       if (shots.has(keyOf(job.src, t))) continue;
-      await seekVideoFrame(v, t, { timeoutMs: 8000 });
+      await seekVideoFrame(v, t, { timeoutMs: 8000, signal });
+      if (signal.aborted || job.epoch !== epoch) return;
       if (!v.videoWidth) throw new Error('视频没有可用画面');
       const cv = document.createElement('canvas');
       cv.width = W;
       cv.height = Math.round((W * v.videoHeight) / v.videoWidth) || 54;
       cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+      failCounts.delete(job.src);
       shots.set(keyOf(job.src, t), cv);
       while (shots.size > MAX) shots.delete(shots.keys().next().value);
       for (const cell of document.querySelectorAll(
@@ -140,10 +155,12 @@ async function grab(job) {
       ))
         if (+cell.dataset.t === t) fill(cell, job.src, t);
     }
-  } catch {
-    // 读不出来：这个文件的格子都去掉，露出色块本来的样子
-    failed.add(job.src);
+  } catch (err) {
     job.want.clear();
+    if (signal.aborted || job.epoch !== epoch) return;
+    // 单次超时不永久拉黑，计数达上限或明确读不出来才跳过后续重试
+    const timeout = /超时/.test(err?.message || '');
+    failCounts.set(job.src, timeout ? (failCounts.get(job.src) || 0) + 1 : MAX_FAILS);
     for (const block of document.querySelectorAll(`.ptt-block[data-film-src="${CSS.escape(job.src)}"]`))
       block.querySelector(':scope > .ptt-film')?.replaceChildren();
   } finally {
@@ -159,9 +176,18 @@ export function paintFilm(root) {
 
 /* 文件换了（重新定位、保存到本地）：之前认定读不出来的可以再试 */
 function forgetFilmFailures() {
-  failed.clear();
+  failCounts.clear();
+}
+function clearFilmstrip() {
+  epoch++;
+  for (const c of activeControllers) c.abort();
+  activeControllers.clear();
+  queue.length = 0;
+  jobs.clear();
+  shots.clear();
+  failCounts.clear();
 }
 
 on('asset-relocated', forgetFilmFailures);
-on('project-loaded', forgetFilmFailures);
+on('project-loaded', clearFilmstrip);
 on('candidate-media', forgetFilmFailures);

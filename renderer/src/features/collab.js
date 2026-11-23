@@ -18,6 +18,8 @@ const $ = s => document.querySelector(s);
 let open = false;
 let joining = null; // 正在输配对码的 { hostId, shareId }
 let busy = false;
+let repairing = false;
+let querying = false;
 let manualOpen = false;
 let missing = []; // 当前项目在这台电脑上缺的文件（对方电脑上可能有）
 let lastStatus = '';
@@ -111,7 +113,11 @@ function renderMenu() {
   if (el && !el.disabled) {
     if (el.tagName === 'INPUT') el.value = keep.value;
     el.focus({ preventScroll: true });
-    if (el.tagName === 'INPUT') el.setSelectionRange(keep.start, keep.end);
+    if (el.tagName === 'INPUT') {
+      try {
+        el.setSelectionRange(keep.start, keep.end);
+      } catch {}
+    }
   }
   const r = $('#btnCollab').getBoundingClientRect();
   const x = r.left + r.width / 2 > innerWidth / 2 ? r.right - popEl.offsetWidth : r.left;
@@ -248,6 +254,7 @@ function closeDialog() {
 }
 
 async function doJoin() {
+  if (busy) return;
   const st = collab.collabState();
   const host = st.hosts.find(h => h.hostId === joining?.hostId);
   const share = host?.shares.find(s => s.id === joining?.shareId);
@@ -256,8 +263,14 @@ async function doJoin() {
   if (!/^\d{4}$/.test(code)) return toast('配对码是 4 位数字', null, 'warn');
   busy = true;
   render();
-  const r = await collab.joinShare(host, share, code);
-  busy = false;
+  let r;
+  try {
+    r = await collab.joinShare(host, share, code);
+  } catch (err) {
+    r = { error: err?.message || '加入失败' };
+  } finally {
+    busy = false;
+  }
   if (r.error) {
     render();
     $('#collabCode')?.focus();
@@ -288,9 +301,11 @@ async function autoFind() {
   return refreshMissing();
 }
 async function fetchItems(items) {
+  const pid = state.projectId;
   const cur = collab.collabSession();
   if (!cur || cur.status !== 'online') return toast('对方现在不在线，连上后再取', null, 'warn');
   if (!items.length) return toast('没有要取的文件', null, 'info');
+  if (collab.fileProgress()) return toast('正在从对方电脑取文件，等这一批取完', null, 'info');
   if (collab.findProgress()) return toast('正在本机找已有的文件，找完再取', null, 'info');
   const needMediaDir = items.some(i => i.kind !== 'cand');
   const needCacheDir = items.some(i => i.kind === 'cand');
@@ -298,16 +313,18 @@ async function fetchItems(items) {
   let dir = state.mediaDir;
   if (needMediaDir && !dir) {
     dir = await native.pickFolder('');
-    if (!dir) return;
-    setMediaDirectory(state.projectId, dir);
+    if (!dir || state.projectId !== pid) return;
+    setMediaDirectory(pid, dir);
   }
-  const cacheDir = needCacheDir ? await native.collabCacheDir(state.projectId).catch(() => '') : '';
+  const cacheDir = needCacheDir ? await native.collabCacheDir(pid).catch(() => '') : '';
+  if (state.projectId !== pid) return;
   if (needCacheDir && !cacheDir) return toast('无法创建候选缓存目录', null, 'error');
   if (needCacheDir) items = items.map(i => (i.kind === 'cand' ? { ...i, dir: cacheDir } : i));
   const who = cur.peer || '对方';
   // 先在素材文件夹和缓存目录里认：内容一样的文件已经在了就直接用，不再传；认不了（对方没回文件信息等）也不耽误，照常全部取
   const searchDirs = [...new Set([dir, cacheDir].filter(Boolean))];
-  const found = searchDirs.length ? await collab.findLocal(items, searchDirs) : { got: [], rest: items };
+  const found = searchDirs.length ? await collab.findLocal(items, searchDirs, pid) : { got: [], rest: items };
+  if (state.projectId !== pid) return;
   if (found.canceled) return refreshMissing();
   const known = found.got?.length || 0;
   if (!found.error) items = found.rest;
@@ -315,12 +332,14 @@ async function fetchItems(items) {
     refreshMissing();
     return toast(`本机已经有这 ${known} 个文件，直接用上了，不用再传`, null, 'ok');
   }
+  if (collab.fileProgress()) return toast('正在从对方电脑取文件，等这一批取完', null, 'info');
   toast(
     `${known ? `本机已有 ${known} 个，` : ''}正在从 ${who} 那里取 ${items.length} 个文件…`,
     { label: '取消', cb: collab.cancelFetch },
     'info',
   );
   const r = await collab.fetchFiles(items, dir || cacheDir);
+  if (state.projectId !== pid) return;
   if (r.error) return toast(r.error, null, 'error');
   const first = r.got[0]?.local;
   if (r.failed.length)
@@ -339,13 +358,20 @@ async function fetchItems(items) {
 }
 /* 自己指一个文件夹：按内容认出里面已有的文件（含所有子文件夹，不看文件名） */
 async function findInFolder() {
+  const pid = state.projectId;
+  if (collab.fileProgress()) return toast('正在从对方电脑取文件，等这一批取完再找', null, 'info');
+  if (collab.findProgress()) return toast('正在本机找已有的文件', null, 'info');
   const items = await refreshMissing();
+  if (state.projectId !== pid) return;
   if (!items.length) return toast('没有缺的文件', null, 'info');
   const dir = await native.pickFolder(state.mediaDir || '');
-  if (!dir) return;
-  const r = await collab.findLocal(items, [dir]);
+  if (!dir || state.projectId !== pid) return;
+  if (collab.fileProgress() || collab.findProgress()) return;
+  const r = await collab.findLocal(items, [dir], pid);
+  if (state.projectId !== pid) return;
   if (r.error) return toast(r.error, null, 'error');
   const list = await refreshMissing();
+  if (state.projectId !== pid) return;
   if (r.canceled) return toast(`已取消${r.got.length ? `，已认出 ${r.got.length} 个` : ''}`, null, 'info');
   if (!r.got.length) return toast('这个文件夹里没有内容一样的文件，可以换个文件夹，或者从对方那里取', null, 'warn');
   toast(
@@ -430,17 +456,30 @@ async function onAction(act, el) {
     return $('#collabCode')?.focus();
   }
   if (act === 'join') return doJoin();
-  if (act === 'fetchall') return fetchItems(await refreshMissing());
+  if (act === 'fetchall') {
+    const pid = state.projectId;
+    const items = await refreshMissing();
+    if (state.projectId !== pid) return;
+    return fetchItems(items);
+  }
   if (act === 'cancelfetch') return collab.cancelFetch();
   if (act === 'findin') return findInFolder();
   if (act === 'cancelfind') return collab.cancelFind();
   if (act === 'repair') {
+    if (repairing) return;
     const code = $('#collabCode')?.value.trim() || '';
     if (!/^\d{4}$/.test(code)) return toast('配对码是 4 位数字', null, 'warn');
-    const r = await collab.repair(code);
-    if (r.error) return toast(r.error, null, 'error');
-    render();
-    return toast('已重新连上', null, 'ok');
+    repairing = true;
+    try {
+      const r = await collab.repair(code);
+      if (r.error) return toast(r.error, null, 'error');
+      render();
+      return toast('已重新连上', null, 'ok');
+    } catch (err) {
+      return toast(err?.message || '重新加入失败', null, 'error');
+    } finally {
+      repairing = false;
+    }
   }
   if (act === 'manual') {
     manualOpen = true;
@@ -448,13 +487,22 @@ async function onAction(act, el) {
     return $('#collabAddr')?.focus();
   }
   if (act === 'query') {
-    const r = await collab.queryHost($('#collabAddr')?.value);
-    if (r.error) return toast(r.error, null, 'error');
-    if (!r.host.shares.length) return toast('对方开着分镜台，但没有在共享项目', null, 'warn');
-    manualOpen = false;
-    joining = { hostId: r.host.hostId, shareId: r.host.shares[0].id };
-    render();
-    return $('#collabCode')?.focus();
+    if (querying) return;
+    const addr = $('#collabAddr')?.value;
+    querying = true;
+    try {
+      const r = await collab.queryHost(addr);
+      if (r.error) return toast(r.error, null, 'error');
+      if (!r.host.shares.length) return toast('对方开着分镜台，但没有在共享项目', null, 'warn');
+      manualOpen = false;
+      joining = { hostId: r.host.hostId, shareId: r.host.shares[0].id };
+      render();
+      return $('#collabCode')?.focus();
+    } catch (err) {
+      return toast(err?.message || '查找失败', null, 'error');
+    } finally {
+      querying = false;
+    }
   }
 }
 
@@ -539,11 +587,13 @@ export function initCollab() {
     lastStatus = status;
     emit('collab-status'); // 面板里的「从对方电脑取」按钮跟着出现 / 消失
     if (cur?.status !== 'online') return;
+    const pid = state.projectId;
     autoFind().then(list => {
-      if (!list.length || open || menuOpen() || collab.collabSession()?.status !== 'online') return;
+      if (state.projectId !== pid || !list.length || open || menuOpen() || collab.collabSession()?.status !== 'online')
+        return;
       toast(
         `有 ${list.length} 个素材文件你这边没有，${cur.peer || '对方'} 的电脑上可能有`,
-        { label: '取过来', cb: () => fetchItems(list) },
+        { label: '取过来', cb: () => state.projectId === pid && fetchItems(list) },
         'info',
       );
     });

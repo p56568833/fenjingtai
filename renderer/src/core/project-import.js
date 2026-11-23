@@ -2,10 +2,18 @@
 import { DEFAULT_TYPES } from './types.js';
 import { GROUP_ID } from './parse.js';
 import { cloneUsages } from './asset-usage.js';
-import { STATUS, shots, validGroup } from './shots.js';
+import { STATUS, shots, validGroup, normalizeGroups } from './shots.js';
 import { nextRowId } from './collab-doc.js';
 
-const validTime = t => t && Number.isFinite(+t.start) && Number.isFinite(+t.end) && +t.end >= +t.start;
+const validTime = t =>
+  !!t &&
+  typeof t === 'object' &&
+  typeof t.start === 'number' &&
+  typeof t.end === 'number' &&
+  Number.isFinite(t.start) &&
+  Number.isFinite(t.end) &&
+  t.start >= 0 &&
+  t.end >= t.start;
 /* 项目 JSON 导入：清洗句子。
    原文件里的 id 是一串不重复的正整数时原样保留（手动秒数 at.of、视频候选 rowId 都按 id 指向句子，保留最省事也最不容易错）；
    有重复 / 缺失 / 非法时才重新编号，并把 at.of 一起换成新 id。旧 id → 新 id 写进 info.idMap，调用方用它改写其他引用 */
@@ -29,10 +37,11 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
       id: nextId(r),
       kind: 'line',
       text: r.text,
+      ...(typeof r.sub === 'string' && r.sub.trim() ? { sub: r.sub.trim() } : {}),
       type: allowed.has(r.type) ? r.type : null,
       note: typeof r.note === 'string' ? r.note : '',
       assets: typeof r.assets === 'string' ? r.assets : '',
-      status: STATUS[r.status] ? r.status : 'todo',
+      status: typeof r.status === 'string' && Object.hasOwn(STATUS, r.status) ? r.status : 'todo',
       ...(Array.isArray(r.assetUsages)
         ? { assetUsages: cloneUsages(r.assetUsages.filter(u => u && (u.assetId || u.path))) }
         : {}),
@@ -43,7 +52,7 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
         ? {
             rework: {
               note: r.rework.note,
-              at: +r.rework.at || 0,
+              at: Number.isFinite(+r.rework.at) ? +r.rework.at : 0,
               ...(typeof r.rework.assetId === 'string' ? { assetId: r.rework.assetId } : {}),
             },
           }
@@ -54,17 +63,21 @@ export function normalizeProjectRows(rows, types = DEFAULT_TYPES, info = {}) {
             time: {
               start: +r.time.start,
               end: +r.time.end,
-              conf: +r.time.conf || 0,
+              conf: typeof r.time.conf === 'number' && Number.isFinite(r.time.conf) ? r.time.conf : 0,
               st: ['ok', 'low', 'est'].includes(r.time.st) ? r.time.st : 'est',
             },
           }
         : {}),
     };
   });
-  // 重新编号时，手动秒数里记的「镜头第一句 id」跟着换
+  // 重新编号时，手动秒数里记的「镜头第一句 id」跟着换；已失效的引用删除
   if (!keepIds)
     for (const r of result)
-      for (const u of r.assetUsages || []) if (u.at && idMap.has(u.at.of)) u.at = { ...u.at, of: idMap.get(u.at.of) };
+      for (const u of r.assetUsages || [])
+        if (u.at) {
+          if (idMap.has(u.at.of)) u.at = { ...u.at, of: idMap.get(u.at.of) };
+          else delete u.at;
+        }
   // A group may not span sections or disconnected runs in an imported project.
   const visited = new Set();
   let last = null;
@@ -102,7 +115,15 @@ export function reconcileDraft(oldRows, newRows, idOptions = {}) {
     const matches = oldMap.get(key(r));
     if (r.kind === 'line' && matches?.length === 1 && newCounts.get(key(r)) === 1) {
       kept++;
-      const row = { ...matches[0], para: r.para };
+      const src = matches[0];
+      const row = {
+        ...src,
+        para: r.para,
+        ...(typeof r.sub === 'string' && r.sub.trim() ? { sub: r.sub.trim() } : {}),
+        ...(Array.isArray(src.assetUsages) ? { assetUsages: cloneUsages(src.assetUsages) } : {}),
+        ...(src.time && typeof src.time === 'object' ? { time: { ...src.time } } : {}),
+        ...(src.rework && typeof src.rework === 'object' ? { rework: { ...src.rework } } : {}),
+      };
       inherited.add(row);
       return row;
     }
@@ -131,9 +152,20 @@ export function reconcileDraft(oldRows, newRows, idOptions = {}) {
     ) {
       matched.forEach(r => {
         delete r.groupId;
+        if (Array.isArray(r.assetUsages)) {
+          r.assetUsages = r.assetUsages
+            .filter(u => !u.off)
+            .map(u => {
+              const nextUsage = { ...u };
+              delete nextUsage.off;
+              delete nextUsage.at;
+              return nextUsage;
+            });
+        }
       });
     }
   }
+  normalizeGroups(result);
   return {
     rows: result,
     kept,

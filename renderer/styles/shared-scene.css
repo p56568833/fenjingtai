@@ -68,8 +68,8 @@
   padding: 13px 0;
 }
 @media (max-width: 1200px) {
-  /* 属于「工作区布局」，放在这里是因为要压过上面的 .shared-scene .shared-scene-lines > .row：两条会命中同一元素、优先级相同，后写的生效 */
-  .workspace.has-inspector .row,
+  /* 属于「工作区布局」，只作用于普通句子行与共用画面外层网格，不覆盖共用画面内部行的 subgrid */
+  .workspace.has-inspector .row:not(.shared-scene-row),
   .workspace.has-inspector .shared-scene-body {
     grid-template-columns: 34px minmax(90px, 1.15fr) 40px 112px minmax(120px, 1fr);
   }

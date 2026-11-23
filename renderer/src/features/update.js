@@ -77,6 +77,7 @@ const mb = n => (n > 0 ? `${(n / 1048576).toFixed(n > 104857600 ? 0 : 1)} MB` : 
 async function checkUpdate({ manual = false, open = manual } = {}) {
   if (checking || phase === 'downloading' || phase === 'installing') return;
   checking = true;
+  if (info) renderUpdate();
   let r;
   try {
     r = (await native.checkUpdate({ auto: !manual })) || { ok: false, error: '没有拿到结果' };
@@ -84,6 +85,7 @@ async function checkUpdate({ manual = false, open = manual } = {}) {
     r = { ok: false, error: error?.message || String(error) };
   } finally {
     checking = false;
+    if (info) renderUpdate();
   }
   if (!r.ok) {
     if (manual) toast('检查更新失败：' + r.error, null, 'error');
@@ -142,9 +144,19 @@ function renderUpdate(progress = null) {
   else status.textContent = info.canInstall ? '更新只换应用本身，项目数据和自动备份都不动。' : '';
   const go = $('#updGo');
   go.hidden = !info.canInstall;
-  go.disabled = phase === 'downloading' || phase === 'installing';
-  go.textContent = phase === 'ready' ? '重启并更新' : phase === 'downloading' ? '下载中…' : '下载并更新';
+  go.disabled = checking || phase === 'downloading' || phase === 'installing';
+  go.textContent =
+    phase === 'ready'
+      ? '重启并更新'
+      : phase === 'installing'
+        ? '正在更新…'
+        : phase === 'downloading'
+          ? '下载中…'
+          : checking
+            ? '检查中…'
+            : '下载并更新';
   $('#updCancel').textContent = phase === 'downloading' ? '取消下载' : '以后再说';
+  $('#updCancel').disabled = phase === 'installing';
   $('#updPage').hidden = info.canInstall && phase !== 'idle'; // 不能自动更新时，给一个手动下载的入口
 }
 
@@ -161,33 +173,52 @@ function showUpdate() {
   renderUpdate();
   $('#updateMask').classList.add('show');
 }
-const closeUpdate = () => $('#updateMask').classList.remove('show');
+const closeUpdate = () => {
+  if (phase === 'installing') return;
+  $('#updateMask').classList.remove('show');
+};
 
 async function go() {
+  if (checking || phase === 'downloading' || phase === 'installing') return;
   if (phase === 'ready') {
+    if (!info?.canInstall) return renderUpdate();
     phase = 'installing';
     renderUpdate();
-    const r = await native.installUpdate();
-    if (!r?.ok) {
+    try {
+      const r = await native.installUpdate();
+      if (!r?.ok) {
+        phase = 'idle';
+        renderUpdate();
+        paintButton();
+        toast('更新失败：' + (r?.error || '未知原因'), null, 'error');
+      }
+    } catch (err) {
       phase = 'idle';
       renderUpdate();
-      toast('更新失败：' + (r?.error || '未知原因'), null, 'error');
+      paintButton();
+      toast('更新失败：' + (err?.message || '未知原因'), null, 'error');
     }
     return;
   }
   await checkUpdate(); // 下载前再确认一次是不是最新的一版（窗口可能开了很久）
+  if (!info?.canInstall) return renderUpdate();
   if (phase === 'ready') return renderUpdate(); // 最新的一版其实已经下好了
   phase = 'downloading';
   renderUpdate();
   paintButton();
-  const r = await native.downloadUpdate();
-  if (r?.ok) {
-    phase = 'ready';
-    toast(`分镜台 ${r.version} 已下载好，点「重启并更新」换上`, null, 'ok');
-  } else {
+  try {
+    const r = await native.downloadUpdate();
+    if (r?.ok) {
+      phase = 'ready';
+      toast(`分镜台 ${r.version} 已下载好，点「重启并更新」换上`, null, 'ok');
+    } else {
+      phase = 'idle';
+      if (r?.canceled) toast('已取消下载更新', null, 'info');
+      else toast('下载更新失败：' + (r?.error || '未知原因'), null, 'error');
+    }
+  } catch (err) {
     phase = 'idle';
-    if (r?.canceled) toast('已取消下载更新', null, 'info');
-    else toast('下载更新失败：' + (r?.error || '未知原因'), null, 'error');
+    toast('下载更新失败：' + (err?.message || '未知原因'), null, 'error');
   }
   renderUpdate();
   paintButton();
@@ -209,12 +240,13 @@ export function initUpdate() {
   $('#btnUpdate').onclick = openUpdate;
   $('#updGo').onclick = go;
   $('#updCancel').onclick = () => {
+    if (phase === 'installing') return;
     if (phase === 'downloading') native.cancelUpdate();
     else closeUpdate();
   };
   $('#updPage').onclick = () => info && native.openAsset(info.page);
   $('#updateMask').addEventListener('click', e => {
-    if (e.target.id === 'updateMask' && phase !== 'downloading') closeUpdate();
+    if (e.target.id === 'updateMask' && phase !== 'downloading' && phase !== 'installing') closeUpdate();
   });
   native.onUpdateProgress(p => {
     if (phase === 'downloading') renderUpdate(p);
@@ -228,7 +260,7 @@ export function initUpdate() {
 
 export const updateKey = e => {
   if (e.key === 'Escape') {
-    if (phase !== 'downloading') closeUpdate();
+    if (phase !== 'downloading' && phase !== 'installing') closeUpdate();
     e.preventDefault();
     return true;
   }

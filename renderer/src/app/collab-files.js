@@ -64,18 +64,25 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
     return out;
   }
   function askPeer(s, req, waitMs = 30000) {
+    if (!s?.conn) return Promise.resolve({ type: 'file-none', reason: '连接已断开' });
     return new Promise(resolve => {
       const timer = setTimeout(() => {
         fileReqs.delete(req.rid);
         resolve({ type: 'file-none', reason: '对方没有回应' });
       }, waitMs);
-      fileReqs.set(req.rid, msg => {
+      const finish = msg => {
         clearTimeout(timer);
         fileReqs.delete(req.rid);
         resolve(msg);
-      });
+      };
+      fileReqs.set(req.rid, { pid: s.pid, finish });
       send(s, req);
     });
+  }
+  function abortSession(pid, reason = '连接已断开') {
+    for (const [, entry] of [...fileReqs.entries()]) {
+      if (entry.pid === pid) entry.finish({ type: 'file-none', reason });
+    }
   }
   /* 取一个文件。item.clip：要的是对方保存过的视频片段（{ id, url, in, out }），item.segment：存成片段文件名 */
   async function fetchOne(s, item, dir, token, waitMs) {
@@ -152,7 +159,7 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
     );
     if (committed === false || committed?.error) return false;
     if (moves.length) {
-      for (const [from, to] of moves) mapLocalPath(s, from, to);
+      for (const [from, to] of moves) mapLocalPath(s, stripLocalFrag(from), stripLocalFrag(to));
       followMovedPaths(new Map(moves));
     }
     invalidateProbe();
@@ -193,7 +200,7 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
       { projectId: pid },
     );
     if (committed === false || committed?.error || !moves.length) return false;
-    for (const [from, to] of moves) mapLocalPath(s, from, to);
+    for (const [from, to] of moves) mapLocalPath(s, stripLocalFrag(from), stripLocalFrag(to));
     followMovedPaths(new Map(moves));
     invalidateProbe();
     return true;
@@ -276,7 +283,7 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
       { projectId: s.pid },
     );
     if (committed === false || committed?.error) return;
-    if (!savedClip) mapLocalPath(s, item.path, local); // 比下一次同步早：对方收到的还是原路径
+    if (!savedClip) mapLocalPath(s, stripLocalFrag(item.path), stripLocalFrag(local)); // 比下一次同步早：对方收到的还是原路径
     if (movedFrom && !savedClip) followMovedPaths(new Map([[movedFrom, local]]));
     invalidateProbe();
   }
@@ -359,7 +366,7 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
       items.forEach((item, i) => {
         const local = r?.found?.[i];
         if (local) {
-          useFetched(s, item, local);
+          useFetched(s, item, local, { savedClip: !!wants[i]?.savedClip });
           got.push({ ...item, local });
         } else rest.push(item);
       });
@@ -414,12 +421,13 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
     const items = await Promise.all(
       list.map(async it => {
         let file = null;
+        let isSavedClip = false;
         if (it?.kind === 'voice') file = isLocalFile(p?.voice?.path) ? p.voice.path : null;
         else if (it?.kind === 'cand') file = await candSourceFile(p, it.candId ?? it.assetId);
-        else if (used.has(it?.assetId)) file = (await assetSourceFile(p, it.assetId)).file;
+        else if (used.has(it?.assetId)) ({ file, savedClip: isSavedClip } = await assetSourceFile(p, it.assetId));
         if (!isLocalFile(file)) return null;
         const r = await native.collabFileInfo(file).catch(() => null);
-        return r?.ok ? { size: r.size, fp: r.fp } : null;
+        return r?.ok ? { size: r.size, fp: r.fp, ...(isSavedClip ? { savedClip: true } : {}) } : null;
       }),
     );
     send(s, { type: 'file-info', rid: msg.rid, items });
@@ -488,6 +496,7 @@ export function createCollabFiles({ sessionOf, projectOf, metaOf, send, mapLocal
     onFindProgress,
     onRequest: onFileReq,
     onInfoRequest: onInfoReq,
-    onReply: msg => fileReqs.get(msg.rid)?.(msg),
+    onReply: msg => fileReqs.get(msg.rid)?.finish(msg),
+    abortSession,
   };
 }

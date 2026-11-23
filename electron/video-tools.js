@@ -87,6 +87,8 @@ function segmentArgs(url, start, end, out, seekAfterInput = false, localFile = f
     '0:v:0',
     '-map',
     '0:a:0?',
+    '-vf',
+    'scale=trunc(iw/2)*2:trunc(ih/2)*2',
     '-c:v',
     'libx264',
     '-preset',
@@ -117,37 +119,66 @@ function progressSeconds(chunk) {
   }
   return sec;
 }
-function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000, onProgress, env } = {}) {
+function runFfmpeg(bin, args, { timeoutMs = 10 * 60 * 1000, onProgress, env, signal } = {}) {
   return new Promise(resolve => {
+    if (signal?.aborted) return resolve({ ok: false, canceled: true, error: '已取消截取' });
     let err = '';
     let output = '';
     let frames = 0;
+    let settled = false;
+    let forcedResult = null;
+    let killGrace = null;
+    const parseLines = chunk => {
+      for (const m of chunk.matchAll(/^frame=(\d+)/gm)) frames = Math.max(frames, +m[1]);
+      const sec = progressSeconds(chunk);
+      if (sec != null && onProgress) onProgress(sec);
+    };
     const p = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], ...(env ? { env } : {}) });
+    const done = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(killGrace);
+      signal?.removeEventListener?.('abort', onAbort);
+      resolve(result);
+    };
+    const terminate = result => {
+      if (settled || forcedResult) return;
+      forcedResult = result;
+      clearTimeout(timer);
+      try {
+        p.kill('SIGKILL');
+      } catch {}
+      killGrace = setTimeout(() => done(forcedResult), 500);
+      killGrace.unref?.();
+    };
+    const onAbort = () => terminate({ ok: false, canceled: true, error: '已取消截取' });
+    signal?.addEventListener?.('abort', onAbort, { once: true });
     p.stdout.on('data', d => {
       output += d.toString();
       const end = output.lastIndexOf('\n');
       if (end < 0) return;
       const lines = output.slice(0, end + 1);
       output = output.slice(end + 1);
-      for (const m of lines.matchAll(/^frame=(\d+)/gm)) frames = Math.max(frames, +m[1]);
-      const sec = progressSeconds(lines);
-      if (sec != null && onProgress) onProgress(sec);
+      parseLines(lines);
     });
     const timer = setTimeout(() => {
-      p.kill('SIGKILL');
-      resolve({ ok: false, error: '截取超时（10 分钟），网络太慢或视频太大' });
+      terminate({ ok: false, error: '截取超时（10 分钟），网络太慢或视频太大' });
     }, timeoutMs);
     p.stderr.on('data', d => {
       err = (err + d.toString()).slice(-2000);
     });
     p.on('error', e => {
-      clearTimeout(timer);
-      resolve({ ok: false, error: '无法运行 ffmpeg：' + e.message });
+      done(forcedResult || { ok: false, error: '无法运行 ffmpeg：' + e.message });
     });
     p.on('close', code => {
-      clearTimeout(timer);
+      if (output) {
+        parseLines(output);
+        output = '';
+      }
+      if (forcedResult) return done(forcedResult);
       const empty = code === 0 && frames === 0;
-      resolve(
+      done(
         code === 0 && !empty
           ? { ok: true, frames }
           : {
@@ -200,11 +231,14 @@ function localVideoFile(p) {
 }
 async function saveSegment(
   { url, start, end, dir, name },
-  { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress, proxy = null } = {},
+  { ffmpeg = findFfmpeg(), run = runFfmpeg, onProgress, proxy = null, signal } = {},
 ) {
   const local = localVideoFile(url);
   if (!isHttpUrl(url) && !local) return { ok: false, error: '只支持在线视频链接或这台电脑上的视频文件' };
-  if (!(Number(end) > Number(start))) return { ok: false, error: '出点必须晚于入点' };
+  const startNum = Number(start);
+  const endNum = Number(end);
+  if (!Number.isFinite(startNum) || !Number.isFinite(endNum) || startNum < 0 || !(endNum > startNum))
+    return { ok: false, error: '出点必须晚于入点' };
   if (!dir || !path.isAbsolute(dir) || !fs.existsSync(dir)) return { ok: false, error: '保存位置不存在，请重新选择' };
   if (!ffmpeg)
     return {
@@ -212,21 +246,23 @@ async function saveSegment(
       needFfmpeg: true,
       error: '这台电脑上没找到 ffmpeg。在「终端」里运行 brew install ffmpeg 装好后再试。',
     };
+  if (signal?.aborted) return { ok: false, canceled: true, error: '已取消截取' };
   let out;
   try {
-    out = reservePath(dir, segmentFileBase(name, start, end), '.mp4');
+    out = reservePath(dir, segmentFileBase(name, startNum, endNum), '.mp4');
   } catch (e) {
     return { ok: false, error: '没法在保存位置建文件：' + (e.message || e) };
   }
   const tmp = tmpBeside(out) + '.mp4';
-  const dur = Math.max(0.1, Number(end) - Number(start));
+  const dur = Math.max(0.1, endNum - startNum);
   const attempt = async seekAfterInput => {
     const result = await run(
       ffmpeg,
-      segmentArgs(local || url.split('#')[0], start, end, tmp, seekAfterInput, !!local),
+      segmentArgs(local || url.split('#')[0], startNum, endNum, tmp, seekAfterInput, !!local),
       {
         onProgress: sec => onProgress?.(Math.max(0, Math.min(1, sec / dur))),
         ...(proxy && !local ? { env: { ...process.env, http_proxy: proxy, https_proxy: proxy } } : {}),
+        ...(signal ? { signal } : {}),
       },
     );
     if (!result.ok) return result;
@@ -239,8 +275,14 @@ async function saveSegment(
   let r;
   try {
     r = await attempt(false);
-    // 一些视频站点拒绝随机跳转请求，却允许从头顺序读取；只在空片段或限流时再试一次。
-    if (!r.ok && /没有截到|HTTP 429|Too many requests/i.test(r.error || '')) {
+    // 一些视频站点拒绝随机跳转请求，却允许从头顺序读取；只在空片段（非 429 限流、非取消）时再试一次。
+    if (
+      !r.ok &&
+      !r.canceled &&
+      !signal?.aborted &&
+      /没有截到/.test(r.error || '') &&
+      !/HTTP\s*(?:error\s*)?429|Too many requests/i.test(r.error || '')
+    ) {
       removeQuiet(tmp);
       onProgress?.(0);
       r = await attempt(true);
@@ -261,19 +303,126 @@ async function saveSegment(
 /* 下载：跟随重定向（只跟到 http / https），30 秒没有任何数据就算超时，可以取消（signal），
    进度最多每 250 毫秒报一次；写到随机临时文件，完整收到后再改名 */
 const DOWNLOAD_IDLE_MS = 30 * 1000;
-function downloadFile(url, dest, { get, maxRedirects = 6, onProgress, signal, idleMs = DOWNLOAD_IDLE_MS } = {}) {
-  const getter = get || (u => (u.startsWith('https:') ? require('node:https') : require('node:http')).get(u));
+function proxiedGet(u, proxyUrl) {
+  const http = require('node:http');
+  const https = require('node:https');
+  const tls = require('node:tls');
+  const { EventEmitter } = require('node:events');
+  const target = new URL(u);
+  const proxy = new URL(proxyUrl);
+  const proxyPort = Number(proxy.port) || 80;
+  if (target.protocol === 'http:') {
+    return http.get({
+      host: proxy.hostname,
+      port: proxyPort,
+      path: u,
+      headers: { Host: target.host },
+    });
+  }
+  const wrapper = new EventEmitter();
+  let innerReq = null;
+  let tunnelSocket = null;
+  let destroyed = false;
+  let idleTimeoutMs = 0;
+  let idleTimeoutCb = null;
+  const connectReq = http.request({
+    host: proxy.hostname,
+    port: proxyPort,
+    method: 'CONNECT',
+    path: `${target.hostname}:${target.port || 443}`,
+  });
+  wrapper.setTimeout = (ms, cb) => {
+    idleTimeoutMs = ms;
+    idleTimeoutCb = cb;
+    connectReq.setTimeout(ms, cb);
+    innerReq?.setTimeout?.(ms, cb);
+    return wrapper;
+  };
+  wrapper.destroy = () => {
+    destroyed = true;
+    try {
+      connectReq.destroy();
+    } catch {}
+    try {
+      innerReq?.destroy?.();
+    } catch {}
+    try {
+      tunnelSocket?.destroy?.();
+    } catch {}
+  };
+  connectReq.on('connect', (proxyRes, socket) => {
+    tunnelSocket = socket;
+    if (destroyed) {
+      socket.destroy();
+      return;
+    }
+    if (proxyRes.statusCode !== 200) {
+      socket.destroy();
+      wrapper.emit('error', new Error(`代理连接失败：HTTP ${proxyRes.statusCode}`));
+      return;
+    }
+    innerReq = https.get({
+      host: target.hostname,
+      port: Number(target.port) || 443,
+      path: target.pathname + target.search,
+      headers: { Host: target.host },
+      agent: false,
+      createConnection: () => tls.connect({ socket, servername: target.hostname }),
+    });
+    if (idleTimeoutMs && idleTimeoutCb) innerReq.setTimeout(idleTimeoutMs, idleTimeoutCb);
+    innerReq.on('response', res => wrapper.emit('response', res));
+    innerReq.on('error', err => wrapper.emit('error', err));
+  });
+  connectReq.on('error', err => wrapper.emit('error', err));
+  connectReq.end();
+  return wrapper;
+}
+function downloadFile(
+  url,
+  dest,
+  { get, maxRedirects = 6, onProgress, signal, idleMs = DOWNLOAD_IDLE_MS, proxy = null } = {},
+) {
+  const getter =
+    get ||
+    (proxy
+      ? u => proxiedGet(u, proxy)
+      : u => (u.startsWith('https:') ? require('node:https') : require('node:http')).get(u));
   return new Promise(resolve => {
     let settled = false;
-    let cleanup = () => {};
+    let activeReq = null;
+    let activeRes = null;
+    let activeStream = null;
+    let activeTmp = null;
+    const teardown = removeTmp => {
+      signal?.removeEventListener?.('abort', onAbort);
+      try {
+        activeReq?.destroy?.();
+      } catch {}
+      try {
+        activeRes?.destroy?.();
+      } catch {}
+      if (activeStream) {
+        try {
+          activeStream.destroy();
+        } catch {}
+        activeStream = null;
+      }
+      if (removeTmp && activeTmp) {
+        removeQuiet(activeTmp);
+        activeTmp = null;
+      }
+    };
     const finish = r => {
       if (settled) return;
       settled = true;
-      cleanup();
+      teardown(!r.ok);
       resolve(r);
     };
+    const onAbort = () => finish({ ok: false, canceled: true, error: '已取消下载' });
     if (signal?.aborted) return finish({ ok: false, canceled: true, error: '已取消下载' });
+    signal?.addEventListener?.('abort', onAbort, { once: true });
     const go = (u, left) => {
+      if (settled) return;
       let req;
       try {
         req = getter(u);
@@ -281,19 +430,18 @@ function downloadFile(url, dest, { get, maxRedirects = 6, onProgress, signal, id
         finish({ ok: false, error: String(e.message || e) });
         return;
       }
-      const onAbort = () => {
-        req.destroy?.();
-        finish({ ok: false, canceled: true, error: '已取消下载' });
-      };
-      signal?.addEventListener?.('abort', onAbort, { once: true });
+      activeReq = req;
       req.setTimeout?.(idleMs, () => {
-        req.destroy?.();
+        if (req !== activeReq) return;
         finish({ ok: false, error: `下载超时：${Math.round(idleMs / 1000)} 秒没有收到数据` });
       });
       req.on('response', res => {
+        if (settled || req !== activeReq) {
+          res.resume?.();
+          return;
+        }
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && left > 0) {
           res.resume();
-          signal?.removeEventListener?.('abort', onAbort);
           let next;
           try {
             next = new URL(res.headers.location, u).href;
@@ -313,21 +461,15 @@ function downloadFile(url, dest, { get, maxRedirects = 6, onProgress, signal, id
           finish({ ok: false, error: `下载失败：HTTP ${res.statusCode}` });
           return;
         }
+        activeRes = res;
         const total = Number(res.headers['content-length']) || 0;
         let got = 0,
           lastTick = 0;
         const tmp = tmpBeside(dest);
+        activeTmp = tmp;
         const f = fs.createWriteStream(tmp);
-        cleanup = () => {
-          signal?.removeEventListener?.('abort', onAbort);
-        };
-        const fail = e => {
-          res.destroy?.();
-          f.destroy();
-          removeQuiet(tmp);
-          finish({ ok: false, error: String((e && e.message) || e) });
-        };
-        signal?.addEventListener?.('abort', () => fail(new Error('已取消下载')), { once: true });
+        activeStream = f;
+        const fail = e => finish({ ok: false, error: String((e && e.message) || e) });
         res.on('data', d => {
           got += d.length;
           const now = Date.now();
@@ -343,9 +485,11 @@ function downloadFile(url, dest, { get, maxRedirects = 6, onProgress, signal, id
             if (total && got < total) return fail(new Error('下载不完整，连接中途断开了'));
             try {
               fs.renameSync(tmp, dest);
+              activeTmp = null;
             } catch (e) {
               return fail(e);
             }
+            activeStream = null;
             onProgress?.(got, total || got);
             finish({ ok: true, path: dest, bytes: got });
           });
@@ -354,7 +498,10 @@ function downloadFile(url, dest, { get, maxRedirects = 6, onProgress, signal, id
         res.on('aborted', () => fail(new Error('下载中断，连接被关闭')));
         f.on('error', fail);
       });
-      req.on('error', e => finish({ ok: false, error: String(e.message || e) }));
+      req.on('error', e => {
+        if (req !== activeReq) return;
+        finish({ ok: false, error: String(e.message || e) });
+      });
     };
     go(url, maxRedirects);
   });
@@ -363,7 +510,8 @@ async function downloadOriginal({ url, dir, name }, opts = {}) {
   if (!isHttpUrl(url)) return { ok: false, error: '只支持在线视频链接' };
   if (!dir || !path.isAbsolute(dir) || !fs.existsSync(dir)) return { ok: false, error: '保存位置不存在，请重新选择' };
   const clean = url.split('#')[0];
-  const ext = (path.extname(new URL(clean).pathname) || '.mp4').toLowerCase().slice(0, 6);
+  const rawExt = path.extname(new URL(clean).pathname).toLowerCase();
+  const ext = VIDEO_EXT.has(rawExt) ? rawExt : '.mp4';
   let dest;
   try {
     dest = reservePath(dir, `${safeName(name)}_完整原片`, ext);

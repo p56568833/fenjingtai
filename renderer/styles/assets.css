@@ -37,9 +37,15 @@ body.dark ::-webkit-scrollbar-thumb {
   border: 0;
   background: color-mix(in srgb, var(--card) 60%, transparent);
   padding: 4px;
+  user-select: none;
   transition:
     background-color 0.16s,
     box-shadow 0.16s;
+}
+.row-asset:focus-visible,
+.asset-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .row-asset:hover {
   border-color: var(--accent);
@@ -124,6 +130,7 @@ body.dark ::-webkit-scrollbar-thumb {
   color: var(--text);
   cursor: pointer;
   padding: 0;
+  user-select: none;
 }
 .asset-open:hover .asset-caption strong {
   color: var(--accent);

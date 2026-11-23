@@ -36,6 +36,7 @@ import { saveAllApproved, autoSaveApproved, downloadOriginal, ensureMediaDir, ba
 import { forgetFrames, clearReviewFrames, previewOf } from './review-frames.js';
 
 import { CANDIDATE_VERSION, localVideoPath } from '../core/candidate-values.js';
+import { isBilingualProject } from '../core/bilingual.js';
 import {
   isReviewPlaybackOpen,
   toggleReviewPlayback,
@@ -44,7 +45,7 @@ import {
   seekReviewPlayback,
 } from './review-playback.js';
 import { createReviewPreview } from './review-preview.js';
-import { togglePause, seekTrack, stopAllVideos, setVoiceOn } from './clip-player.js';
+import { togglePause, seekTrack, stopAllVideos, setVoiceOn, cycleClipCc } from './clip-player.js';
 import * as nat from '../platform/native.js';
 import { toast, confirmModal, esc } from '../ui/base/dom.js';
 import { slideIn } from '../ui/base/anim.js';
@@ -75,7 +76,7 @@ const native = name => nat[name];
 
 const preview = createReviewPreview({
   host: () => $('#vrPreview'),
-  card: id => $('#vrList')?.querySelector(`[data-vr-id="${CSS.escape(id)}"]`),
+  card: id => $('#vrList')?.querySelector(`[data-vr-id="${CSS.escape(String(id))}"]`),
   selectedCandidate: () => page.curCand,
   pause: pauseReviewPlayback,
   // 审核页的预览盖在排好的画面上，收起就回到画面时间；待返工页的预览在否掉的候选下面，只是收起
@@ -330,11 +331,11 @@ function openBatchMenu(anchor) {
 }
 /* 键盘：1 通过 · 2 不要 · ↑↓ 换候选 · ←→ 换画面 · 空格 播放 / 暂停这段。在意见框里打字时不抢键 */
 function videoReviewKey(e) {
-  if (e.target?.closest?.('.vr-note, select, textarea')) {
+  if (e.target?.closest?.('.vr-note, input:not([type="checkbox"]):not([type="radio"]), select, textarea')) {
     // 意见框回车收起；返工要求是多行的，回车照常换行，Esc 收起
     if (
       (e.key === 'Enter' && !e.target.matches('textarea')) ||
-      (e.key === 'Escape' && e.target.matches('.vr-note, textarea'))
+      (e.key === 'Escape' && e.target.matches('.vr-note, input, textarea'))
     ) {
       e.preventDefault();
       e.target.blur();
@@ -357,11 +358,16 @@ function videoReviewKey(e) {
       if (ids[j] != null) selectRework(ids[j]);
       return true;
     }
+    if ((e.key === 'c' || e.key === 'C') && isBilingualProject(state) && previewingId()) {
+      e.preventDefault();
+      cycleClipCc();
+      return true;
+    }
     if (e.key !== ' ') return false;
     e.preventDefault();
     const pv = previewingId();
     const c = pv && state.candidates.find(x => x.id === pv);
-    if (c) togglePause(previewHost(), previewOf(c));
+    if (c && !togglePause(previewHost(), previewOf(c))) play(c.id);
     return true;
   }
   // ↑↓ 走右栏顶上这个画面的候选，顺序和标签一样
@@ -371,7 +377,7 @@ function videoReviewKey(e) {
     if (!open.length) return;
     page.curCand = open[Math.max(0, Math.min(open.length - 1, (k < 0 ? 0 : k) + d))].id;
     renderVideoReview();
-    $(`#vrList [data-vr-pick="${page.curCand}"]`)?.scrollIntoView({ block: 'nearest' });
+    $(`#vrList [data-vr-pick="${CSS.escape(String(page.curCand))}"]`)?.scrollIntoView({ block: 'nearest' });
   };
   const DKEYS = { 1: 'ok', 2: 'no' };
   if (DKEYS[e.key]) {
@@ -394,20 +400,33 @@ function videoReviewKey(e) {
   }
   // I / O：把选中的画面裁到播放位置（和「对着口播看画面」一样）
   if (/^[ioIO]$/.test(e.key) && isReviewPlaybackOpen()) return reviewPlaybackKey(e);
+  if ((e.key === 'c' || e.key === 'C') && isBilingualProject(state)) {
+    if (previewingId()) {
+      e.preventDefault();
+      cycleClipCc();
+      return true;
+    }
+    if (isReviewPlaybackOpen()) return reviewPlaybackKey(e);
+  }
   if (e.key === ' ') {
     e.preventDefault();
     // 审核页：候选正盖在左边播放器上时，空格暂停 / 继续这个候选；没有候选盖着就播 / 停排好的画面
     const pv = previewingId();
     if (pv) {
       const c = state.candidates.find(x => x.id === pv);
-      if (c) togglePause(previewHost(), previewOf(c));
+      if (c && !togglePause(previewHost(), previewOf(c))) play(c.id);
       return true;
     }
     // 有左边播放器（审核页）就播 / 停排好的画面；待返工页没有，才在卡片里播当前候选
     if (toggleReviewPlayback() || !page.curCand) return true;
-    const card = $(`#vrList [data-vr-id="${page.curCand}"]`);
     const c = state.candidates.find(x => x.id === page.curCand);
     pauseReviewPlayback();
+    const host = previewHost();
+    if (host && c) {
+      if (!togglePause(host, previewOf(c))) play(page.curCand);
+      return true;
+    }
+    const card = $(`#vrList [data-vr-id="${CSS.escape(String(page.curCand))}"]`);
     if (!card || !c || !togglePause(card, previewOf(c))) play(page.curCand);
     return true;
   }
@@ -513,10 +532,15 @@ export function initVideoReview() {
       showTimeline();
       return seekReviewPlayback(+seekTo.dataset.vrSeek);
     }
-    // 截图：从这一帧开始，在左边播放器里播
-    const cell = t.closest('.vr-cand .vr-cell[data-vr-at]');
-    if (cell && card) return play(card.dataset.vrId, +cell.dataset.vrAt);
+    // 截图：从这一帧开始，在左边播放器里播（含待返工页的否掉候选封面）
+    const cell = t.closest('.vr-cand .vr-cell[data-vr-at], .vr-rw-ref .vr-cell[data-vr-at]');
+    const owner = cell?.closest('[data-vr-id]');
+    if (cell && owner) return play(owner.dataset.vrId, +cell.dataset.vrAt);
     // 片段播放器（审核页在左边的候选预览里，待返工页在卡片里）
+    if (t.closest('[data-vr-cc]')) {
+      cycleClipCc();
+      return;
+    }
     const player = t.closest('#vrPreview') || card;
     const track = t.closest('[data-vr-track]');
     if (track) {
@@ -636,6 +660,7 @@ export function initVideoReview() {
     prefetchToken++;
     prefetchAgain = false;
     peerMissingMemo.clear();
+    cancelAdvance();
     closeBatchName();
     renderer.reset();
     cards.reset();

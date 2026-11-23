@@ -84,7 +84,8 @@
 body.dark .row.unannotated .sent {
   color: #b6bfd0;
 }
-.sent[contenteditable='true'] {
+.sent[contenteditable='true'],
+.sent[contenteditable='plaintext-only'] {
   outline: none;
   background: var(--card);
   box-shadow: 0 0 0 2px rgba(59, 116, 232, 0.35);
@@ -92,7 +93,8 @@ body.dark .row.unannotated .sent {
   margin: -4px -10px;
   min-width: 60px;
 }
-.sent[contenteditable='true']:empty::before {
+.sent[contenteditable='true']:empty::before,
+.sent[contenteditable='plaintext-only']:empty::before {
   content: '输入这句口播…';
   color: var(--text-3);
   pointer-events: none;
@@ -271,7 +273,8 @@ body.dark .note:empty::before {
 .section-row:hover .name {
   color: var(--text);
 }
-.name[contenteditable='true'] {
+.name[contenteditable='true'],
+.name[contenteditable='plaintext-only'] {
   outline: none;
   cursor: text;
   user-select: text;
@@ -281,7 +284,8 @@ body.dark .note:empty::before {
   margin: -3px -8px;
   border-radius: 6px;
 }
-.name[contenteditable='true']:empty::before {
+.name[contenteditable='true']:empty::before,
+.name[contenteditable='plaintext-only']:empty::before {
   content: '输入章节名';
   color: var(--text-3);
   pointer-events: none;
@@ -538,6 +542,8 @@ body.compact .section-row {
     font-size: 10.5px;
     gap: 4px;
     padding: 0 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -581,4 +587,76 @@ body.compact .rows .note:not(:focus) {
 }
 body.compact :is(.rows, .sec-block) > .row {
   contain-intrinsic-size: auto 48px;
+}
+
+/* ═════════ 英配中字模式（英文原文 + 中文字幕对照） ═════════ */
+.sent-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mode-en-zh .sent {
+  font-size: 15px;
+  line-height: 1.56;
+  letter-spacing: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+.sent-sub {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+  padding: 2px 6px;
+  margin: 0 -6px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+  min-height: 1.55em;
+}
+body.dark .sent-sub {
+  color: #9ba8be;
+}
+.sent-sub:hover {
+  background: rgba(120, 132, 158, 0.07);
+}
+body.dark .sent-sub:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.sent-sub:focus {
+  background: var(--card);
+  border-color: rgba(59, 116, 232, 0.45);
+  color: var(--text);
+}
+body.dark .sent-sub:focus {
+  color: var(--text);
+}
+.sent-sub:empty::before {
+  content: attr(data-ph);
+  color: var(--text-3);
+  opacity: 0.45;
+  pointer-events: none;
+  font-size: 12.5px;
+}
+.row:hover .sent-sub:empty::before,
+.sent-sub:focus:empty::before {
+  opacity: 0.72;
+}
+#tablePage.hide-subs .sent-sub {
+  display: none;
+}
+body.compact .mode-en-zh .sent {
+  font-size: 13.5px;
+  line-height: 1.44;
+}
+body.compact .sent-cell {
+  gap: 2px;
+}
+body.compact .sent-sub {
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 1px 6px;
 }

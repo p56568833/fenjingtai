@@ -187,11 +187,18 @@ function byTimes(items, owner, dur) {
   let from = Math.max(0, ...placed.map(x => x.end));
   let to = dur;
   if (to - from < MIN_LEN * loose.length) {
-    const last = placed.reduce((a, b) => (b.end > a.end ? b : a), placed[0]);
-    const mid = (last.start + Math.min(last.end, dur)) / 2;
-    to = Math.min(last.end, dur);
-    last.end = mid;
-    from = mid;
+    const usable = placed.filter(x => x.start < dur - MIN_LEN);
+    if (usable.length) {
+      const last = usable.reduce((a, b) => (b.end > a.end ? b : a), usable[0]);
+      const end = Math.min(last.end, dur);
+      const mid = (last.start + end) / 2;
+      last.end = mid;
+      from = mid;
+      to = end;
+    } else {
+      from = 0;
+      to = Math.max(0, dur);
+    }
   }
   const step = Math.max(0, to - from) / loose.length;
   loose.forEach((it, k) => {

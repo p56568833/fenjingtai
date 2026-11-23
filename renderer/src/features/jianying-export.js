@@ -4,8 +4,10 @@
    这里只保留初始化、命令与弹窗注册、DOM 事件绑定和问题定位（定位要用项目数据，不能放进 view）。
    原有交互不变：首屏配置 → 执行进度 → 结果页，关闭窗口任务继续，完成后用提示带回结果。 */
 import { state } from '../app/state.js';
+import { on } from '../app/events.js';
 import { rowById } from '../app/project-queries.js';
 import { usageList } from '../core/asset-model.js';
+import { isBilingualProject } from '../core/bilingual.js';
 import { toast } from '../ui/base/dom.js';
 import { registerModal } from '../ui/base/modal.js';
 import { closePop } from '../ui/base/popover.js';
@@ -23,6 +25,7 @@ function readForm() {
   const [width, height] = String($('#jyCanvas').value || '1920x1080')
     .split('x')
     .map(Number);
+  const bilingual = isBilingualProject(state);
   return {
     name: $('#jyName').value.trim() || state.title || '未命名项目',
     mode: document.querySelector('input[name="jyMode"]:checked')?.value === 'folder' ? 'folder' : 'library',
@@ -32,6 +35,7 @@ function readForm() {
       fps: Number($('#jyFps').value) || 30,
       subtitles: !!$('#jySubs').checked,
       altAssets: !!$('#jyAlt').checked,
+      subtitleLang: bilingual ? $('#jySubLang')?.value || 'zh' : 'source',
     },
     confirm: !!$('#jyConfirm').checked,
   };
@@ -42,8 +46,15 @@ function firstRowForAsset(assetId) {
   return state.rows.find(row => row.kind === 'line' && usageList(row).some(usage => usage.assetId === assetId));
 }
 
-function issueRow(issue) {
+function issueRow(issue, scope = 'config') {
   if (!issue) return null;
+  const ctrlState = jianyingExportController.getState();
+  if (
+    scope === 'done' &&
+    (ctrlState.lastDone?.result?.projectChanged ||
+      (ctrlState.lastDone?.result?.projectId && ctrlState.lastDone.result.projectId !== state.projectId))
+  )
+    return null;
   if (issue.rowId != null) {
     const row = rowById(issue.rowId);
     if (row) return row;
@@ -59,9 +70,10 @@ function issueRow(issue) {
 function onIssueClick(event) {
   const button = event.target.closest('[data-jy-issue]');
   if (!button) return;
-  const issue = jianyingExportController.issueAt(button.dataset.jyScope, Number(button.dataset.jyIssue));
+  const scope = button.dataset.jyScope;
+  const issue = jianyingExportController.issueAt(scope, Number(button.dataset.jyIssue));
   if (!issue) return;
-  const row = issueRow(issue);
+  const row = issueRow(issue, scope);
   if (!row) return toast('这一项对应的内容已经不在当前项目里', null, 'info');
   closeJianyingExport();
   runCommand('nav:jump', row.id);
@@ -73,7 +85,7 @@ export function openJianyingExport() {
   if (view.isJianyingExportViewShown()) return;
   closePop();
   view.showJianyingExportView();
-  void jianyingExportController.open({ title: state.title });
+  void jianyingExportController.open({ title: state.title, bilingual: isBilingualProject(state) });
 }
 
 function closeJianyingExport() {
@@ -106,7 +118,7 @@ async function requestCancel() {
 }
 
 async function backToConfig() {
-  await jianyingExportController.backToConfig({ title: state.title });
+  await jianyingExportController.backToConfig({ title: state.title, bilingual: isBilingualProject(state) });
 }
 
 async function revealDraft() {
@@ -157,7 +169,7 @@ export function initJianyingExport() {
     .forEach(input =>
       input.addEventListener('change', () => jianyingExportController.updateForm(readForm(), { persist: true })),
     );
-  for (const id of ['jyCanvas', 'jyFps', 'jySubs', 'jyAlt'])
+  for (const id of ['jyCanvas', 'jyFps', 'jySubs', 'jySubLang', 'jyAlt'])
     $(`#${id}`).addEventListener('change', () =>
       jianyingExportController.updateForm(readForm(), { persist: true, reprepare: true }),
     );
@@ -165,6 +177,12 @@ export function initJianyingExport() {
   $('#jyConfirm').addEventListener('change', () => jianyingExportController.updateForm(readForm()));
   $('#jyIssues').addEventListener('click', onIssueClick);
   $('#jyDoneIssues').addEventListener('click', onIssueClick);
+  on('project-loaded', () => {
+    if (!view.isJianyingExportViewShown()) return;
+    const current = jianyingExportController.getState();
+    if (current.pane === 'config') closeJianyingExport();
+    else if (current.pane === 'done') view.renderJianyingExportView(current, { locateIssue: issueRow });
+  });
   registerModal('jianyingMask', { close: closeJianyingExport, enter: onEnter });
   registerCommand('jianying:export', openJianyingExport);
 }

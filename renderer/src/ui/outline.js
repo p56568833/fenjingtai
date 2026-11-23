@@ -3,6 +3,7 @@ import { viewState } from '../app/view-state.js';
 import { state } from '../app/state.js';
 import { esc } from './base/dom.js';
 import { glide, leave, cancelLeave, reduced, EASE_OUT } from './base/motion.js';
+import { preserveReadingPosition } from './reading-position.js';
 
 let outlineOpen = true;
 let lastKey = '';
@@ -90,12 +91,14 @@ export function renderOutline() {
     lastKey = key;
     document.querySelector('#outline').innerHTML =
       `<div class="side-title">章节 <span>${sections.length}</span></div>` +
-        items
-          .map(
-            s =>
-              `<div class="outline-item" role="button" tabindex="0" data-jump="${s.jump}"${s.sectionId != null ? ` data-sec="${s.sectionId}"` : ''}><span class="name">${esc(s.text)}</span><small>${s.n} 句 · ${s.todo ? '未标 ' + s.todo : '已标完'}</small>${s.sectionId != null ? `<span class="outline-more" data-sec-more="${s.sectionId}" role="button" title="章节操作（也可以右键）" aria-label="「${esc(s.text)}」章节操作">···</span>` : ''}</div>`,
-          )
-          .join('') || '<div class="side-empty">导入口播稿后开始</div>';
+      (items.length
+        ? items
+            .map(
+              s =>
+                `<div class="outline-item" role="button" tabindex="0" data-jump="${s.jump}"${s.sectionId != null ? ` data-sec="${s.sectionId}"` : ''}><span class="name">${esc(s.text)}</span><small>${s.n} 句 · ${s.todo ? '未标 ' + s.todo : '已标完'}</small>${s.sectionId != null ? `<span class="outline-more" data-sec-more="${s.sectionId}" role="button" title="章节操作（也可以右键）" aria-label="「${esc(s.text)}」章节操作">···</span>` : ''}</div>`,
+            )
+            .join('')
+        : '<div class="side-empty">导入口播稿后开始</div>');
   }
   scheduleActiveOutline();
 }
@@ -108,6 +111,7 @@ export function initOutline() {
   outline.addEventListener('keydown', e => {
     if (!e.target.classList?.contains('outline-item') || (e.key !== 'Enter' && e.key !== ' ')) return;
     e.preventDefault();
+    e.stopPropagation();
     e.target.click();
   });
   btn.onclick = () => {
@@ -118,7 +122,9 @@ export function initOutline() {
     const w = outline.offsetWidth || 175;
     if (outlineOpen) {
       cancelLeave(outline);
-      outline.hidden = false;
+      preserveReadingPosition(() => {
+        outline.hidden = false;
+      });
       lastKey = '';
       renderOutline();
       if (!reduced())
@@ -138,7 +144,10 @@ export function initOutline() {
         ],
         { duration: 260, easing: EASE_OUT },
         () => {
-          if (!outlineOpen) outline.hidden = true;
+          if (!outlineOpen)
+            preserveReadingPosition(() => {
+              outline.hidden = true;
+            });
         },
       );
   };

@@ -4,7 +4,7 @@
    - 数据文件读不出来：原文件改名保留（不覆盖），自动用最近一份能读的备份顶上，并把情况告诉界面 */
 const fs = require('node:fs');
 const path = require('node:path');
-const { writeAtomic } = require('./fs-utils');
+const { writeAtomic, freePath } = require('./fs-utils');
 
 const BACKUP_INTERVAL = 30 * 60 * 1000;
 const DAY = 24 * 3600 * 1000;
@@ -56,13 +56,27 @@ function createStore(dataDir) {
   let writeBlocked = false;
   let writeBlockedReason = '';
 
+  const backupSeq = name => {
+    const m = name.match(/ \((\d+)\)\.json$/i);
+    return m ? +m[1] : 1;
+  };
+  const backupBase = name => name.replace(/ \(\d+\)\.json$/i, '.json');
+
   function listBackups() {
     try {
-      return fs
-        .readdirSync(BACKUPS())
-        .filter(f => /\.json$/i.test(f))
-        .map(f => ({ f, t: fs.statSync(path.join(BACKUPS(), f)).mtimeMs }))
-        .sort((a, b) => b.t - a.t);
+      const dir = BACKUPS();
+      const out = [];
+      for (const f of fs.readdirSync(dir)) {
+        if (!/\.json$/i.test(f)) continue;
+        try {
+          out.push({ f, t: fs.statSync(path.join(dir, f)).mtimeMs });
+        } catch {
+          /* 单个坏项跳过，不清空全部备份 */
+        }
+      }
+      return out.sort(
+        (a, b) => b.t - a.t || backupBase(b.f).localeCompare(backupBase(a.f)) || backupSeq(b.f) - backupSeq(a.f),
+      );
     } catch {
       return [];
     }
@@ -81,7 +95,7 @@ function createStore(dataDir) {
     try {
       if (!fs.existsSync(LIB())) return;
       fs.mkdirSync(BACKUPS(), { recursive: true });
-      fs.copyFileSync(LIB(), path.join(BACKUPS(), `备份-${stamp(now)}.json`));
+      fs.copyFileSync(LIB(), freePath(BACKUPS(), `备份-${stamp(now)}`, '.json'));
       lastBackupAt = now; // 复制成功才算备份过；失败了下次保存时再试，不会空等 30 分钟
       backupError = null;
       prune(now);
@@ -91,7 +105,12 @@ function createStore(dataDir) {
   }
 
   const validLibrary = d =>
-    d && typeof d === 'object' && !Array.isArray(d) && d.projects && typeof d.projects === 'object';
+    d &&
+    typeof d === 'object' &&
+    !Array.isArray(d) &&
+    d.projects &&
+    typeof d.projects === 'object' &&
+    !Array.isArray(d.projects);
   /* 单个项目能不能载入：至少要有句子数组 */
   const validProject = p => p && typeof p === 'object' && Array.isArray(p.rows);
   /* 把结构坏掉的项目挪到 quarantine 里（原样保留在数据文件中，不删），其余项目照常打开 */
@@ -145,24 +164,38 @@ function createStore(dataDir) {
         return (cache = null);
       }
       for (const b of listBackups()) {
+        let data;
         try {
-          const data = JSON.parse(fs.readFileSync(path.join(BACKUPS(), b.f), 'utf8'));
+          data = JSON.parse(fs.readFileSync(path.join(BACKUPS(), b.f), 'utf8'));
           if (!validLibrary(data)) continue;
           quarantineBroken(data);
           if (!Object.keys(data.projects).length) continue;
-          writeAtomic(file, JSON.stringify(data));
-          loadInfo = {
-            status: 'recovered',
-            from: b.f,
-            fromTime: b.t,
-            kept: path.basename(kept),
-            error: String(err.message || err),
-            writeBlocked: false,
-          };
-          return (cache = data);
         } catch {
           /* 这份备份也读不了，试下一份 */
+          continue;
         }
+        try {
+          writeAtomic(file, JSON.stringify(data));
+        } catch (writeErr) {
+          writeBlocked = true;
+          writeBlockedReason = `找到可用备份，但写回主库失败：${String(writeErr?.message || writeErr)}`;
+          loadInfo = {
+            status: 'corrupt',
+            kept: path.basename(kept),
+            error: writeBlockedReason,
+            writeBlocked: true,
+          };
+          return (cache = null);
+        }
+        loadInfo = {
+          status: 'recovered',
+          from: b.f,
+          fromTime: b.t,
+          kept: path.basename(kept),
+          error: String(err.message || err),
+          writeBlocked: false,
+        };
+        return (cache = data);
       }
       loadInfo = {
         status: 'corrupt',
@@ -180,8 +213,13 @@ function createStore(dataDir) {
     if (!patch || typeof patch !== 'object') throw new Error('无效的保存内容');
     if (patch.full) {
       if (!validLibrary(patch.full)) throw new Error('无效的项目库');
+      const projects = {};
+      for (const [id, p] of Object.entries(patch.full.projects)) {
+        if (validProject(p)) projects[id] = p;
+      }
+      if (!Object.keys(projects).length) throw new Error('拒绝写入空的项目库');
       // 整库替换（恢复备份）前先把现在的库备份一份，恢复错了还能回来
-      const full = { ...patch.full };
+      const full = { ...patch.full, projects };
       if (cache?.quarantine && !full.quarantine) full.quarantine = cache.quarantine;
       return save(full, { forceBackup: true });
     }

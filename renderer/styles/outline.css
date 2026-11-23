@@ -34,6 +34,7 @@
   line-height: 1.55;
   display: block;
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 .outline-item small {
   display: block;
@@ -102,7 +103,8 @@
   background: var(--hairline);
   color: var(--text);
 }
-.outline-item .name[contenteditable='true'] {
+.outline-item .name[contenteditable='true'],
+.outline-item .name[contenteditable='plaintext-only'] {
   margin: -3px -6px;
   padding: 3px 6px;
   color: var(--text);

@@ -12,7 +12,7 @@ import { usageList, assetUsageRefs, checkClip } from '../core/asset-model.js';
 import { fmtTime } from '../core/text.js';
 import * as native from '../platform/native.js';
 import { esc, toast, confirmModal } from './base/dom.js';
-import { openMenu, closePop, markPopAnchor } from './base/popover.js';
+import { openMenu, closePop, popOpenFor, markPopAnchor } from './base/popover.js';
 import { clearPreviewCache } from './base/media.js';
 import { refreshThumb } from './asset-thumbs.js';
 import { missingPaths } from './asset-files.js';
@@ -92,6 +92,7 @@ function showDiffModal(title, diffs, onOk) {
 
 /* 重新定位失联文件：先说清有几处引用，选新文件后一起修好；时长不兼容只标记不改时间 */
 async function relocateFlow(row, index, done) {
+  const pid = state.projectId;
   const u = usageList(row)[index];
   const asset = u && (state.assets || {})[u.assetId];
   if (!asset) return;
@@ -102,13 +103,17 @@ async function relocateFlow(row, index, done) {
     `「${asset.name}」在本项目有 ${n} 处引用。选好新文件后这 ${n} 处一起修好；原文件名、原路径和片段设置都会保留可查。`,
     '选择新文件',
     async () => {
+      if (state.projectId !== pid) return;
       const newPath = await native.pickOneAsset();
-      if (!newPath) return;
+      if (!newPath || state.projectId !== pid) return;
       const duration = await probeDuration(newPath);
+      if (state.projectId !== pid || !(state.assets || {})[asset.id]) return;
+      const currentRefs = assetUsageRefs(state.rows, asset.id);
+      const count = currentRefs.length;
       let warn = '';
       if (duration != null) {
         let bad = 0;
-        for (const ref of refs)
+        for (const ref of currentRefs)
           for (const x of usageList(ref.row))
             if (x.assetId === asset.id && x.clip && checkClip(x.clip, duration)) bad++;
         if (bad)
@@ -116,15 +121,16 @@ async function relocateFlow(row, index, done) {
       }
       confirmModal(
         '用这个文件替换？',
-        `${newPath}\n\n${n} 处引用同步修复。移除关联从不删除本地文件。${warn}`,
+        `${newPath}\n\n${count} 处引用同步修复。移除关联从不删除本地文件。${warn}`,
         '替换',
         () => {
+          if (state.projectId !== pid || !(state.assets || {})[asset.id]) return;
           const res = relocateAsset(asset.id, newPath, { durationSec: duration });
           invalidateProbe();
           clearPreviewCache();
           refreshThumb(newPath);
           toast(
-            `已重新定位，${n} 处引用修好${res && res.adjusted ? ` · ${res.adjusted} 处片段待调整` : ''}`,
+            `已重新定位，${count} 处引用修好${res && res.adjusted ? ` · ${res.adjusted} 处片段待调整` : ''}`,
             null,
             'ok',
           );
@@ -177,12 +183,13 @@ function onShotAction(item) {
 
 /* 按文件夹批量找回失联素材：选一个文件夹，按文件名匹配（同名多个时不猜） */
 async function relinkFolderFlow() {
+  const pid = state.projectId;
   const missingIds = Object.values(state.assets || {})
     .filter(a => missingPaths().has(a.path))
     .map(a => a.id);
   if (!missingIds.length) return toast('没有失联的素材', null, 'info');
   const files = await native.pickFolderFiles();
-  if (!files) return;
+  if (!files || state.projectId !== pid) return;
   const n = relinkByNames(missingIds, files);
   clearPreviewCache();
   toast(
@@ -208,13 +215,17 @@ export function initShotMenu() {
       </div>
     </div>`,
   );
+  $('#diffMask').addEventListener('click', e => {
+    if (e.target.id === 'diffMask') $('#diffMask').classList.remove('show');
+  });
   document.addEventListener(
     'click',
     e => {
       const gmore = e.target.closest('[data-group-more]');
       if (gmore) {
         e.stopPropagation();
-        openGroupMenu(gmore, gmore.dataset.groupMore);
+        if (popOpenFor(gmore)) closePop();
+        else openGroupMenu(gmore, gmore.dataset.groupMore);
         return;
       }
       const item = e.target.closest && e.target.closest('[data-shot-act]');

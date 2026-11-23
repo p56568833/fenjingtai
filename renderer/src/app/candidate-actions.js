@@ -37,10 +37,13 @@ export function registerReworkRequest(doc, shots, path = '') {
   });
 }
 
-/* 不持久化的任务版本：原地更新、撤回再通过也会使旧任务失效。撤销生成的新对象同样不能冒充原任务。 */
-const versions = new WeakMap();
-export const candidateVersion = c => versions.get(c) || 0;
-const invalidateCandidate = c => versions.set(c, candidateVersion(c) + 1);
+/* 不持久化的任务版本（按候选 id 记）：原地更新、撤回再通过、删除批次都会使旧任务失效；
+   后台截取期间无关的撤销 / 重做生成了新候选对象，只要 id、状态、来源与版本未变，不丢弃已完成下载。 */
+const versions = new Map();
+export const candidateVersion = c => (c?.id != null ? versions.get(c.id) || 0 : 0);
+const invalidateCandidate = c => {
+  if (c?.id != null) versions.set(c.id, candidateVersion(c) + 1);
+};
 
 function batchNameOf(doc, srcFile, plan) {
   const given = String(doc.batch || doc.title || '').trim();

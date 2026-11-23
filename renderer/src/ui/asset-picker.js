@@ -28,8 +28,8 @@ function renderList() {
     .map(a => {
       const n = countAssetShots(state.rows, a.id);
       const kind = a.kind || kindOf(a.path) || 'doc';
-      return `<button class="picker-item" data-pick-asset="${a.id}">
-      <span class="asset-thumb" data-preview-path="${esc(a.path)}" data-kind="${kind}"></span>
+      return `<button class="picker-item" data-pick-asset="${esc(a.id)}">
+      <span class="asset-thumb" data-preview-path="${esc(a.path)}" data-kind="${esc(kind)}"></span>
       <span class="asset-caption"><strong>${esc(a.name || assetName(a.path))}</strong>
       <small>${esc(KIND_LABEL[kind] || '素材')} · 使用 ${n} 处</small></span>
     </button>`;

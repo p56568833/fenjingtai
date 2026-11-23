@@ -22,10 +22,13 @@ function patchNode(before, after) {
     before.dataset.fileMissing === after.dataset.fileMissing
   )
     return;
+  const skipInputAttr = before.tagName === 'INPUT' && before === document.activeElement;
   for (const attr of [...before.attributes]) {
+    if (skipInputAttr && (attr.name === 'value' || attr.name === 'checked')) continue;
     if (!after.hasAttribute(attr.name)) before.removeAttribute(attr.name);
   }
   for (const attr of after.attributes) {
+    if (skipInputAttr && (attr.name === 'value' || attr.name === 'checked')) continue;
     if (before.getAttribute(attr.name) !== attr.value) before.setAttribute(attr.name, attr.value);
   }
   if (before.tagName === 'TEXTAREA') {
@@ -33,16 +36,33 @@ function patchNode(before, after) {
     if (before !== document.activeElement && before.value !== after.value) before.value = after.value;
     return;
   }
+  if (before.tagName === 'INPUT') {
+    if (before !== document.activeElement) {
+      if (before.type === 'checkbox' || before.type === 'radio') {
+        if (before.checked !== after.checked) before.checked = after.checked;
+      } else if (before.value !== after.value) {
+        before.value = after.value;
+      }
+    }
+    return;
+  }
   patchNodes(before, after);
 }
+
+const isGlide = node => node?.nodeType === 1 && node.classList.contains('mo-glide');
+const nextCursor = node => {
+  let cur = node;
+  while (cur && isGlide(cur)) cur = cur.nextSibling;
+  return cur;
+};
 
 function patchNodes(parent, next) {
   const old = [...parent.childNodes];
   const used = new Set();
-  let cursor = parent.firstChild;
+  let cursor = nextCursor(parent.firstChild);
   for (const desired of [...next.childNodes]) {
     const key = keyOf(desired);
-    const existing = old.find(node => !used.has(node) && keyOf(node) === key);
+    const existing = old.find(node => !used.has(node) && !isGlide(node) && keyOf(node) === key);
     const node = existing || desired.cloneNode(true);
     if (existing) {
       used.add(existing);
@@ -52,10 +72,10 @@ function patchNodes(parent, next) {
       if (existing && parent.isConnected && typeof parent.moveBefore === 'function') parent.moveBefore(node, cursor);
       else parent.insertBefore(node, cursor);
     }
-    cursor = node.nextSibling;
+    cursor = nextCursor(node.nextSibling);
   }
   // 滑块（.mo-glide）是动效层自己放进来的，不在模板里，局部更新时保留，免得悬停高亮被冲掉
-  for (const node of old) if (!used.has(node) && !node.classList?.contains('mo-glide')) node.remove();
+  for (const node of old) if (!used.has(node) && !isGlide(node)) node.remove();
 }
 
 export function patchHTML(parent, html, { fresh = false } = {}) {

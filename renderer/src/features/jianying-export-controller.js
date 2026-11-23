@@ -29,15 +29,28 @@ export function mergeIssues(...groups) {
   return out;
 }
 
-const DEFAULT_OPTIONS = Object.freeze({ width: 1920, height: 1080, fps: 30, subtitles: false, altAssets: false });
+const SUBTITLE_LANGS = new Set(['source', 'zh', 'en', 'bilingual']);
+const DEFAULT_OPTIONS = Object.freeze({
+  width: 1920,
+  height: 1080,
+  fps: 30,
+  subtitles: false,
+  altAssets: false,
+  subtitleLang: 'source',
+});
 
 function normalizeOptions(raw = {}) {
+  const subtitleLang =
+    typeof raw.subtitleLang === 'string' && SUBTITLE_LANGS.has(raw.subtitleLang)
+      ? raw.subtitleLang
+      : DEFAULT_OPTIONS.subtitleLang;
   return {
     width: Number(raw.width) || DEFAULT_OPTIONS.width,
     height: Number(raw.height) || DEFAULT_OPTIONS.height,
     fps: Number(raw.fps) || DEFAULT_OPTIONS.fps,
     subtitles: !!raw.subtitles,
     altAssets: !!raw.altAssets,
+    subtitleLang,
   };
 }
 
@@ -56,6 +69,7 @@ export function createJianyingExportController({
     formSeq: 0, // 表单装载代次：只有它变化时界面才回填输入框，不跟用户抢输入
     form: { name: '', mode: 'library', options: { ...DEFAULT_OPTIONS }, confirm: false },
     prefs: { mode: 'library', destDir: '', options: { ...DEFAULT_OPTIONS } },
+    bilingual: false,
     detection: null,
     snapshot: null,
     prepared: null,
@@ -91,11 +105,17 @@ export function createJianyingExportController({
     return state;
   }
 
-  function formOfPrefs(title) {
+  function formOfPrefs(title, { bilingual = false } = {}) {
+    const options = normalizeOptions(state.prefs.options);
+    if (bilingual) {
+      if (!options.subtitleLang || options.subtitleLang === 'source') options.subtitleLang = 'zh';
+    } else {
+      options.subtitleLang = 'source';
+    }
     return {
       name: title || '未命名项目',
       mode: state.prefs.mode === 'folder' ? 'folder' : 'library',
-      options: normalizeOptions(state.prefs.options),
+      options,
       confirm: false,
     };
   }
@@ -191,8 +211,9 @@ export function createJianyingExportController({
     }, PREPARE_DEBOUNCE_MS);
   }
 
-  function resetConfigState(title) {
+  function resetConfigState(title, { bilingual = false } = {}) {
     state.prefs = api.loadJianyingSettings();
+    state.bilingual = !!bilingual;
     state.detection = null;
     state.snapshot = null;
     state.prepared = null;
@@ -201,12 +222,12 @@ export function createJianyingExportController({
     state.preparing = false;
     state.starting = false;
     state.pane = 'config';
-    state.form = formOfPrefs(title);
+    state.form = formOfPrefs(title, { bilingual: state.bilingual });
     state.formSeq++;
   }
 
   /* ── 打开 / 关闭 ── */
-  async function open({ title = '' } = {}) {
+  async function open({ title = '', bilingual = false } = {}) {
     state.viewToken++;
     invalidatePrepare();
     if (state.running) {
@@ -215,7 +236,7 @@ export function createJianyingExportController({
       emit();
       return state;
     }
-    resetConfigState(title);
+    resetConfigState(title, { bilingual });
     updateBlockReason();
     emit();
     await refreshConfig();
@@ -240,10 +261,10 @@ export function createJianyingExportController({
   }
 
   /* 从结果页回到配置页：重新读本机设置、重新预检，任务和最近结果都不动。 */
-  async function backToConfig({ title = '' } = {}) {
+  async function backToConfig({ title = '', bilingual = false } = {}) {
     state.viewToken++;
     invalidatePrepare();
-    resetConfigState(title);
+    resetConfigState(title, { bilingual });
     updateBlockReason();
     emit();
     await refreshConfig();
@@ -430,6 +451,7 @@ export function createJianyingExportController({
   }
 
   async function register() {
+    if (state.registering) return { ok: false };
     const entry = state.lastDone;
     const draftDir = entry?.result?.draftDir;
     if (!draftDir) return { ok: false };
@@ -438,6 +460,8 @@ export function createJianyingExportController({
     let result;
     try {
       result = await api.registerJianyingDraft(draftDir);
+    } catch (error) {
+      result = { ok: false, error: error?.message || String(error) };
     } finally {
       state.registering = false;
     }

@@ -16,6 +16,8 @@ const $ = s => document.querySelector(s);
 let reviewOpen = false;
 let assetMode = false; // 勾了「也检查素材交付」
 let missing = new Set();
+let missingPid = null;
+let missingSeq = 0;
 
 /* 有句子没画面的镜头：第一句 id → 「第 436–437 句没画面」 */
 function gapNotes() {
@@ -40,6 +42,8 @@ export function deliveryIssues() {
 }
 
 async function refreshMissing() {
+  const seq = ++missingSeq;
+  const pid = state.projectId;
   const paths = [
     ...new Set(
       Object.values(state.assets || {})
@@ -48,7 +52,10 @@ async function refreshMissing() {
     ),
   ];
   const probe = await probePaths(paths);
+  if (seq !== missingSeq || state.projectId !== pid) return false;
   missing = new Set(paths.filter(p => isMissing(probe[p])));
+  missingPid = pid;
+  return true;
 }
 
 function renderReview() {
@@ -56,10 +63,11 @@ function renderReview() {
   if (!host) return;
   const ti = types().list;
   const gaps = gapNotes();
+  const currentMissing = missingPid === state.projectId ? missing : new Set();
   const list = checkDelivery(
     state.rows,
     ti,
-    assetMode ? { gaps, assets: true, missing, registry: state.assets } : { gaps },
+    assetMode ? { gaps, assets: true, missing: currentMissing, registry: state.assets } : { gaps },
   );
   const unlinked = unlinkedShots(state.rows, ti).length;
   let summary;
@@ -84,11 +92,11 @@ export async function openReview() {
   reviewOpen = true;
   renderReview();
   if (assetMode) {
-    await refreshMissing();
-    if (reviewOpen) renderReview();
+    if ((await refreshMissing()) && reviewOpen) renderReview();
   }
 }
 function closeReview() {
+  missingSeq++;
   $('#reviewMask').classList.remove('show');
   reviewOpen = false;
 }
@@ -109,8 +117,7 @@ export function initReview() {
     assetMode = e.target.checked;
     renderReview();
     if (assetMode) {
-      await refreshMissing();
-      if (reviewOpen) renderReview();
+      if ((await refreshMissing()) && reviewOpen) renderReview();
     }
   };
   $('#reviewMask').onclick = e => {

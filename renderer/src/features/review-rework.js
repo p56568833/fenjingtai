@@ -18,6 +18,14 @@ import { reworkNavHTML, paintTabs } from './review-nav.js';
 
 /* 上次画在右边的那一项：它的 key（句子范围）变了、或者它离开了列表，用它找接上的那一项，不跳回第一项 */
 let lastShown = null;
+/* 上次写进页面的内容：一样就不重写，保住正在播放的预览与滚动位置 */
+const painted = { nav: null, navEl: null, html: null, el: null, key: null };
+
+export function resetReworkRender() {
+  lastShown = null;
+  painted.nav = painted.html = painted.key = null;
+  painted.navEl = painted.el = null;
+}
 
 /* 这几句里哪几句正片上没有画面（主画面或旧项目里未分配的素材都算有画面） */
 const blankLines = target =>
@@ -27,19 +35,31 @@ const blankLines = target =>
 const refHTML = c =>
   `<div class="vr-rw-ref" data-vr-id="${c.id}">${stripHTML(c, 1)}<div class="vr-rw-ref-body"><b title="${esc(c.title || '')}">${esc(candName(c))}</b><textarea class="vr-note vr-rw-ref-why" data-vr-note="${c.id}" rows="2" aria-label="${esc(candName(c))}的否掉理由" placeholder="补写否掉理由…">${esc(c.note || '')}</textarea><span class="vr-rw-ref-foot">${secText(usableSeconds(c))} 秒<button class="vr-link" data-vr-play="${c.id}">▶ 预览</button></span></div></div>`;
 
-export function renderRework(host, nav) {
+export function renderRework(host, nav, clearPreview) {
   const list = reworkList();
   if (!list.some(s => s.key === page.curRework))
     page.curRework = followRework(list, lastShown?.key === page.curRework ? lastShown : null)?.key ?? null;
   const s = list.find(x => x.key === page.curRework);
-  nav.innerHTML = reworkNavHTML(list);
+  const navNext = reworkNavHTML(list);
+  if (navNext !== painted.nav || painted.navEl?.parentNode !== nav) {
+    nav.innerHTML = navNext;
+    painted.nav = navNext;
+    painted.navEl = nav.firstElementChild;
+  }
   paintTabs(nav);
   nav.querySelector('.vr-nav-shot.on')?.scrollIntoView({ block: 'nearest' });
   glide(nav, nav.querySelector('.vr-nav-shot.on'), 'vrnav-glide');
   if (!s) {
-    stopClip();
-    host.innerHTML =
+    const emptyHTML =
       '<p class="vr-empty">没有待返工的画面。审核时点了「不要」、又没有别的候选通过的画面，或者在右侧面板对某个素材点了「不满意」、点了「让 AI 再找一个」的画面，都会列在这里。</p>';
+    if (emptyHTML !== painted.html || painted.el?.parentNode !== host) {
+      clearPreview?.();
+      stopClip();
+      host.innerHTML = emptyHTML;
+      painted.html = emptyHTML;
+      painted.el = host.firstElementChild;
+      painted.key = null;
+    }
     return;
   }
   lastShown = { key: s.key, leadId: s.lead.id, from: s.from, to: s.to, index: list.indexOf(s) };
@@ -85,12 +105,19 @@ export function renderRework(host, nav) {
   const sent = page.reworkDocAt
     ? `<span class="vr-rw-sent">已生成 · ${fmtDay(page.reworkDocAt)}${page.reworkDocPath.startsWith('/') ? '<button class="vr-link" data-vr-rw-reveal>在访达中显示</button>' : ''}</span>`
     : '';
-  stopClip();
-  host.innerHTML = `<section class="vr-shot vr-rw" data-vr-shot="${esc(s.key)}">
+  const html = `<section class="vr-shot vr-rw" data-vr-shot="${esc(s.key)}">
       <div class="vr-shot-head"><h4><span class="vr-shot-range">${reworkLabel(s)}</span>${s.cands[0]?.label ? `<span class="vr-shot-label">${esc(s.cands[0].label)}</span>` : ''}</h4><span class="vr-spacer"></span>${waiting ? '' : `<span class="vr-rw-state s-${st.key}">${st.text}</span>`}</div>
       ${waiting ? `<div class="vr-rw-go"><span>AI 送来的新候选已经到了（${waiting} 个待审），在待审页里审</span><button class="btn primary" data-vr-rw-review="${esc(String(s.lead.id))}">去待审审核</button></div>` : ''}
       <div class="vr-rw-main">
-        <div class="vr-brief-sec"><h5>这几句</h5><div class="vr-lines">${s.target.map(m => `<div class="vr-line" data-vo-no="${m.no}"><div class="vr-line-text"><span class="vr-line-no">${m.no}</span><p>${esc(m.text)}</p></div></div>`).join('')}</div></div>
+        <div class="vr-brief-sec"><h5>这几句</h5><div class="vr-lines">${s.target
+          .map(m => {
+            const sub = typeof m.sub === 'string' ? m.sub.trim() : '';
+            const body = sub
+              ? `<div class="vr-line-body"><p>${esc(m.text)}</p><p class="vr-line-sub">${esc(sub)}</p></div>`
+              : `<p>${esc(m.text)}</p>`;
+            return `<div class="vr-line" data-vo-no="${m.no}"><div class="vr-line-text"><span class="vr-line-no">${m.no}</span>${body}</div></div>`;
+          })
+          .join('')}</div></div>
         <div class="vr-brief-sec"><h5>现在的画面</h5>
           ${nowHTML}
           ${others || blank.length ? `<div class="vr-rw-current">${others}${blank.length ? `<span class="vr-rw-blank">${sentenceScope(blank).text.replace(/^第(.+)句$/, '第 $1 句')}没有画面</span>` : ''}</div>` : ''}
@@ -111,6 +138,19 @@ export function renderRework(host, nav) {
         }
       </div>
     </section>`;
+  if (html === painted.html && painted.el?.parentNode === host) {
+    paintStrips(host, refs);
+    return;
+  }
+  const sameItem = painted.el?.parentNode === host && painted.key === s.key;
+  const top = sameItem ? host.scrollTop : 0;
+  clearPreview?.();
+  stopClip();
+  host.innerHTML = html;
+  painted.html = html;
+  painted.el = host.firstElementChild;
+  painted.key = s.key;
+  if (top) host.scrollTop = top;
   paintStrips(host, refs);
   runCommand('assets:load-thumbs');
   retainFrames(refs);

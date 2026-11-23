@@ -40,6 +40,7 @@ export function createCollabDiscovery({ myId, needsReconnect, changed, onHosts }
     discovering = need;
     if (need) {
       const r = await native.collabDiscover(true).catch(() => null);
+      if (!discovering) return;
       if (r?.hosts) hosts = r.hosts.filter(h => h.hostId !== myId());
       if (r && r.ok === false)
         notify('没能在局域网里查找：可能被别的程序占用了端口，可以用「输入地址」加入', null, 'warn');

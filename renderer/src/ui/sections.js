@@ -16,14 +16,14 @@ import { startEdit } from './edit.js';
 import { staleBlock } from './base/keyed-patch.js';
 
 /* ── 行内改名：进入即全选，Enter / 失焦保存，Esc 还原。打字过程不写数据，提交时才快照 ── */
-let ren = null; // {id, el, baseline}
+let ren = null; // {id, el, baseline, projectId}
 
 function startRename(nameEl, id) {
   const r = rowById(id);
   if (!r || r.kind !== 'section' || (ren && ren.el === nameEl)) return;
   commitRename();
-  ren = { id, el: nameEl, baseline: r.text };
-  nameEl.contentEditable = 'true';
+  ren = { id, el: nameEl, baseline: r.text, projectId: state.projectId };
+  nameEl.contentEditable = 'plaintext-only';
   nameEl.spellcheck = false;
   nameEl.focus();
   const range = document.createRange();
@@ -34,11 +34,12 @@ function startRename(nameEl, id) {
 }
 
 function commitRename() {
-  const { id, el } = ren || {};
+  const { id, el, projectId } = ren || {};
   ren = null;
   if (!el) return;
   el.contentEditable = 'false';
   staleBlock(el); // 表格里的章节名原地改过：下次更新按数据重画（撤销改名时才不会留着新名字）
+  if (projectId !== state.projectId) return;
   const r = rowById(id);
   if (!r) return;
   const txt = el.textContent.trim();
@@ -109,7 +110,7 @@ export function initSections() {
   };
   outline.addEventListener('click', e => {
     // 改名框里点来点去别触发跳转
-    if (e.target.closest('.name[contenteditable="true"]')) return e.stopPropagation();
+    if (e.target.closest('.name')?.isContentEditable) return e.stopPropagation();
     const more = e.target.closest('[data-sec-more]');
     if (!more) return;
     e.stopPropagation(); // 点「···」只开菜单，不跳转
@@ -117,7 +118,7 @@ export function initSections() {
   });
   outline.addEventListener('contextmenu', e => {
     const item = e.target.closest('.outline-item[data-sec]');
-    if (!item || e.target.closest('.name[contenteditable="true"]')) return;
+    if (!item || e.target.closest('.name')?.isContentEditable) return;
     e.preventDefault();
     toggleMenu(+item.dataset.sec, item.querySelector('[data-sec-more]') || item);
   });
@@ -145,18 +146,36 @@ export function initSections() {
     true,
   );
 
+  document.addEventListener('paste', e => {
+    if (!ren || e.target !== ren.el) return;
+    e.preventDefault();
+    const clean = (e.clipboardData?.getData('text/plain') ?? '').replace(/\r?\n+/g, ' ');
+    if (typeof document.execCommand === 'function' && document.execCommand('insertText', false, clean)) return;
+    const sel = getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const node = document.createTextNode(clean);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
   document.addEventListener(
     'keydown',
     e => {
       if (!ren || e.target !== ren.el) return;
-      e.stopPropagation();
+      if (e.metaKey || e.ctrlKey) return;
       if (composing(e)) return;
       if (e.key === 'Enter') {
         e.preventDefault();
+        e.stopPropagation();
         commitRename();
       } // 直接提交，不赌焦点事件
       else if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         ren.el.textContent = ren.baseline;
         ren = null;
         e.target.contentEditable = 'false';

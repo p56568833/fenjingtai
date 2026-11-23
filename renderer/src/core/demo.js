@@ -1,7 +1,7 @@
 /* 示例项目：首次启动时给一份能立刻上手的演示稿 */
 export function demoProject() {
   let id = 0;
-  const L = (text, type, note = '') => ({ id: ++id, kind: 'line', text, note, type });
+  const L = (text, type, note = '') => ({ id: ++id, kind: 'line', text, note, type, status: 'todo', para: true });
   const S = text => ({ id: ++id, kind: 'section', text });
   return {
     title: '示例稿 · 任天堂：一台「性能落后」的主机怎么赢',

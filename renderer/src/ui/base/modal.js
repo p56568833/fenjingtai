@@ -10,7 +10,7 @@
 const registry = new Map(); // id → { el, close, enter, onKey, allowMenu, autoFocus }
 const returnFocus = new Map(); // id → 打开前的焦点元素
 const FOCUSABLE =
-  'button:not([disabled]):not([hidden]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+  'button:not([disabled]):not([hidden]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"], [contenteditable="plaintext-only"]';
 const visible = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
 const focusablesIn = el => [...el.querySelectorAll(FOCUSABLE)].filter(visible);
 function onOpen(id) {
@@ -22,12 +22,14 @@ function onOpen(id) {
   setTimeout(() => {
     if (!isShown(id) || m.el.contains(document.activeElement)) return;
     const box = m.el.querySelector('.modal') || m.el;
+    const focusables = focusablesIn(box);
     const pick =
-      box.querySelector('[data-autofocus]') ||
-      (box.querySelector('.btn.danger') && box.querySelector('.m-btns .btn:not(.danger):not(.primary)')) ||
-      box.querySelector('input:not([type="checkbox"]):not([type="hidden"]), textarea, select') ||
-      box.querySelector('.m-btns .btn.primary') ||
-      focusablesIn(box)[0];
+      focusables.find(el => el.hasAttribute('data-autofocus')) ||
+      (focusables.some(el => el.matches('.btn.danger')) &&
+        focusables.find(el => el.matches('.m-btns .btn:not(.danger):not(.primary)'))) ||
+      focusables.find(el => el.matches('input:not([type="checkbox"]):not([type="hidden"]), textarea, select')) ||
+      focusables.find(el => el.matches('.m-btns .btn.primary')) ||
+      focusables[0];
     pick?.focus({ preventScroll: true });
   }, 0);
 }
@@ -62,8 +64,8 @@ function track(id) {
 }
 /* 同步校正：观察回调是微任务，刚开 / 刚关的那一瞬间以 DOM 实际状态为准 */
 function settle() {
-  for (let i = stack.length - 1; i >= 0; i--) if (!isShown(stack[i])) stack.splice(i, 1);
-  for (const id of registry.keys()) if (isShown(id) && !stack.includes(id)) stack.push(id);
+  for (const id of [...stack].reverse()) if (!isShown(id)) track(id);
+  for (const id of registry.keys()) if (isShown(id) && !stack.includes(id)) track(id);
 }
 
 /* autoFocus：打开时自动把焦点放进弹窗（自己处理全部按键的全屏窗口——预览、视频审核——关掉这项） */

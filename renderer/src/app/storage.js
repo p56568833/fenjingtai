@@ -8,7 +8,7 @@ import { loadProjectIntoState } from './project-load.js';
 import { emit, notify } from './events.js';
 import { demoProject } from '../core/demo.js';
 import { normalizeTypes } from '../core/types.js';
-import { applyProjectData } from '../core/project-data.js';
+import { applyProjectData, projectData, projectFieldKeys } from '../core/project-data.js';
 import * as native from '../platform/native.js';
 
 let library = null;
@@ -20,9 +20,12 @@ let retryTimer = null;
    必须在渲染层也停手：不自动保存示例库、不显示「已保存」。只有主进程确认保留成功才会解除。 */
 let writeBlocked = false;
 const dirtyIds = new Set(); // 待写盘的项目
+const localDirtyIds = new Set(); // 有尚未落盘的本地内容改动的项目
 const writeHooks = new Set(); // 项目内容改了（局域网协作据此把改动发给对方）
 let metaDirty = false; // currentId / settings / trash 变了
 let fullDirty = false; // 整库替换（恢复备份）
+let inFlight = null; // 正在异步落盘的补丁：{ full, meta, ids, localIds, patch }
+let flushQueued = false; // 在途写盘期间收到了新的待冲刷请求
 export const dataLoadInfo = () => loadInfo;
 export const isWriteBlocked = () => writeBlocked;
 const TRASH_DAYS = 30;
@@ -34,20 +37,29 @@ export function initStorage() {
   library = native.isNative() ? native.loadData() : null;
   loadInfo = native.dataStatus() || { status: library ? 'ok' : 'missing' };
   writeBlocked = !!loadInfo?.writeBlocked;
-  // 关窗 / 退出时把防抖中的保存同步冲刷掉：普通保存是异步 IPC，进程一退就丢了。
+  // 关窗 / 退出时把防抖中或在途的保存同步冲刷掉：普通保存是异步 IPC，进程一退就丢了。
   // 冲刷失败就先拦下这次关闭并报错；用户再关一次才放行，不会被一个坏磁盘困住关不掉
   let closeBlocked = false;
   window.addEventListener('beforeunload', e => {
-    if (writeBlocked || !hasPending() || !library) return;
+    if (writeBlocked || (!hasPending() && !inFlight) || !library) return;
     let saved = false;
     try {
       clearTimeout(saveTimer);
+      saveTimer = null;
+      clearTimeout(retryTimer);
+      retryTimer = null;
       syncFromState();
-      saved = !!native.saveDataSync(takePatch());
+      saved = !!native.saveDataSync(mergeInFlightAndPending());
     } catch (error) {
       console.error('关闭前保存失败', error);
     }
-    if (saved) return markClean();
+    if (saved) {
+      inFlight = null;
+      flushQueued = false;
+      pendingSince = 0;
+      markClean();
+      return;
+    }
     if (closeBlocked) return;
     closeBlocked = true;
     saveHook('error');
@@ -117,8 +129,18 @@ function syncFromState() {
 const hasPending = () => fullDirty || metaDirty || dirtyIds.size > 0;
 function markClean() {
   dirtyIds.clear();
+  localDirtyIds.clear();
   metaDirty = false;
   fullDirty = false;
+}
+function hasUnwrittenChanges(p) {
+  if (!p || state.projectId !== p.id) return false;
+  const stored = projectData(p, 'storage');
+  const live = projectData(state, 'storage');
+  for (const key of projectFieldKeys('storage')) {
+    if (stored[key] !== live[key]) return true;
+  }
+  return false;
 }
 /* 取出当前待写的补丁（取完即清，失败时由 doSave 放回） */
 function takePatch() {
@@ -132,6 +154,20 @@ function takePatch() {
     projects,
   };
 }
+/* 关窗兜底：把在途补丁和最新待写脏数据合并成一份同步补丁，确保不漏存 */
+function mergeInFlightAndPending() {
+  if (fullDirty || inFlight?.full) return { full: library };
+  const needMeta = metaDirty || !!inFlight?.meta;
+  const ids = new Set([...(inFlight?.ids || []), ...dirtyIds]);
+  const projects = {};
+  for (const id of ids) projects[id] = library.projects[id] ?? null;
+  return {
+    currentId: library.currentId,
+    settings: library.settings,
+    trash: needMeta ? library.trash : undefined,
+    projects,
+  };
+}
 
 /* 防抖最多推迟 2 秒：改动一直不停（比如协作对方连续改）也会按时落盘，不会一直「保存中」 */
 const SAVE_MAX_WAIT = 2000;
@@ -141,16 +177,22 @@ function schedule(now = false) {
   const version = ++revision;
   saveHook('saving');
   clearTimeout(saveTimer);
+  saveTimer = null;
   pendingSince ||= Date.now();
   if (now || Date.now() - pendingSince >= SAVE_MAX_WAIT) doSave(version);
-  else saveTimer = setTimeout(() => doSave(version), 400);
+  else
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      doSave(version);
+    }, 400);
 }
 
-export function persist(now = false) {
+export function persist(immediate = false, { silentWrite = false } = {}) {
   syncFromState();
   if (writeBlocked) return saveHook('blocked');
-  schedule(now);
-  notifyWrite(library?.currentId);
+  if (!silentWrite && library?.currentId) localDirtyIds.add(library.currentId);
+  schedule(immediate);
+  if (!silentWrite) notifyWrite(library?.currentId);
 }
 
 /* 项目内容改了就通知订阅方（参数：项目 id）。协作模块自己记的东西用 saveProjectMeta 存，不触发这里 */
@@ -171,41 +213,67 @@ export function saveProjectMeta(id) {
 /* 这个项目的协作信息（角色、用过的最大句子编号）；没在协作返回 null */
 export const collabOf = id => library?.projects?.[id]?.collab || null;
 
-/* 写盘；失败（磁盘满 / 权限）时 5 秒后自动重试，不等下一次改动才再试 */
-async function doSave(version) {
+/* 单飞串行写盘；在途期间的新脏数据排队等待，失败（磁盘满 / 权限）时 5 秒后自动重试 */
+async function doSave(version = revision) {
   clearTimeout(retryTimer);
-  pendingSince = 0;
+  retryTimer = null;
   if (writeBlocked) return saveHook('blocked');
-  if (!hasPending()) {
-    if (version === revision) saveHook('saved');
+  if (inFlight) {
+    flushQueued = true;
     return;
   }
-  const wasFull = fullDirty,
-    wasMeta = metaDirty,
-    ids = [...dirtyIds];
-  const patch = takePatch();
+  pendingSince = 0;
+  if (!hasPending()) {
+    if (version === revision && !saveTimer) saveHook('saved');
+    return;
+  }
+  const flight = {
+    full: fullDirty,
+    meta: metaDirty,
+    ids: [...dirtyIds],
+    localIds: [...localDirtyIds],
+    patch: takePatch(),
+  };
   markClean();
+  inFlight = flight;
   try {
-    await native.saveData(patch);
-    if (version === revision && !hasPending()) saveHook('saved');
+    const res = await native.saveData(flight.patch);
+    if (res === false) throw new Error('保存失败');
+    if (inFlight !== flight) return; // beforeunload 已同步落盘接管
+    inFlight = null;
+    if (flushQueued && hasPending()) {
+      flushQueued = false;
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      doSave(revision);
+      return;
+    }
+    flushQueued = false;
+    if (!hasPending() && !saveTimer && version === revision) saveHook('saved');
   } catch {
+    if (inFlight !== flight) return;
+    inFlight = null;
+    flushQueued = false;
     // 放回去，下次一起写
-    fullDirty ||= wasFull;
-    metaDirty ||= wasMeta;
-    ids.forEach(id => dirtyIds.add(id));
+    fullDirty ||= flight.full;
+    metaDirty ||= flight.meta;
+    flight.ids.forEach(id => dirtyIds.add(id));
+    flight.localIds.forEach(id => localDirtyIds.add(id));
     saveHook('error');
     retryTimer = setTimeout(() => {
+      retryTimer = null;
       if (hasPending()) doSave(revision);
     }, 5000);
   }
 }
 
 /* 不是当前项目的数据被改了（后台任务跑到一半切了项目）：标记那个项目待写盘 */
-export function markProjectDirty(id) {
+export function markProjectDirty(id, { silentWrite = false } = {}) {
   if (!library?.projects?.[id]) return;
   dirtyIds.add(id);
+  if (!silentWrite) localDirtyIds.add(id);
   schedule();
-  notifyWrite(id);
+  if (!silentWrite) notifyWrite(id);
 }
 
 export function archiveCurrentCopy(label) {
@@ -219,14 +287,19 @@ export function archiveCurrentCopy(label) {
 
 /* 光标位置单独记（不算改动、不进撤销），停 1.5 秒再写，方向键连按不会连写 */
 export function rememberCursor() {
-  if (!library || viewState.sel == null) return;
+  if (writeBlocked || !library || viewState.sel == null) return;
   const p = current();
   if (p && p.id === state.projectId && p.cursorId !== viewState.sel) {
+    const hadPending = hasPending();
     p.cursorId = viewState.sel;
     dirtyIds.add(p.id);
+    if (hadPending && saveTimer) return;
     const version = ++revision;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => doSave(version), 1500);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      doSave(version);
+    }, 1500);
   }
 }
 
@@ -243,11 +316,16 @@ export function createProject(title, rows = [], assets = {}, extra = {}) {
 
 export function switchProject(id) {
   if (!library.projects[id] || id === library.currentId) return false;
-  syncFromState(); // 切走前先把当前项目记下
+  const prevId = library.currentId;
+  const prev = current();
+  if (localDirtyIds.has(prevId) || hasUnwrittenChanges(prev)) {
+    syncFromState(); // 切走前先把原项目的未落盘改动记下
+    notifyWrite(prevId);
+  }
   library.currentId = id;
   metaDirty = true;
   loadProjectIntoState(library.projects[id]);
-  persist(true);
+  schedule(true);
   return true;
 }
 

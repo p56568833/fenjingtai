@@ -4,15 +4,26 @@ const path = require('node:path');
 
 /* 先写临时文件、落盘、再改名：断电或写到一半出错，都不会留下半截的目标文件 */
 function writeAtomic(file, content) {
-  const tmp = file + '.tmp';
-  const fd = fs.openSync(tmp, 'w');
+  const tmp = `${file}.${process.pid}-${Math.random().toString(36).slice(2, 8)}.tmp`;
+  let fd = null;
   try {
+    fd = fs.openSync(tmp, 'w');
     fs.writeFileSync(fd, content, typeof content === 'string' ? 'utf8' : undefined);
     fs.fsyncSync(fd);
-  } finally {
     fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    if (fd != null) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {}
+    throw err;
   }
-  fs.renameSync(tmp, file);
 }
 
 /* 目标目录里不覆盖已有的文件 / 文件夹：重名就加 (2)、(3)… */

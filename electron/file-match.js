@@ -13,11 +13,17 @@ async function fingerprint(file) {
   try {
     const st = await fh.stat();
     if (!st.isFile()) throw new Error('不是文件');
+    if (st.size <= 0) throw new Error('空文件不能按内容匹配');
     const hash = crypto.createHash('sha256').update(`${st.size}:`);
     const read = async (pos, len) => {
       const buf = Buffer.alloc(len);
-      const { bytesRead } = await fh.read(buf, 0, len, pos);
-      hash.update(buf.subarray(0, bytesRead));
+      let off = 0;
+      while (off < len) {
+        const { bytesRead } = await fh.read(buf, off, len - off, pos + off);
+        if (!bytesRead) break;
+        off += bytesRead;
+      }
+      hash.update(buf.subarray(0, off));
     };
     if (st.size <= EDGE * 2) await read(0, st.size);
     else {
@@ -35,7 +41,7 @@ async function fingerprint(file) {
 async function findByContent({ dirs, wants, isCanceled = () => false, onProgress = () => {} }) {
   const bySize = new Map();
   (wants || []).forEach((w, i) => {
-    if (!w || !Number.isFinite(w.size) || !w.fp) return;
+    if (!w || !Number.isFinite(w.size) || w.size <= 0 || !w.fp) return;
     if (!bySize.has(w.size)) bySize.set(w.size, []);
     bySize.get(w.size).push(i);
   });
@@ -80,6 +86,7 @@ async function findByContent({ dirs, wants, isCanceled = () => false, onProgress
       } catch {
         continue;
       }
+      if (st.size <= 0) continue;
       const idx = bySize.get(st.size)?.filter(i => !(i in found));
       if (!idx?.length) continue;
       let fp;

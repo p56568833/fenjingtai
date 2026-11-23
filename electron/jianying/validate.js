@@ -4,9 +4,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const paths = require('./paths');
+const { DRAFT_VERSION, NEW_VERSION } = require('./schema');
 
-const DRAFT_VERSION = 360000;
-const NEW_VERSION = '189.0.0';
 const BLOCK = 'block';
 const WARN = 'warn';
 const INFO = 'info';
@@ -70,8 +69,6 @@ function validateSegments(plan, issues) {
             issues.push(issue(BLOCK, 'plan-source-out-of-range', `${at} 要用的源区间超出了素材时长`));
           }
         }
-        if (asset && asset.kind === 'video' && !isInt(item?.sourceDurationUs))
-          issues.push(issue(BLOCK, 'plan-segment-source', `${at} 缺少源时长`));
       } else if (typeof item?.text !== 'string' || !item.text.trim()) {
         issues.push(issue(BLOCK, 'plan-text-empty', `${at} 的字幕文字为空`));
       }
@@ -127,6 +124,8 @@ function validatePlan(plan, { requireVisual = true } = {}) {
       issues.push(issue(BLOCK, 'plan-derived-source', `${at} 的源素材不在计划里`));
     if (!paths.isAbsolutePath(freeze?.sourcePath))
       issues.push(issue(BLOCK, 'plan-derived-source', `${at} 的源路径不是绝对路径`));
+    else if (paths.hasTraversal(freeze.sourcePath))
+      issues.push(issue(BLOCK, 'plan-derived-source', `${at} 的源路径包含 ..`));
     if (!Number.isFinite(freeze?.atUs) || freeze.atUs < 0)
       issues.push(issue(BLOCK, 'plan-derived-time', `${at} 的抽帧时间无效`));
     if (typeof freeze?.outputName !== 'string' || !freeze.outputName.trim())

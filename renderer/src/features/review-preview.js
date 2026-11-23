@@ -58,7 +58,16 @@ export function createReviewPreview({ host, card, selectedCandidate, pause: paus
   /* 收起候选，回到排好的画面 */
   function showTimeline() {
     const host = previewHost();
-    if (shown) stopClip();
+    if (shown) {
+      const el = card(shown);
+      const label = el?.querySelector('[data-vr-play-label]');
+      if (label) label.textContent = '▶ 在左边播放';
+      else if (el?.classList.contains('vr-rw-ref')) {
+        const btn = el.querySelector('[data-vr-play]');
+        if (btn) btn.textContent = '▶ 预览';
+      }
+      stopClip();
+    }
     shown = null;
     shownKey = '';
     shownLabel = '';

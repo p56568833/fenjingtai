@@ -2,7 +2,7 @@
    + 视频片段编辑（入点/出点：当前播放位置或手输、校验、片段预览、清除）。
    全应用只有一个播放器：换素材、关闭、切项目都先停播释放，绝不同时播两个、不留黑屏装成功。 */
 import { state } from '../app/state.js';
-import { on } from '../app/events.js';
+import { on, emit } from '../app/events.js';
 import { rowById } from '../app/project-queries.js';
 import { setUsageClip, rememberDuration } from '../app/asset-actions.js';
 import { usageList, kindOf, clipText, checkClip, fileUrl, assetName, LINK_RE, AUDIO_EXT } from '../core/asset-model.js';
@@ -48,6 +48,8 @@ function stopPlayer() {
   clearTimeout(loadTimer);
   loadTimer = null;
   stopAt = null;
+  const stage = $('#pvStage');
+  if (stage) stage.onwheel = null;
   if (video) {
     try {
       video.pause();
@@ -88,6 +90,7 @@ function open({ rowId, usageIndex, asset } = {}) {
 export const openPreview = ({ row, usageIndex }) => open({ rowId: row.id, usageIndex });
 
 function render() {
+  stopPlayer();
   const asset = playerAsset();
   const stage = $('#pvStage'),
     tools = $('#pvTools');
@@ -95,6 +98,7 @@ function render() {
     closePreview();
     return;
   }
+  released = false;
   $('#pvName').textContent = asset.name || assetName(asset.path);
   $('#pvName').title = asset.path;
   const usage = playerUsage();
@@ -180,11 +184,15 @@ function renderVideo(stage, tools, asset, usage) {
     <input type="range" id="pvSeek" min="0" max="1000" value="0" step="1" class="pv-seek" aria-label="播放进度">
     <span class="pv-time" id="pvDur">--:--</span>`;
 
+  const el = video;
+  const pid = state.projectId;
+  const expectedPath = asset.path;
   const show = () => loading.remove();
   const fail = why => {
-    stopAt = null;
+    if (video !== el) return;
+    const code = el.error?.code;
+    stopPlayer();
     show();
-    const code = video?.error?.code;
     const why2 = why || ERR_TEXT[code] || ERR_TEXT[4];
     stage.replaceChildren();
     stage.innerHTML = `<div class="pv-error" data-pv-error="${esc(String(code ?? 'unknown'))}">
@@ -199,44 +207,61 @@ function renderVideo(stage, tools, asset, usage) {
     $('#pvRetry').onclick = () => render();
   };
 
-  video.addEventListener('loadedmetadata', () => {
+  const syncPlayBtn = () => {
+    const btn = $('#pvPlay');
+    if (btn && video === el) btn.textContent = el.paused || el.ended ? '播放' : '暂停';
+  };
+  el.addEventListener('loadedmetadata', () => {
+    if (video !== el) return;
     show();
     clearTimeout(loadTimer);
-    $('#pvDur').textContent = fmtTime(video.duration);
-    $('#pvSeek').max = String(Math.max(1, Math.floor(video.duration * 10)));
+    $('#pvDur').textContent = fmtTime(el.duration);
+    $('#pvSeek').max = String(Math.max(1, Math.floor(el.duration * 10)));
     // 记下真实时长，供片段范围校验（只是信息缓存，不进撤销）
-    if (asset && asset.durationSec !== video.duration) {
-      rememberDuration(asset, video.duration);
+    if (asset && asset.durationSec !== el.duration) {
+      rememberDuration(asset, el.duration, { projectId: pid, expectedPath });
       renderClipPanel(tools, asset, playerUsage());
     }
     // 打开片段预览时直接落在入点
     const u = playerUsage();
     if (u && u.usage?.clip) {
-      video.currentTime = u.usage.clip.in;
-      $('#pvCur').textContent = fmtTime(video.currentTime);
+      el.currentTime = u.usage.clip.in;
+      $('#pvCur').textContent = fmtTime(el.currentTime);
     }
   });
-  video.addEventListener('error', () => fail());
-  video.addEventListener('timeupdate', () => {
-    if (!video) return;
-    $('#pvCur').textContent = fmtTime(video.currentTime);
-    $('#pvSeek').value = String(Math.floor(video.currentTime * 10));
-    if (stopAt != null && video.currentTime >= stopAt) {
-      video.pause();
-      video.currentTime = stopAt;
+  el.addEventListener('error', () => fail());
+  el.addEventListener('play', () => {
+    if (video !== el) return;
+    emit('playback-starting', { owner: 'preview' });
+    syncPlayBtn();
+  });
+  el.addEventListener('pause', syncPlayBtn);
+  el.addEventListener('ended', () => {
+    if (video !== el) return;
+    stopAt = null;
+    syncPlayBtn();
+  });
+  el.addEventListener('timeupdate', () => {
+    if (video !== el) return;
+    $('#pvCur').textContent = fmtTime(el.currentTime);
+    $('#pvSeek').value = String(Math.floor(el.currentTime * 10));
+    if (stopAt != null && el.currentTime >= stopAt) {
+      el.pause();
+      el.currentTime = stopAt;
       stopAt = null;
-      $('#pvPlay').textContent = '播放';
+      syncPlayBtn();
     }
   });
   $('#pvPlay').onclick = () => {
     if (!video) return;
     if (video.paused) {
       stopAt = null;
-      video.play();
-      $('#pvPlay').textContent = '暂停';
+      emit('playback-starting', { owner: 'preview' });
+      video.play().catch(() => syncPlayBtn());
+      syncPlayBtn();
     } else {
       video.pause();
-      $('#pvPlay').textContent = '播放';
+      syncPlayBtn();
     }
   };
   $('#pvSeek').oninput = () => {
@@ -246,9 +271,9 @@ function renderVideo(stage, tools, asset, usage) {
     }
   };
 
-  video.src = fileUrl(asset.path);
+  el.src = fileUrl(asset.path);
   loadTimer = setTimeout(() => {
-    if (video && video.readyState === 0) fail(ERR_TEXT.timeout);
+    if (video === el && el.readyState === 0) fail(ERR_TEXT.timeout);
   }, 8000);
 }
 
@@ -324,7 +349,11 @@ function renderClipPanel(tools, asset, usage) {
     err('');
     stopAt = c.out;
     video.currentTime = c.in;
-    video.play();
+    emit('playback-starting', { owner: 'preview' });
+    video.play().catch(() => {
+      const btn = $('#pvPlay');
+      if (btn && video) btn.textContent = video.paused ? '播放' : '暂停';
+    });
     $('#pvPlay').textContent = '暂停';
   };
   const clearRange = () => {
@@ -397,5 +426,8 @@ export function initPreview() {
     if (err) toast(err, null, 'error');
   };
   on('project-loaded', closePreview);
+  on('playback-starting', ({ owner }) => {
+    if (owner !== 'preview' && video && !video.paused) video.pause();
+  });
   registerCommand('preview:usage', (row, usageIndex) => openPreview({ row, usageIndex }));
 }

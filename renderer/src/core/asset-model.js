@@ -107,7 +107,7 @@ export function pruneTypingJunk(registry, usedIds) {
   for (const [id, a] of Object.entries(registry)) {
     if (usedIds.has(id)) continue;
     const p = a.path || '';
-    if (!p || paths.some(other => other !== p && other.startsWith(p))) {
+    if (!p || (!kindOf(p) && paths.some(other => other !== p && other.startsWith(p)))) {
       delete registry[id];
       removed++;
     }

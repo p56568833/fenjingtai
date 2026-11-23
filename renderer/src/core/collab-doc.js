@@ -128,13 +128,47 @@ export function nextRowId(rows, { parity = null, floor = 0 } = {}) {
 }
 
 /* ── 本机形态 ↔ 共享形态 ── */
+const LOCAL_FRAG_RE = /(#t=[\d.,]+)$/;
+function splitLocalFrag(p) {
+  if (typeof p !== 'string' || !p.startsWith('/')) return [p || '', ''];
+  const m = p.match(LOCAL_FRAG_RE);
+  return m ? [p.slice(0, m.index), m[1]] : [p, ''];
+}
+function mapToLocalPath(path, ctx) {
+  if (typeof path !== 'string' || !path || !ctx) return null;
+  if (Object.hasOwn(ctx.pathMap, path)) return ctx.pathMap[path];
+  const [base, frag] = splitLocalFrag(path);
+  if (Object.hasOwn(ctx.baseMap, base)) return ctx.baseMap[base] + frag;
+  return null;
+}
+function mapToSharedPath(path, ctx) {
+  if (typeof path !== 'string' || !path || !ctx) return null;
+  if (Object.hasOwn(ctx.reverse, path)) return ctx.reverse[path];
+  const [base, frag] = splitLocalFrag(path);
+  if (Object.hasOwn(ctx.reverseBase, base)) return ctx.reverseBase[base] + frag;
+  return null;
+}
 /* ctx：本机哪些候选片段已经保存到本地（素材 id → 候选），以及本机自己重新定位过的文件（共享路径 → 本机路径） */
 export function makeCtx(project, pathMap = {}) {
   const saved = new Map();
   for (const c of project.candidates || []) if (c.savedPath && c.assetId && c.url) saved.set(c.assetId, c);
-  const reverse = {};
-  for (const [shared, local] of Object.entries(pathMap || {})) reverse[local] = shared;
-  return { saved, project, pathMap: pathMap || {}, reverse };
+  const raw = pathMap || {};
+  const baseMap = {};
+  const reverseBase = {};
+  const reverseExact = {};
+  const localHits = new Map();
+  for (const [shared, local] of Object.entries(raw)) {
+    if (typeof shared !== 'string' || typeof local !== 'string') continue;
+    const [sBase] = splitLocalFrag(shared);
+    const [lBase] = splitLocalFrag(local);
+    baseMap[sBase] = lBase;
+    if (!Object.hasOwn(reverseBase, lBase)) reverseBase[lBase] = sBase;
+    const hit = localHits.get(local);
+    if (!hit) localHits.set(local, new Set([shared]));
+    else hit.add(shared);
+  }
+  for (const [local, sharedSet] of localHits) if (sharedSet.size === 1) reverseExact[local] = [...sharedSet][0];
+  return { saved, project, pathMap: raw, baseMap, reverse: reverseExact, reverseBase };
 }
 /* 这个素材在本机是不是「已保存到本地的候选片段」 */
 function localSaved(ctx, assetId) {
@@ -178,7 +212,7 @@ export function localRow(shared, ctx) {
 const ownAsset = a => Object.fromEntries(Object.entries(a).filter(([k]) => !ASSET_SKIP.has(k)));
 /* 本机路径换过的素材（保存到本地的片段、从对方取来 / 重新定位的文件）名字换算不回去：
    base 那条换算到本机后和现在一样，就原样用 base 的，不然两边会为素材名来回改个没完 */
-const mappedAsset = (a, ctx) => !!(localSaved(ctx, a.id) || ctx.reverse[a.path]);
+const mappedAsset = (a, ctx) => !!(localSaved(ctx, a.id) || mapToSharedPath(a.path, ctx));
 export function sharedAsset(a, ctx, baseAsset = null) {
   if (baseAsset && stable(ownAsset(localAsset(baseAsset, ctx))) === stable(ownAsset(a))) return clone(baseAsset);
   const out = {};
@@ -187,9 +221,12 @@ export function sharedAsset(a, ctx, baseAsset = null) {
   if (c) {
     out.path = remotePath(c);
     out.name = c.title || out.name;
-  } else if (ctx.reverse[out.path]) {
-    out.path = ctx.reverse[out.path];
-    out.name = assetName(out.path);
+  } else {
+    const sharedPath = mapToSharedPath(out.path, ctx);
+    if (sharedPath) {
+      out.path = sharedPath;
+      out.name = assetName(sharedPath);
+    }
   }
   return out;
 }
@@ -200,9 +237,12 @@ export function localAsset(shared, ctx, existing) {
     out.path = c.savedPath;
     out.name = assetName(c.savedPath);
     out.kind = 'video';
-  } else if (ctx.pathMap[out.path]) {
-    out.path = ctx.pathMap[out.path];
-    out.name = assetName(out.path);
+  } else {
+    const localPath = mapToLocalPath(out.path, ctx);
+    if (localPath) {
+      out.path = localPath;
+      out.name = assetName(localPath);
+    }
   }
   if (existing?.durationSec && existing.path === out.path) out.durationSec = existing.durationSec;
   return out;
@@ -231,16 +271,24 @@ function setFields(target, fields) {
 const metaOf = (project, k, ctx) => {
   const v = project[k];
   if (k === 'speechRate') return Number(v) || 4.5;
-  if (k === 'voice' && v?.path && ctx?.reverse[v.path]) {
-    const path = ctx.reverse[v.path];
-    return { ...v, path, name: assetName(path) };
+  if (k === 'voice' && v?.path) {
+    const path = mapToSharedPath(v.path, ctx);
+    if (path) {
+      const next = { ...v, path };
+      if (Object.hasOwn(v, 'name') && (!v.name || v.name === assetName(v.path))) next.name = assetName(path);
+      return next;
+    }
   }
   return v ?? null;
 };
 const localMeta = (k, v, ctx) => {
-  if (k === 'voice' && v?.path && ctx?.pathMap[v.path]) {
-    const path = ctx.pathMap[v.path];
-    return { ...v, path, name: assetName(path) };
+  if (k === 'voice' && v?.path) {
+    const path = mapToLocalPath(v.path, ctx);
+    if (path) {
+      const next = { ...clone(v), path };
+      if (Object.hasOwn(v, 'name') && (!v.name || v.name === assetName(v.path))) next.name = assetName(path);
+      return next;
+    }
   }
   return clone(v ?? null);
 };

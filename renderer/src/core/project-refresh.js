@@ -7,16 +7,20 @@ export function projectRefresh(change) {
   const rowChange = fields.includes('rows') || !!rows?.length;
   const marks = !!rows?.includes('type');
   const notes = !!rows?.includes('note');
+  const subs = !!(rowChange && rows?.includes('sub'));
   // 未识别的句子字段走完整的块更新，避免新字段被静默漏掉。
   const table =
     all ||
     change.timing ||
-    has('types', 'voice', 'timing', 'speechRate') ||
-    (rowChange && (!rows || rows.some(key => !['type', 'note', 'assets', 'assetUsages', 'rework'].includes(key))));
+    has('types', 'voice', 'timing', 'speechRate', 'langMode', 'subTiming') ||
+    (rowChange &&
+      (!rows ||
+        rows.some(key => !['type', 'note', 'sub', 'assets', 'assetUsages', 'rework', 'reworkOff'].includes(key))));
   return {
     table: !!table,
     marks,
     notes,
+    subs,
     workspace: !!(table || rowChange || change.assets || change.source === 'history'),
     stats: !!(table || marks || change.assets),
     review: !!(
@@ -25,8 +29,24 @@ export function projectRefresh(change) {
       change.timing ||
       change.assets ||
       change.candidates ||
-      has('types', 'voice', 'timing', 'speechRate', 'mediaDir', 'reworkRequests', 'reviewBatches')
+      has(
+        'types',
+        'voice',
+        'timing',
+        'speechRate',
+        'mediaDir',
+        'reworkRequests',
+        'reviewBatches',
+        'langMode',
+        'subTiming',
+      )
     ),
-    focus: !!(all || rowChange || change.timing || has('types', 'voice', 'timing', 'speechRate')),
+    focus: !!(
+      all ||
+      rowChange ||
+      change.timing ||
+      change.assets ||
+      has('types', 'voice', 'timing', 'speechRate', 'langMode', 'subTiming')
+    ),
   };
 }

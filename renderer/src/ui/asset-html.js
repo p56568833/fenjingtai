@@ -53,7 +53,7 @@ function fitToggle(cov, ref) {
       ? `原本差 ${s1(cov.lack)} 秒，已定格补满（导出到剪映也是定格）；点击取消`
       : `原本差 ${s1(cov.lack)} 秒，已标为剪辑里补足（导出到剪映这段留空）；点击取消`
     : '你在剪辑里自己补（放慢等）：勾上后不再提示时长不够，导出到剪映时这段留空；要定格请在时间轴上点「定格补满」';
-  return `<span class="cover-fit${on ? ' on' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-fit-row="${ref.row}" data-fit-asset="${esc(ref.assetId)}" title="${esc(tip)}">${on && cov.freeze ? '已定格补满' : '剪辑已补足'}</span>`;
+  return `<span class="cover-fit${on ? ' on' : ''}" role="checkbox" tabindex="0" aria-checked="${on}" data-fit-row="${esc(ref.row)}" data-fit-asset="${esc(ref.assetId)}" title="${esc(tip)}">${on && cov.freeze ? '已定格补满' : '剪辑已补足'}</span>`;
 }
 /* compact：表格里只写结论（够 / 差几秒），需要、可用、文件这些数放在悬停提示里；右侧面板多写一行需要和可用 */
 function coverHTML(cov, ref, { compact = false } = {}) {
@@ -81,7 +81,7 @@ function coverHTML(cov, ref, { compact = false } = {}) {
               : '时长未知';
   const fit = cov.fixed || cov.verdict === 'short' ? fitToggle(cov, ref) : '';
   const line = compact ? '' : `<span class="cover-detail">${esc(detail)}</span>`;
-  return `<span class="asset-cover cover-${cov.verdict}${cov.fixed ? ' cover-fixed' : ''}${compact ? ' compact' : ''}" title="${esc(tip)}">${line}<span class="cover-verdict">${verdict}</span>${fit}</span>`;
+  return `<span class="asset-cover cover-${esc(cov.verdict)}${cov.fixed ? ' cover-fixed' : ''}${compact ? ' compact' : ''}" title="${esc(tip)}">${line}<span class="cover-verdict">${esc(verdict)}</span>${fit}</span>`;
 }
 const coverageFor = members => shotCoverage(layoutShot(state.assets || {}, members, timeline()));
 
@@ -89,7 +89,7 @@ const thumbText = kind => (kind === 'video' ? '▶ 视频' : kind === 'image' ? 
 
 /* 缩略图容器：data-preview-path 供懒加载与重试定位 */
 const thumbHTML = (path, kind) =>
-  `<span class="asset-thumb" data-preview-path="${esc(path)}" data-kind="${kind}" data-file-missing="${missingPaths().has(path)}">${thumbText(kind)}</span>`;
+  `<span class="asset-thumb" data-preview-path="${esc(path)}" data-kind="${esc(kind)}" data-file-missing="${missingPaths().has(path)}">${thumbText(kind)}</span>`;
 
 /* 按角色排：主画面 → 叠加 → 未分配 → 备选；保留原下标（面板按钮靠它定位） */
 export function orderedUsages(r) {
@@ -126,11 +126,11 @@ export function assetCards(r) {
       ]
         .filter(Boolean)
         .join(' · ');
-      return `<button class="row-asset ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-detail="${r.id}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc([ROLES[u.role] || '未分配', where].filter(Boolean).join(' · '))}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov, { row: r.id, assetId: u.assetId }, { compact: true })}</span></button>`;
+      return `<div class="row-asset ${roleClass(u.role)}" role="button" tabindex="0" data-asset-id="${esc(u.assetId)}" data-detail="${esc(r.id)}" title="${esc(path)}">${thumbHTML(path, kind)}<span class="asset-caption"><span class="role-tag ${roleClass(u.role)}">${esc([ROLES[u.role] || '未分配', where].filter(Boolean).join(' · '))}</span><strong>${esc(a.name || baseName(path))}</strong><small>${esc(label)}</small>${coverHTML(cov, { row: r.id, assetId: u.assetId }, { compact: true })}</span></div>`;
     })
     .join('');
   const altBtn = alts.length
-    ? `<button class="asset-alts" data-detail="${r.id}" title="${esc(alts.map(x => (registry[x.u.assetId] || x.u).name || '').join('\n'))}">备选 ${alts.length} 个 · 查看</button>`
+    ? `<button class="asset-alts" data-detail="${esc(r.id)}" title="${esc(alts.map(x => (registry[x.u.assetId] || x.u).name || '').join('\n'))}">备选 ${alts.length} 个 · 查看</button>`
     : '';
   return cards + altBtn;
 }
@@ -173,7 +173,7 @@ export function coverStrip(members, cov) {
           : x.state === 'part'
             ? `第 ${x.row.no} 句 · ${sec1(x.need)} 秒 · 画面只盖住 ${sec1(x.got)} 秒，后面 ${sec1(x.need - x.got)} 秒是空的`
             : `第 ${x.row.no} 句 · ${sec1(x.need)} 秒 · 没有画面（播出来是黑屏）`;
-      return `<span class="lo-cell ${x.state}" style="flex:${Math.max(0.6, x.need).toFixed(2)};--got:${got}%" title="${esc(tip)}">${x.state === 'empty' ? '空' : no}</span>`;
+      return `<span class="lo-cell ${esc(x.state)}" style="flex:${Math.max(0.6, x.need).toFixed(2)};--got:${got}%" title="${esc(tip)}">${x.state === 'empty' ? '空' : no}</span>`;
     })
     .join('');
   const empty = cov.filter(x => x.state === 'empty').length;
@@ -207,7 +207,7 @@ export function inspectorAssets(r, { missing } = {}) {
     ? 0
     : cands.filter(c => !c.decision).length;
   const vr = cands.length
-    ? `<button class="vr-open${todo ? ' has-todo' : ''}" data-vr-open="${r.id}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10.5 5-3v9l-5-3"/></svg><span class="vr-open-main">视频候选 ${cands.length} 个</span>${todo ? `<b>${todo} 个待审</b>` : ''}<span class="vr-open-go">去审核<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4.5 3 3 3-3 3"/></svg></span></button>`
+    ? `<button class="vr-open${todo ? ' has-todo' : ''}" data-vr-open="${esc(r.id)}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10.5 5-3v9l-5-3"/></svg><span class="vr-open-main">视频候选 ${cands.length} 个</span>${todo ? `<b>${todo} 个待审</b>` : ''}<span class="vr-open-go">去审核<svg viewBox="0 0 12 12" aria-hidden="true"><path d="m4.5 3 3 3-3 3"/></svg></span></button>`
     : '';
   if (!usages.length) return vr + '<p class="asset-none">尚未关联素材</p>';
   const peer = collabSession(); // 局域网协作中：失联的文件可以从对方电脑取
@@ -248,10 +248,10 @@ export function inspectorAssets(r, { missing } = {}) {
           stateCls = ' warn';
         }
         return `<div class="inspector-asset${stateCls} ${roleClass(u.role)}" data-asset-id="${esc(u.assetId)}" data-usage-index="${index}">
-      <button class="asset-open" data-preview-usage="${index}" title="${esc(path)}">
+      <div class="asset-open" role="button" tabindex="0" data-preview-usage="${index}" title="${esc(path)}">
         ${thumbHTML(path, kind)}
         <span class="asset-caption"><strong>${esc(a.name || baseName(path))}</strong><small>${esc(stateLine)}</small>${coverHTML(cov, { row: r.id, assetId: u.assetId })}</span>
-      </button>
+      </div>
       ${gone ? `<div class="asset-actions">${fetchable ? `<button class="asset-mini" data-fetch-asset="${esc(u.assetId)}" title="这个文件在 ${esc(peer.peer || '对方')} 的电脑上：通过局域网拷一份到你自己的素材文件夹">${ICON_FETCH}<span>从对方电脑取</span></button>` : ''}<button class="asset-mini" data-relocate-usage="${index}" title="文件被移走了：重新选一下它现在的位置">${ICON_FIND}<span>重新定位</span></button></div>` : ''}
 
       ${lineControls(u, index, members)}

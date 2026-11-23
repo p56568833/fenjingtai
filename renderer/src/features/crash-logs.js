@@ -14,22 +14,26 @@ const kinds = {
   'renderer-error': '界面脚本异常',
   'renderer-rejection': '界面任务异常',
 };
+let clearing = false;
+
 async function refresh() {
   try {
     const info = await native.crashLogs();
-    $('#crashLogList').innerHTML = info.error
+    const records = Array.isArray(info?.records) ? info.records : [];
+    $('#crashLogList').innerHTML = info?.error
       ? `<p>记录暂时无法读写：${esc(info.error)}</p>`
-      : info.records.length
-        ? info.records
+      : records.length
+        ? records
             .map(
               r =>
                 `<details class="crash-log-entry"><summary>${esc(new Date(r.time).toLocaleString('zh-CN', { hour12: false }))} · ${esc(kinds[r.kind] || '异常记录')} · ${esc(r.version)}</summary><pre>${esc(r.message)}${r.stack ? '\n\n' + esc(r.stack) : ''}\n\n${esc(r.platform)} / ${esc(r.arch)}</pre></details>`,
             )
             .join('')
         : '<p>暂无崩溃或未处理的异常记录。</p>';
-    $('#crashLogClear').disabled = !info.records.length;
+    $('#crashLogClear').disabled = clearing || !records.length;
   } catch (e) {
     $('#crashLogList').textContent = `无法读取记录：${e.message}`;
+    $('#crashLogClear').disabled = true;
   }
 }
 export function initCrashLogs() {
@@ -57,12 +61,17 @@ export function initCrashLogs() {
     }
   };
   $('#crashLogClear').onclick = async () => {
+    if (clearing) return;
+    clearing = true;
+    $('#crashLogClear').disabled = true;
     try {
       const result = await native.clearCrashLogs();
-      if (!result.ok) toast(`清空失败：${result.error}`, null, 'error');
-      await refresh();
+      if (!result?.ok) toast(`清空失败：${result?.error || '未知原因'}`, null, 'error');
     } catch (e) {
       toast(e.message, null, 'error');
+    } finally {
+      clearing = false;
+      await refresh();
     }
   };
 }

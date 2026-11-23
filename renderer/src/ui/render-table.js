@@ -2,22 +2,84 @@
 import { state } from '../app/state.js';
 import { rowById, types } from '../app/project-queries.js';
 import { currentSelection, match } from '../app/selection.js';
-import { qMatch } from '../app/search-queries.js';
+import { setLangMode } from '../app/actions.js';
+import { isBilingualProject } from '../core/bilingual.js';
 import { sharedScenes, shotTotalText } from './asset-html.js';
-import { esc } from './base/dom.js';
+import { esc, toast } from './base/dom.js';
 import { durCellHTML, durHeading } from './time-view.js';
 import { chipHTML } from './base/type-view.js';
 import { takeAnimation } from './base/anim.js';
 import { syncSectionPins } from './section-pin.js';
 import { patchChildren, staleBlock } from './base/keyed-patch.js';
+import { isQueryHit } from './base/search-paint.js';
+import { registerCommand } from './base/commands.js';
+import { preserveReadingPosition } from './reading-position.js';
+
+const SUB_SHOW_KEY = 'fjz:subShow';
+let bilingualBound = false;
+
+export function isTableSubsVisible() {
+  try {
+    return localStorage.getItem(SUB_SHOW_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function setTableSubsVisible(show) {
+  try {
+    localStorage.setItem(SUB_SHOW_KEY, show ? '1' : '0');
+  } catch {}
+}
+
+export function syncBilingualChrome() {
+  const bilingual = isBilingualProject(state);
+  const show = isTableSubsVisible();
+  const page = document.querySelector('#tablePage');
+  if (page) {
+    page.classList.toggle('mode-en-zh', bilingual);
+    page.classList.toggle('hide-subs', bilingual && !show);
+  }
+  const btn = document.querySelector('#btnSubToggle');
+  if (btn) {
+    btn.hidden = !bilingual;
+    btn.classList.toggle('active', show);
+    btn.setAttribute('aria-pressed', String(show));
+    btn.title = show ? '点击隐藏表格里的中文字幕（播放器字幕不受影响）' : '点击显示表格里的中文字幕';
+  }
+}
+
+export function initTableBilingual() {
+  if (bilingualBound) return;
+  bilingualBound = true;
+  const btn = document.querySelector('#btnSubToggle');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      preserveReadingPosition(() => {
+        setTableSubsVisible(!isTableSubsVisible());
+        syncBilingualChrome();
+      });
+    });
+  }
+  registerCommand('lang:toggle', () => {
+    const next = state.langMode === 'en-zh' ? '' : 'en-zh';
+    if (!setLangMode(next)) return;
+    if (!next && isBilingualProject(state)) {
+      toast('已关闭模式开关；项目仍含中文字幕，可点工具栏「中字」暂时隐藏，或在「导入」菜单清除中文字幕', null, 'info');
+    }
+  });
+}
 
 /* 一句的 HTML。选中 / 勾选状态不写进来，由 renderSelectionOnly 统一刷（换选中不用重画这一行）；
    句号和时长也不写进来：前面加一句、删一句，后面每句的句号和起始时间都会变，那样整张表都得换，
    由 paintNumbers 在原地改。shared：在共用画面里（类型和素材格放在整组右边，不在这行里） */
-function rowHTML(r, { shared = false, end = false } = {}) {
+function rowHTML(r, { shared = false, end = false, bilingual = false } = {}) {
   // 搜索高亮和淡化不写进来，由 paintSearch 原地刷（开关搜索不换句子块，页面不闪）
   const sentHtml = esc(r.text);
-  return `<div class="row ${r.type ? '' : 'unannotated'}${shared ? ' shared-scene-row' : ''}${end ? ' shared-scene-end' : ''}" data-id="${r.id}"><div class="spine"></div><div class="idx"><input class="row-select" type="checkbox" data-select="${r.id}"><span></span></div><div class="sent" data-id="${r.id}">${sentHtml}</div><div class="dur"></div>${shared ? '' : `${typeboxHTML(r)}${visualHTML(r)}`}</div>`;
+  const sentCol = bilingual
+    ? `<div class="sent-cell"><div class="sent" data-id="${r.id}">${sentHtml}</div><div class="sent-sub" data-id="${r.id}" contenteditable="plaintext-only" spellcheck="false" data-ph="点击填写中文字幕…">${esc(r.sub || '')}</div></div>`
+    : `<div class="sent" data-id="${r.id}">${sentHtml}</div>`;
+  return `<div class="row ${r.type ? '' : 'unannotated'}${shared ? ' shared-scene-row' : ''}${end ? ' shared-scene-end' : ''}" data-id="${r.id}"><div class="spine"></div><div class="idx"><input class="row-select" type="checkbox" data-select="${r.id}"><span></span></div>${sentCol}<div class="dur"></div>${shared ? '' : `${typeboxHTML(r)}${visualHTML(r)}`}</div>`;
 }
 const typeboxHTML = (r, total = false) =>
   `<div class="typebox">${total ? '<em class="shared-total" title="这几句口播一共占的时间：拿它和右边素材的「可用」比，看画面能不能盖满"></em>' : ''}${chipHTML(r)}</div>`;
@@ -50,9 +112,9 @@ function paintNumbers(wrap, scenes) {
 }
 
 /* 共用画面：组里的句子排在左边，整组的类型、画面描述、素材格放在右边一列（跟着组里第一句） */
-function sceneHTML(rows, group) {
+function sceneHTML(rows, group, bilingual = false) {
   const r = rows[0];
-  return `<section class="shared-scene" data-owner="${r.id}" aria-label="${esc(group.label)}"><div class="shared-scene-header"><button class="shared-scene-title" data-detail="${r.id}" title="${esc(group.label)} · 点开看画面与素材"><strong>共用画面</strong><span>${esc(group.label.replace('共用一个画面', ''))}</span></button><button class="shared-more" data-group-more="${esc(r.groupId)}" title="调整共用范围">···</button></div><div class="shared-scene-body"><div class="shared-scene-lines">${rows.map((x, i) => rowHTML(x, { shared: true, end: i === rows.length - 1 })).join('')}</div>${typeboxHTML(r, true)}${visualHTML(r)}</div></section>`; // 总秒数放在类型色块正上方，和右边素材的「需要 / 可用」对着看
+  return `<section class="shared-scene" data-owner="${r.id}" aria-label="${esc(group.label)}"><div class="shared-scene-header"><button class="shared-scene-title" data-detail="${r.id}" title="${esc(group.label)} · 点开看画面与素材"><strong>共用画面</strong><span>${esc(group.label.replace('共用一个画面', ''))}</span></button><button class="shared-more" data-group-more="${esc(r.groupId)}" title="调整共用范围">···</button></div><div class="shared-scene-body"><div class="shared-scene-lines">${rows.map((x, i) => rowHTML(x, { shared: true, end: i === rows.length - 1, bilingual })).join('')}</div>${typeboxHTML(r, true)}${visualHTML(r)}</div></section>`; // 总秒数放在类型色块正上方，和右边素材的「需要 / 可用」对着看
 }
 
 /* 换掉一句 / 一组时，把旧元素上后来补画的素材卡片挪到新元素里：卡片内容没变就不重画，缩略图不闪 */
@@ -81,6 +143,8 @@ const START_HTML = `<div class="empty-start">
 </div>`;
 
 export function renderTable() {
+  syncBilingualChrome();
+  const bilingual = isBilingualProject(state);
   document.querySelector('#thead').style.display = '';
   const dh = document.querySelector('#durHeading');
   if (dh) dh.textContent = durHeading();
@@ -99,7 +163,7 @@ export function renderTable() {
   const flushScene = () => {
     if (!pending.length) return;
     const group = groups.get(pending[0].groupId);
-    const spec = { key: `g${pending[0].id}`, html: sceneHTML(pending, group) };
+    const spec = { key: `g${pending[0].id}`, html: sceneHTML(pending, group, bilingual) };
     list.push(spec);
     scenes.push({ spec, group });
     pending = [];
@@ -143,7 +207,7 @@ export function renderTable() {
       continue;
     }
     flushScene();
-    list.push({ key: `r${r.id}`, html: rowHTML(r) });
+    list.push({ key: `r${r.id}`, html: rowHTML(r, { bilingual }) });
   }
   flushScene();
   if (!top.length)
@@ -167,7 +231,7 @@ export function updateRowVisual(id) {
   const el = document.querySelector(`.row[data-id="${id}"]`);
   if (!el) return;
   staleBlock(el);
-  const qdim = qMatch(r) ? '' : ' qdim';
+  const qdim = isQueryHit(r) ? '' : ' qdim';
   el.classList.toggle('unannotated', !r.type);
   el.classList.toggle('qdim', !!qdim);
   el.classList.toggle('selected', currentSelection().includes(r.id));
@@ -197,7 +261,19 @@ export function updateSectionBadges() {
     const cnt = el.querySelector('.cnt');
     if (cnt) cnt.textContent = `${s.cnt} 句`;
     const todo = el.querySelector('.todo-cnt');
-    if (todo) todo.textContent = `未标 ${s.todo}`;
+    if (s.todo === 0) {
+      todo?.remove();
+    } else if (todo) {
+      todo.textContent = `未标 ${s.todo}`;
+    } else {
+      const meta = el.querySelector('.section-meta');
+      if (meta) {
+        const span = document.createElement('span');
+        span.className = 'todo-cnt';
+        span.textContent = `未标 ${s.todo}`;
+        meta.append(span);
+      }
+    }
     staleBlock(el);
   });
 }

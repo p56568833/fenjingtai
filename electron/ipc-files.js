@@ -1,5 +1,5 @@
 /* 文件相关的通道：导出 / PDF / 打开稿子、选素材 / 口播、找回失联素材、打开 / 缩略图、写返工单 */
-const { app, BrowserWindow, dialog, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, dialog, shell, nativeImage, session } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { readScriptFile, SCRIPT_EXTS } = require('./script-reader');
@@ -22,6 +22,8 @@ function registerFileIpc({ handle, win }) {
   /* PDF 分镜脚本：渲染层排好整页 HTML，这里用隐藏窗口加载后交给 Chromium 打印成矢量 PDF。
    排版窗口禁用脚本、拦截跳转，只渲染这一份本地生成的页面。 */
   const inch = mm => mm / 25.4;
+  const PDF_TIMEOUT_MS = 30 * 1000;
+  let pdfPartitionReady = false;
   handle('pdf:export', async (_e, name, doc) => {
     if (!doc || typeof doc.html !== 'string' || !doc.html) return { ok: false, error: '没有可导出的内容' };
     const r = await dialog.showSaveDialog(win(), {
@@ -30,16 +32,26 @@ function registerFileIpc({ handle, win }) {
     });
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
     const file = /\.pdf$/i.test(r.filePath) ? r.filePath : r.filePath + '.pdf';
-    const dir = fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台PDF-'));
+    let dir = null;
     let w = null;
+    let timer = null;
     try {
+      dir = fs.mkdtempSync(path.join(app.getPath('temp'), '分镜台PDF-'));
       const page = path.join(dir, 'print.html');
       fs.writeFileSync(page, doc.html, 'utf8');
+      if (!pdfPartitionReady) {
+        const pdfSession = session.fromPartition('pdf-export');
+        pdfSession.webRequest.onBeforeRequest((details, callback) => {
+          callback({ cancel: !/^(?:file|data):/i.test(details.url) });
+        });
+        pdfPartitionReady = true;
+      }
       w = new BrowserWindow({
         show: false,
         width: 1240,
         height: 1754,
         webPreferences: {
+          partition: 'pdf-export',
           javascript: false,
           sandbox: true,
           contextIsolation: true,
@@ -49,33 +61,46 @@ function registerFileIpc({ handle, win }) {
       });
       w.webContents.on('will-navigate', e => e.preventDefault());
       w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      await w.loadFile(page);
-      const data = await w.webContents.printToPDF({
-        pageSize: 'A4',
-        landscape: !!doc.landscape,
-        printBackground: true,
-        displayHeaderFooter: true,
-        headerTemplate: typeof doc.header === 'string' ? doc.header : '<span></span>',
-        footerTemplate: typeof doc.footer === 'string' ? doc.footer : '<span></span>',
-        margins: { top: inch(12), bottom: inch(14), left: inch(12), right: inch(12) },
-        generateDocumentOutline: true, // 章节 → PDF 书签
-        generateTaggedPDF: true,
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          if (w && !w.isDestroyed()) w.destroy();
+          reject(new Error('生成 PDF 超时，请稍后再试'));
+        }, PDF_TIMEOUT_MS);
       });
+      const task = (async () => {
+        await w.loadFile(page);
+        return w.webContents.printToPDF({
+          pageSize: 'A4',
+          landscape: !!doc.landscape,
+          printBackground: true,
+          displayHeaderFooter: true,
+          headerTemplate: typeof doc.header === 'string' ? doc.header : '<span></span>',
+          footerTemplate: typeof doc.footer === 'string' ? doc.footer : '<span></span>',
+          margins: { top: inch(12), bottom: inch(14), left: inch(12), right: inch(12) },
+          generateDocumentOutline: true, // 章节 → PDF 书签
+          generateTaggedPDF: true,
+        });
+      })();
+      task.catch(() => {});
+      const data = await Promise.race([task, timeout]);
       writeAtomic(file, data);
       return { ok: true, path: file };
     } catch (err) {
       return { ok: false, error: String((err && err.message) || err) };
     } finally {
+      clearTimeout(timer);
       if (w && !w.isDestroyed()) w.destroy();
-      fs.rmSync(dir, { recursive: true, force: true });
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
   handle('dialog:import', async (_e, kind) => {
     const filters =
       kind === 'srt'
-        ? [{ name: '剪映 / 字幕文件', extensions: ['srt', 'vtt'] }]
-        : [{ name: '稿子 / 项目 / 字幕文件', extensions: SCRIPT_EXTS }];
+        ? [{ name: '剪映 / 字幕文件', extensions: ['srt', 'vtt', 'ass'] }]
+        : kind === 'json'
+          ? [{ name: '项目 / 候选清单文件', extensions: ['json'] }]
+          : [{ name: '稿子 / 项目 / 字幕文件', extensions: SCRIPT_EXTS }];
     const r = await dialog.showOpenDialog(win(), { properties: ['openFile'], filters });
     if (r.canceled || !r.filePaths.length) return null;
     return readScriptFile(r.filePaths[0]);
@@ -193,17 +218,28 @@ function registerFileIpc({ handle, win }) {
   });
   /* 批量探测本地文件是否还在（文件失联检测） */
   const diskPathOf = p => (typeof p === 'string' && p.startsWith('/') ? p.replace(/#t=[\d.,]+$/, '') : p);
-  handle('assets:probe', (_e, paths) => {
+  handle('assets:probe', async (_e, paths) => {
     const out = {};
-    for (const p of Array.isArray(paths) ? paths : []) {
-      if (typeof p !== 'string' || !p) continue;
-      const dp = diskPathOf(p);
-      try {
-        out[p] = { exists: path.isAbsolute(dp) && fs.existsSync(dp) && fs.statSync(dp).isFile() };
-      } catch {
-        out[p] = { exists: false };
+    const list = Array.isArray(paths) ? paths : [];
+    const concurrency = Math.min(16, list.length);
+    let idx = 0;
+    const worker = async () => {
+      while (idx < list.length) {
+        const p = list[idx++];
+        if (typeof p !== 'string' || !p) continue;
+        const dp = diskPathOf(p);
+        if (!path.isAbsolute(dp)) {
+          out[p] = { exists: false };
+          continue;
+        }
+        try {
+          out[p] = { exists: (await fs.promises.stat(dp)).isFile() };
+        } catch {
+          out[p] = { exists: false };
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: concurrency }, worker));
     return out;
   });
   /* 待返工 → 返工单（只写 .json；先写临时文件再改名）。file 是完整路径就写到那里，文件夹必须已存在；
@@ -212,11 +248,19 @@ function registerFileIpc({ handle, win }) {
     if (typeof file !== 'string' || !/\.json$/i.test(file)) return { ok: false, error: '路径无效' };
     const bare = !path.isAbsolute(file);
     if (bare && path.basename(file) !== file) return { ok: false, error: '路径无效' };
+    if (!bare && file.split(/[\\/]/).includes('..')) return { ok: false, error: '路径无效' };
+    const raw = String(content ?? '');
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, error: '返工单内容无效' };
+    } catch {
+      return { ok: false, error: '返工单内容不是有效的 JSON' };
+    }
     try {
       const target = bare ? path.join(app.getPath('userData'), '返工单', file) : file;
       if (bare) fs.mkdirSync(path.dirname(target), { recursive: true });
       else if (!fs.statSync(path.dirname(target)).isDirectory()) return { ok: false, error: '保存位置不存在' };
-      writeAtomic(target, String(content ?? ''));
+      writeAtomic(target, raw);
       return { ok: true, path: target };
     } catch (err) {
       return { ok: false, error: String(err?.message || err) };
@@ -235,8 +279,10 @@ function registerFileIpc({ handle, win }) {
       }
       const dp = diskPathOf(value);
       if (!path.isAbsolute(dp) || !fs.existsSync(dp)) return '文件不存在，请更新素材路径';
-      if (!new RegExp(`\\.(${ASSET_EXTS.join('|')})$`, 'i').test(dp)) return '请从访达打开这个文件类型';
-      return await shell.openPath(dp);
+      const real = fs.realpathSync(dp);
+      if (!fs.statSync(real).isFile()) return '无法打开这个素材';
+      if (!new RegExp(`\\.(${ASSET_EXTS.join('|')})$`, 'i').test(real)) return '请从访达打开这个文件类型';
+      return await shell.openPath(real);
     } catch {
       return '无法打开这个素材';
     }
@@ -257,7 +303,13 @@ function registerFileIpc({ handle, win }) {
     if (img.isEmpty()) return null;
     const { width, height } = img.getSize();
     const k = Math.min(1, 480 / Math.max(width, height));
-    return k < 1 ? img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: 'good' }) : img;
+    return k < 1
+      ? img.resize({
+          width: Math.max(1, Math.round(width * k)),
+          height: Math.max(1, Math.round(height * k)),
+          quality: 'good',
+        })
+      : img;
   }
   handle('assets:preview', async (_e, value) => {
     const dp = diskPathOf(value);

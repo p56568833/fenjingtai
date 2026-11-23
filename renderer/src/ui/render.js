@@ -6,13 +6,14 @@ import { on, emit } from '../app/events.js';
 import { renumber, rowById } from '../app/project-queries.js';
 import { visibleLineIds } from '../app/selection.js';
 import { renderStats } from './render-stats.js';
-import { renderTable, updateRowVisual, updateSectionBadges } from './render-table.js';
+import { renderTable, updateRowVisual, updateSectionBadges, initTableBilingual } from './render-table.js';
+import { isBilingualProject } from '../core/bilingual.js';
 import { armAnimation, animationArmed } from './base/anim.js';
 import { flipCapture, flipPlay } from './base/motion.js';
 import { closePop } from './base/popover.js';
 import { flushPendingEdits, deferRenderWhileEditing, clearDeferredRender, isEditingIn } from './base/edit-session.js';
 import { renderSelectionOnly } from './base/selection.js';
-import { revealRow } from './base/dom.js';
+import { revealRow, readEditable } from './base/dom.js';
 import { registerCommand, runCommand } from './base/commands.js';
 import { staleBlock } from './base/keyed-patch.js';
 import { paintSearch } from './base/search-paint.js';
@@ -117,7 +118,7 @@ export function setView(v) {
   renderAll();
   emit('view', { from, view: v });
   // 切完视图把正在处理的句子带到视口中间：位置可预期，不会「莫名跳走」
-  if (v !== 'review') document.querySelector(`[data-id="${viewState.sel}"]`)?.scrollIntoView({ block: 'center' });
+  if (v !== 'review' && viewState.sel != null) revealRow(viewState.sel, 'center');
 }
 
 /* 顶栏视图切换：视频审核 ↔ 表格。视频审核开着时它是选中项；白色滑块滑到选中按钮底下（CSS 弹簧过渡） */
@@ -153,9 +154,9 @@ function onMarks({ ids }) {
 function onNotes({ ids }) {
   let deferred = false;
   for (const id of ids) {
-    const el = document.querySelector(`.note[data-id="${id}"]`);
+    const el = document.querySelector(`#rows .note[data-id="${id}"]`);
     const r = rowById(id);
-    if (el && r && el.textContent !== (r.note || '')) {
+    if (el && r && readEditable(el) !== (r.note || '')) {
       if (el === document.activeElement) {
         deferred = true;
         continue;
@@ -167,15 +168,38 @@ function onNotes({ ids }) {
   return deferred;
 }
 
+/* 中文字幕变了：正在编辑的那格不动，别的格同步文字 */
+function onSubs({ ids }) {
+  let deferred = false;
+  for (const id of ids) {
+    const el = document.querySelector(`#rows .sent-sub[data-id="${id}"]`);
+    const r = rowById(id);
+    if (el && r && readEditable(el) !== (r.sub || '')) {
+      if (el === document.activeElement) {
+        deferred = true;
+        continue;
+      }
+      el.textContent = r.sub || '';
+      staleBlock(el);
+      if (viewState.query) paintSearch(el.closest('.row'));
+    }
+  }
+  return deferred;
+}
+
 /* 本机、撤销和协作走同一份变化清单；局部更新不触碰正在输入的格子。 */
 function onProjectChange(change) {
   if (change.projectId !== state.projectId) return;
   const plan = projectRefresh(change);
   syncTitle();
-  if (plan.table || (plan.marks && viewState.filter !== 'all')) return renderAll();
+  const tablePage = document.querySelector('#tablePage');
+  const bilingualMismatch =
+    plan.subs && !!tablePage && tablePage.classList.contains('mode-en-zh') !== isBilingualProject(state);
+  if (plan.table || bilingualMismatch || (plan.marks && viewState.filter !== 'all')) return renderAll();
   const ids = change.rowIds || [];
   if (plan.marks) onMarks({ ids });
   if (plan.notes && onNotes({ ids })) deferRenderWhileEditing('main-partial', '#rows', renderAll);
+  if (plan.subs && onSubs({ ids })) deferRenderWhileEditing('main-partial', '#rows', renderAll);
   if (plan.stats) renderStats();
   if (plan.workspace)
     refreshWorkspace(
@@ -183,13 +207,14 @@ function onProjectChange(change) {
         preservePosition: true,
         rowIds: change.assets ? (change.assetRowIds ?? null) : change.rowIds,
       },
-      plan.notes && !plan.marks && !change.assets && isEditingIn('#rows, #inspector'),
+      (plan.notes || plan.subs) && !plan.marks && !change.assets && isEditingIn('#rows, #inspector'),
     );
-  if (plan.marks || plan.notes) emit('view-painted');
+  if (plan.marks || plan.notes || plan.subs) emit('view-painted');
   if (change.source === 'history') renderSelectionOnly();
 }
 
 export function initRender() {
+  initTableBilingual();
   registerCommand('view:set', setView);
   registerCommand('view:sync-toggle', syncViewToggle);
   // 待审数字滚动结束、字体加载或顶栏布局变化时，按钮尺寸还可能再次改变。

@@ -305,7 +305,7 @@ export function createShotTrack({
     if (!lanes || !lane || !u || e.button !== 0 || drag) return;
     const rect = lane.getBoundingClientRect();
     const dur = u.end - u.start;
-    const toSec = x => ((x - rect.left) / rect.width) * dur;
+    const toSec = x => ((x - rect.left) / Math.max(1, rect.width)) * dur;
     const block = e.target.closest('.ptt-block');
     if (!block) {
       // 点轨上空白处：取消选中（白框和把手收起），播放头跳到这里
@@ -389,10 +389,10 @@ export function createShotTrack({
         el.style.width = `${(Math.max(0, Math.min(src.end, dur) - src.start) / dur) * 100}%`;
       }
     };
-    function onMove(ev) {
+    function onMove(ev, finishing = false) {
       if (!drag || ev.pointerId !== e.pointerId) return;
       // 松手那一下没传过来（指针移出窗口时松开等）：键已经抬起就按这里松手
-      if (ev.type === 'pointermove' && ev.buttons === 0 && ev.isTrusted) return onUp(ev);
+      if (!finishing && ev.type === 'pointermove' && ev.buttons === 0 && ev.isTrusted) return onUp(ev);
       const delta = toSec(ev.clientX) - toSec(drag.x0);
       if ((Math.abs(ev.clientX - drag.x0) > 3 || Math.abs(ev.clientY - drag.y0) > 6) && !drag.moved) {
         drag.moved = true;
@@ -504,12 +504,17 @@ export function createShotTrack({
     }
     function onUp(ev) {
       if (ev && ev.pointerId !== e.pointerId) return;
-      // 拖得快时，按下到松手之间浏览器可能一次移动都没报（或者最后一段没报）：按松手的位置再算一遍，
-      // 不然草稿停在按下的地方，松手什么都不存，色块弹回原位
-      if (ev && Number.isFinite(ev.clientX)) onMove(ev);
-      const d = drag;
-      const from = d?.moved && mode === 'move' ? block.getBoundingClientRect() : null;
-      clearDrag();
+      let d;
+      let from;
+      try {
+        // 拖得快时，按下到松手之间浏览器可能一次移动都没报（或者最后一段没报）：按松手的位置再算一遍，
+        // 不然草稿停在按下的地方，松手什么都不存，色块弹回原位
+        if (ev && Number.isFinite(ev.clientX)) onMove(ev, true);
+        d = drag;
+        from = d?.moved && mode === 'move' ? block.getBoundingClientRect() : null;
+      } finally {
+        clearDrag();
+      }
       if (!d) return;
       if (!d.moved) {
         renderEdit();

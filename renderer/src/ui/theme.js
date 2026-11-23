@@ -1,6 +1,7 @@
 /* 主题：浅色 / 深色 / 跟随系统。按钮和 ⌘L 在浅色深色间切换；「跟随系统」在 视图 菜单里 */
 import { registerCommand } from './base/commands.js';
 import { reduced } from './base/motion.js';
+import { syncSectionPins } from './section-pin.js';
 
 const media = matchMedia('(prefers-color-scheme: dark)');
 const getPref = () => {
@@ -133,6 +134,7 @@ function toggleDensity() {
   try {
     localStorage.setItem('fjz:density', on ? 'compact' : 'comfortable');
   } catch {}
+  syncSectionPins();
   return on;
 }
 

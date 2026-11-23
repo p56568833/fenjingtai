@@ -13,18 +13,27 @@ import { buildTimeline } from './timeline.js';
 import { buildPlaybackUnits, heldThrough } from './playback-plan.js';
 import { usableLength } from './shot-layout.js';
 import { shots, isRole } from './shots.js';
-import { usageList, kindOf, assetName, LINK_RE } from './asset-model.js';
+import { usageList, kindOf, assetName, LINK_RE, stripLocalFrag } from './asset-model.js';
 import { safeFileName } from './text.js';
+import { hasManualSubEdits } from './bilingual.js';
 
 export const SCHEMA_VERSION = 1;
-export const PLAN_DEFAULTS = Object.freeze({
+const SUBTITLE_LANGS = new Set(['source', 'zh', 'en', 'bilingual']);
+const planDefaults = {
   width: 1920,
   height: 1080,
   fps: 30,
   subtitles: false,
   altAssets: false,
   includeVoice: true,
+};
+Object.defineProperty(planDefaults, 'subtitleLang', {
+  value: 'source',
+  enumerable: false,
+  writable: false,
+  configurable: false,
 });
+export const PLAN_DEFAULTS = Object.freeze(planDefaults);
 
 const EPS = 1e-6;
 const TOL = 0.05; // 和预览一致：镜头末尾 / 手动画布舍入容差
@@ -73,6 +82,7 @@ function normalizeOptions(raw) {
     height: height > 0 && height <= 10000 ? height : PLAN_DEFAULTS.height,
     rate: normalizeFps(source.fps),
     subtitles: source.subtitles === true,
+    subtitleLang: SUBTITLE_LANGS.has(source.subtitleLang) ? source.subtitleLang : PLAN_DEFAULTS.subtitleLang,
     altAssets: source.altAssets === true,
     includeVoice: source.includeVoice !== false,
   };
@@ -113,8 +123,9 @@ const positive = value => {
 
 const probeFor = (probes, path) => {
   if (!path || !probes) return null;
-  if (probes instanceof Map) return probes.get(path) || null;
-  return probes[path] || null;
+  const clean = stripLocalFrag(path);
+  if (probes instanceof Map) return probes.get(clean) || probes.get(path) || null;
+  return probes[clean] || probes[path] || null;
 };
 
 const cleanUrlName = ref => {
@@ -212,13 +223,23 @@ function srtText(text) {
     .replace(/-->/g, '→')
     .trim();
 }
-function buildSrt(entries) {
+function srtBilingualText(text) {
+  // 双语 SRT 保留中文与英文之间的真实换行，仅转义箭头
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join('\n')
+    .replace(/-->/g, '→')
+    .trim();
+}
+function buildSrt(entries, { preserveNewlines = false } = {}) {
   if (!entries.length) return '';
+  const fmt = preserveNewlines ? srtBilingualText : srtText;
   return (
     entries
-      .map(
-        (entry, index) => `${index + 1}\n${srtTime(entry.startUs)} --> ${srtTime(entry.endUs)}\n${srtText(entry.text)}`,
-      )
+      .map((entry, index) => `${index + 1}\n${srtTime(entry.startUs)} --> ${srtTime(entry.endUs)}\n${fmt(entry.text)}`)
       .join('\n\n') + '\n'
   );
 }
@@ -256,7 +277,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
   const lines = rows.filter(row => row && row.kind === 'line');
   const speechRate = finite(snapshot.speechRate);
   const rawVoice = snapshot.voice && typeof snapshot.voice === 'object' ? snapshot.voice : null;
-  const voicePath = typeof rawVoice?.path === 'string' ? rawVoice.path.trim() : '';
+  const voicePath = typeof rawVoice?.path === 'string' ? stripLocalFrag(rawVoice.path.trim()) : '';
   const voice = rawVoice
     ? {
         path: voicePath,
@@ -292,7 +313,11 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
   let lineEnd = 0;
   for (const time of tl.times.values()) if (Number.isFinite(time.end)) lineEnd = Math.max(lineEnd, time.end);
   for (const unit of units) if (Number.isFinite(unit.end)) lineEnd = Math.max(lineEnd, unit.end);
-  const durationSec = Math.max(finite(tl.total) ?? 0, lineEnd, voice?.duration ?? 0, 0);
+  const voiceProbeDur =
+    voice?.path && !LINK_RE.test(voice.path) && probeFor(probes, voice.path)?.exists !== false
+      ? positive(probeFor(probes, voice.path)?.durationSec)
+      : null;
+  const durationSec = Math.max(finite(tl.total) ?? 0, lineEnd, voice?.duration ?? 0, voiceProbeDur ?? 0, 0);
   const durationUs = Math.max(0, clock.us(durationSec) ?? 0);
   const boundUs = value => clamp(Number.isFinite(value) ? value : 0, 0, durationUs);
 
@@ -316,13 +341,14 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
         mark(usage, 'block', 'unknown-asset', '某个画面引用的素材记录不存在（可能已从素材库删除）');
         continue;
       }
-      const path = typeof asset.path === 'string' ? asset.path : '';
+      const rawPath = typeof asset.path === 'string' ? asset.path : '';
+      const path = stripLocalFrag(rawPath);
       const name = mediaName(asset, path);
       if (!path) {
         mark(usage, 'block', 'missing-path', `素材「${name}」没有本地路径，无法导出`);
         continue;
       }
-      if (LINK_RE.test(path)) {
+      if (LINK_RE.test(rawPath)) {
         mark(usage, 'block', 'linked-asset', `「${name}」还是网络链接，需要先保存到本机再导出`);
         continue;
       }
@@ -416,6 +442,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
   /* refs：这个素材被哪些句子用到（rowId + 行号 + 素材 id），同一处多次出现只留一条。
      主进程按素材定位导出问题时用它回填行号；音频/备选不经过这里，不需要 refs。 */
   const pushAsset = (key, kind, path, name, extra = {}) => {
+    const cleanPath = stripLocalFrag(path);
     const ref = extra.ref || null;
     const existing = assetByKey.get(key);
     if (existing) {
@@ -425,12 +452,12 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
       }
       return existing.planId;
     }
-    const probe = probeFor(probes, path);
+    const probe = probeFor(probes, cleanPath);
     const fileDur = positive(probe?.durationSec) ?? finite(extra.durationSec);
     const entry = {
       planId: id('asset'),
       kind,
-      path,
+      path: cleanPath,
       name,
       width: finite(probe?.width),
       height: finite(probe?.height),
@@ -443,20 +470,24 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
     return entry.planId;
   };
 
-  const sourceAssetFor = path => Object.values(registry).find(asset => asset?.path === path);
+  const sourceAssetFor = path => {
+    const clean = stripLocalFrag(path);
+    return Object.values(registry).find(asset => stripLocalFrag(asset?.path || '') === clean);
+  };
 
   /* 定格派生：sourceInUs/sourceOutUs 是源文件微秒区间（出点排他），主进程按真实帧 PTS 定位；
      atUs 只是给旧计划/旧实现的兼容提示，新定位逻辑不得用它。画布尺寸不在这里决定（输出为 0），
      同一源文件 + 同一源区间只生成一张定格图。 */
   const makeFreeze = (asset, { sourceInUs, sourceOutUs, atUs }, sourceAssetId) => {
-    const key = `${asset?.path || ''}|${sourceInUs}|${sourceOutUs}`;
+    const sourcePath = stripLocalFrag(asset?.path || '');
+    const key = `${sourcePath}|${sourceInUs}|${sourceOutUs}`;
     if (derivedByKey.has(key)) return derivedByKey.get(key).planId;
-    const base = safeFileName(String(mediaName(asset, asset?.path || '')).replace(/\.[^.]+$/, ''), 'freeze');
+    const base = safeFileName(String(mediaName(asset, sourcePath)).replace(/\.[^.]+$/, ''), 'freeze');
     const entry = {
       planId: id('freeze'),
       type: 'freeze',
       sourceAssetId: sourceAssetId || null,
-      sourcePath: asset?.path || '',
+      sourcePath,
       atUs,
       sourceInUs,
       sourceOutUs,
@@ -476,10 +507,11 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
     const sourceStartUs = Math.max(0, clock.plainUs(sourceStartSec) ?? 0);
     const sourceDurationUs = Math.round(playSec * 1e6);
     if (sourceDurationUs <= 0) return null;
+    const cleanPath = stripLocalFrag(asset.path);
     const entry = {
       id: id('clip'),
       kind: 'video',
-      assetId: pushAsset(`video|${asset.id}`, 'video', asset.path, mediaName(asset, asset.path), {
+      assetId: pushAsset(`video|${cleanPath}`, 'video', cleanPath, mediaName(asset, cleanPath), {
         durationSec: asset.durationSec,
         sourceAssetId: asset.id,
         ref: refOf(unit, item),
@@ -499,10 +531,11 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
     const startUs = boundUs(clock.us(unit.start + startRel));
     const endUs = boundUs(clock.us(unit.start + endRel));
     if (endUs <= startUs) return null;
+    const cleanPath = stripLocalFrag(item.asset.path);
     const entry = {
       id: id('clip'),
       kind: 'image',
-      assetId: pushAsset(`image|${item.assetId}`, 'image', item.asset.path, mediaName(item.asset, item.asset.path), {
+      assetId: pushAsset(`image|${cleanPath}`, 'image', cleanPath, mediaName(item.asset, cleanPath), {
         sourceAssetId: item.assetId,
         ref: refOf(unit, item),
       }),
@@ -618,8 +651,12 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
       /* 视频：从源入点播到出点；需要延续的部分用末帧 PNG 补（fitDone / 自然停顿 / 末尾容差） */
       const clip = clipInfo(item);
       const asset = item.asset;
-      const path = asset?.path || '';
+      const rawPath = asset?.path || '';
+      const path = stripLocalFrag(rawPath);
       const name = mediaName(asset, path);
+      const fragMatch = rawPath.match(/#t=([\d.]+),([\d.]+)/);
+      const fragIn = fragMatch && +fragMatch[2] > +fragMatch[1] ? +fragMatch[1] : null;
+      const fragOut = fragMatch && +fragMatch[2] > +fragMatch[1] ? +fragMatch[2] : null;
       const fileDur = positive(probe?.durationSec) ?? finite(asset?.durationSec);
       let sourceStartSec = 0;
       if (clip) {
@@ -627,8 +664,11 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
         else if (clip.in != null && clip.in >= 0)
           addIssue('block', 'source-range', `「${name}」的片段出点必须大于入点，导出按整段处理`, locate(unit, item));
         else addIssue('block', 'source-range', `「${name}」的片段入点/出点无效，导出按整段处理`, locate(unit, item));
+      } else if (fragIn != null) {
+        sourceStartSec = fragIn;
       }
       let usableSec = usableLength(item); // 现有规则：片段长度 / 文件时长 / #t= 片段
+      if (!clip && fragIn != null && fragOut != null) usableSec = fragOut - fragIn;
       if (clip?.valid && clip.in < 0) {
         addIssue('block', 'source-range', `「${name}」的片段入点不能小于 0，导出从 0 开始`, locate(unit, item));
         sourceStartSec = 0;
@@ -659,7 +699,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
             );
           usableSec = fileLeft;
         } else if (clip?.valid) usableSec = Math.min(usableSec ?? fileDur, fileLeft);
-        else usableSec = Math.min(usableSec ?? fileDur, fileDur);
+        else usableSec = Math.min(usableSec ?? fileLeft, fileLeft);
       } else if (usableSec == null) {
         addIssueOnce(
           `${asset?.id || path}|unknown-duration`,
@@ -700,7 +740,7 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
           const atUs = Math.max(0, clock.plainUs(atSec) ?? 0);
           const sourcePlanId =
             videoEnd?.assetId ||
-            pushAsset(`video|${asset.id}`, 'video', asset.path, name, {
+            pushAsset(`video|${path}`, 'video', path, name, {
               durationSec: asset.durationSec,
               sourceAssetId: asset.id,
               ref: refOf(unit, item),
@@ -791,15 +831,51 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
 
   /* ── 字幕与 SRT：默认关闭；开启后生成可编辑文字轨和「字幕.srt」。
      对齐过剪映字幕的项目以导入的那份字幕为准：SRT 文件写导入原文（旧项目没存原文时按条目、毫秒时间还原），
-     文字轨按原字幕条目逐条放；没导入过字幕时才按稿子每句一个字幕。 ── */
-  const importedCues = Array.isArray(snapshot.timing?.cues)
-    ? snapshot.timing.cues.filter(cue => cue && finite(cue.start) != null && finite(cue.end) > finite(cue.start))
-    : [];
-  const importedRaw = typeof snapshot.timing?.raw === 'string' ? snapshot.timing.raw : '';
-  let srt = '';
-  if (opt.subtitles && importedCues.length) {
+     文字轨按原字幕条目逐条放；没导入过字幕时才按稿子每句一个字幕。
+     文字轨按 startUs 排序并裁切轻微重叠，保证相邻 endUs <= next.startUs。 ── */
+  const commitTextEntries = (rawEntries, onZeroLength) => {
+    const sorted = rawEntries.slice().sort((a, b) => a.startUs - b.startUs || a.order - b.order);
+    const clean = [];
+    for (const item of sorted) {
+      let { startUs, endUs } = item;
+      const prev = clean.at(-1);
+      if (prev && startUs < prev.endUs) {
+        if (startUs > prev.startUs) prev.endUs = startUs;
+        else startUs = prev.endUs;
+      }
+      if (endUs <= startUs) {
+        onZeroLength(item);
+        continue;
+      }
+      clean.push({ ...item, startUs, endUs });
+    }
+    for (const item of clean) {
+      subtitles.push({
+        lineId: item.lineId,
+        no: item.no,
+        text: item.text,
+        startUs: item.startUs,
+        endUs: item.endUs,
+      });
+      textTrack.push({
+        id: id('text'),
+        text: item.text,
+        targetStartUs: item.startUs,
+        targetDurationUs: item.endUs - item.startUs,
+      });
+    }
+  };
+  const cleanCuesList = rawCues =>
+    Array.isArray(rawCues)
+      ? rawCues
+          .filter(cue => cue && finite(cue.start) != null && finite(cue.end) > finite(cue.start))
+          .slice()
+          .sort((a, b) => a.start - b.start || a.end - b.end)
+      : [];
+  const emitCuesTrack = (cuesList, rawText) => {
     const exact = [];
-    importedCues.forEach((cue, index) => {
+    const staged = [];
+    cuesList.forEach((cue, index) => {
       const text = srtText(cue.text);
       if (!text) return;
       exact.push({ text, startUs: clock.plainUs(Math.max(0, cue.start)), endUs: clock.plainUs(cue.end) });
@@ -809,29 +885,65 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
         addIssue('confirm', 'zero-length', `第 ${index + 1} 条字幕不足一帧，文字轨里省略（字幕文件保留）`);
         return;
       }
-      subtitles.push({ lineId: null, no: index + 1, text: cue.text, startUs, endUs });
-      textTrack.push({ id: id('text'), text: cue.text, targetStartUs: startUs, targetDurationUs: endUs - startUs });
+      staged.push({ lineId: null, no: index + 1, order: index, text: cue.text, startUs, endUs });
     });
-    srt = importedRaw.trim() ? importedRaw : buildSrt(exact);
-  } else if (opt.subtitles) {
+    commitTextEntries(staged, item => {
+      addIssue('confirm', 'zero-length', `第 ${item.no} 条字幕不足一帧，文字轨里省略（字幕文件保留）`);
+    });
+    return rawText.trim() ? rawText : buildSrt(exact);
+  };
+  const emitLinesTrack = (textOf, { preserveNewlines = false } = {}) => {
+    const staged = [];
+    const formatCheck = preserveNewlines ? srtBilingualText : srtText;
     lines.forEach((row, index) => {
       const time = tl.times.get(row.id);
-      const text = typeof row.text === 'string' ? row.text : '';
-      if (!time || !srtText(text)) return;
+      const text = textOf(row);
+      if (!time || !formatCheck(text)) return;
       const startUs = boundUs(clock.us(Math.max(0, time.start)));
       const endUs = boundUs(clock.us(time.end));
+      const no = pickLineNo(row, index);
       if (endUs <= startUs) {
-        addIssue('confirm', 'zero-length', `第 ${pickLineNo(row, index)} 句字幕不足一帧，导出时省略`, {
-          rowId: row.id,
-          lineNo: pickLineNo(row, index),
-        });
+        addIssue('confirm', 'zero-length', `第 ${no} 句字幕不足一帧，导出时省略`, { rowId: row.id, lineNo: no });
         return;
       }
-      const no = pickLineNo(row, index);
-      subtitles.push({ lineId: row.id, no, text, startUs, endUs });
-      textTrack.push({ id: id('text'), text, targetStartUs: startUs, targetDurationUs: endUs - startUs });
+      staged.push({ lineId: row.id, no, order: index, text, startUs, endUs });
     });
-    srt = buildSrt(subtitles);
+    commitTextEntries(staged, item => {
+      addIssue('confirm', 'zero-length', `第 ${item.no} 句字幕不足一帧，导出时省略`, {
+        rowId: item.lineId,
+        lineNo: item.no,
+      });
+    });
+    return buildSrt(subtitles, { preserveNewlines });
+  };
+  const importedCues = cleanCuesList(snapshot.timing?.cues);
+  const importedRaw = typeof snapshot.timing?.raw === 'string' ? snapshot.timing.raw : '';
+  let srt = '';
+  if (opt.subtitles) {
+    if (opt.subtitleLang === 'zh') {
+      const subCues = cleanCuesList(snapshot.subTiming?.cues);
+      const subRaw = typeof snapshot.subTiming?.raw === 'string' ? snapshot.subTiming.raw : '';
+      const hasLineSubs = lines.some(row => typeof row.sub === 'string' && srtText(row.sub));
+      if (subCues.length && (!hasLineSubs || !hasManualSubEdits(lines, tl, snapshot.subTiming))) {
+        srt = emitCuesTrack(subCues, subRaw);
+      } else {
+        srt = emitLinesTrack(row => (typeof row.sub === 'string' ? row.sub : ''));
+      }
+    } else if (opt.subtitleLang === 'bilingual') {
+      srt = emitLinesTrack(
+        row => {
+          const zh = typeof row.sub === 'string' ? srtText(row.sub) : '';
+          const en = typeof row.text === 'string' ? srtText(row.text) : '';
+          if (zh && en) return `${zh}\n${en}`;
+          return en || zh;
+        },
+        { preserveNewlines: true },
+      );
+    } else if (importedCues.length) {
+      srt = emitCuesTrack(importedCues, importedRaw);
+    } else {
+      srt = emitLinesTrack(row => (typeof row.text === 'string' ? row.text : ''));
+    }
   }
 
   /* ── 备选素材：只进 altAssets，不上轨道 ── */
@@ -848,13 +960,14 @@ export function buildEditExportPlan(project = {}, options = {}, deps = {}) {
           });
           continue;
         }
-        const path = typeof asset.path === 'string' ? asset.path : '';
+        const rawPath = typeof asset.path === 'string' ? asset.path : '';
+        const path = stripLocalFrag(rawPath);
         const name = mediaName(asset, path);
         if (!path) {
           addIssue('block', 'missing-path', `备选素材「${name}」没有本地路径，无法复制`, { rowId: row?.id, assetId });
           continue;
         }
-        if (LINK_RE.test(path)) {
+        if (LINK_RE.test(rawPath)) {
           addIssueOnce(
             `${assetId}|alt-linked`,
             'confirm',

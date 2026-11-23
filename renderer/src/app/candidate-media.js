@@ -44,7 +44,7 @@ function matchingCandidate(task) {
   const p = projectOf(task.projectId);
   const c = p?.candidates?.find(x => x.id === task.candidateId);
   return c &&
-    c === task.candidate &&
+    c.id === task.candidateId &&
     c.decision === 'ok' &&
     candidateVersion(c) === task.version &&
     sourceOf(c) === task.source
@@ -127,32 +127,38 @@ native.onSegmentProgress(({ token, p }) => {
 });
 
 /* 文件改名涉及磁盘，不进撤销；所有引用该路径的项目同时更新。 */
+let applyingMoved = false;
 export function applyMovedPaths(moved) {
   if (!moved.size) return;
-  followMovedPaths(moved);
-  for (const stored of allProjects()) {
-    const p = projectOf(stored.id);
-    if (!p) continue;
-    const hit =
-      Object.values(p.assets || {}).some(a => moved.has(a.path)) ||
-      (p.candidates || []).some(c => moved.has(c.savedPath));
-    if (!hit) continue;
-    const committed = changeProject(
-      null,
-      (change, project) => {
-        for (const a of Object.values(project.assets || {}))
-          if (moved.has(a.path)) {
-            a.path = moved.get(a.path);
-            a.name = assetName(a.path);
-          }
-        for (const c of project.candidates || []) if (moved.has(c.savedPath)) c.savedPath = moved.get(c.savedPath);
-        syncMirror(project.rows || [], project.assets || {});
-        invalidateProbe();
-      },
-      { projectId: stored.id },
-    );
-    // 回滚的项目不排写回：外部清单不能拿到这次没提交的路径
-    if (committed !== false && !committed?.error) writeBack(projectOf(stored.id));
+  applyingMoved = true;
+  try {
+    followMovedPaths(moved);
+    for (const stored of allProjects()) {
+      const p = projectOf(stored.id);
+      if (!p) continue;
+      const hit =
+        Object.values(p.assets || {}).some(a => moved.has(a.path)) ||
+        (p.candidates || []).some(c => moved.has(c.savedPath));
+      if (!hit) continue;
+      const committed = changeProject(
+        null,
+        (change, project) => {
+          for (const a of Object.values(project.assets || {}))
+            if (moved.has(a.path)) {
+              a.path = moved.get(a.path);
+              a.name = assetName(a.path);
+            }
+          for (const c of project.candidates || []) if (moved.has(c.savedPath)) c.savedPath = moved.get(c.savedPath);
+          syncMirror(project.rows || [], project.assets || {});
+          invalidateProbe();
+        },
+        { projectId: stored.id },
+      );
+      // 回滚的项目不排写回：外部清单不能拿到这次没提交的路径
+      if (committed !== false && !committed?.error) writeBack(projectOf(stored.id));
+    }
+  } finally {
+    applyingMoved = false;
   }
 }
 /* 批量改名失败：按批次汇总一条提示（不逐文件弹、不自动立刻重试）；成功改了的照常更新引用 */
@@ -267,8 +273,9 @@ export function relinkSavedClips({ quiet = false } = {}) {
       { projectId: pid },
     );
     // 修改提交后才排写回；回滚时不把这次内容排进外部清单
-    if (committed !== false && !committed?.error && (fixed || gone)) writeBack(projectOf(pid));
-    if ((!quiet || gone) && (fixed || gone))
+    const ok = committed !== false && !committed?.error;
+    if (ok && (fixed || gone)) writeBack(projectOf(pid));
+    if (ok && state.projectId === pid && (!quiet || gone) && (fixed || gone))
       notify(
         [
           fixed ? `${fixed} 个已保存的片段换回了本地文件` : '',
@@ -382,6 +389,8 @@ export function initCandidateMedia() {
   initialized = true;
   on('project-loaded', () => setTimeout(tidySavedClips, 0));
   on('project-loaded', () => scheduleRetag());
-  on('project-committed', () => scheduleRetag());
+  on('project-committed', () => {
+    if (!applyingMoved) scheduleRetag();
+  });
   setTimeout(tidySavedClips, 0);
 }

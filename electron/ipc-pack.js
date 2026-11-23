@@ -22,33 +22,34 @@ function registerPackIpc({ handle, win }) {
   });
   handle('pack:export', async (e, req) => {
     if (packJob) return { ok: false, error: '正在打包或解压，等这一个做完' };
-    const files = Array.isArray(req?.files) ? req.files : [];
-    const r = await dialog.showSaveDialog(win(), {
-      defaultPath: String(req?.name || '分镜台项目') + '.zip',
-      filters: [{ name: '分镜台项目包', extensions: ['zip'] }],
-    });
-    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
-    const zip = /\.zip$/i.test(r.filePath) ? r.filePath : r.filePath + '.zip';
-    const root = packFolderName(path.basename(zip, path.extname(zip))) + '/';
-    const sizes = await projectPack.fileSizes(files.map(f => f?.src));
-    const need = files.reduce((s, f) => s + (sizes[f?.src]?.size || 0), 0);
-    const free = projectPack.freeBytes(path.dirname(zip));
-    if (free != null && free < need + 50 * 1024 * 1024) return { ok: false, error: '保存位置所在的磁盘空间不够' };
-    packJob = new AbortController();
+    const ctl = new AbortController();
+    packJob = ctl;
     try {
+      const files = Array.isArray(req?.files) ? req.files : [];
+      const r = await dialog.showSaveDialog(win(), {
+        defaultPath: String(req?.name || '分镜台项目') + '.zip',
+        filters: [{ name: '分镜台项目包', extensions: ['zip'] }],
+      });
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+      const zip = /\.zip$/i.test(r.filePath) ? r.filePath : r.filePath + '.zip';
+      const root = packFolderName(path.basename(zip, path.extname(zip))) + '/';
+      const sizes = await projectPack.fileSizes(files.map(f => f?.src));
+      const need = files.reduce((s, f) => s + (sizes[f?.src]?.size || 0), 0);
+      const free = projectPack.freeBytes(path.dirname(zip));
+      if (free != null && free < need + 50 * 1024 * 1024) return { ok: false, error: '保存位置所在的磁盘空间不够' };
       const entries = [
         { name: root + projectPack.PROJECT_ENTRY, data: String(req?.project || '') },
         ...files.filter(f => sizes[f?.src]?.exists).map(f => ({ name: root + f.rel, file: f.src })),
       ];
       const out = await projectPack.writeZip(zip, entries, {
-        signal: packJob.signal,
+        signal: ctl.signal,
         onProgress: packProgress(e, 'export'),
       });
       return { ...out, skipped: files.length - (entries.length - 1) };
     } catch (err) {
       return packError(err);
     } finally {
-      packJob = null;
+      if (packJob === ctl) packJob = null;
     }
   });
   handle('pack:inspect', async (_e, zip) => {
@@ -86,7 +87,8 @@ function registerPackIpc({ handle, win }) {
     if (typeof zip !== 'string' || !path.isAbsolute(zip) || typeof parent !== 'string' || !path.isAbsolute(parent))
       return { ok: false, error: '路径无效' };
     let dest = null;
-    packJob = new AbortController();
+    const ctl = new AbortController();
+    packJob = ctl;
     try {
       const info = await projectPack.inspectPack(zip);
       fs.mkdirSync(parent, { recursive: true });
@@ -96,14 +98,14 @@ function registerPackIpc({ handle, win }) {
       dest = projectPack.uniqueDir(parent, packFolderName(req?.name));
       fs.mkdirSync(dest);
       return await projectPack.extractPack(zip, dest, {
-        signal: packJob.signal,
+        signal: ctl.signal,
         onProgress: packProgress(e, 'import'),
       });
     } catch (err) {
       if (dest) fs.rmSync(dest, { recursive: true, force: true }); // 取消或出错：不留解了一半的文件夹
       return packError(err);
     } finally {
-      packJob = null;
+      if (packJob === ctl) packJob = null;
     }
   });
 }

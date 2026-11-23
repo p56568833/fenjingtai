@@ -4,6 +4,7 @@ import { buildPlaybackUnits, rowAtIn, previewItem } from '../core/playback-plan.
 import { state } from '../app/state.js';
 import { timeline, rowById, types } from '../app/project-queries.js';
 
+import { isBilingualProject, resolvePlaybackSub } from '../core/bilingual.js';
 import { fmtTime, fmtLen } from '../core/text.js';
 import { circled } from '../core/shot-layout.js';
 
@@ -13,17 +14,24 @@ import { esc, ICON_PLAY, ICON_PAUSE, ICON_PREV, ICON_NEXT } from '../ui/base/dom
 
 import { typeIcon } from '../ui/base/type-view.js';
 
+import { getCcMode, cycleCcMode, ccModeLabel, ccModeTitle, onCcModeChange } from './cc-pref.js';
 import { voicePlayer } from './voice.js';
 import { createPreviewMedia } from './playthrough-media.js';
 
 import { createShotTrack } from './shot-track.js';
+const KEYS_MONO = '<kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个画面';
+const KEYS_BILINGUAL = '<kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个画面 · <kbd>C</kbd> 字幕';
+
 export function createPlaybackView({ root, playerHost = root, trackHost = null, embedded = false, onPlay }) {
   const prefix = embedded ? 'review-' : '';
   const markup = html => html.replace(/id="(pt\w+)"/g, (_, id) => 'data-pt="' + id + '" id="' + prefix + id + '"');
-  const controls = `<div class="pt-controls"><button class="btn" id="ptPrev" title="上一个画面（←）" aria-label="上一个画面">${ICON_PREV}</button><button class="btn primary" id="ptPlay">${ICON_PLAY}播放</button><button class="btn" id="ptNext" title="下一个画面（→）" aria-label="下一个画面">${ICON_NEXT}</button><span class="pt-time mono" id="ptTime"></span><span class="spacer"></span><span class="pt-keys"><kbd>空格</kbd> 播放 / 暂停 · <kbd>← →</kbd> 上 / 下一个画面</span></div>`;
+  const controls = `<div class="pt-controls"><button class="btn" id="ptPrev" title="上一个画面（←）" aria-label="上一个画面">${ICON_PREV}</button><button class="btn primary" id="ptPlay">${ICON_PLAY}播放</button><button class="btn" id="ptNext" title="下一个画面（→）" aria-label="下一个画面">${ICON_NEXT}</button><span class="pt-time mono" id="ptTime"></span><button class="btn pt-cc-btn" type="button" id="ptCcBtn" hidden title="切换画面字幕显示（快捷键 C）">中字</button><span class="spacer"></span><span class="pt-keys">${KEYS_MONO}</span></div>`;
   playerHost.innerHTML = markup(`<div class="pt-box${embedded ? ' docked' : ''}" role="dialog" aria-label="连播预览">
       <div class="pt-head"><strong id="ptTitle">连播预览</strong><span class="pt-hint" id="ptHint"></span><span class="spacer"></span><button class="btn" id="ptClose">关闭 <kbd>Esc</kbd></button></div>
-      <div class="pt-stage" id="ptStage"></div>
+      <div class="pt-stage-wrap">
+        <div class="pt-stage" id="ptStage"></div>
+        <div class="pt-cc" id="ptCc" hidden aria-live="off"></div>
+      </div>
       <div class="pt-sub" id="ptSub"></div>
       <div class="pt-meta" id="ptMeta"></div>
       <div class="pt-progress"><div id="ptBar"></div></div>
@@ -100,7 +108,12 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
   /* 播放时顺便记下视频真实时长：裁剪结尾最远能拉回到原片末尾。在线视频只用地址里那一段，不记整条文件的长度 */
   function noteDuration(item, el) {
     if (/#t=/.test(item.asset.path || '')) return;
-    const keep = () => el.duration > 0 && Number.isFinite(el.duration) && rememberDuration(item.asset, el.duration);
+    const pid = state.projectId;
+    const expectedPath = item.asset.path;
+    const keep = () =>
+      el.duration > 0 &&
+      Number.isFinite(el.duration) &&
+      rememberDuration(item.asset, el.duration, { projectId: pid, expectedPath });
     if (el.readyState >= 1) keep();
     else el.addEventListener('loadedmetadata', keep, { once: true });
   }
@@ -162,12 +175,17 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
       const f = Math.max(0, Math.min(1, (ev.clientX - r.left) / Math.max(1, r.width)));
       seek(toTime(f));
     };
+    const done = () => {
+      el.onpointermove = el.onpointerup = el.onpointercancel = el.onlostpointercapture = null;
+    };
     go(e);
     try {
       el.setPointerCapture(e.pointerId);
     } catch {}
     el.onpointermove = go;
-    el.onpointerup = () => (el.onpointermove = el.onpointerup = null);
+    el.onpointerup = done;
+    el.onpointercancel = done;
+    el.onlostpointercapture = done;
   }
 
   /* 数据变了（拖完、撤销、面板里改了角色 / 位置…）：重排当前镜头，画面和镜头轨一起刷新 */
@@ -198,10 +216,30 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
           : '';
       const previousMedia = unitSig(units[current]);
       buildUnits();
+      paintCcButton();
+      if (!units.length) {
+        range = null;
+        current = -1;
+        trackUnit = -1;
+        shownKey = metaHtml = '';
+        if (clock.isPlaying()) stop();
+        media.clear();
+        track.render(null);
+        paintSub('');
+        paintCc(null);
+        paintMeta(null, null, null);
+        return;
+      }
       const i = keep != null ? unitOfRow(keep) : -1;
       // 排布变了（比如播放时刚记下视频真实时长）也不清空画面：重新上屏，旧画面留到新画面解出首帧，不闪黑
       const changedMedia = i !== current || previousMedia !== unitSig(units[i]);
-      if (range && i >= 0) range = { start: units[i].start, end: units[i].end };
+      if (range) {
+        if (i >= 0) range = { start: units[i].start, end: units[i].end };
+        else {
+          const fallback = unitAt(currentTime());
+          range = units[fallback] ? { start: units[fallback].start, end: units[fallback].end } : null;
+        }
+      }
       trackUnit = -1;
       if (changedMedia || /\|(?:card|gap)$/.test(shownKey)) shownKey = '';
       metaHtml = '';
@@ -231,7 +269,8 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     if (!v || !u || !(v.readyState >= 1)) return;
     const cin = +v.dataset.in || 0;
     const cout = v.dataset.out === '' ? v.duration : +v.dataset.out;
-    const end = cout || v.duration;
+    const end = Number.isFinite(v.duration) && v.duration > 0 ? Math.min(v.duration, cout || v.duration) : cout;
+    if (!Number.isFinite(end) || end <= 0) return;
     const want = Math.min(cin + (t - segStart), Math.max(cin, end - 0.04));
     const clockOver = cin + (t - segStart) >= end;
     // 视频自己的进度常比口播时钟快一点，会先放到文件末尾自己停下；这时再 play() 浏览器会从头播，闪出片头一帧。
@@ -257,13 +296,21 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
   /* ── 时钟：有口播跟口播走，没有就自己走 ── */
   const currentTime = () => clock.currentTime();
 
+  function nextUnitIndex() {
+    if (embedded || !range) return -1;
+    const matched = units.findIndex(x => Math.abs(x.start - range.start) < 1e-4 && Math.abs(x.end - range.end) < 1e-4);
+    const base = matched >= 0 ? matched : current;
+    if (base >= 0) return base + 1 < units.length ? base + 1 : -1;
+    return units.findIndex((x, idx) => idx > current && x.start >= range.end - 0.05);
+  }
+
   function tick(t) {
     if (!open || !root.isConnected) return;
     clock.remember(t);
     if (range && t >= range.end - 0.02) {
       // 「对着口播看画面」播完这个镜头：接着播下一个镜头（镜头轨和进度条跟着换过去）；最后一个镜头才停
       // 嵌在审核页里时只看这一个画面：播到末尾就停
-      const next = embedded ? -1 : units.findIndex(x => x.start >= range.end - 0.05);
+      const next = nextUnitIndex();
       if (clock.isPlaying() && next >= 0) range = { start: units[next].start, end: units[next].end };
       else {
         if (clock.isPlaying()) stop();
@@ -274,11 +321,22 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     const i = unitAt(range ? Math.min(t, range.end - 1e-3) : t);
     showUnit(i, t);
     const u = units[i];
-    const r = u ? rowAtIn(u, t, timeline()) : null;
-    paintSub(r ? r.text : '');
-    $('[data-pt="ptTime"]').textContent = `${fmtTime(t)} / ${fmtTime(range ? range.end : timeline().total)}`;
+    const tl = timeline();
+    const r = u ? rowAtIn(u, t, tl) : null;
+    const bilingual = isBilingualProject(state);
+    const subRes = resolvePlaybackSub({
+      row: r,
+      time: t,
+      subTiming: state.subTiming,
+      tl,
+      displayMode: getCcMode(),
+      bilingual,
+    });
+    paintSub(subRes.barText);
+    paintCc(subRes);
+    $('[data-pt="ptTime"]').textContent = `${fmtTime(t)} / ${fmtTime(range ? range.end : tl.total)}`;
     track.movePlayhead(t);
-    const span = range ? range.end - range.start : timeline().total;
+    const span = range ? range.end - range.start : tl.total;
     $('[data-pt="ptBar"]').style.width = `${Math.min(100, ((t - (range?.start || 0)) / Math.max(0.01, span)) * 100)}%`;
   }
 
@@ -291,11 +349,50 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     if (embedded && el.scrollHeight > el.clientHeight + 1) el.classList.add('fit');
   }
 
+  let ccHtml = '';
+  function paintCc(res) {
+    const el = $('[data-pt="ptCc"]');
+    if (!el) return;
+    if (!res?.showOverlay || (!res.overlayZh && !res.overlayEn)) {
+      el.hidden = true;
+      if (ccHtml) {
+        ccHtml = '';
+        el.innerHTML = '';
+      }
+      return;
+    }
+    const html = `<div class="pt-cc-inner">${res.overlayZh ? `<div class="pt-cc-zh">${esc(res.overlayZh)}</div>` : ''}${res.overlayEn ? `<div class="pt-cc-en">${esc(res.overlayEn)}</div>` : ''}</div>`;
+    if (html !== ccHtml) {
+      ccHtml = html;
+      el.innerHTML = html;
+    }
+    el.hidden = false;
+  }
+
+  function paintCcButton() {
+    const bilingual = isBilingualProject(state);
+    const btn = $('[data-pt="ptCcBtn"]');
+    if (btn) {
+      btn.hidden = !bilingual;
+      if (bilingual) {
+        const mode = getCcMode();
+        btn.textContent = ccModeLabel(mode);
+        btn.classList.toggle('on', mode !== 'off');
+        btn.title = ccModeTitle(mode);
+      }
+    }
+    const keys = $('.pt-keys');
+    if (keys) {
+      const want = bilingual ? KEYS_BILINGUAL : KEYS_MONO;
+      if (keys.innerHTML !== want) keys.innerHTML = want;
+    }
+  }
+
   function play() {
     if (!open) return;
     let t = currentTime();
     if (range && t >= range.end - 0.05) {
-      const next = embedded ? -1 : units.findIndex(x => x.start >= range.end - 0.05);
+      const next = nextUnitIndex();
       const u = next >= 0 ? units[next] : units.find(x => x.start <= range.start + 0.01 && x.end >= range.end - 0.01);
       if (u) {
         range = { start: u.start, end: u.end };
@@ -338,6 +435,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     current = -1;
     shownKey = metaHtml = '';
     trackUnit = -1;
+    paintCcButton();
     clock.attach();
     seek(u.start);
     if (autoplay) play();
@@ -350,6 +448,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     open = false;
     clock.detach();
     videoEl = null;
+    paintCc(null);
     media.clear();
   }
   function showTrimFrame(it, entry, edge) {
@@ -373,6 +472,11 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
         return true;
       }
       return e.key !== 'Escape';
+    }
+    if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'c' || e.key === 'C') && isBilingualProject(state)) {
+      e.preventDefault();
+      cycleCcMode();
+      return true;
     }
     if (e.key === ' ') {
       e.preventDefault();
@@ -420,6 +524,12 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
   $('[data-pt="ptPlay"]').onclick = () => (clock.isPlaying() ? stop() : play());
   $('[data-pt="ptPrev"]').onclick = () => handleKey({ key: 'ArrowLeft', preventDefault() {} });
   $('[data-pt="ptNext"]').onclick = () => handleKey({ key: 'ArrowRight', preventDefault() {} });
+  $('[data-pt="ptCcBtn"]').onclick = () => cycleCcMode();
+  const unsubCc = onCcModeChange(() => {
+    if (!open || !root.isConnected) return;
+    paintCcButton();
+    if (units.length) tick(currentTime());
+  });
   const bar = $('.pt-progress');
   bar.title = '点击或拖动：跳到这个时间';
   bar.addEventListener('pointerdown', e =>
@@ -447,6 +557,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
     isOpen: () => open,
     isDragging: track.isDragging,
     destroy() {
+      unsubCc();
       close();
       track.destroy();
     },
@@ -463,6 +574,7 @@ export function createPlaybackView({ root, playerHost = root, trackHost = null, 
       voiceClock: clock.usesVoice(),
       docked: embedded,
       alts: track.alts(),
+      ccMode: getCcMode(),
     }),
   };
 }

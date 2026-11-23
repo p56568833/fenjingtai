@@ -3,6 +3,7 @@
    · 「再找一个…」：这个画面还缺镜头，写下要什么
    都会进审核页「待返工」，生成返工单交给 AI（见 core/rework.js）。 */
 import { state } from '../app/state.js';
+import { on } from '../app/events.js';
 import { saveRework } from '../app/candidate-actions.js';
 import { shotMembers } from '../core/shots.js';
 import { reworkText } from '../core/rework.js';
@@ -12,12 +13,12 @@ import { registerModal } from '../ui/base/modal.js';
 import { registerCommand, runCommand } from '../ui/base/commands.js';
 
 const $ = s => document.querySelector(s);
-let target = null; // { rowId, assetId|null }
+let target = null; // { projectId, rowId, assetId|null }
 
 function open(row, assetId = null) {
   if (!row || row.kind !== 'line') return;
   const members = shotMembers(state.rows, row);
-  target = { rowId: members[0].id, assetId };
+  target = { projectId: state.projectId, rowId: members[0].id, assetId };
   const range =
     members.length > 1 ? `第 ${members[0].no}–${members[members.length - 1].no} 句` : `第 ${members[0].no} 句`;
   let cur;
@@ -40,14 +41,17 @@ function open(row, assetId = null) {
   $('#reworkNote').value = cur?.note || '';
   $('#reworkOff').hidden = !cur;
   $('#reworkMask').classList.add('show');
-  setTimeout(() => $('#reworkNote').focus(), 30);
+  setTimeout(() => {
+    if ($('#reworkMask')?.classList.contains('show')) $('#reworkNote')?.focus();
+  }, 30);
 }
 const close = () => {
-  $('#reworkMask').classList.remove('show');
+  $('#reworkMask')?.classList.remove('show');
   target = null;
 };
 function apply(rework, label) {
-  const row = target && state.rows.find(r => r.id === target.rowId);
+  if (!target || target.projectId !== state.projectId) return close();
+  const row = state.rows.find(r => r.id === target.rowId);
   if (!row) return close();
   const assetId = target.assetId;
   saveRework(row, assetId, rework, label);
@@ -56,6 +60,8 @@ function apply(rework, label) {
   return row;
 }
 function save() {
+  if (!target || target.projectId !== state.projectId) return close();
+  const pid = target.projectId;
   const note = reworkText($('#reworkNote').value);
   if (!note && !target?.assetId) return toast('写一下要什么样的镜头', null, 'warn');
   const row = apply({ note, at: Date.now() }, target?.assetId ? '标记素材要换' : '这个画面再找一个镜头');
@@ -64,7 +70,7 @@ function save() {
       '已加入待返工，生成返工单后交给 AI 找 · ⌘Z 可撤销',
       {
         label: '去看看',
-        cb: () => runCommand('video:rework', row.id),
+        cb: () => state.projectId === pid && runCommand('video:rework', row.id),
       },
       'ok',
     );
@@ -90,6 +96,7 @@ export function initRework() {
   $('#reworkMask').addEventListener('click', e => {
     if (e.target.id === 'reworkMask') close();
   });
+  on('project-loaded', close);
   registerModal('reworkMask', { close, enter: save });
   registerCommand('rework:edit', open);
 }

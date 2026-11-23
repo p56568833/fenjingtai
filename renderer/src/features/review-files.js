@@ -93,6 +93,7 @@ export async function saveAllApproved({ auto = false } = {}) {
       batchRun.id = c.id;
       paintProgress(c.id);
       const r = await saveSegment(c.id, { quiet: true });
+      prog.delete(c.id);
       if (r?.ok) {
         ok++;
         if (r.peer) copied++;
@@ -108,6 +109,7 @@ export async function saveAllApproved({ auto = false } = {}) {
     batchRun = null;
     emit('candidate-media');
   }
+  if (state.projectId !== pid) return;
   if (auto) autoSaveApproved(); // 这一轮里又通过了新的：接着存（失败过的不再自动重试，不会来回打转）
   const fromPeer = copied ? `（${copied} 段从对方电脑拷来）` : '';
   if (!fail) return auto ? undefined : toast(`已保存 ${ok} 段${fromPeer}`, null, 'ok'); // 自动保存成功不打扰，卡片上写着「已保存」
@@ -119,10 +121,18 @@ export async function saveAllApproved({ auto = false } = {}) {
     ok ? 'warn' : 'error',
   );
 }
+const downloadingUrls = new Set();
+const downloadUrlKey = url => String(url || '').split('#')[0];
+
 export function downloadOriginal(id) {
   const original = state.candidates.find(x => x.id === id);
   if (!original) return;
   const c = { ...original };
+  const urlKey = downloadUrlKey(c.url);
+  if (downloadingUrls.has(urlKey)) {
+    toast('这段原片正在下载中', null, 'info');
+    return;
+  }
   const pid = state.projectId;
   renumber();
   const name = fileTitle(c, state.rows);
@@ -131,23 +141,54 @@ export function downloadOriginal(id) {
     `会把整部视频下载到保存位置，可能有几百 MB，需要一段时间。\n\n${c.title}\n${c.url}`,
     '下载',
     async () => {
+      if (downloadingUrls.has(urlKey)) {
+        toast('这段原片正在下载中', null, 'info');
+        return;
+      }
       const dir = await ensureMediaDir();
       if (!dir || state.projectId !== pid) return;
-      toast('开始下载完整原片…', { label: '取消', cb: () => native('cancelDownload')(c.url) }, 'info');
-      renumber();
-      const r = await native('downloadOriginalVideo')({ url: c.url, dir, name });
-      if (r?.ok)
-        toast(
-          `原片已下载：${assetName(r.path)}`,
-          { label: '在访达中显示', cb: () => native('revealAsset')(r.path) },
-          'ok',
-        );
-      else if (r?.canceled) toast('已取消下载原片', null, 'info');
-      else toast('下载失败：' + (r?.error || '未知原因'), null, 'error');
+      if (downloadingUrls.has(urlKey)) {
+        toast('这段原片正在下载中', null, 'info');
+        return;
+      }
+      downloadingUrls.add(urlKey);
+      try {
+        toast('开始下载完整原片…', { label: '取消', cb: () => native('cancelDownload')(c.url) }, 'info');
+        renumber();
+        const r = await native('downloadOriginalVideo')({ url: c.url, dir, name });
+        if (r?.ok)
+          toast(
+            `原片已下载：${assetName(r.path)}`,
+            { label: '在访达中显示', cb: () => native('revealAsset')(r.path) },
+            'ok',
+          );
+        else if (r?.canceled) toast('已取消下载原片', null, 'info');
+        else toast('下载失败：' + (r?.error || '未知原因'), null, 'error');
+      } catch (err) {
+        toast('下载失败：' + (err?.message || '未知原因'), null, 'error');
+      } finally {
+        downloadingUrls.delete(urlKey);
+      }
     },
     { danger: false },
   );
 }
+
+on('project-loaded', () => {
+  clearTimeout(autoTimer);
+  autoTimer = 0;
+  autoFailed.clear();
+  prog.clear();
+});
+on('candidates-changed', ({ resetIds = [], removedIds = [] } = {}) => {
+  for (const id of [...resetIds, ...removedIds]) {
+    autoFailed.delete(id);
+    prog.delete(id);
+  }
+  const live = new Set((state.candidates || []).map(c => c.id));
+  for (const id of [...autoFailed]) if (!live.has(id)) autoFailed.delete(id);
+  for (const id of [...prog.keys()]) if (!live.has(id)) prog.delete(id);
+});
 
 on('candidate-progress', ({ projectId, id, p }) => {
   if (projectId !== state.projectId) return;

@@ -113,8 +113,12 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
 
   /* 探测本机剪映与草稿库 */
   handle(CHANNELS.DETECT, () => {
-    const detected = detectNow();
-    return { ...detected, running: detected.running || runningNow() };
+    const detected = { ...detectNow() };
+    const state = runningState();
+    detected.running = state.running;
+    if (!state.known) detected.runningUnknown = true;
+    else delete detected.runningUnknown;
+    return detected;
   });
 
   /* 开始导出：立即返回 jobId，进度/结果走事件；同一时间只允许一个任务 */
@@ -123,10 +127,11 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
     if (!checked.ok) return { ok: false, error: checked.error };
     if (job) return { ok: false, error: '正在导出另一个剪映草稿，等它做完再试' };
     const detected = detectNow();
-    /* 版本低于 11.6.0 或版本号认不出时一律不生成、不登记：只有探测到 supported=true
-       才继续，真正的登记还会再核对 canRegister / 索引状态。文案与 platform 共用一处。 */
-    if (detected?.supported === false)
-      return { ok: false, error: platform.unsupportedVersionMessage(detected.version) };
+    /* 版本低于 11.6.0 或版本号认不出时一律不生成、不登记：
+       保存草稿文件夹模式下若本机尚未安装剪映（无 appPath），仍允许导出草稿包带去其他电脑用。 */
+    const versionBlocked =
+      checked.mode === 'folder' ? !!detected?.appPath && detected?.supported === false : detected?.supported === false;
+    if (versionBlocked) return { ok: false, error: platform.unsupportedVersionMessage(detected.version) };
     const jobId = req.jobId;
     const controller = new AbortController();
     job = { jobId, projectId: req.projectId, controller, senderId: e?.sender?.id ?? 0 };
@@ -144,7 +149,7 @@ function registerJianyingIpc({ handle, win, deps = {} } = {}) {
           options: req.options,
           snapshot: req.snapshot,
           draftRoot: detected?.draftRoot || '',
-          running: !!detected?.running,
+          running: runningNow(),
           fingerprint: detected?.fingerprint || null,
           appVersion: detected?.version || '',
           osVersion: detected?.fingerprint?.platform?.os_version || '',

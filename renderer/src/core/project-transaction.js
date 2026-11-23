@@ -13,32 +13,48 @@ export function captureMutation(target) {
   return { data, references };
 }
 
-function restoreValue(target, value, references) {
+function restoreValue(target, value, references, state) {
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) {
     if (!Array.isArray(target)) return value;
     const original = references.get(target) || target;
-    const restored = value.map((item, i) => restoreValue(original[i], item, references));
-    target.splice(0, target.length, ...restored);
+    const restored = value.map((item, i) => restoreValue(original[i], item, references, state));
+    if (target.length !== restored.length) state.changed = true;
+    target.length = restored.length;
+    for (let i = 0; i < restored.length; i++) {
+      if (!Object.is(target[i], restored[i])) state.changed = true;
+      target[i] = restored[i];
+    }
     return target;
   }
   if (!target || typeof target !== 'object' || Array.isArray(target)) return value;
-  for (const key of Object.keys(target)) if (!Object.hasOwn(value, key)) delete target[key];
+  for (const key of Object.keys(target))
+    if (!Object.hasOwn(value, key)) {
+      delete target[key];
+      state.changed = true;
+    }
   const original = references.get(target) || target;
-  for (const [key, item] of Object.entries(value)) target[key] = restoreValue(original[key], item, references);
+  for (const [key, item] of Object.entries(value)) {
+    const restored = restoreValue(original[key], item, references, state);
+    if (!Object.hasOwn(target, key) || !Object.is(target[key], restored)) state.changed = true;
+    target[key] = restored;
+  }
   return target;
 }
 
 export function restoreMutation(target, checkpoint) {
-  try {
-    if (JSON.stringify(target) === checkpoint.data) return false;
-  } catch {
-    // 修改中意外产生循环引用时，仍能用修改前的有效数据恢复。
-  }
   const data = JSON.parse(checkpoint.data);
-  for (const key of Object.keys(target)) if (!Object.hasOwn(data, key)) delete target[key];
-  const original = checkpoint.references.get(target);
-  for (const [key, value] of Object.entries(data))
-    target[key] = restoreValue(original[key], value, checkpoint.references);
-  return true;
+  const state = { changed: false };
+  for (const key of Object.keys(target))
+    if (!Object.hasOwn(data, key)) {
+      delete target[key];
+      state.changed = true;
+    }
+  const original = checkpoint.references.get(target) || target || {};
+  for (const [key, value] of Object.entries(data)) {
+    const restored = restoreValue(original[key], value, checkpoint.references, state);
+    if (!Object.hasOwn(target, key) || !Object.is(target[key], restored)) state.changed = true;
+    target[key] = restored;
+  }
+  return state.changed;
 }

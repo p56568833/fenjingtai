@@ -38,6 +38,7 @@ export function preserveReadingPosition(changeLayout) {
     oldOverflowAnchor = wrap.style.overflowAnchor;
   let frame = null,
     done = false,
+    ro = null,
     scrollTop = wrap.scrollTop;
   // 浏览器的自动滚动锚点和我们的句子锚点不能同时调整同一个视口。
   wrap.style.overflowAnchor = 'none';
@@ -45,6 +46,8 @@ export function preserveReadingPosition(changeLayout) {
     if (done) return;
     done = true;
     cancelAnimationFrame(frame);
+    ro?.disconnect();
+    ro = null;
     wrap.style.overflowAnchor = oldOverflowAnchor;
     if (cancelPending === guard.cancel) cancelPending = null;
   });
@@ -56,13 +59,12 @@ export function preserveReadingPosition(changeLayout) {
   const fix = () => {
     if (!guard.active()) return;
     const sentence = current();
-    if (
-      done ||
-      state.projectId !== project ||
-      viewState.view !== view ||
-      !sentence ||
-      Math.abs(wrap.scrollTop - scrollTop) > 1
-    ) {
+    // 真实用户输入由 scrollGuard 立刻取消；此处仅识别大幅编程跳转（如 scrollIntoView），
+    // 避免 content-visibility: auto 高度自调或高分屏亚像素取整造成 >1px 误取消。
+    const maxScroll = Math.max(0, wrap.scrollHeight - wrap.clientHeight);
+    const clamped = scrollTop > maxScroll && Math.abs(wrap.scrollTop - maxScroll) <= 2;
+    const jumped = !clamped && Math.abs(wrap.scrollTop - scrollTop) > Math.max(48, wrap.clientHeight * 0.15);
+    if (done || state.projectId !== project || viewState.view !== view || !sentence || jumped) {
       cancel();
       return;
     }
@@ -75,7 +77,13 @@ export function preserveReadingPosition(changeLayout) {
   // 重画中内容高度临时变化会让浏览器夹住 scrollTop，这不是用户在滚，不能当成操作而放弃校准
   scrollTop = wrap.scrollTop;
   fix(); // 同一帧内完成，避免先跳一下再跳回来。
-  let remaining = 3;
+  // content-visibility: auto 延迟更新屏幕外占位块高度时，ResizeObserver 会在绘制前立刻感知并补齐，不等慢帧 rAF。
+  const rows = wrap.querySelector('#rows');
+  if (!done && rows && typeof ResizeObserver === 'function') {
+    ro = new ResizeObserver(() => fix());
+    ro.observe(rows);
+  }
+  let remaining = 4;
   const settle = () => {
     fix();
     if (done) return;

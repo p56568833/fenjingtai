@@ -95,6 +95,7 @@ body.dark .modal-mask {
 }
 .modal {
   width: 430px;
+  max-width: calc(100vw - 32px);
   background: var(--card);
   border: 1px solid var(--hairline-2);
   border-radius: 16px;
@@ -127,6 +128,7 @@ body.dark .modal {
 /* 粘贴导入弹窗 */
 .modal.wide {
   width: 600px;
+  max-width: calc(100vw - 32px);
 }
 .crash-log-list {
   max-height: 40vh;
@@ -199,6 +201,9 @@ body.dark .modal {
   border-top: 1px solid var(--hairline);
   border-bottom: 1px solid var(--hairline);
 }
+#importPreview {
+  overflow-wrap: anywhere;
+}
 .review-item {
   display: block;
   background: none;
@@ -217,9 +222,11 @@ body.dark .modal {
   margin-bottom: 6px;
 }
 .review-item > span {
+  display: block;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-2);
+  overflow-wrap: anywhere;
 }
 #importPreview p {
   font-size: 13px;
@@ -234,6 +241,13 @@ body.dark .modal {
 }
 #importPreview small {
   color: var(--todo);
+}
+#importPreview .imp-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
 }
 #importSummary,
 #importWarning {
@@ -325,4 +339,171 @@ body.has-voice .toast {
   from {
     opacity: 0;
   }
+}
+
+/* ═════════ 英配中字模式弹窗：字幕导入模式 / 双语对照预览 / 批量粘贴 / SRT 导出 ═════════ */
+.srt-mode-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+}
+.srt-mode-bar[hidden] {
+  display: none;
+}
+.srt-mode-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.14s,
+    color 0.14s,
+    border-color 0.14s,
+    box-shadow 0.14s;
+}
+.srt-mode-btn:hover {
+  color: var(--text);
+  background: var(--row-hover);
+}
+.srt-mode-btn.on {
+  background: var(--card);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--hairline-2));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+body.dark .srt-mode-btn.on {
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.srt-pair {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.srt-pair:last-child {
+  border-bottom: 0;
+}
+.srt-pair-en {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.srt-pair-en small {
+  margin-right: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+.srt-pair-zh {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.srt-pair-zh em {
+  font-style: normal;
+  color: var(--text-3);
+}
+.sub-paste-area,
+#subPasteArea {
+  width: 100%;
+  height: 180px;
+  resize: vertical;
+  background: var(--bg);
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.75;
+  padding: 12px 14px;
+  outline: none;
+  margin-bottom: 10px;
+}
+.sub-paste-area:focus,
+#subPasteArea:focus {
+  border-color: rgba(59, 116, 232, 0.5);
+}
+#subPasteSummary {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  margin: 4px 0 8px;
+}
+#subPastePreview {
+  max-height: 28vh;
+  overflow: auto;
+  margin: 8px 0 16px;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+#subPastePreview:empty {
+  display: none;
+}
+.modal.srt-export-modal {
+  width: 480px;
+}
+#srtExportHint {
+  margin-bottom: 16px;
+}
+.srt-export-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 18px;
+}
+.srt-export-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    border-color 0.14s,
+    background-color 0.14s;
+}
+.srt-export-opt:hover {
+  border-color: rgba(120, 132, 158, 0.45);
+}
+.srt-export-opt:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.srt-export-opt:has(input:disabled) {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+.srt-export-opt input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.srt-export-opt b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+.srt-export-opt small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
 }

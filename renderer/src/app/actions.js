@@ -2,11 +2,11 @@ import { viewState } from './view-state.js';
 /* 句子 / 章节 / 共用画面的数据操作：界面只调用这里的函数。
    每个数据操作通过 changeProject 统一记录撤销、落盘和广播事件；
    怎么刷界面由界面层订阅事件决定，这里不碰 DOM。 */
-import { changeProject, commitProjectChange, editProjectFields } from './project-change.js';
+import { changeProject, editProjectFields } from './project-change.js';
 import { state } from './state.js';
 import { currentSelection, match } from './selection.js';
 import { rowById, rowIndex } from './project-queries.js';
-import { notify } from './events.js';
+import { notify, on } from './events.js';
 import { undo, discardIfUnchanged } from './undo.js';
 import {
   validGroup,
@@ -27,6 +27,7 @@ import {
   groupSplitAtPlan,
 } from '../core/shot-groups.js';
 import { usageList, cloneUsages, hydrateProjectAssets } from '../core/asset-model.js';
+import { joinSentences, speechUnits } from '../core/text.js';
 import { nextRowId } from '../core/collab-doc.js';
 import { parityOf } from '../core/collab-sync.js';
 import { collabOf } from './storage.js';
@@ -37,7 +38,6 @@ export function rowIdOptions(projectId = state.projectId) {
   return c ? { parity: parityOf(c.role), floor: Number(c.maxId) || 0 } : {};
 }
 const nextId = () => nextRowId(state.rows, rowIdOptions());
-const commit = () => commitProjectChange({ normalize: true });
 
 /* 从位置 i 开始找最近的句子（跳过章节行），先向后找不到再向前——删除后选中句留在原地 */
 function nearestLine(i) {
@@ -91,27 +91,37 @@ export function deleteRows(ids) {
 }
 
 /* ── 合并：并回上一句（文本拼接 / 备注合并 / 类型沿用），返回目标句 id ── */
-export function mergeToPrev(id) {
+export function mergeToPrev(id, overrideText = null) {
   const i = rowIndex(id);
   if (i <= 0) return null;
   const cur = state.rows[i],
     prev = state.rows[i - 1];
-  if (!prev || prev.kind !== 'line') return null;
+  if (!cur || cur.kind !== 'line' || !prev || prev.kind !== 'line') return null;
   if ((cur.groupId || prev.groupId) && cur.groupId !== prev.groupId) {
     notify('请先解除共用，再合并句子', null, 'info');
     return null;
   }
   return changeProject('合并句子', change => {
-    const seam = prev.text.length;
-    prev.text = prev.text + cur.text;
+    if (typeof overrideText === 'string' && overrideText.trim()) cur.text = overrideText;
+    const curText = cur.text == null ? '' : String(cur.text);
+    const mergedText = joinSentences([prev.text, curText]);
+    const seam = mergedText.length - curText.length;
+    prev.text = mergedText;
+    const mergedSub = joinSentences([prev.sub, cur.sub].filter(Boolean));
+    if (mergedSub) prev.sub = mergedSub;
+    else delete prev.sub;
     prev.note = [...new Set([prev.note, cur.note].filter(Boolean))].join(' ');
-    const seen = new Map(usageList(prev).map(u => [u.assetId, { ...u }]));
-    for (const u of usageList(cur)) {
+    const seen = new Map(cloneUsages(usageList(prev)).map(u => [u.assetId, u]));
+    for (const u of cloneUsages(usageList(cur))) {
       const had = seen.get(u.assetId);
-      if (!had) seen.set(u.assetId, { ...u });
+      if (!had) seen.set(u.assetId, u);
       else if (had.off && !u.off) delete had.off; // 两句里有一句用到，合并后的句子就用到
     }
-    prev.assetUsages = [...seen.values()];
+    const mergedUsages = [...seen.values()].map(u => {
+      delete u.at;
+      return u;
+    });
+    prev.assetUsages = mergedUsages;
     prev.assets = [...new Set([prev.assets, cur.assets].filter(Boolean))].join('\n');
     if (prev.status !== cur.status) prev.status = 'todo';
     // 对齐过字幕：合并后的时间从前一句开头到后一句结尾
@@ -128,10 +138,25 @@ export function mergeToPrev(id) {
       };
     else delete prev.time;
     if (!prev.type) prev.type = cur.type;
+    // 同组内合并：共享字段和更新后的使用记录同步给同组其他成员，保留各自逐句的 off 标记
+    if (prev.groupId && prev.groupId === cur.groupId) {
+      for (const m of shotMembers(state.rows, prev)) {
+        if (m === prev || m === cur) continue;
+        m.note = prev.note;
+        m.status = prev.status;
+        m.type = prev.type;
+        const offMap = new Map(usageList(m).map(u => [u.assetId, !!u.off]));
+        m.assetUsages = cloneUsages(mergedUsages).map(u => {
+          delete u.off;
+          if (offMap.has(u.assetId) ? offMap.get(u.assetId) : true) u.off = true;
+          return u;
+        });
+      }
+    }
     // 挂在被并掉那句上的视频候选改挂到合并后的句子，审核页的撤回、改名还能找到它
     for (const c of state.candidates || []) {
       if (c.rowId === cur.id) c.rowId = prev.id;
-      if (c.forIds?.includes(cur.id)) c.forIds = [...new Set(c.forIds.map(id => (id === cur.id ? prev.id : id)))];
+      if (c.forIds?.includes(cur.id)) c.forIds = [...new Set(c.forIds.map(x => (x === cur.id ? prev.id : x)))];
     }
     state.rows.splice(i, 1);
     viewState.multi = null;
@@ -146,28 +171,43 @@ export function mergeToPrev(id) {
 }
 
 /* ── 拆分：从光标 offset 处拆成两句 ── */
-export function splitAt(id, offset) {
+export function splitAt(id, offset, overrideText = null) {
   const r = rowById(id);
-  if (!r) return null;
-  const a = r.text.slice(0, offset).trim(),
-    b = r.text.slice(offset).trim();
+  if (!r || r.kind !== 'line') return null;
+  const sourceText = typeof overrideText === 'string' ? overrideText : r.text;
+  const a = sourceText.slice(0, offset).trim(),
+    b = sourceText.slice(offset).trim();
   if (!a || !b) return null;
   return changeProject('拆分句子', change => {
     const i = rowIndex(id);
     const nid = nextId();
     r.text = a;
-    // 对齐过字幕：按字数比例把这句的时间切成两段（比例估的，标为低置信，重新对齐可得精确值）
+    // 对齐过字幕：按朗读量比例把这句的时间切成两段（比例估的，标为低置信，重新对齐可得精确值）
     let bTime = null;
     if (r.time && r.time.end > r.time.start) {
-      const cut = r.time.start + ((r.time.end - r.time.start) * a.length) / (a.length + b.length);
+      const ua = speechUnits(a);
+      const ub = speechUnits(b);
+      const ratio = ua + ub > 0 ? ua / (ua + ub) : a.length / (a.length + b.length);
+      const cut = r.time.start + (r.time.end - r.time.start) * ratio;
       const st = r.time.st === 'est' ? 'est' : 'low';
       bTime = { start: cut, end: r.time.end, conf: r.time.conf, st };
       r.time = { ...r.time, end: cut, st };
+    }
+    if (!r.groupId) {
+      for (const u of usageList(r)) delete u.at;
+    } else {
+      for (const c of state.candidates || []) {
+        if (Array.isArray(c.forIds) && c.forIds.includes(id) && !c.forIds.includes(nid)) {
+          const pos = c.forIds.indexOf(id);
+          c.forIds = [...c.forIds.slice(0, pos + 1), nid, ...c.forIds.slice(pos + 1)];
+        }
+      }
     }
     state.rows.splice(i + 1, 0, {
       id: nid,
       kind: 'line',
       text: b,
+      // 拆分后中文译文留在前半句，后半句不强切中文
       note: r.groupId ? r.note : '',
       type: r.groupId ? r.type : null,
       ...(bTime ? { time: bTime } : {}),
@@ -221,22 +261,33 @@ export function insertAfter(id) {
 
 /* 插入后没打字就走人：把空句清掉。
    如果这句是「插入新章节」送的开篇空句，句子没写成，刚立的标题也连带撤掉，不留空节 */
-let freshSection = null; // {secId, sentId}
+let freshSection = null; // {projectId, secId, sentId}
+on('project-loaded', () => {
+  freshSection = null;
+});
 export function dropIfEmpty(id) {
   const r = rowById(id);
-  if (r && r.kind === 'line' && !r.text.trim()) {
+  if (!r || r.kind !== 'line' || r.text.trim()) return false;
+  let clearedFresh = false;
+  const dropped = changeProject(null, change => {
     const i = state.rows.indexOf(r);
+    if (i < 0) return false;
     state.rows.splice(i, 1);
-    if (freshSection && freshSection.sentId === id) {
+    if (freshSection && freshSection.projectId === state.projectId && freshSection.sentId === id) {
       const s = rowById(freshSection.secId);
       const j = s ? state.rows.indexOf(s) : -1;
       if (j > -1 && (j + 1 >= state.rows.length || state.rows[j + 1].kind === 'section')) state.rows.splice(j, 1);
-      freshSection = null;
+      clearedFresh = true;
     }
     viewState.sel = nearestLine(i)?.id ?? null;
-    commit();
+    change.normalize();
+    return true;
+  });
+  if (dropped) {
+    if (clearedFresh) freshSection = null;
     discardIfUnchanged();
   }
+  return !!dropped;
 }
 
 /* ── 章节：从句子处拆节 / 节尾接着写新节 / 删标题 / 删整节 ── */
@@ -248,18 +299,21 @@ export function insertSectionWithSentence(secId) {
   if (si < 0 || state.rows[si].kind !== 'section') return null;
   let at = si + 1;
   while (at < state.rows.length && state.rows[at].kind === 'line') at++;
-  return changeProject('插入新章节', change => {
+  let created = null;
+  const nid = changeProject('插入新章节', change => {
     const sid = nextId();
     state.rows.splice(at, 0, { id: sid, kind: 'section', text: '新章节' });
-    const nid = nextId();
-    state.rows.splice(at + 1, 0, { id: nid, kind: 'line', text: '', note: '', type: null });
+    const sentId = nextId();
+    state.rows.splice(at + 1, 0, { id: sentId, kind: 'line', text: '', note: '', type: null });
     viewState.multi = null;
-    viewState.sel = nid;
-    freshSection = { secId: sid, sentId: nid };
+    viewState.sel = sentId;
+    created = { projectId: state.projectId, secId: sid, sentId };
     change.normalize();
 
-    return nid;
+    return sentId;
   });
+  if (nid != null && created) freshSection = created;
+  return nid;
 }
 
 /* 只删章节标题：句子保留，自然并回上一节（第一节则变成开头的无章节正文） */
@@ -267,7 +321,7 @@ export function deleteSectionHeader(id) {
   const i = rowIndex(id);
   if (i < 0 || state.rows[i].kind !== 'section') return;
   return changeProject('删除章节标题', change => {
-    if (freshSection && freshSection.secId === id) freshSection = null;
+    if (freshSection && freshSection.projectId === state.projectId && freshSection.secId === id) freshSection = null;
     state.rows.splice(i, 1);
     viewState.multi = null;
     change.normalize();
@@ -291,7 +345,7 @@ export function deleteSectionAll(id) {
   if (i < 0 || state.rows[i].kind !== 'section') return;
   const name = state.rows[i].text;
   return changeProject(`删除章节「${name}」`, change => {
-    if (freshSection && freshSection.secId === id) freshSection = null;
+    if (freshSection && freshSection.projectId === state.projectId && freshSection.secId === id) freshSection = null;
     let j = i + 1;
     while (j < state.rows.length && state.rows[j].kind !== 'section') j++;
     const n = j - i - 1;
@@ -308,30 +362,38 @@ export function deleteSectionAll(id) {
 /* mode = 'update'：同稿修订（reconcileDraft 已保留对得上的句子 id）——视频候选只留还对得上句子的；
    mode = 'replace'：换成另一份稿子——旧的视频候选、剪映字幕对齐都和新句子无关，一起清掉（改稿前副本里还有）。
    口播音频只记路径，保留；它和新稿不对应时可以在「时长」里移除 */
-export function applyImport(rows, title, { mode = 'replace' } = {}) {
+export function applyImport(rows, title, { mode = 'replace', langMode, timing, subTiming, archived = true } = {}) {
   return changeProject(mode === 'update' ? '更新稿件' : '导入新稿子', change => {
+    freshSection = null;
     state.rows = rows;
-    state.assets = hydrateProjectAssets({ rows: state.rows, assets: state.assets });
+    state.assets = hydrateProjectAssets({ rows: state.rows, assets: mode === 'replace' ? {} : state.assets });
     state.title = title;
     viewState.filter = 'all';
     viewState.multi = null;
+    viewState.query = '';
     viewState.sel = rows.find(r => r.kind === 'line')?.id ?? null;
     const before = state.candidates.length;
+    const hasSub = rows.some(r => r.kind === 'line' && typeof r.sub === 'string' && r.sub.trim());
     if (mode === 'update') {
       const alive = new Set(rows.filter(r => r.kind === 'line').map(r => r.id));
       state.candidates = state.candidates.filter(c => alive.has(c.rowId));
+      if (langMode === 'en-zh' || langMode === '') state.langMode = langMode;
+      else if (hasSub) state.langMode = 'en-zh';
     } else {
       state.candidates = [];
       state.reviewBatches = {};
       state.reworkRequests = {};
-      state.timing = null;
+      state.timing = timing ?? null;
+      state.subTiming = subTiming ?? null;
+      if (langMode === 'en-zh' || langMode === '') state.langMode = langMode;
+      else state.langMode = hasSub ? 'en-zh' : '';
     }
     const dropped = before - state.candidates.length;
     change.normalize();
 
     const n = rows.filter(r => r.kind === 'line').length;
     change.notify(
-      `${mode === 'update' ? '稿件已更新' : `已导入「${title}」`} · ${n} 句 · 原项目副本已保留${dropped ? ` · ${dropped} 个视频候选对不上新稿，已移除` : ''}`,
+      `${mode === 'update' ? '稿件已更新' : `已导入「${title}」`} · ${n} 句${archived ? ' · 原项目副本已保留' : ''}${dropped ? ` · ${dropped} 个视频候选对不上新稿，已移除` : ''}`,
       null,
       'ok',
     );
@@ -485,4 +547,65 @@ export function renameSection(id, txt) {
   const r = rowById(id);
   if (!r || r.kind !== 'section' || !txt || txt === r.text) return false;
   return editProjectFields('重命名章节', { rows: [{ id, values: { text: txt } }] });
+}
+
+/* ── 英配中字模式切换 ── */
+export function setLangMode(mode) {
+  const next = mode === 'en-zh' ? 'en-zh' : '';
+  if ((state.langMode || '') === next) return false;
+  return changeProject(next === 'en-zh' ? '开启英配中字模式' : '切换为单语模式', change => {
+    state.langMode = next;
+    change.notify(
+      next === 'en-zh' ? '已开启英配中字模式（审英文稿 + 看中文字幕）' : '已切换为常规单语模式',
+      null,
+      'ok',
+    );
+    return true;
+  });
+}
+
+/* ── 改一句的中文字幕（局部编辑，不影响时间轴） ── */
+export function setSentenceSub(id, sub) {
+  const r = rowById(id);
+  if (!r || r.kind !== 'line') return false;
+  const next = typeof sub === 'string' ? sub : '';
+  if ((r.sub || '') === next) return false;
+  return editProjectFields(r.sub ? '修改中文字幕' : '填写中文字幕', {
+    rows: [{ id, values: { sub: next } }],
+  });
+}
+
+/* ── 表格里边打字边存单句中文字幕：同一次编辑只拍一张快照（撤销回到编辑前） ── */
+export function typeSub(row, sub, session) {
+  if (!row || row.kind !== 'line') return false;
+  const next = typeof sub === 'string' ? sub : '';
+  const first = session && session.id === row.id && !session.snapped && next !== session.baseline;
+  if (first) row.sub = session.baseline;
+  const changed = editProjectFields(first ? '编辑中文字幕' : null, {
+    rows: [{ id: row.id, values: { sub: next } }],
+  });
+  if (changed && first) session.snapped = true;
+  return changed;
+}
+
+/* ── 批量填入逐句中文字幕（一步可撤销） ── */
+export function applyBatchSubs(mapped, { activateMode = true } = {}) {
+  if (!(mapped instanceof Map) || !mapped.size) return false;
+  return changeProject('批量填入中文字幕', change => {
+    let count = 0;
+    for (const r of state.rows) {
+      if (r.kind !== 'line' || !mapped.has(r.id)) continue;
+      const val = typeof mapped.get(r.id) === 'string' ? mapped.get(r.id).trim() : '';
+      if (val) {
+        r.sub = val;
+        count++;
+      } else {
+        delete r.sub;
+      }
+    }
+    if (!count) return false;
+    if (activateMode) state.langMode = 'en-zh';
+    change.notify(`已填入 ${count} 句中文字幕 · ⌘Z 可撤销`, null, 'ok');
+    return count;
+  });
 }

@@ -8,15 +8,23 @@ const BOUNDS_FILE = () => path.join(app.getPath('userData'), '窗口.json');
 function savedBounds() {
   try {
     const b = JSON.parse(fs.readFileSync(BOUNDS_FILE(), 'utf8'));
-    if ([b.width, b.height].every(n => Number.isFinite(n) && n > 400)) {
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return { width: 1440, height: 940 };
+    const width = Number.isFinite(b.width) ? Math.round(b.width) : NaN;
+    const height = Number.isFinite(b.height) ? Math.round(b.height) : NaN;
+    if ([width, height].every(n => Number.isFinite(n) && n > 400)) {
+      const x = Number.isFinite(b.x) ? Math.round(b.x) : NaN;
+      const y = Number.isFinite(b.y) ? Math.round(b.y) : NaN;
       // 外接屏拔掉后旧坐标可能落在屏幕外：看不见就只保留尺寸，让系统居中
-      const visible = screen
-        .getAllDisplays()
-        .some(
-          ({ workArea: a }) =>
-            b.x < a.x + a.width - 80 && b.x + b.width > a.x + 80 && b.y >= a.y - 10 && b.y < a.y + a.height - 80,
-        );
-      return visible ? b : { width: b.width, height: b.height };
+      const visible =
+        Number.isFinite(x) &&
+        Number.isFinite(y) &&
+        screen
+          .getAllDisplays()
+          .some(
+            ({ workArea: a }) =>
+              x < a.x + a.width - 80 && x + width > a.x + 80 && y >= a.y - 10 && y < a.y + a.height - 80,
+          );
+      return visible ? { x, y, width, height } : { width, height };
     }
   } catch {
     /* 第一次打开没有记录 */
@@ -60,6 +68,7 @@ function createMainWindow({ indexFile, isAppPage, isSelftest }) {
   // 界面不需要摄像头、麦克风、定位、通知这些权限：除了视频全屏和复制，一律拒绝
   const ALLOWED_PERMS = new Set(['fullscreen', 'clipboard-sanitized-write']);
   w.webContents.session.setPermissionRequestHandler((_wc, perm, cb) => cb(ALLOWED_PERMS.has(perm)));
+  w.webContents.session.setPermissionCheckHandler(() => false);
 
   if (!isSelftest) {
     let t = null;

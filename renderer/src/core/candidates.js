@@ -468,7 +468,8 @@ export function sanitizeProjectCandidates(list, { idMap = new Map(), rowIds = ne
     if (!rowIds.has(rowId)) continue;
     // v4 起每个候选都记着给哪几句；没有的是旧格式导入的候选，不再保留（已通过挂上的素材留在表格里）
     if (!Array.isArray(raw.forIds) || !raw.forIds.length) continue;
-    const forIds = raw.forIds.map(id => (idMap.has(id) ? idMap.get(id) : id)).filter(id => rowIds.has(id));
+    const mappedForIds = raw.forIds.map(id => (idMap.has(id) ? idMap.get(id) : id)).filter(id => rowIds.has(id));
+    const forIds = mappedForIds.length ? mappedForIds : [rowId];
     let id = typeof raw.id === 'string' && raw.id ? raw.id : 'vc-' + crypto.randomUUID();
     if (seen.has(id)) id = 'vc-' + crypto.randomUUID();
     seen.add(id);

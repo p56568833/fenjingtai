@@ -16,6 +16,7 @@ import { shotMembers, applyRole, usageSpan } from './shots.js';
 import { usageList } from './asset-model.js';
 import { CANDIDATE_VERSION, forRange } from './candidate-values.js';
 import { sentenceScope } from './candidate-scope.js';
+import { joinSentences } from './text.js';
 
 const REJECT = new Set(['no']);
 export const isRejected = c => REJECT.has(c?.decision);
@@ -49,13 +50,15 @@ export function setAssetRework(rows, row, assetId, rework) {
 /* 不用返工了：这一项（那几句）上的要求、要换掉的素材标记都清掉，那几句记下时间 */
 export function dismissRework(rows, item, now = Date.now()) {
   const ids = new Set(item.target.map(m => m.id));
+  const memberIds = new Set((item.members || item.target).map(m => m.id));
   const out = new Set(item.replaces.map(x => x.assetId));
   for (const m of rows) {
-    if (!ids.has(m.id)) continue;
-    delete m.rework;
-    m.reworkOff = now;
+    if (ids.has(m.id)) {
+      delete m.rework;
+      m.reworkOff = now;
+    }
+    if (memberIds.has(m.id)) for (const u of usageList(m)) if (out.has(u.assetId)) delete u.rework;
   }
-  for (const m of item.members) for (const u of usageList(m)) if (out.has(u.assetId)) delete u.rework;
 }
 
 /* 这个画面里标了不满意的素材：[{ assetId, note, at }]（同一个素材只算一次） */
@@ -162,10 +165,9 @@ export function reworkShots(rows, candidates) {
     }
     for (const c of g.cands.filter(isRejected)) {
       const sp = forRange(c, members);
-      const off = Math.max(0, ...members.slice(sp.from, sp.to + 1).map(m => m.reworkOff || 0));
-      if (off && (c.decidedAt || 0) <= off) continue;
+      const offAt = m => (m.reworkOff || 0) && (c.decidedAt || 0) <= m.reworkOff;
       let open = false;
-      for (let i = sp.from; i <= sp.to; i++) if (!covered.has(i)) open = true;
+      for (let i = sp.from; i <= sp.to; i++) if (!covered.has(i) && !offAt(members[i])) open = true;
       if (open) item(sp.from, sp.to).fresh.push(c);
     }
     // 没通过的候选（待审的、否掉的）会列在它碰到的每一项里：碰到两项就把两项连起来
@@ -216,7 +218,8 @@ export function followRework(list, prev) {
 export function resolveOnApprove(rows, row, approvedAssetId) {
   const members = shotMembers(rows, row);
   const sp = usageSpan(members, approvedAssetId);
-  const span = sp.empty ? { from: 0, to: members.length - 1 } : sp;
+  if (sp.empty) return [];
+  const span = sp;
   const demoted = [];
   for (const { assetId } of replacesOf(members)) {
     if (assetId === approvedAssetId) continue;
@@ -252,7 +255,7 @@ export function groupReworkItems(items) {
         s.from === s.to ? String(s.target[0].no) : `${s.target[0].no}-${s.target.at(-1).no}`,
       ),
       requests: g.items.map(s => reworkText(s.request?.note)).filter(Boolean),
-      replaces: uniq(g.items.flatMap(s => s.replaces)),
+      replaces: [...new Map(g.items.flatMap(s => s.replaces).map(x => [x.assetId, x])).values()],
       rejected: uniq(g.items.flatMap(s => s.rejected)),
       cands: uniq(g.items.flatMap(s => s.cands)),
     };
@@ -264,6 +267,7 @@ const eachLine = (members, secs) =>
   members.map((m, i) => ({
     line: String(m.no),
     text: m.text,
+    ...(typeof m.sub === 'string' && m.sub.trim() ? { sub: m.sub.trim() } : {}),
     ...(Number.isFinite(secs?.[i]) ? { seconds: Math.round(secs[i] * 10) / 10 } : {}),
   }));
 
@@ -293,7 +297,7 @@ export function buildReworkDoc({ title, shots, registry = {}, batchName = () => 
     shots: shots.map(s => ({
       lines: rangeOf(s.members),
       for: s.forTexts,
-      text: s.target.map(m => m.text).join(''),
+      text: joinSentences(s.target.map(m => m.text)),
       each: eachLine(s.target, targetSeconds(s, secondsOf)),
       visualNote: s.lead.note || '',
       need: s.cands.find(c => c.need)?.need || '',

@@ -3,6 +3,7 @@
    导入清洗 / 改稿对账在 project-import.js，共用画面范围调整在 shot-groups.js。 */
 import { DEFAULT_TYPES, typeIndex } from './types.js';
 import { usageList as usagesOf, cloneUsages } from './asset-usage.js';
+import { joinSentences } from './text.js';
 export const STATUS = { todo: '待找素材', making: '待制作', ready: '已就绪' };
 export const shotMembers = (rows, r) =>
   r?.groupId ? rows.filter(x => x.kind === 'line' && x.groupId === r.groupId) : r ? [r] : [];
@@ -219,7 +220,7 @@ export function checkDelivery(rows, types = DEFAULT_TYPES, opts = {}) {
       const lost = group.some(m => usagesOf(m).some(u => u.role !== 'alt' && opts.missing?.has(reg[u.assetId]?.path)));
       if (lost) issues.push('素材文件失联');
     }
-    return issues.length ? [{ id: r.id, no: r.no, text: group.map(x => x.text).join(''), issues }] : [];
+    return issues.length ? [{ id: r.id, no: r.no, text: joinSentences(group.map(x => x.text)), issues }] : [];
   });
 }
 export function repairCandidates(rows) {
@@ -292,6 +293,7 @@ export function groupRows(rows, ids) {
       ...shared,
       assetUsages: cloneUsages(shared.assetUsages).map((u, k) => {
         delete u.off;
+        delete u.at;
         if (anyHad[k] && !had[i].has(u.assetId)) u.off = true;
         return u;
       }),
@@ -302,13 +304,21 @@ export function groupRows(rows, ids) {
 }
 export function normalizeGroups(rows) {
   const seen = new Set();
+  const used = new Set(rows.filter(r => r.kind === 'line' && r.groupId).map(r => r.groupId));
   let run = [];
   const flush = () => {
     if (!run.length) return;
     const old = run[0].groupId;
     if (run.length === 1) delete run[0].groupId;
     else if (seen.has(old)) {
-      const id = 'shot-' + crypto.randomUUID();
+      const tag = String(run[0].id).replace(/[^\w-]/g, '_');
+      const suffix = `-s${tag}`;
+      let id = `${old.slice(0, Math.max(1, 80 - suffix.length))}${suffix}`;
+      for (let n = 2; used.has(id); n++) {
+        const ext = `${suffix}-${n}`;
+        id = `${old.slice(0, Math.max(1, 80 - ext.length))}${ext}`;
+      }
+      used.add(id);
       run.forEach(r => (r.groupId = id));
     }
     seen.add(old);

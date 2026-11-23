@@ -25,6 +25,13 @@ function registerCollabIpc({ handle, win, app }) {
   };
   const collab = createCollabNet({ emit: send });
   const text = v => String(v ?? '').slice(0, 200);
+  const parsePort = port => {
+    if (port == null || port === '') return { ok: true, port: undefined };
+    const n = Number(port);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) return { ok: false, error: '端口无效' };
+    return { ok: true, port: n };
+  };
+  const validAbsPath = p => typeof p === 'string' && !!p && path.isAbsolute(p) && !p.split(/[\\/]/).includes('..');
   // 视频片段从对方电脑拷来时，和从网站截取的用同一套文件名（名字_入点-出点.mp4）
   const fileName = req =>
     req?.segment ? `${segmentFileBase(req.segment.name, req.segment.start, req.segment.end)}.mp4` : text(req?.name);
@@ -50,37 +57,52 @@ function registerCollabIpc({ handle, win, app }) {
     const ok = await collab.startDiscovery();
     return { ok, hosts: collab.hosts() };
   });
-  handle('collab:connect', (_e, target) => collab.connect({ address: text(target?.address), port: target?.port }));
+  handle('collab:connect', (_e, target) => {
+    const p = parsePort(target?.port);
+    if (!p.ok) return { error: p.error };
+    return collab.connect({ address: text(target?.address), port: p.port });
+  });
   handle('collab:send', (_e, id, msg) => collab.send(String(id), msg));
   handle('collab:close', (_e, id) => collab.close(String(id)));
   handle('collab:addresses', () => collab.addresses());
   // 传文件：界面进程先确认这个文件确实是共享项目里的素材 / 口播，才登记给对方取
-  handle('collab:file-offer', (_e, token, file) => collab.offerFile(text(token), String(file || '')));
-  handle('collab:file-fetch', (_e, req) =>
-    collab.fetchFile({
+  handle('collab:file-offer', (_e, token, file) => {
+    if (!validAbsPath(file)) return { error: '文件路径无效' };
+    return collab.offerFile(text(token), file);
+  });
+  handle('collab:file-fetch', (_e, req) => {
+    const p = parsePort(req?.port);
+    if (!p.ok) return { error: p.error };
+    if (!validAbsPath(req?.dir)) return { error: '保存目录无效' };
+    return collab.fetchFile({
       address: text(req?.address),
-      port: req?.port,
+      port: p.port,
       token: text(req?.token),
-      dir: String(req?.dir || ''),
+      dir: req.dir,
       name: fileName(req),
-    }),
-  );
-  handle('collab:file-expect', (_e, req) =>
-    collab.expectFile({ token: text(req?.token), dir: String(req?.dir || ''), name: fileName(req) }),
-  );
-  handle('collab:file-push', (_e, req) =>
-    collab.pushFile({
+    });
+  });
+  handle('collab:file-expect', (_e, req) => {
+    if (!validAbsPath(req?.dir)) return { error: '保存目录无效' };
+    return collab.expectFile({ token: text(req?.token), dir: req.dir, name: fileName(req) });
+  });
+  handle('collab:file-push', (_e, req) => {
+    const p = parsePort(req?.port);
+    if (!p.ok) return { error: p.error };
+    if (!validAbsPath(req?.file)) return { error: '文件路径无效' };
+    return collab.pushFile({
       address: text(req?.address),
-      port: req?.port,
+      port: p.port,
       token: text(req?.token),
-      file: String(req?.file || ''),
-    }),
-  );
+      file: req.file,
+    });
+  });
   handle('collab:file-cancel', (_e, token) => collab.cancelFile(text(token)));
   // 按内容认文件：界面进程同样先确认是共享项目里的素材 / 口播，才把指纹告诉对方
   handle('collab:file-info', async (_e, file) => {
+    if (!validAbsPath(file)) return { ok: false };
     try {
-      return { ok: true, ...(await fingerprint(String(file || ''))) };
+      return { ok: true, ...(await fingerprint(file)) };
     } catch {
       return { ok: false };
     }
@@ -94,7 +116,7 @@ function registerCollabIpc({ handle, win, app }) {
         size: Number(w?.size),
         fp: text(w?.fp),
       }));
-      const dirs = (Array.isArray(req?.dirs) ? req.dirs : []).map(d => String(d || ''));
+      const dirs = (Array.isArray(req?.dirs) ? req.dirs : []).filter(validAbsPath);
       return await findByContent({
         dirs,
         wants,

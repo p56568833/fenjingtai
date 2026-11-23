@@ -85,8 +85,9 @@ async function writeZip(zipPath, entries, { onProgress, signal, forceZip64 = fal
   }
   const seen = new Set();
   for (const e of list) {
-    if (seen.has(e.name)) throw new Error(`包内有重名文件：${e.name}`);
-    seen.add(e.name);
+    const key = e.name.toLowerCase();
+    if (seen.has(key)) throw new Error(`包内有重名文件：${e.name}`);
+    seen.add(key);
   }
   const total = list.reduce((s, e) => s + e.size, 0);
   const part = zipPath + '.part';
@@ -102,8 +103,16 @@ async function writeZip(zipPath, entries, { onProgress, signal, forceZip64 = fal
       onProgress(done, total);
     }
   };
+  const writeAt = async (buf, pos) => {
+    let off = 0;
+    while (off < buf.length) {
+      const { bytesWritten } = await fh.write(buf, off, buf.length - off, pos + off);
+      if (!bytesWritten) throw new Error('写入压缩包失败');
+      off += bytesWritten;
+    }
+  };
   const write = async buf => {
-    await fh.write(buf, 0, buf.length, offset);
+    await writeAt(buf, offset);
     offset += buf.length;
   };
   const central = [];
@@ -161,7 +170,7 @@ async function writeZip(zipPath, entries, { onProgress, signal, forceZip64 = fal
       }
       const crcBuf = Buffer.alloc(4);
       crcBuf.writeUInt32LE(crc >>> 0, 0);
-      await fh.write(crcBuf, 0, 4, headerAt + 14);
+      await writeAt(crcBuf, headerAt + 14);
       central.push({ nameBuf, size: e.size, crc: crc >>> 0, headerAt });
       tick();
     }
@@ -241,35 +250,57 @@ async function writeZip(zipPath, entries, { onProgress, signal, forceZip64 = fal
 }
 
 /* ── 读 ZIP 目录 ── */
+const MAX_CD_SIZE = 64 * 1024 * 1024;
+async function readFull(fh, buf, len, pos) {
+  let off = 0;
+  while (off < len) {
+    const { bytesRead } = await fh.read(buf, off, len - off, pos + off);
+    if (!bytesRead) break;
+    off += bytesRead;
+  }
+  return off;
+}
 async function readZipIndex(zipPath) {
   const fh = await fsp.open(zipPath, 'r');
   try {
     const { size } = await fh.stat();
     const tailLen = Math.min(size, EOCD_SEARCH + 20);
     const tail = Buffer.alloc(tailLen);
-    await fh.read(tail, 0, tailLen, size - tailLen);
+    if ((await readFull(fh, tail, tailLen, size - tailLen)) !== tailLen) throw new Error('不是有效的 ZIP 文件');
     const eocd = findEocd(tail);
     if (eocd < 0) throw new Error('不是有效的 ZIP 文件');
     let { count, cdSize, cdStart, zip64At } = eocdInfo(tail, eocd);
     if (zip64At != null) {
+      if (!Number.isSafeInteger(zip64At) || zip64At < 0 || zip64At + 56 > size) throw new Error('ZIP64 目录损坏');
       const rec = Buffer.alloc(56);
-      await fh.read(rec, 0, 56, zip64At);
+      if ((await readFull(fh, rec, 56, zip64At)) !== 56) throw new Error('ZIP64 目录损坏');
       ({ count, cdSize, cdStart } = zip64Directory(rec));
     }
-    if (cdStart + cdSize > size) throw new Error('ZIP 目录损坏');
+    if (
+      !Number.isSafeInteger(cdStart) ||
+      !Number.isSafeInteger(cdSize) ||
+      cdStart < 0 ||
+      cdSize < 0 ||
+      cdSize > MAX_CD_SIZE ||
+      cdStart + cdSize > size
+    )
+      throw new Error('ZIP 目录损坏');
     const cd = Buffer.alloc(cdSize);
-    await fh.read(cd, 0, cdSize, cdStart);
+    if ((await readFull(fh, cd, cdSize, cdStart)) !== cdSize) throw new Error('ZIP 目录损坏');
     return { entries: parseCentralDirectory(cd, count), size };
   } finally {
     await fh.close();
   }
 }
 
-async function dataOffset(fh, entry) {
+async function dataOffset(fh, entry, fileSize = null) {
+  if (!Number.isSafeInteger(entry.local) || entry.local < 0 || (fileSize != null && entry.local + 30 > fileSize))
+    throw new Error(`ZIP 内部结构损坏：${entry.name}`);
   const h = Buffer.alloc(30);
-  await fh.read(h, 0, 30, entry.local);
+  if ((await readFull(fh, h, 30, entry.local)) !== 30) throw new Error(`ZIP 内部结构损坏：${entry.name}`);
   const start = localDataStart(h, entry.local);
-  if (start < 0) throw new Error(`ZIP 内部结构损坏：${entry.name}`);
+  if (start < 0 || (fileSize != null && start + entry.csize > fileSize))
+    throw new Error(`ZIP 内部结构损坏：${entry.name}`);
   return start;
 }
 
@@ -312,7 +343,7 @@ async function inspectPack(zipPath) {
   if (typeof zipPath !== 'string' || !path.isAbsolute(zipPath)) throw new Error('路径无效');
   const { entries } = await readZipIndex(zipPath);
   const proj = entries
-    .filter(e => !e.dir && (e.name === PROJECT_ENTRY || e.name.endsWith('/' + PROJECT_ENTRY)))
+    .filter(e => !e.dir && !skipEntry(e.name) && (e.name === PROJECT_ENTRY || e.name.endsWith('/' + PROJECT_ENTRY)))
     .sort((a, b) => a.name.split('/').length - b.name.split('/').length)[0];
   if (!proj) throw new Error('这个压缩包里没有分镜台项目（缺少「分镜台项目.json」）');
   const root = proj.name.slice(0, proj.name.length - PROJECT_ENTRY.length); // '' 或 '某文件夹/'
@@ -348,13 +379,14 @@ async function extractPack(zipPath, destDir, { onProgress, signal } = {}) {
   };
   const fh = await fsp.open(zipPath, 'r');
   try {
+    const { size: zipSize } = await fh.stat();
     for (const e of info.files) {
       checkAbort(signal);
       const rel = e.name.slice(info.root.length);
       const dest = path.resolve(base, ...rel.split('/'));
-      if (dest !== base && !dest.startsWith(base + path.sep)) throw new Error(`压缩包里有不安全的路径：${e.name}`);
+      if (!dest.startsWith(base + path.sep)) throw new Error(`压缩包里有不安全的路径：${e.name}`);
       await fsp.mkdir(path.dirname(dest), { recursive: true });
-      const start = await dataOffset(fh, e);
+      const start = await dataOffset(fh, e, zipSize);
       let crc = 0,
         written = 0;
       const out = fs.createWriteStream(dest, { flags: 'wx' });

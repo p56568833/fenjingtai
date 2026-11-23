@@ -122,6 +122,14 @@
           <button class="text-button repair-hint" id="repairHint" hidden></button>
           <div class="progress-txt" id="progressTxt"></div>
           <button
+            class="chip-filter chip-tool sub-toggle-btn"
+            id="btnSubToggle"
+            hidden
+            title="显示 / 隐藏表格里的中文字幕对照"
+          >
+            中字
+          </button>
+          <button
             class="btn sync-btn"
             id="btnSync"
             title="从选中的句子对着口播看画面，下面的时间条可以调画面（空格也行）"
@@ -216,9 +224,9 @@
 ……"
         ></textarea>
         <div class="paste-hint">
-          自动按<b>标点</b>分句，一句一行；<b>【】</b>或 <b>#</b> 开头的行识别为章节标题。<br />也支持粘回以前导出的<b
-            >带批注 MD</b
-          >，类型和备注会一起恢复。
+          自动按<b>标点</b>分句，一句一行；<b>【】</b>或
+          <b>#</b> 开头的行识别为章节标题。<br />也支持<b>英文稿</b>、<b>中英双语对照稿</b>（每行
+          <code>英文 || 中文</code> 或中英交替双行），以及以前导出的<b>带批注 MD</b>（类型和备注一起恢复）。
         </div>
         <div class="m-btns">
           <button class="btn ghost" id="pasteCancel">取消</button>

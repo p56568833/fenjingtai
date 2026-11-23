@@ -19,6 +19,7 @@ import { collabSession } from '../app/collab.js';
 const $ = s => document.querySelector(s);
 let audio = null;
 let loadedPath = '';
+let loadedProjectId = null;
 let stopAt = null; // 播到这个时间点自动停（听一段 / 单句循环）
 let loopRange = null; // {start, end}
 let follow = true;
@@ -42,11 +43,13 @@ function ensureAudio() {
     audio = new Audio();
     audio.preload = 'metadata';
     audio.addEventListener('loadedmetadata', () => {
+      if (!loadedPath || state.projectId !== loadedProjectId || state.voice?.path !== loadedPath) return;
       missing = false;
-      setVoiceDuration(audio.duration);
+      setVoiceDuration(audio.duration, { projectId: loadedProjectId, expectedPath: loadedPath });
       renderBar();
     });
     audio.addEventListener('error', () => {
+      if (!loadedPath || state.projectId !== loadedProjectId || state.voice?.path !== loadedPath) return;
       missing = true;
       renderBar();
     });
@@ -62,8 +65,9 @@ function ensureAudio() {
     });
     audio.playbackRate = 1; // 倍速随播放条一起去掉了，以前设过的倍速不再生效
   }
-  if (loadedPath !== state.voice.path) {
+  if (loadedPath !== state.voice.path || loadedProjectId !== state.projectId) {
     loadedPath = state.voice.path;
+    loadedProjectId = state.projectId;
     missing = false;
     audio.src = fileUrl(state.voice.path);
   }
@@ -77,6 +81,7 @@ function releaseAudio() {
     audio.load();
   } catch {}
   loadedPath = '';
+  loadedProjectId = null;
   stopAt = null;
   loopRange = null;
   started = false;
@@ -98,7 +103,8 @@ export const voicePlayer = {
       a.currentTime = Math.max(0, start);
       await a.play();
       return true;
-    } catch {
+    } catch (err) {
+      if (err?.name === 'AbortError') return false;
       missing = !isFinite(a.duration);
       renderBar();
       if (missing) toast('口播音频读不出来：文件可能被移动或删除了，在口播条上点「重新定位」', null, 'error');
@@ -210,16 +216,20 @@ function toggle() {
 }
 
 async function pickVoice() {
+  const pid = state.projectId;
   const path = await native.pickVoice();
-  if (path) await useVoiceFile(path);
+  if (path && state.projectId === pid) await useVoiceFile(path, pid);
 }
-async function useVoiceFile(path) {
+async function useVoiceFile(path, pid = state.projectId) {
   if (!isVoiceFile(path)) return toast('口播音频需要是音频或视频文件（mp3 / wav / m4a / mp4 / mov…）', null, 'warn');
+  if (state.projectId !== pid) return;
   const apply = async () => {
+    if (state.projectId !== pid) return;
     releaseAudio();
     const duration = await probeDuration(path, 8000);
+    if (state.projectId !== pid) return;
     if (duration == null) toast('读不出这个文件的时长，先按语速估算；能播放时会自动补上', null, 'warn');
-    setVoice(path, duration);
+    setVoice(path, duration, { projectId: pid });
   };
   if (state.voice && state.voice.path !== path)
     confirmModal('更换口播音频？', `换成「${path.split('/').pop()}」。可以 ⌘Z 撤销。`, '更换', apply, {
@@ -228,12 +238,14 @@ async function useVoiceFile(path) {
   else await apply();
 }
 async function relocate() {
+  const pid = state.projectId;
   const path = await native.pickVoice();
-  if (!path) return;
+  if (!path || state.projectId !== pid) return;
   releaseAudio();
   if (relocateVoice(path)) {
     const d = await probeDuration(path, 8000);
-    if (d) setVoiceDuration(d);
+    if (state.projectId !== pid) return;
+    if (d) setVoiceDuration(d, { projectId: pid, expectedPath: path });
     toast('口播音频已重新定位', null, 'ok');
   }
 }
@@ -273,7 +285,7 @@ export function initVoice() {
   follow = pref('fjz:voiceFollow', 'true') !== 'false';
   initBarEvents();
   registerCommand('voice:pick', pickVoice);
-  registerCommand('voice:set', useVoiceFile);
+  registerCommand('voice:set', path => useVoiceFile(path));
   registerCommand('voice:clear', () => {
     releaseAudio();
     clearVoice();

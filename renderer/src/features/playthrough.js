@@ -1,3 +1,4 @@
+import { state } from '../app/state.js';
 import { viewState } from '../app/view-state.js';
 /* 连播窗口的宿主：创建独立播放实例、登记命令并订阅项目变化。 */
 import { on, emit } from '../app/events.js';
@@ -24,7 +25,11 @@ export function initPlaythrough() {
     mask().querySelector('[data-pt="ptTitle"]').textContent = only ? '对着口播看画面' : '连播预览';
     if (!view.start(id ?? viewState.sel, { only, autoplay: true })) closePlaythrough();
   };
-  on('project-committed', change => (change.source === 'remote' ? view.remote() : view.refresh()));
+  on('project-committed', change => {
+    if (change.projectId !== state.projectId) return;
+    if (change.source === 'remote') view.remote();
+    else view.refresh();
+  });
   on('project-loaded', closePlaythrough);
   on('view', () => {
     if (view.snapshot().playing) view.pause();

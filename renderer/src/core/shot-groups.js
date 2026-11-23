@@ -92,12 +92,14 @@ export function groupExtendNext(rows, groupId) {
     Object.assign(m, cloneShared(values));
     m.assetUsages.forEach(u => {
       delete u.off;
+      delete u.at;
       if (!groupIds.has(u.assetId) || offBefore[i].has(u.assetId)) u.off = true;
     });
   });
   Object.assign(plan.next, cloneShared(values));
   plan.next.assetUsages.forEach(u => {
     delete u.off;
+    delete u.at;
     if (groupIds.has(u.assetId) && !nextHad.has(u.assetId)) {
       // 组内整段出现的素材顺延到新句；只在部分句子出现的不扩散
       const wasWhole = members.every((m, i) => !offBefore[i].has(u.assetId));

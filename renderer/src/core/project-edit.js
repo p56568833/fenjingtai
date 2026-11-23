@@ -1,21 +1,26 @@
 /* 小字段编辑先完整校验和计算差异，再一次应用；不开放任意修改回调。
    结构、素材、字幕等复杂操作仍走完整事务。 */
 import { projectDelta } from './project-delta.js';
+import { cleanRework } from './asset-usage.js';
 const allowed = {
-  project: new Set(['title', 'speechRate']),
-  rows: new Set(['text', 'note', 'rework', 'reworkOff']),
+  project: new Set(['title', 'speechRate', 'langMode']),
+  rows: new Set(['text', 'note', 'sub', 'rework', 'reworkOff']),
   candidates: new Set(['note']),
 };
 function checkedValue(key, value) {
-  if (['title', 'text', 'note'].includes(key)) {
+  if (['title', 'text', 'note', 'sub'].includes(key)) {
     if (typeof value !== 'string') throw new TypeError(`字段 ${key} 必须是文字`);
+  } else if (key === 'langMode') {
+    if (value !== '' && value !== 'en-zh') throw new TypeError('语言模式无效');
   } else if (key === 'speechRate') {
     if (!Number.isFinite(value) || value < 1 || value > 10) throw new TypeError('语速超出范围');
   } else if (key === 'reworkOff') {
-    if (value !== undefined && !Number.isFinite(value)) throw new TypeError('返工时间无效');
+    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0))
+      throw new TypeError('返工时间无效');
   } else if (key === 'rework' && value !== undefined) {
-    if (!value || typeof value !== 'object' || typeof value.note !== 'string') throw new TypeError('返工意见无效');
-    return JSON.parse(JSON.stringify(value));
+    const cleaned = cleanRework(value);
+    if (!cleaned) throw new TypeError('返工意见无效');
+    return cleaned;
   }
   return value;
 }
@@ -26,6 +31,8 @@ export function prepareProjectEdit(project, patch) {
   const add = (kind, target, values, old, next) => {
     for (const [key, input] of Object.entries(values)) {
       if (!allowed[kind].has(key)) throw new Error(`局部编辑不支持 ${kind}.${key}`);
+      if (kind === 'rows' && target.kind === 'section' && key !== 'text')
+        throw new Error(`章节不支持局部编辑 rows.${key}`);
       const value = checkedValue(key, input);
       old[key] = target[key];
       next[key] = value;

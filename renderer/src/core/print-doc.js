@@ -6,13 +6,13 @@
    主进程用 Chromium 的 printToPDF 出矢量 PDF：文字可选可搜、链接可点、章节生成书签。 */
 
 import { fmtTime } from './text.js';
-import { DEFAULT_TYPES, typeIndex } from './types.js';
+import { typeIndex } from './types.js';
 import { buildTimeline, shotSpan } from './timeline.js';
 
 const NONE = { label: '未标注', short: '未标注', color: '#a3abba' };
 const ROLE_LABEL = { main: '主画面', overlay: '叠加', alt: '备选' };
 
-export const PDF_DEFAULTS = { landscape: false, cover: true, assets: true };
+export const PDF_DEFAULTS = { landscape: false, cover: true, assets: true, subtitles: true };
 
 const esc = s =>
   String(s ?? '')
@@ -21,17 +21,14 @@ const esc = s =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-/* 类型表随项目（自定义类型也照样排版）；每次 buildPrintDoc / planDocument 时设定 */
-let TI = typeIndex(DEFAULT_TYPES);
-const meta = t => {
-  const x = TI.get(t);
+const metaOf = (ti, t) => {
+  const x = ti.get(t);
   return x ? { label: x.full, short: x.label, color: x.color } : t ? { ...NONE, label: '未知类型' } : NONE;
 };
-const needsVisual = t => TI.needsVisual(t);
 const pad = (n, w) => String(n).padStart(w, '0');
 
-/* 时长：句内用 3.2s；汇总用 6 分 12 秒；封面大数字用 42:10 */
-const fmtSec = s => (s < 10 ? s.toFixed(1) + 's' : Math.round(s) + 's');
+/* 时长：句内用 3.2s；汇总用 6 分 12 秒；封面大数字用 42:10（超 1 小时 1:02:10） */
+const fmtSec = s => (s < 9.95 ? s.toFixed(1) + 's' : Math.round(s) + 's');
 export function fmtLong(s) {
   s = Math.round(s);
   if (s < 60) return `${s} 秒`;
@@ -40,8 +37,11 @@ export function fmtLong(s) {
   return r ? `${m} 分 ${r} 秒` : `${m} 分钟`;
 }
 const fmtClock = s => {
-  s = Math.round(s);
-  return `${Math.floor(s / 60)}:${pad(s % 60, 2)}`;
+  s = Math.max(0, Math.round(Number.isFinite(s) ? s : 0));
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    r = s % 60;
+  return h ? `${h}:${pad(m, 2)}:${pad(r, 2)}` : `${m}:${pad(r, 2)}`;
 };
 
 export const assetRefs = (r, registry = {}) =>
@@ -51,15 +51,20 @@ export const assetRefs = (r, registry = {}) =>
         .split('\n')
         .map(x => x.trim())
         .filter(Boolean);
-const clipLabels = (r, registry) =>
-  new Map(
-    (r.assetUsages || [])
-      .filter(u => u.clip)
-      .map(u => [
-        registry[u.assetId]?.path || u.path || '',
-        `片段 ${fmtTime(u.clip.in)}–${fmtTime(u.clip.out)}${u.clip.needsAdjust ? ' · 片段待调整' : ''}`,
-      ]),
-  );
+const formatClip = clip =>
+  clip ? `片段 ${fmtTime(clip.in)}–${fmtTime(clip.out)}${clip.needsAdjust ? ' · 片段待调整' : ''}` : '';
+const formatLineRuns = (lines, indices) => {
+  const runs = [];
+  for (const idx of indices) {
+    const no = lines[idx].no;
+    const last = runs[runs.length - 1];
+    if (last && idx === last[2] + 1 && no === last[1] + 1) {
+      last[1] = no;
+      last[2] = idx;
+    } else runs.push([no, no, idx]);
+  }
+  return `第 ${runs.map(([a, b]) => (a === b ? a : `${a}–${b}`)).join('、')} 句`;
+};
 export function assetName(ref) {
   try {
     if (/^https?:\/\//i.test(ref)) {
@@ -74,7 +79,6 @@ const isVideo = ref => /\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(ref);
 
 /* 项目 → 章节 → 镜头。镜头切分与软件内 shots() 一致：同一 groupId 的连续句子合为一个镜头 */
 export function planDocument(rows, speechRate = 4.5, registry = {}, { types, voiceDuration, timeline } = {}) {
-  if (types) TI = typeIndex(types);
   const rate = Number(speechRate) >= 1 && Number(speechRate) <= 10 ? Number(speechRate) : 4.5;
   // 每句时长：字幕实测 > 按口播音频长度推算 > 按语速估算（与软件里一致）
   const tl =
@@ -111,6 +115,7 @@ export function planDocument(rows, speechRate = 4.5, registry = {}, { types, voi
     const line = {
       no: r.no || lineNo,
       text: r.text,
+      sub: typeof r.sub === 'string' ? r.sub : '',
       seconds,
       time: tm && tm.src !== 'rate' ? { start: tm.start, approx: !(tm.src === 'srt' && tm.st === 'ok') } : null,
     };
@@ -118,13 +123,15 @@ export function planDocument(rows, speechRate = 4.5, registry = {}, { types, voi
       shot.lines.push(line);
       shot.rows.push(r);
     } else {
+      const refs = assetRefs(r, registry);
       shot = {
         no: ++shotNo,
         groupId: r.groupId || null,
         type: r.type || null,
         note: r.note || '',
-        assets: assetRefs(r, registry),
-        clipLabels: clipLabels(r, registry),
+        assets: refs,
+        assetEntries: refs.map(ref => ({ ref, label: '' })),
+        clipLabels: new Map(),
         lines: [line],
         rows: [r],
         seconds: 0,
@@ -155,22 +162,27 @@ export function planDocument(rows, speechRate = 4.5, registry = {}, { types, voi
       const pathOf = u => registry[u.assetId]?.path || u.path || '';
       s.assets = used.map(pathOf).filter(Boolean);
       s.altCount = usages.length - used.length;
+      s.assetEntries = [];
+      s.clipLabels = new Map();
       for (const u of used) {
         const p = pathOf(u);
         if (!p) continue;
-        const bits = s.clipLabels.get(p) ? [s.clipLabels.get(p)] : [];
+        const bits = [];
+        const clipStr = formatClip(u.clip);
+        if (clipStr) bits.push(clipStr);
         if (s.rows.length > 1) {
           const on = s.rows
             .map((x, i) => ((x.assetUsages || []).some(v => v.assetId === u.assetId && !v.off) ? i : -1))
             .filter(i => i >= 0);
-          if (on.length && on.length < s.rows.length) {
-            const a = s.lines[on[0]].no,
-              b = s.lines[on[on.length - 1]].no;
-            bits.push(a === b ? `第 ${a} 句` : `第 ${a}–${b} 句`);
-          }
+          if (on.length && on.length < s.rows.length) bits.push(formatLineRuns(s.lines, on));
         }
-        if (ROLE_LABEL[u.role]) bits.push(ROLE_LABEL[u.role]);
-        if (bits.length) s.clipLabels.set(p, bits.join(' · '));
+        if (typeof u.role === 'string' && Object.hasOwn(ROLE_LABEL, u.role)) bits.push(ROLE_LABEL[u.role]);
+        const label = bits.join(' · ');
+        s.assetEntries.push({ ref: p, assetId: u.assetId || '', label });
+        if (label) {
+          if (u.assetId) s.clipLabels.set(u.assetId, label);
+          if (!s.clipLabels.has(p)) s.clipLabels.set(p, label);
+        }
       }
       delete s.rows;
     }
@@ -194,12 +206,14 @@ export function planDocument(rows, speechRate = 4.5, registry = {}, { types, voi
 }
 
 /* ── 片段 ── */
-function rhythmBar(plan, cls = 'rhythm') {
+function rhythmBar(plan, ti, cls = 'rhythm') {
   const total = plan.seconds || 1;
   const chapters = plan.chapters
     .map(c => {
       const segs = c.shots
-        .map(s => `<i style="flex:${Math.max(s.seconds, 0.3).toFixed(2)} 1 0;background:${meta(s.type).color}"></i>`)
+        .map(
+          s => `<i style="flex:${Math.max(s.seconds, 0.3).toFixed(2)} 1 0;background:${metaOf(ti, s.type).color}"></i>`,
+        )
         .join('');
       return `<div class="rb-chap" style="flex:${Math.max(c.seconds, 0.3).toFixed(2)} 1 0">${segs}</div>`;
     })
@@ -213,9 +227,9 @@ function rhythmBar(plan, cls = 'rhythm') {
   return `<div class="${cls}"><div class="rb-track">${chapters}</div>${ticks}</div><div class="rb-scale"><span>0:00</span><span>${fmtClock(total)}</span></div>`;
 }
 
-function typeBreakdown(plan) {
+function typeBreakdown(plan, ti) {
   const total = plan.seconds || 1;
-  const known = TI.list.map(t => t.id);
+  const known = ti.list.map(t => t.id);
   const extra = [...new Set(plan.shots.map(s => s.type).filter(t => t && !known.includes(t)))];
   const keys = [...known, ...extra, null].filter(k => plan.shots.some(s => (s.type || null) === k));
   return keys
@@ -223,7 +237,7 @@ function typeBreakdown(plan) {
       const list = plan.shots.filter(s => (s.type || null) === k);
       const sec = list.reduce((a, s) => a + s.seconds, 0),
         pct = (sec / total) * 100;
-      const m = meta(k);
+      const m = metaOf(ti, k);
       return `<div class="tb-row"><span class="sw" style="background:${m.color}"></span><span class="tb-name">${esc(m.label)}</span>
       <span class="tb-bar"><i style="width:${pct.toFixed(1)}%;background:${m.color}"></i></span>
       <span class="tb-num">${list.length} 镜</span><span class="tb-num">${fmtLong(sec)}</span><span class="tb-pct">${Math.round(pct)}%</span></div>`;
@@ -231,7 +245,7 @@ function typeBreakdown(plan) {
     .join('');
 }
 
-function cover(plan, title, date) {
+function cover(plan, title, date, ti) {
   const chapterList = plan.named
     ? `
     <section class="cv-block cv-toc"><div class="cv-h">章节</div>
@@ -248,10 +262,10 @@ function cover(plan, title, date) {
       ${plan.named ? `<div><b>${plan.chapters.length}</b><span>个章节</span></div>` : ''}
     </div>
     <div class="cv-label">全片节奏 <small>色块按镜头顺序排列，宽度为${plan.timed ? '镜头时长' : '估算时长'}</small></div>
-    ${rhythmBar(plan)}
+    ${rhythmBar(plan, ti)}
     <div class="cv-cols">
       ${chapterList}
-      <section class="cv-block cv-types"><div class="cv-h">画面构成</div>${typeBreakdown(plan)}</section>
+      <section class="cv-block cv-types"><div class="cv-h">画面构成</div>${typeBreakdown(plan, ti)}</section>
     </div>
     <div class="cv-guide">
       <b>怎么读</b>每一行是一个镜头：左边是逐句口播（带句号和估算时长），右边是这个镜头的画面设计。
@@ -260,13 +274,13 @@ function cover(plan, title, date) {
   </div>`;
 }
 
-function assetBlock(refs, thumbs, labels) {
-  if (!refs.length) return '';
+function assetBlock(entries, thumbs) {
+  if (!entries.length) return '';
   const pics = [],
     files = [];
-  for (const ref of refs) {
+  for (const { ref, label: extra } of entries) {
     const data = thumbs && thumbs.get ? thumbs.get(ref) : null;
-    const label = `${assetName(ref)}${labels?.get(ref) ? ' · ' + labels.get(ref) : ''}`;
+    const label = `${assetName(ref)}${extra ? ' · ' + extra : ''}`;
     if (data)
       pics.push(
         `<figure class="thumb${isVideo(ref) ? ' is-video' : ''}"><img src="${esc(data)}" alt=""><figcaption>${esc(label)}</figcaption></figure>`,
@@ -277,14 +291,17 @@ function assetBlock(refs, thumbs, labels) {
   return `<div class="assets">${pics.length ? `<div class="thumbs">${pics.join('')}</div>` : ''}${files.length ? `<div class="refs">${files.join('')}</div>` : ''}</div>`;
 }
 
-function shotRow(s, opts, noWidth) {
-  const m = meta(s.type);
-  const isA = !!s.type && !needsVisual(s.type); // 不需要配画面的类型（如 A roll）
+function shotRow(s, opts, noWidth, ti) {
+  const m = metaOf(ti, s.type);
+  const isA = !!s.type && !ti.needsVisual(s.type); // 不需要配画面的类型（如 A roll）
   const lines = s.lines
-    .map(
-      l =>
-        `<li><span class="ln">${l.no}</span><span class="tx">${esc(l.text)}</span><span class="ld">${l.time ? `${l.time.approx ? '≈' : ''}${fmtTime(l.time.start)} · ` : ''}${fmtSec(l.seconds)}</span></li>`,
-    )
+    .map(l => {
+      const subHtml = opts.subtitles !== false && l.sub ? `<span class="tx-sub">${esc(l.sub)}</span>` : '';
+      const textHtml = subHtml
+        ? `<span class="tx-wrap"><span class="tx">${esc(l.text)}</span>${subHtml}</span>`
+        : `<span class="tx">${esc(l.text)}</span>`;
+      return `<li><span class="ln">${l.no}</span>${textHtml}<span class="ld">${l.time ? `${l.time.approx ? '≈' : ''}${fmtTime(l.time.start)} · ` : ''}${fmtSec(l.seconds)}</span></li>`;
+    })
     .join('');
   let note;
   if (s.note.trim()) note = `<div class="note">${esc(s.note.trim())}</div>`;
@@ -293,11 +310,11 @@ function shotRow(s, opts, noWidth) {
   return `<tr class="shot${isA ? ' is-a' : ''}${s.type ? '' : ' is-none'}${s.lines.length > 1 ? ' is-group' : ''}" style="--tc:${m.color}">
     <td class="c-no"><div class="no">${pad(s.no, noWidth)}</div><div class="sd">${fmtSec(s.seconds)}</div>${s.lines.length > 1 ? `<div class="grp">${s.lines.length} 句共用</div>` : ''}</td>
     <td class="c-vo"><ol>${lines}</ol></td>
-    <td class="c-vis"><div class="vis-head"><span class="chip">${esc(m.label)}</span></div>${note}${opts.assets ? assetBlock(s.assets, opts.thumbs, s.clipLabels) : ''}</td>
+    <td class="c-vis"><div class="vis-head"><span class="chip">${esc(m.label)}</span></div>${note}${opts.assets ? assetBlock(s.assetEntries || [], opts.thumbs) : ''}</td>
   </tr>`;
 }
 
-function chapterTable(c, plan, opts, noWidth, breakBefore) {
+function chapterTable(c, plan, opts, noWidth, breakBefore, ti) {
   // 章节名放进表头：Chromium 打印时 thead 每页重复，翻到哪页都看得到所属章节；
   // 书签用表格前一个零高度的 h2 生成，避免重复表头产生重复书签
   const bookmark = c.title ? `<h2 class="bm">${esc(c.title)}</h2>` : '';
@@ -307,7 +324,7 @@ function chapterTable(c, plan, opts, noWidth, breakBefore) {
   return `<section class="chapter${breakBefore ? ' new-page' : ''}">${bookmark}
     <table class="board"><colgroup><col class="w-no"><col class="w-vo"><col class="w-vis"></colgroup>
       <thead>${chapterRow}<tr class="cols"><th>镜号</th><th>口播</th><th>画面</th></tr></thead>
-      <tbody>${c.shots.map(s => shotRow(s, opts, noWidth)).join('')}</tbody>
+      <tbody>${c.shots.map(s => shotRow(s, opts, noWidth, ti)).join('')}</tbody>
     </table></section>`;
 }
 
@@ -315,6 +332,7 @@ function chapterTable(c, plan, opts, noWidth, breakBefore) {
 export function buildPrintDoc(project, options = {}) {
   const opts = { ...PDF_DEFAULTS, ...options };
   const title = (project.title || '').trim() || '未命名项目';
+  const ti = typeIndex(project.types);
   const plan = planDocument(project.rows || [], project.speechRate, project.assets || {}, {
     types: project.types,
     voiceDuration: project.voice?.duration,
@@ -324,11 +342,11 @@ export function buildPrintDoc(project, options = {}) {
   const noWidth = plan.shots.length >= 100 ? 3 : 2;
   // 章节普遍较长时每章另起一页；短章节连排，避免满纸空白
   const longChapters = plan.chapters.length > 1 && plan.shots.length / plan.chapters.length >= 8;
-  const body = plan.chapters.map((c, i) => chapterTable(c, plan, opts, noWidth, longChapters && i > 0)).join('');
+  const body = plan.chapters.map((c, i) => chapterTable(c, plan, opts, noWidth, longChapters && i > 0, ti)).join('');
   const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${esc(title)} · 分镜脚本</title>
 <style>${CSS}</style></head>
 <body class="${opts.landscape ? 'landscape' : 'portrait'}${plan.timed ? ' timed' : ''}">
-${opts.cover ? cover(plan, title, date) : `<div class="mini-head"><h1>${esc(title)}</h1><span>${plan.shots.length} 镜 · ${plan.lines} 句 · 约 ${fmtLong(plan.seconds)} · ${esc(date)}</span></div>`}
+${opts.cover ? cover(plan, title, date, ti) : `<div class="mini-head"><h1>${esc(title)}</h1><span>${plan.shots.length} 镜 · ${plan.lines} 句 · 约 ${fmtLong(plan.seconds)} · ${esc(date)}</span></div>`}
 ${body || '<p class="empty">这个项目还没有句子。</p>'}
 </body></html>`;
   const footer = `<div style="width:100%;box-sizing:border-box;padding:0 12mm;display:flex;justify-content:space-between;align-items:center;font-size:7.5px;color:#8a93a6;font-family:-apple-system,'PingFang SC','Hiragino Sans GB','Noto Sans CJK SC','Microsoft YaHei',sans-serif;letter-spacing:.02em"><span>${esc(title)} · 分镜脚本</span><span style="font-family:'SF Mono',Menlo,ui-monospace,monospace"><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`;
@@ -432,6 +450,8 @@ td.c-vo li{display:grid;grid-template-columns:7.5mm 1fr 8mm;gap:1.5mm;align-item
 tr.is-group td.c-vo li+li{margin-top:1.6mm;padding-top:1.6mm;border-top:.5px dashed #dfe2e8}
 .ln{font-family:var(--mono);font-size:7pt;color:var(--t3);text-align:right;padding-right:1mm}
 .tx{font-size:1em}
+.tx-wrap{display:flex;flex-direction:column;gap:.6mm;min-width:0}
+.tx-sub{font-size:.88em;color:var(--t2);line-height:1.48}
 body.timed td.c-vo li{grid-template-columns:7.5mm 1fr 20mm}
 .ld{font-family:var(--mono);font-size:6.8pt;color:#a3abba;text-align:right}
 td.c-vis{padding-left:5mm!important;padding-right:1mm!important;border-left:.5px solid var(--hair2)}

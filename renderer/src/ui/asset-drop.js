@@ -6,7 +6,7 @@ import { addRefsToShot } from '../app/asset-actions.js';
 import { kindOf, assetName } from '../core/asset-model.js';
 import * as native from '../platform/native.js';
 import { toast } from './base/dom.js';
-import { menuAllowed } from './base/modal.js';
+import { menuAllowed, anyModalOpen } from './base/modal.js';
 import { runCommand } from './base/commands.js';
 
 /* 口播音频的落点：顶部节奏色条 / 底部口播条 */
@@ -22,6 +22,10 @@ const SCRIPT_MIME =
 const looksLikeScript = dt => {
   const items = [...(dt?.items || [])].filter(i => i.kind === 'file');
   return items.length > 0 && items.every(i => SCRIPT_MIME.test(i.type));
+};
+const hasEmptyMime = dt => {
+  const items = [...(dt?.items || [])].filter(i => i.kind === 'file');
+  return items.length > 0 && items.some(i => !i.type);
 };
 const inInspector = el => !!(el && el.closest && el.closest('#inspector'));
 
@@ -130,12 +134,20 @@ export function initAssetDrop() {
   document.addEventListener('dragover', e => {
     if (!hasFiles(e.dataTransfer)) return;
     e.preventDefault();
+    if (anyModalOpen() && !menuAllowed('import')) {
+      e.dataTransfer.dropEffect = 'none';
+      document.body.classList.remove('drop-import', 'drop-voice');
+      document.querySelectorAll('.drop-target').forEach(z => z.classList.remove('drop-target'));
+      return;
+    }
     e.dataTransfer.dropEffect = 'copy';
     const importing = looksLikeScript(e.dataTransfer) && !inInspector(e.target);
     const voice = inVoiceZone(e.target);
+    const unknownMime = hasEmptyMime(e.dataTransfer) && !inInspector(e.target);
     document.body.classList.toggle('drop-import', importing);
     document.body.classList.toggle('drop-voice', voice);
-    if (importing || voice) document.querySelectorAll('.drop-target').forEach(z => z.classList.remove('drop-target'));
+    if (importing || voice || unknownMime)
+      document.querySelectorAll('.drop-target').forEach(z => z.classList.remove('drop-target'));
     else highlightFor(e.target, true);
   });
   document.addEventListener('dragleave', e => {
@@ -149,6 +161,10 @@ export function initAssetDrop() {
     e.preventDefault(); // 空白处也不许浏览器打开文件
     document.querySelectorAll('.drop-target').forEach(z => z.classList.remove('drop-target'));
     document.body.classList.remove('drop-import', 'drop-voice');
+    if (anyModalOpen() && !menuAllowed('import')) {
+      toast('先关掉当前弹窗，再把文件拖进来', null, 'info');
+      return;
+    }
     const files = extractPaths(e.dataTransfer.files);
     if (inVoiceZone(e.target) && files.length && ['audio', 'video'].includes(kindOf(files[0].path))) {
       runCommand('voice:set', files[0].path);

@@ -44,8 +44,10 @@ function createCollabNet({
   let announcement = null;
   let announcer = null;
   let announceTimer = null;
+  let hostGen = 0;
   let listener = null;
   let pruneTimer = null;
+  let discoveryGen = 0;
   const hosts = new Map(); // hostId → { hostId, name, address, port, shares, seen }
   const fire = evt => {
     try {
@@ -140,10 +142,17 @@ function createCollabNet({
     let buf = Buffer.alloc(0);
     let routed = false;
     const timer = setTimeout(() => !routed && socket.destroy(), 15000);
-    const route = fn => {
-      routed = true;
+    const cleanup = () => {
       clearTimeout(timer);
       socket.removeListener('data', onData);
+      socket.removeListener('close', cleanup);
+      socket.removeListener('error', onError);
+    };
+    const onError = () => cleanup();
+    const route = fn => {
+      if (routed) return;
+      routed = true;
+      cleanup();
       fn();
     };
     const onData = data => {
@@ -164,7 +173,8 @@ function createCollabNet({
       route(() => attach(socket, info, buf));
     };
     socket.on('data', onData);
-    socket.on('error', () => {});
+    socket.on('close', cleanup);
+    socket.on('error', onError);
   }
 
   /* ── 传文件（局域网里把对方缺的素材文件拷过去）──
@@ -172,7 +182,10 @@ function createCollabNet({
      · 访客取主机的文件：主机先登记 offer(token, 文件)，访客连上来发 file-get，主机回一行文件大小再发原始字节；
      · 主机取访客的文件：主机先登记 expect(token, 存到哪)，访客连上来发 file-put + 文件大小，再发原始字节。
      token 用一次就作废，只在 10 分钟内有效；只能取对方界面进程明确登记过的那一个文件。 */
-  const offers = new Map(); // token → { path, expires }
+  const OFFER_TTL_MS = 10 * 60 * 1000;
+  const FILE_HEAD_MAX = 64 * 1024;
+  const FILE_HEAD_TIMEOUT_MS = 15000;
+  const offers = new Map(); // token → { path, expires, timer }
   const expects = new Map(); // token → { dir, name, resolve, timer }
   const active = new Map(); // token → 取消函数
   const progress = (token, total) => {
@@ -203,6 +216,7 @@ function createCollabNet({
   }
   /* 收文件：先写 .part，收够字节数再改成正式文件名 */
   function createSink({ dir, name, size, token }) {
+    if (!Number.isSafeInteger(size) || size < 0) throw new Error('文件大小无效');
     fs.mkdirSync(dir, { recursive: true });
     const target = freePath(dir, name);
     const part = target + '.part';
@@ -210,47 +224,97 @@ function createCollabNet({
     const report = progress(token, size);
     let done = 0;
     let failed = null;
-    out.on('error', err => (failed ||= err));
+    let aborted = false;
+    let closed = false;
+    out.on('error', err => {
+      failed ||= err;
+    });
+    out.on('close', () => {
+      closed = true;
+    });
     const release = () => reserved.delete(target);
+    const abort = () => {
+      if (aborted) return;
+      aborted = true;
+      out.destroy();
+      release();
+      fs.rm(part, { force: true }, () => {});
+    };
     return {
       write(chunk, socket) {
+        if (aborted || failed) return;
         done += chunk.length;
+        if (done > size) {
+          failed = new Error('文件超出声明大小');
+          abort();
+          socket?.destroy?.();
+          return;
+        }
         report(done);
         if (!out.write(chunk) && socket) {
           socket.pause();
-          out.once('drain', () => socket.resume());
+          out.once('drain', () => {
+            if (!socket.destroyed) socket.resume();
+          });
         }
       },
       finish() {
-        return new Promise(resolve =>
-          out.end(() => {
+        return new Promise(resolve => {
+          let settled = false;
+          const finishWith = r => {
+            if (settled) return;
+            settled = true;
+            out.removeListener('error', onErr);
+            out.removeListener('close', onClose);
             release();
-            if (failed || done !== size) {
-              fs.rm(part, { force: true }, () => {});
-              return resolve({
-                error: failed ? `存不下：${failed.code || failed.message}` : '文件没传完整（连接断了），再取一次',
-              });
-            }
-            fs.rename(part, target, err =>
-              err
-                ? resolve({ error: `存不下：${err.code || err.message}` })
-                : resolve({ ok: true, path: target, size }),
-            );
-          }),
-        );
+            resolve(r);
+          };
+          const failOut = err => {
+            fs.rm(part, { force: true }, () => {});
+            finishWith({
+              error: err ? `存不下：${err.code || err.message}` : '文件没传完整（连接断了），再取一次',
+            });
+          };
+          const onErr = err => {
+            failed ||= err;
+            failOut(failed);
+          };
+          const onClose = () => {
+            if (failed || aborted || done !== size) failOut(failed);
+          };
+          if (failed || aborted || out.destroyed || closed) {
+            if (failed || aborted || done !== size) return failOut(failed);
+          }
+          out.once('error', onErr);
+          out.once('close', onClose);
+          out.end(() => {
+            if (settled) return;
+            if (failed || aborted || done !== size) return failOut(failed);
+            fs.rename(part, target, err => {
+              if (err) {
+                fs.rm(part, { force: true }, () => {});
+                return finishWith({ error: `存不下：${err.code || err.message}` });
+              }
+              finishWith({ ok: true, path: target, size });
+            });
+          });
+        });
       },
-      abort() {
-        out.destroy();
-        release();
-        fs.rm(part, { force: true }, () => {});
-      },
+      abort,
     };
   }
   function offerFile(token, file) {
+    const key = String(token || '');
     return new Promise(resolve =>
       fs.stat(file, (err, st) => {
         if (err || !st.isFile()) return resolve({ error: '这台电脑上也找不到这个文件' });
-        offers.set(String(token), { path: file, expires: Date.now() + 10 * 60 * 1000 });
+        const prev = offers.get(key);
+        if (prev) clearTimeout(prev.timer);
+        const timer = setTimeout(() => {
+          if (offers.get(key)?.timer === timer) offers.delete(key);
+        }, OFFER_TTL_MS);
+        timer.unref?.();
+        offers.set(key, { path: file, expires: Date.now() + OFFER_TTL_MS, timer });
         resolve({ ok: true, size: st.size, name: path.basename(file) });
       }),
     );
@@ -258,6 +322,7 @@ function createCollabNet({
   function serveFile(socket, head) {
     const token = String(head.token || '');
     const o = offers.get(token);
+    if (o) clearTimeout(o.timer);
     offers.delete(token);
     if (!o || o.expires < Date.now())
       return socket.end(JSON.stringify({ ok: false, error: '这次取文件过期了，再取一次' }) + '\n');
@@ -272,29 +337,46 @@ function createCollabNet({
   }
   /* 访客：从主机取文件 */
   function fetchFile({ address, port, token, dir, name }) {
+    const key = String(token || '');
     return new Promise(resolve => {
       const socket = net.connect({ host: String(address), port: Number(port) || servicePort });
       let head = null;
       let buf = Buffer.alloc(0);
       let sink = null;
       let settled = false;
+      const headTimer = setTimeout(() => {
+        if (!head && !settled) {
+          socket.destroy();
+          end({ error: '对方没有响应文件请求' });
+        }
+      }, FILE_HEAD_TIMEOUT_MS);
       const end = r => {
         if (settled) return;
         settled = true;
-        active.delete(token);
+        clearTimeout(headTimer);
+        if (active.get(key) === cancel) active.delete(key);
         resolve(r);
       };
-      active.set(token, () => {
+      const cancel = () => {
         socket.destroy();
         sink?.abort();
         end({ error: '已取消', canceled: true });
-      });
-      socket.on('connect', () => socket.write(JSON.stringify({ type: 'file-get', token }) + '\n'));
+      };
+      active.set(key, cancel);
+      socket.on('connect', () => socket.write(JSON.stringify({ type: 'file-get', token: key }) + '\n'));
       socket.on('data', data => {
+        if (settled) return;
         if (!head) {
           buf = Buffer.concat([buf, data]);
           const i = buf.indexOf(10);
-          if (i < 0) return;
+          if (i < 0) {
+            if (buf.length > FILE_HEAD_MAX) {
+              socket.destroy();
+              end({ error: '对方发来的数据不对' });
+            }
+            return;
+          }
+          clearTimeout(headTimer);
           try {
             head = JSON.parse(buf.subarray(0, i).toString('utf8'));
           } catch {
@@ -304,13 +386,19 @@ function createCollabNet({
             socket.destroy();
             return end({ error: head.error || '对方没给文件' });
           }
+          const size = Number(head.size);
+          if (!Number.isSafeInteger(size) || size < 0) {
+            socket.destroy();
+            return end({ error: '对方发来的数据不对' });
+          }
           try {
-            sink = createSink({ dir, name, size: Number(head.size) || 0, token });
+            sink = createSink({ dir, name, size, token: key });
           } catch (err) {
             socket.destroy();
             return end({ error: `存不下：${err.code || err.message}` });
           }
           data = buf.subarray(i + 1);
+          buf = Buffer.alloc(0);
         }
         if (data.length) sink.write(data, socket);
       });
@@ -324,17 +412,21 @@ function createCollabNet({
   }
   /* 主机：等访客把文件送过来 */
   function expectFile({ token, dir, name }, waitMs = 60000) {
+    const key = String(token || '');
     return new Promise(resolve => {
       const timer = setTimeout(() => {
-        expects.delete(token);
+        expects.delete(key);
+        if (active.get(key) === cancel) active.delete(key);
         resolve({ error: '对方没有把文件发过来' });
       }, waitMs);
-      expects.set(String(token), { dir, name, resolve, timer });
-      active.set(String(token), () => {
+      const cancel = () => {
         clearTimeout(timer);
-        expects.delete(token);
+        expects.delete(key);
+        if (active.get(key) === cancel) active.delete(key);
         resolve({ error: '已取消', canceled: true });
-      });
+      };
+      expects.set(key, { dir, name, resolve, timer });
+      active.set(key, cancel);
     });
   }
   function receivePut(socket, head, rest) {
@@ -343,24 +435,31 @@ function createCollabNet({
     expects.delete(token);
     if (!e) return socket.destroy();
     clearTimeout(e.timer);
+    const size = Number(head.size);
+    if (!Number.isSafeInteger(size) || size < 0) {
+      socket.destroy();
+      active.delete(token);
+      return e.resolve({ error: '对方发来的数据不对' });
+    }
     let sink;
     try {
-      sink = createSink({ dir: e.dir, name: e.name, size: Number(head.size) || 0, token });
+      sink = createSink({ dir: e.dir, name: e.name, size, token });
     } catch (err) {
       socket.destroy();
       active.delete(token);
       return e.resolve({ error: `存不下：${err.code || err.message}` });
     }
-    active.set(token, () => {
+    const cancel = () => {
       socket.destroy();
       sink.abort();
-      active.delete(token);
+      if (active.get(token) === cancel) active.delete(token);
       e.resolve({ error: '已取消', canceled: true });
-    });
+    };
+    active.set(token, cancel);
     let finished = false;
     socket.on('data', chunk => sink.write(chunk, socket));
     socket.on('close', async () => {
-      if (finished || !active.has(token)) return;
+      if (finished || active.get(token) !== cancel) return;
       finished = true;
       active.delete(token);
       e.resolve(await sink.finish());
@@ -370,24 +469,57 @@ function createCollabNet({
   }
   /* 访客：把自己的文件送给主机 */
   function pushFile({ address, port, token, file }) {
-    return new Promise(resolve =>
+    const key = String(token || '');
+    return new Promise(resolve => {
+      let settled = false;
+      let socket = null;
+      let rs = null;
+      const finish = r => {
+        if (settled) return;
+        settled = true;
+        if (key && active.get(key) === cancel) active.delete(key);
+        resolve(r);
+      };
+      const cancel = () => {
+        rs?.destroy();
+        socket?.destroy();
+        finish({ error: '已取消', canceled: true });
+      };
+      if (key) active.set(key, cancel);
       fs.stat(file, (err, st) => {
-        if (err || !st.isFile()) return resolve({ error: '这台电脑上也找不到这个文件' });
-        const socket = net.connect({ host: String(address), port: Number(port) || servicePort });
-        let ok = true;
+        if (settled) return;
+        if (err || !st.isFile()) return finish({ error: '这台电脑上也找不到这个文件' });
+        socket = net.connect({ host: String(address), port: Number(port) || servicePort });
+        let failed = false;
+        let sent = 0;
+        let readEnded = false;
         socket.on('connect', () => {
-          socket.write(JSON.stringify({ type: 'file-put', token, size: st.size }) + '\n');
-          const rs = fs.createReadStream(file);
+          if (settled) return;
+          socket.write(JSON.stringify({ type: 'file-put', token: key, size: st.size }) + '\n');
+          rs = fs.createReadStream(file);
+          rs.on('data', chunk => {
+            sent += chunk.length;
+          });
+          rs.on('end', () => {
+            readEnded = true;
+          });
           rs.on('error', () => {
-            ok = false;
+            failed = true;
             socket.destroy();
           });
           rs.pipe(socket);
         });
-        socket.on('error', () => (ok = false));
-        socket.on('close', () => resolve(ok ? { ok: true } : { error: '传到一半断了' }));
-      }),
-    );
+        socket.on('error', () => {
+          failed = true;
+          rs?.destroy();
+        });
+        socket.on('close', () => {
+          rs?.destroy();
+          const ok = !failed && readEnded && sent === st.size;
+          finish(ok ? { ok: true } : { error: '传到一半断了' });
+        });
+      });
+    });
   }
   function cancelFile(token) {
     const cancel = active.get(String(token));
@@ -409,19 +541,49 @@ function createCollabNet({
     });
   }
   async function startHost(info) {
+    const gen = hostGen;
     announcement = info || announcement;
     if (!server) {
+      let s;
       try {
-        server = await listenOn(servicePort);
+        s = await listenOn(servicePort);
       } catch {
-        server = await listenOn(0); // 端口被占了就随便要一个，广播里会带上
+        s = await listenOn(0); // 端口被占了就随便要一个，广播里会带上
       }
+      if (gen !== hostGen) {
+        try {
+          s.close();
+        } catch {}
+        return { port: 0, addresses: lanAddresses().map(a => a.address) };
+      }
+      server = s;
       serverPort = server.address().port;
     }
     if (!announcer) {
-      announcer = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-      announcer.on('error', err => console.error('协作广播出错', err));
-      await new Promise(resolve => announcer.bind(0, resolve));
+      const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+      const bound = await new Promise(resolve => {
+        const onBindError = err => {
+          console.error('协作广播出错', err);
+          try {
+            sock.close();
+          } catch {}
+          resolve(false);
+        };
+        sock.once('error', onBindError);
+        sock.bind(0, () => {
+          sock.removeListener('error', onBindError);
+          sock.on('error', err => console.error('协作广播出错', err));
+          resolve(true);
+        });
+      });
+      if (!bound) return { port: serverPort, addresses: lanAddresses().map(a => a.address) };
+      if (gen !== hostGen) {
+        try {
+          sock.close();
+        } catch {}
+        return { port: 0, addresses: lanAddresses().map(a => a.address) };
+      }
+      announcer = sock;
       announcer.setBroadcast(true);
     }
     clearInterval(announceTimer);
@@ -440,6 +602,7 @@ function createCollabNet({
     announce();
   }
   function stopHost() {
+    hostGen++;
     clearInterval(announceTimer);
     announceTimer = null;
     const sock = announcer;
@@ -468,8 +631,11 @@ function createCollabNet({
   const hostList = () => [...hosts.values()].map(({ seen: _seen, ...h }) => h);
   function startDiscovery() {
     if (listener) return Promise.resolve(true);
-    listener = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-    listener.on('message', (buf, rinfo) => {
+    const gen = discoveryGen;
+    const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    listener = sock;
+    sock.on('message', (buf, rinfo) => {
+      if (listener !== sock) return;
       let p;
       try {
         p = JSON.parse(buf.toString('utf8'));
@@ -506,15 +672,32 @@ function createCollabNet({
       if (changed) fire({ type: 'hosts', hosts: hostList() });
     }, 2000);
     return new Promise(resolve => {
-      listener.once('error', err => {
+      const onBindError = err => {
         console.error('协作发现出错', err);
-        stopDiscovery();
+        if (listener === sock) stopDiscovery();
+        else {
+          try {
+            sock.close();
+          } catch {}
+        }
         resolve(false);
+      };
+      sock.once('error', onBindError);
+      sock.bind(discoveryPort, () => {
+        sock.removeListener('error', onBindError);
+        if (gen !== discoveryGen || listener !== sock) {
+          try {
+            sock.close();
+          } catch {}
+          return resolve(false);
+        }
+        sock.on('error', err => console.error('协作发现出错', err));
+        resolve(true);
       });
-      listener.bind(discoveryPort, () => resolve(true));
     });
   }
   function stopDiscovery() {
+    discoveryGen++;
     clearInterval(pruneTimer);
     pruneTimer = null;
     try {
@@ -563,6 +746,10 @@ function createCollabNet({
   function dispose() {
     for (const socket of conns.values()) socket.destroy();
     conns.clear();
+    for (const o of offers.values()) clearTimeout(o.timer);
+    offers.clear();
+    for (const e of expects.values()) clearTimeout(e.timer);
+    expects.clear();
     for (const cancel of [...active.values()]) cancel();
     stopHost();
     stopDiscovery();

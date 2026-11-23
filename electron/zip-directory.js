@@ -29,6 +29,19 @@ function zip64Directory(rec) {
   };
 }
 
+function decodeEntryName(buf, utf8Flag) {
+  if (utf8Flag) return buf.toString('utf8');
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    try {
+      return new TextDecoder('gb18030', { fatal: true }).decode(buf);
+    } catch {
+      return buf.toString('utf8');
+    }
+  }
+}
+
 function parseCentralDirectory(cd, count) {
   const out = [];
   let p = 0;
@@ -44,19 +57,34 @@ function parseCentralDirectory(cd, count) {
     const commentLen = cd.readUInt16LE(p + 32);
     const ext = cd.readUInt32LE(p + 38);
     let local = cd.readUInt32LE(p + 42);
-    const name = cd.subarray(p + 46, p + 46 + nameLen).toString('utf8');
+    const nextEntry = p + 46 + nameLen + extraLen + commentLen;
+    if (nextEntry > cd.length) throw new Error('ZIP 目录损坏');
+    const name = decodeEntryName(cd.subarray(p + 46, p + 46 + nameLen), !!(flags & 0x0800));
     let q = p + 46 + nameLen;
     const extraEnd = q + extraLen;
     while (q + 4 <= extraEnd) {
       const id = cd.readUInt16LE(q),
         len = cd.readUInt16LE(q + 2);
+      const fieldEnd = q + 4 + len;
+      if (fieldEnd > extraEnd) throw new Error('ZIP 扩展字段损坏');
       if (id === 0x0001) {
         let r = q + 4;
-        if (usize === MAX32) ((usize = Number(cd.readBigUInt64LE(r))), (r += 8));
-        if (csize === MAX32) ((csize = Number(cd.readBigUInt64LE(r))), (r += 8));
-        if (local === MAX32) local = Number(cd.readBigUInt64LE(r));
+        if (usize === MAX32) {
+          if (r + 8 > fieldEnd) throw new Error('ZIP64 扩展字段损坏');
+          usize = Number(cd.readBigUInt64LE(r));
+          r += 8;
+        }
+        if (csize === MAX32) {
+          if (r + 8 > fieldEnd) throw new Error('ZIP64 扩展字段损坏');
+          csize = Number(cd.readBigUInt64LE(r));
+          r += 8;
+        }
+        if (local === MAX32) {
+          if (r + 8 > fieldEnd) throw new Error('ZIP64 扩展字段损坏');
+          local = Number(cd.readBigUInt64LE(r));
+        }
       }
-      q += 4 + len;
+      q = fieldEnd;
     }
     const mode = (ext >>> 16) & 0o170000;
     out.push({
@@ -70,14 +98,14 @@ function parseCentralDirectory(cd, count) {
       dir: name.endsWith('/') || mode === 0o040000,
       symlink: mode === 0o120000,
     });
-    p += 46 + nameLen + extraLen + commentLen;
+    p = nextEntry;
   }
   return out;
 }
 
 /* 本地文件头之后才是数据：头 30 字节 + 文件名 + 附加字段 */
 const localDataStart = (header, local) => {
-  if (header.readUInt32LE(0) !== 0x04034b50) return -1;
+  if (!header || header.length < 30 || header.readUInt32LE(0) !== 0x04034b50) return -1;
   return local + 30 + header.readUInt16LE(26) + header.readUInt16LE(28);
 };
 

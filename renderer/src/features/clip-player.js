@@ -8,7 +8,9 @@ import { shotMembers } from '../core/shots.js';
 import { cleanBest, forRange, localVideoPath, playableUrl } from '../core/candidate-values.js';
 import { candidateWindow } from '../core/candidate-placement.js';
 import { layoutShot } from '../core/shot-layout.js';
+import { isBilingualProject, resolvePlaybackSub } from '../core/bilingual.js';
 import { esc } from '../ui/base/dom.js';
+import { getCcMode, cycleCcMode, ccModeLabel, ccModeTitle, onCcModeChange } from './cc-pref.js';
 import { voicePlayer } from './voice.js';
 import { releaseMedia } from '../ui/base/media.js';
 
@@ -107,6 +109,11 @@ const fmt = s => {
 export function playerHTML(c) {
   const hasVoice = !!state.voice;
   const w = voWindow(c);
+  const bilingual = isBilingualProject(state);
+  const ccMode = bilingual ? getCcMode() : 'zh';
+  const ccBtn = bilingual
+    ? `<button class="vr-cc-btn${ccMode !== 'off' ? ' on' : ''}" type="button" data-vr-cc title="${esc(ccModeTitle(ccMode))}">${esc(ccModeLabel(ccMode))}</button>`
+    : '';
   return `<div class="vr-stage" hidden>
       <div class="vr-screen">
         <video class="vr-player" playsinline muted preload="none" hidden></video>
@@ -117,6 +124,7 @@ export function playerHTML(c) {
         <button class="vr-pp" data-vr-pp="${c.id}" title="播放 / 暂停（空格）">▶</button>
         <div class="vr-track" data-vr-track="${c.id}"><div class="vr-rail"><div class="vr-fill"></div></div><i class="vr-thumb"></i></div>
         <span class="vr-time">0:00 / ${fmt(w.dur)}</span>
+        ${ccBtn}
         ${
           hasVoice
             ? `<label class="vr-voice" title="同时播放口播音频（按句子时间对齐）"><input type="checkbox" data-vr-voice ${voiceOn() ? 'checked' : ''}> 口播声音</label>`
@@ -178,6 +186,15 @@ function paintTrack(card, _c, w) {
   time.classList.toggle('short', short > 0.5);
 }
 
+function paintCcBtn(card) {
+  const btn = card?.querySelector('[data-vr-cc]');
+  if (!btn) return;
+  const mode = getCcMode();
+  btn.textContent = ccModeLabel(mode);
+  btn.classList.toggle('on', mode !== 'off');
+  btn.title = ccModeTitle(mode);
+}
+
 function paintNow(card, _c, w, v) {
   const t = Math.max(0, Math.min(w.dur, v.currentTime - w.playIn));
   const pct = (t / w.dur) * 100 + '%';
@@ -188,22 +205,72 @@ function paintNow(card, _c, w, v) {
   card.querySelector('.vr-time').textContent =
     `${fmt(t)} / ${fmt(w.dur)}` + (short > 0.5 ? ` · 画面比口播短 ${short.toFixed(0)} 秒` : '');
   const voTime = w.start + t;
-  const r = w.ok && voTime >= w.slotStart - 0.02 && voTime < w.targetEnd ? lineAt(voTime, w.members) : null;
-  card.querySelector('.vr-sub').innerHTML = r ? `<span>${esc(r.text)}</span>` : '';
+  const inRange = w.ok && voTime >= w.slotStart - 0.02 && voTime < w.targetEnd;
+  const r = inRange ? lineAt(voTime, w.members) : null;
+  const subEl = card.querySelector('.vr-sub');
+  if (!isBilingualProject(state)) {
+    subEl.innerHTML = r ? `<span>${esc(r.text)}</span>` : '';
+  } else {
+    if (inRange) {
+      const res = resolvePlaybackSub({
+        row: r,
+        time: voTime,
+        subTiming: state.subTiming,
+        tl: timeline(),
+        displayMode: getCcMode(),
+        bilingual: true,
+      });
+      subEl.innerHTML = res.showOverlay
+        ? `${res.overlayZh ? `<div class="vr-sub-zh"><span>${esc(res.overlayZh)}</span></div>` : ''}${res.overlayEn ? `<div class="vr-sub-en"><span>${esc(res.overlayEn)}</span></div>` : ''}`
+        : '';
+    } else {
+      subEl.innerHTML = '';
+    }
+    paintCcBtn(card);
+  }
   card.querySelector('.vr-pp').textContent = v.paused ? '▶' : '❚❚';
 }
+
+export function cycleClipCc() {
+  return cycleCcMode();
+}
+
+onCcModeChange(() => {
+  if (active) {
+    paintCcBtn(active.card);
+    paintNow(active.card, active.c, active.w, active.v);
+  }
+  if (typeof document !== 'undefined') {
+    document.querySelectorAll('#vrList [data-vr-cc]').forEach(btn => {
+      const mode = getCcMode();
+      btn.textContent = ccModeLabel(mode);
+      btn.classList.toggle('on', mode !== 'off');
+      btn.title = ccModeTitle(mode);
+    });
+  }
+});
 
 /* 视频还没跳到入点（刚开始播、跳转还没完成）时，currentTime 还是 0 附近：
    这时按「句子开头 + (视频位置 - 入点)」算口播位置会倒退几分钟，放出别处的口播。没到入点、还没进目标句、或超过上屏结尾都不放口播 */
 const atClip = (w, v) => v.currentTime >= w.playIn - 0.3 && v.currentTime <= w.playOut + 0.3;
+function playVoiceChecked(session, from, to) {
+  const seq = (session.voiceSeq = (session.voiceSeq || 0) + 1);
+  Promise.resolve(voicePlayer.playRange(from, to)).then(ok => {
+    if (ok === false && active === session && session.voiceSeq === seq && !session.v.paused) session.usingVoice = false;
+  });
+}
 function syncVoice(w, v) {
   if (active?.v !== v || !active.usingVoice) return;
+  if (!voicePlayer.available()) {
+    active.usingVoice = false;
+    return;
+  }
   const want = w.start + Math.max(0, v.currentTime - w.playIn);
   const start = voStartOf(w);
   const end = voEndOf(w);
   if (!atClip(w, v) || want < start || want >= end - 0.03) return voicePlayer.pause();
   if (Math.abs(voicePlayer.currentTime() - want) > 0.35) voicePlayer.seek(want);
-  if (!v.paused && !voicePlayer.isPlaying()) voicePlayer.playRange(want, end);
+  if (!v.paused && !voicePlayer.isPlaying()) playVoiceChecked(active, want, end);
 }
 
 /* 播放这段：一点就加载并从入点开始播（from：从片段里的这个时间开始，审核页点截图时用）；按钮和画面中间会提示「载入中…」 */
@@ -232,7 +299,7 @@ export function playClip(card, c, { onState, onEnd, from = null } = {}) {
     const want = w.start + Math.max(0, v.currentTime - w.playIn);
     const start = voStartOf(w);
     const end = voEndOf(w);
-    if (session.usingVoice && atClip(w, v) && want >= start && want < end - 0.03) voicePlayer.playRange(want, end);
+    if (session.usingVoice && atClip(w, v) && want >= start && want < end - 0.03) playVoiceChecked(session, want, end);
   };
   v.ontimeupdate = () => {
     if (active !== session) return;
@@ -288,11 +355,15 @@ export function playClip(card, c, { onState, onEnd, from = null } = {}) {
         wait.classList.add('err');
         wait.textContent = got?.offline ? '视频在同事电脑上，对方上线后才能播放' : '同事电脑上找不到这段视频文件';
         onState?.(got?.offline ? '等待对方上线' : '播放失败');
+        stopClip();
       });
       return;
     }
-    wait.hidden = true;
+    wait.hidden = false;
+    wait.classList.add('err');
+    wait.textContent = '视频加载失败，请检查网络或文件后重试';
     onState?.('播放失败 · 再试一次');
+    stopClip();
   };
   if (box)
     box.onchange = () => {
@@ -323,6 +394,8 @@ export function playClip(card, c, { onState, onEnd, from = null } = {}) {
     v.ontimeupdate = v.onwaiting = v.onplaying = v.onpause = v.onerror = v.onended = null;
     if (box) box.onchange = null;
   };
+  wait.classList.remove('err');
+  wait.textContent = '载入中…';
   wait.hidden = false;
   onState?.('载入中…');
   if (v.readyState >= 1) go();
@@ -331,26 +404,30 @@ export function playClip(card, c, { onState, onEnd, from = null } = {}) {
 
 /* 自制进度条上的播放 / 暂停与拖动 */
 export function togglePause(card, c) {
-  const v = card.querySelector('.vr-player');
-  if (!v.getAttribute('src') || active?.v !== v) return false;
+  const v = card?.querySelector('.vr-player');
+  if (!v || !v.getAttribute('src') || v.error || active?.v !== v) return false;
   if (v.paused) v.play().catch(() => {});
   else v.pause();
   return true;
 }
 export function seekTrack(card, _c, track, clientX) {
-  const v = card.querySelector('.vr-player');
-  if (active?.v !== v) return;
+  const v = card?.querySelector('.vr-player');
+  if (!v || active?.v !== v) return;
   const { w } = active;
   const rect = track.getBoundingClientRect();
-  const f = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const f = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
   v.currentTime = w.playIn + f * w.dur;
   if (active.usingVoice) {
+    if (!voicePlayer.available()) {
+      active.usingVoice = false;
+      return;
+    }
     const want = w.start + f * w.dur;
     const start = voStartOf(w);
     const end = voEndOf(w);
     if (want >= start && want < end - 0.03) {
       voicePlayer.seek(want);
-      if (!v.paused && !voicePlayer.isPlaying()) voicePlayer.playRange(want, end);
+      if (!v.paused && !voicePlayer.isPlaying()) playVoiceChecked(active, want, end);
     } else {
       voicePlayer.pause();
     }

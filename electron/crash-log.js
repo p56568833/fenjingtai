@@ -72,18 +72,17 @@ function createCrashLog({ dir, version, now = Date.now }) {
       // 同一异常一分钟内只记一次，连续不同异常一分钟最多写十次。
       // 为致命异常额外预留一次写入，错误风暴时也能留下退出线索。
       if (
-        records.some(
-          r =>
-            t - Date.parse(r.time) < WINDOW_MS &&
-            r.kind === entry.kind &&
-            r.message === entry.message &&
-            r.stack === entry.stack,
-        )
+        records.some(r => {
+          const dt = t - Date.parse(r.time);
+          return (
+            dt >= 0 && dt < WINDOW_MS && r.kind === entry.kind && r.message === entry.message && r.stack === entry.stack
+          );
+        })
       ) {
         if (fatal) markFatal();
         return true;
       }
-      writes = writes.filter(at => t - at < WINDOW_MS);
+      writes = writes.filter(at => t - at >= 0 && t - at < WINDOW_MS);
       if (writes.length >= MAX_WRITES + (fatal ? 1 : 0)) return false;
       writes.push(t); // 失败也计入限流，磁盘不可写时不会连续重试。
       const ok = save([...records, entry]);

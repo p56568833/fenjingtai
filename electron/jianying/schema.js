@@ -3,6 +3,7 @@
    这里只保留结构模板：素材路径、素材名、设备指纹、草稿名等一律留空，由 buildDraftInfo 在导出时填入；
    不包含任何用户路径、设备标识或帐号信息。纯数据模块：不读文件、不碰 Electron，ID 与时间由调用方注入。
    字段顺序/名称与实测样本一致，改动前先用真实 11.6 草稿重新验证。 */
+'use strict';
 
 const MATERIAL_ARRAYS = [
   'ai_generate_holders',
@@ -823,8 +824,6 @@ const TEXT_SEGMENT = {
   volume: 1,
 };
 
-('use strict');
-
 /* ── 结构常量与纯数据转换 ── */
 
 const DRAFT_VERSION = 360000;
@@ -1051,7 +1050,7 @@ function buildDraftInfo({ plan, draft, resources, fingerprint, appVersion, osVer
       item = push('audios', AUDIO_MATERIAL, {
         name,
         path: file,
-        duration: Math.max(1, toInt(asset.durationUs) || probedDurationUs || extent),
+        duration: Math.max(1, probedDurationUs || toInt(asset.durationUs) || extent),
         category_name: 'local',
         type: 'extract_music',
       });
@@ -1180,9 +1179,15 @@ function buildDraftInfo({ plan, draft, resources, fingerprint, appVersion, osVer
     type,
   });
   const tracks = [];
-  if (visualSegments.length) tracks.push(makeTrack('video', 0, visualSegments));
-  if (audioSegments.length) tracks.push(makeTrack('audio', 0, audioSegments));
-  if (textSegments.length) tracks.push(makeTrack('text', 1, textSegments));
+  const pushTrack = (type, flag, segments) => {
+    if (!segments.length) return;
+    const renderIdx = tracks.length;
+    for (const seg of segments) seg.track_render_index = renderIdx;
+    tracks.push(makeTrack(type, flag, segments));
+  };
+  pushTrack('video', 0, visualSegments);
+  pushTrack('audio', 0, audioSegments);
+  pushTrack('text', 1, textSegments);
 
   const platform = buildPlatform({ fingerprint, appVersion, osVersion });
   const doc = clone(DRAFT_SKELETON);

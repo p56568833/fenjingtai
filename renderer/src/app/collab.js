@@ -18,6 +18,7 @@ import { clearUndo } from './undo.js';
 import { createCollabFiles } from './collab-files.js';
 
 import { COLLAB_PROTO } from '../core/collab-doc.js';
+import { stripLocalFrag } from '../core/asset-model.js';
 
 import * as native from '../platform/native.js';
 
@@ -31,7 +32,7 @@ const projectOf = storage.projectForId;
 const metaOf = s => storage.collabOf(s.pid);
 const newCode = () => String(crypto.getRandomValues(new Uint32Array(1))[0] % 10000).padStart(4, '0');
 function send(s, msg) {
-  if (!s.conn) return;
+  if (!s.conn || s.closing) return;
   native.collabSend(s.conn, msg).catch(() => {});
 }
 const changed = () => emit('collab-changed');
@@ -125,10 +126,13 @@ export function peerHere() {
 /* ── 会话 ── */
 function endSession(s, { closeConn = true } = {}) {
   if (sessions.get(s.pid) !== s) return;
+  s.closing = true;
+  files.abortSession(s.pid);
   session.close(s);
   if (s.conn) {
     conns.delete(s.conn);
     if (closeConn) native.collabClose(s.conn).catch(() => {});
+    s.conn = null;
   }
   syncHosting();
   discovery.sync();
@@ -151,9 +155,16 @@ export function startSharing() {
 }
 export function stopSharing(pid = state.projectId) {
   const s = sessions.get(pid);
-  if (!s || s.rep.role !== 'host') return false;
-  if (s.conn) send(s, { type: 'bye', reason: 'stopped' });
-  setTimeout(() => endSession(s), s.conn ? 200 : 0);
+  if (!s || s.rep.role !== 'host' || s.closing) return false;
+  const connId = s.conn;
+  s.closing = true;
+  clearTimeout(s.retry);
+  if (connId) {
+    conns.delete(connId);
+    files.abortSession(s.pid);
+    native.collabSend(connId, { type: 'bye', reason: 'stopped' }).catch(() => {});
+  }
+  setTimeout(() => endSession(s), connId ? 200 : 0);
   return true;
 }
 export function newPairingCode(pid = state.projectId) {
@@ -197,13 +208,49 @@ async function syncHosting() {
 const isLocalFile = p => typeof p === 'string' && p.startsWith('/');
 function mapLocalPath(s, from, to) {
   const c = metaOf(s);
-  if (!c || !isLocalFile(from) || !to || from === to) return;
+  const cleanFrom = stripLocalFrag(from);
+  const cleanTo = stripLocalFrag(to);
+  if (!c || !isLocalFile(cleanFrom) || !cleanTo || cleanFrom === cleanTo) return;
   c.pathMap ||= {};
-  const shared = Object.entries(c.pathMap).find(([, local]) => local === from)?.[0] || from;
-  if (shared === to) delete c.pathMap[shared];
-  else c.pathMap[shared] = to;
+  const hit = Object.entries(c.pathMap).find(([, local]) => stripLocalFrag(local) === cleanFrom);
+  const shared = hit ? stripLocalFrag(hit[0]) : cleanFrom;
+  for (const k of Object.keys(c.pathMap)) {
+    if (stripLocalFrag(k) === shared && k !== shared) delete c.pathMap[k];
+  }
+  if (shared === cleanTo) delete c.pathMap[shared];
+  else c.pathMap[shared] = cleanTo;
   s.rep.pathMap = c.pathMap;
   saveMeta(s);
+}
+/* 撤销重新定位或路径还原后，把不再被引用的失效本机路径映射清理掉 */
+function prunePathMap(s) {
+  const c = metaOf(s);
+  const project = projectOf(s.pid);
+  if (!c?.pathMap || !project) return;
+  const livePaths = new Set();
+  for (const a of Object.values(project.assets || {})) {
+    const p = stripLocalFrag(a?.path);
+    if (isLocalFile(p)) livePaths.add(p);
+  }
+  const vp = stripLocalFrag(project.voice?.path);
+  if (isLocalFile(vp)) livePaths.add(vp);
+  for (const cand of project.candidates || []) {
+    const pp = stripLocalFrag(cand?.peerPath);
+    if (isLocalFile(pp)) livePaths.add(pp);
+  }
+  let dirty = false;
+  for (const [shared, local] of Object.entries(c.pathMap)) {
+    const cleanShared = stripLocalFrag(shared);
+    const cleanLocal = stripLocalFrag(local);
+    if (!cleanLocal || cleanShared === cleanLocal || !livePaths.has(cleanLocal)) {
+      delete c.pathMap[shared];
+      dirty = true;
+    }
+  }
+  if (dirty) {
+    s.rep.pathMap = c.pathMap;
+    saveMeta(s);
+  }
 }
 
 /* ── 对方停在哪句 ── */
@@ -240,6 +287,8 @@ function resetSessions() {
   connection.reset();
   clearUndo(); // 整库已被替换，旧项目内容对应的历史不再适用。
   for (const s of sessions.values()) {
+    s.closing = true;
+    files.abortSession(s.pid);
     clearTimeout(s.timer);
     clearTimeout(s.retry);
     if (s.conn) native.collabClose(s.conn).catch(() => {});
@@ -278,15 +327,26 @@ export async function initCollab() {
   session.bindSnapshotHooks();
   on('project-removed', ({ id, collab }) => {
     const s = sessions.get(id);
-    if (!s) return;
-    if (s.conn) send(s, { type: 'bye', reason: collab?.role === 'host' ? 'deleted' : 'left' });
-    setTimeout(() => endSession(s), s.conn ? 200 : 0);
+    if (!s || s.closing) return;
+    const connId = s.conn;
+    s.closing = true;
+    clearTimeout(s.retry);
+    if (connId) {
+      conns.delete(connId);
+      files.abortSession(s.pid);
+      native.collabSend(connId, { type: 'bye', reason: collab?.role === 'host' ? 'deleted' : 'left' }).catch(() => {});
+    }
+    setTimeout(() => endSession(s), connId ? 200 : 0);
   });
   // 重新定位失联文件只算这台电脑的事：对方那边的路径不跟着改（各自电脑上的文件位置不一样）
   on('asset-relocated', ({ moves }) => {
     const s = sessions.get(state.projectId);
     if (!s) return;
     for (const [from, to] of moves || []) mapLocalPath(s, from, to);
+  });
+  on('history', () => {
+    const s = sessions.get(state.projectId);
+    if (s) prunePathMap(s);
   });
   on('cursor', () => sendPresence());
   on('project-loaded', () => {

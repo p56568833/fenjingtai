@@ -27,7 +27,7 @@ export function previewItem(u, t, tl) {
   const item = itemAt(layout, rel);
   if (item) return item;
   const prev = layout.items.findLast(it => it.end <= rel + 1e-6);
-  const last = layout.items.at(-1);
+  const last = layout.items.findLast(it => it.start < layout.dur - 1e-6);
   // 手动时间精确到 0.1 秒，字幕精确到毫秒：镜头末尾的舍入误差也延续末帧。
   if (last && last.start <= rel + 1e-6 && rel >= layout.dur - 0.05 && last.end >= layout.dur - 0.05) return last;
   if (layout.timed || !prev) return null;

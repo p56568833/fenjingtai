@@ -265,8 +265,17 @@ function detect(deps = {}) {
   const index = rootOk ? readIndexState({ fs, path, draftRoot }) : { ok: false, error: '草稿库不可用' };
   if (rootOk && !index.ok) issues.push({ level: 'info', code: 'index-unusable', message: index.error });
 
-  /* 没注入 run 时走 isRunning 的生产实现：检测失败抛错而不是静默当作没运行 */
-  const running = rootOk ? (deps.run ? isRunning({ run }) : isRunning()) : false;
+  /* 没注入 run 时走 isRunning 的生产实现：检测失败按「无法确认」降级为 running=true，不拖垮整次探测 */
+  let running = false;
+  let runningUnknown = false;
+  if (rootOk) {
+    try {
+      running = deps.run ? isRunning({ run }) : isRunning();
+    } catch {
+      running = true;
+      runningUnknown = true;
+    }
+  }
   const osVersion = osProductVersion(run);
   const fingerprint = probeFingerprint({ fs, path, draftRoot, appVersion: version, osVersion });
   if (!fingerprint.ok)
@@ -282,6 +291,7 @@ function detect(deps = {}) {
     version,
     draftRoot,
     running,
+    ...(runningUnknown ? { runningUnknown: true } : {}),
     canRegister: !!app && supported && rootOk && index.ok,
     fingerprint,
     supported,

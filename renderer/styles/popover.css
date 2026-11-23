@@ -3,8 +3,10 @@
   position: fixed;
   z-index: 100;
   min-width: 236px;
+  max-width: min(360px, calc(100vw - 24px));
   max-height: 70vh;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--card);
   border: 1px solid var(--hairline-2);
   border-radius: 12px;
@@ -28,6 +30,7 @@ body.dark .popover {
   padding: 8px 12px 5px;
   font-weight: 700;
   letter-spacing: 1.2px;
+  overflow-wrap: anywhere;
 }
 .pop-item {
   display: flex;
@@ -97,6 +100,11 @@ body.dark .pop-item:hover {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pop-item > span:not(.k):not(.pdot):not(.chk):not(.sub) {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .pop-item .desc {
   display: block;
@@ -104,6 +112,7 @@ body.dark .pop-item:hover {
   color: var(--text-3);
   font-weight: 400;
   margin-top: 2px;
+  overflow-wrap: anywhere;
 }
 .pop-item .sub {
   font-size: 10.5px;
@@ -228,6 +237,7 @@ body.dark .chip-filter.pop-open {
 /* 导出菜单：固定阅读宽度，项目名再长也不撑开。 */
 .popover.export-menu {
   width: min(390px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   min-width: 0;
 }
 .export-menu .p-title {

@@ -261,15 +261,20 @@ async function scanFrameTimes({ runCapture, ffprobe, file, fromUs, toUs, startUs
   const from = Math.max(0, Math.round(fromUs) || 0);
   const to = Math.max(from, Math.round(toUs) || 0);
   if (to <= from) return [];
-  const rawFrom = Math.max(0, from + Math.round(startUs));
-  const rawTo = Math.max(rawFrom + 1, to + Math.round(startUs));
+  const offsetUs = Math.round(startUs);
+  const rawFrom = from + offsetUs;
+  const rawTo = Math.max(rawFrom + 1, to + offsetUs);
+  const interval =
+    rawFrom < 0
+      ? `%${(Math.max(0, rawTo) / 1e6).toFixed(6)}`
+      : `${(rawFrom / 1e6).toFixed(6)}%${(rawTo / 1e6).toFixed(6)}`;
   const args = [
     '-v',
     'error',
     '-select_streams',
     'v:0',
     '-read_intervals',
-    `${(rawFrom / 1e6).toFixed(6)}%${(rawTo / 1e6).toFixed(6)}`,
+    interval,
     '-show_entries',
     'frame=best_effort_timestamp_time',
     '-of',

@@ -15,7 +15,8 @@ const cellsFor = c => (Math.max(0, c.out - c.in) <= 4 ? 3 : 6);
 /* n：截几张，不写就按片段长短；待返工页否掉的候选只要 1 张当封面 */
 export const stripHTML = (c, n = cellsFor(previewOf(c))) =>
   `<div class="vr-strip" data-n="${n}">${'<div class="vr-cell ld">载入中…</div>'.repeat(n)}</div>`;
-const stripOf = job => (job.host.isConnected ? job.host.querySelector(`[data-vr-id="${job.c.id}"] .vr-strip`) : null);
+const stripOf = job =>
+  job.host.isConnected ? job.host.querySelector(`[data-vr-id="${CSS.escape(String(job.c.id))}"] .vr-strip`) : null;
 /* 渲染后把截图放进卡片：截过的直接放，没截的排队去截 */
 const clearFresh = cv => {
   if (cv?.classList.contains('fresh')) cv.classList.remove('fresh');
@@ -46,7 +47,7 @@ function syncStrip(strip, cells, total, done, { animateNew = false } = {}) {
 }
 export function paintStrips(host, cands) {
   for (const c of cands) {
-    const strip = host.querySelector(`[data-vr-id="${c.id}"] .vr-strip`);
+    const strip = host.querySelector(`[data-vr-id="${CSS.escape(String(c.id))}"] .vr-strip`);
     if (!strip) continue;
     const n = +strip.dataset.n || cellsFor(previewOf(c));
     const cached = getCached(c, n);
@@ -61,7 +62,7 @@ const contentSig = (c, n) => {
 const sourceSig = (c, n) => JSON.stringify([contentSig(c, n), c.savedPath || '', c.peerPath || '']);
 const getCached = (c, n) => {
   const cached = frames.get(c.id);
-  if (!cached || cached.contentSig !== contentSig(c, n)) return null;
+  if (!cached || cached.aborted || cached.signal?.aborted || cached.contentSig !== contentSig(c, n)) return null;
   return cached.done || cached.sourceSig === sourceSig(c, n) ? cached : null;
 };
 export function forgetFrames(ids) {
@@ -76,7 +77,15 @@ export function clearReviewFrames() {
 }
 export function retainFrames(candidates) {
   const ids = new Set(candidates.map(c => c.id));
-  for (const [id, controller] of active) if (!ids.has(id)) controller.abort();
+  for (const [id, controller] of active) {
+    if (ids.has(id)) continue;
+    controller.abort();
+    const cached = frames.get(id);
+    if (cached && !cached.done) {
+      cached.aborted = true;
+      frames.delete(id);
+    }
+  }
   for (let i = queue.length - 1; i >= 0; i--) if (!ids.has(queue[i].c.id)) queue.splice(i, 1);
 }
 /* 审核页自己最多排两个截图任务（还要和全应用共用 withDecodeSlot 的名额）；任务绑定项目和素材内容，换项目 / 更新候选就取消旧结果。 */
@@ -106,7 +115,7 @@ async function grab(job, signal) {
   const orig = job.c;
   let c = previewOf(orig); // 截图和播放一样，只截真正要用的那几秒
   const cells = [];
-  const cached = { contentSig: job.contentSig, sourceSig: job.sourceSig, cells, done: false };
+  const cached = { contentSig: job.contentSig, sourceSig: job.sourceSig, cells, done: false, signal, aborted: false };
   const valid = () =>
     !signal.aborted &&
     state.projectId === job.projectId &&

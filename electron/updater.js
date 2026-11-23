@@ -323,11 +323,13 @@ const SWAP_SCRIPT = `#!/bin/bash
 PID="$1"; NEW="$2"; TARGET="$3"; STAGE="$4"
 OLD="$(dirname "$TARGET")/.分镜台-替换下来-$$.app"
 for i in $(seq 1 600); do kill -0 "$PID" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$PID" 2>/dev/null; then rm -f "$0"; exit 1; fi
 if mv "$TARGET" "$OLD"; then
   if mv "$NEW" "$TARGET"; then rm -rf "$OLD"; else mv "$OLD" "$TARGET"; fi
 fi
 rm -rf "$STAGE"
 open "$TARGET"
+rm -f "$0"
 `;
 function scheduleSwap({ pid, newApp, target, stage, tmpDir, spawnImpl = spawn }) {
   const script = path.join(tmpDir, `分镜台更新-${Date.now()}.sh`);

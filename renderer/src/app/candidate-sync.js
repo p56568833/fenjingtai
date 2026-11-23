@@ -79,11 +79,15 @@ function runWrites() {
 export function writeBack(project) {
   queueWrites(project);
   clearTimeout(writeTimer);
-  writeTimer = setTimeout(runWrites, 500);
+  writeTimer = setTimeout(() => {
+    writeTimer = null;
+    runWrites();
+  }, 500);
 }
 /* 立即写完（返回每个文件是否写成功） */
 export const flushWriteBack = project => {
   clearTimeout(writeTimer);
+  writeTimer = null;
   queueWrites(project);
   return runWrites();
 };
@@ -99,3 +103,14 @@ export function syncedFiles(project) {
 on('history', () => {
   if (state.candidates.length) writeBack();
 });
+on('project-committed', change => {
+  if (change?.projectId === state.projectId && change.assets && state.candidates.length) writeBack();
+});
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('beforeunload', () => {
+    if (!writeTimer && !pendingWrites.size) return;
+    clearTimeout(writeTimer);
+    writeTimer = null;
+    if (pendingWrites.size) runWrites().catch(() => {});
+  });
+}

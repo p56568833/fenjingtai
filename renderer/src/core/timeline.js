@@ -11,7 +11,8 @@ const validTime = t => t && Number.isFinite(t.start) && Number.isFinite(t.end) &
 /* lines：按稿子顺序的句子；返回 { times: Map(id → {start,end,src,st?}), total, source, rate } */
 export function buildTimeline(lines, { voiceDuration = null, speechRate = 4.5 } = {}) {
   const times = new Map();
-  const rate = speechRate > 0 ? speechRate : 4.5;
+  const rate = Number.isFinite(speechRate) && speechRate > 0 ? speechRate : 4.5;
+  const vDur = Number.isFinite(voiceDuration) && voiceDuration > 0 ? voiceDuration : 0;
   const timed = lines.some(r => validTime(r.time));
 
   if (timed) {
@@ -21,7 +22,7 @@ export function buildTimeline(lines, { voiceDuration = null, speechRate = 4.5 } 
         times.set(r.id, { start: r.time.start, end: r.time.end, src: 'srt', st: r.time.st || 'ok' });
         continue;
       }
-      // 一段连续没时间的句子：夹在前后两个已知时间之间按字数分摊；空档不够就按语速往后排
+      // 一段连续没时间的句子：夹在前后两个已知时间之间按字数分摊（不超过下一句已知 start，保持单调）
       let j = i;
       while (j < lines.length && !validTime(lines[j].time)) j++;
       const prev = i > 0 ? times.get(lines[i - 1].id) : null;
@@ -30,9 +31,9 @@ export function buildTimeline(lines, { voiceDuration = null, speechRate = 4.5 } 
       const units = run.map(weight);
       const sum = units.reduce((a, b) => a + b, 0);
       const next = j < lines.length ? lines[j].time.start : null;
-      const room = next != null ? next - from : null;
-      const span = room != null && room > sum / rate / 3 ? room : sum / rate;
-      let cur = from;
+      const start = next != null ? Math.min(from, next) : from;
+      const span = next != null ? Math.max(0, next - start) : sum / rate;
+      let cur = start;
       run.forEach((x, k) => {
         const len = (span * units[k]) / sum;
         times.set(x.id, { start: cur, end: cur + len, src: 'gap' });
@@ -40,21 +41,22 @@ export function buildTimeline(lines, { voiceDuration = null, speechRate = 4.5 } 
       });
       i = j - 1;
     }
-    const last = lines.length ? times.get(lines[lines.length - 1].id) : null;
-    const total = Math.max(voiceDuration || 0, last ? last.end : 0);
+    let maxEnd = 0;
+    for (const t of times.values()) if (Number.isFinite(t.end) && t.end > maxEnd) maxEnd = t.end;
+    const total = Math.max(vDur, maxEnd);
     return { times, total, source: 'srt', rate };
   }
 
   const units = lines.map(weight);
   const sum = units.reduce((a, b) => a + b, 0);
-  if (voiceDuration > 0 && sum > 0) {
+  if (vDur > 0 && sum > 0) {
     let cur = 0;
     lines.forEach((r, i) => {
-      const len = (voiceDuration * units[i]) / sum;
+      const len = (vDur * units[i]) / sum;
       times.set(r.id, { start: cur, end: cur + len, src: 'fit' });
       cur += len;
     });
-    return { times, total: voiceDuration, source: 'fit', rate: sum / voiceDuration };
+    return { times, total: vDur, source: 'fit', rate: sum / vDur };
   }
 
   let cur = 0;

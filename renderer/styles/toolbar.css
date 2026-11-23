@@ -303,3 +303,21 @@ body.drop-voice .stats::after {
 .work-tools .chip-filter:hover {
   transform: none;
 }
+/* 英配中字模式：工具栏「中字」显示开关 + 项目列表标识 */
+.sub-toggle-btn[hidden] {
+  display: none;
+}
+.chip-filter.chip-tool.sub-toggle-btn.active {
+  background: var(--filter-active-bg);
+  border-color: var(--filter-active-bd);
+  color: var(--filter-active-tx);
+  box-shadow: inset 0 1px 2px rgba(43, 95, 199, 0.08);
+}
+.chip-filter.chip-tool.sub-toggle-btn.active:hover {
+  border-color: var(--filter-active-bd);
+  color: var(--filter-active-tx);
+}
+.proj-bilingual {
+  color: var(--accent);
+  font-weight: 600;
+}

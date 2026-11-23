@@ -2,6 +2,7 @@
    纯数据规则都在 core/asset-model.js；这里只负责快照、落盘、广播。 */
 import { changeProject } from './project-change.js';
 import { state } from './state.js';
+import { projectForId } from './storage.js';
 import { timeline } from './project-queries.js';
 import { shotMembers, applyRole, applySpan, isRole, sortMainsBySentence } from '../core/shots.js';
 import { round1, linesOfTime } from '../core/shot-layout.js';
@@ -60,10 +61,12 @@ export function removeUsage(row, index) {
 export function setUsageClip(row, index, clip) {
   const usages = usageList(row);
   if (index < 0 || index >= usages.length) return false;
-  return changeProject(clip ? '设置视频片段' : '清除视频片段', change => {
+  const assetId = usages[index]?.assetId;
+  if (!assetId) return false;
+  return changeProject(clip ? '设置视频片段' : '清除视频片段', () => {
     eachMember(row, m => {
-      m.assetUsages = usageList(m).map((u, i) => {
-        if (i !== index) return { ...u };
+      m.assetUsages = usageList(m).map(u => {
+        if (u.assetId !== assetId) return cloneUsage(u);
         const next = { assetId: u.assetId, ...extraOf(u) };
         if (clip) next.clip = { ...clip };
         return next;
@@ -225,12 +228,22 @@ export function clearShotTimes(row) {
 }
 
 /* 记下素材的真实时长（只是信息缓存，不进撤销） */
-export function rememberDuration(asset, seconds) {
+export function rememberDuration(asset, seconds, { projectId = state.projectId, expectedPath = asset?.path } = {}) {
+  if (!asset?.id || !expectedPath || !Number.isFinite(seconds) || seconds <= 0) return;
+  const target = projectForId(projectId);
+  const cur = target?.assets?.[asset.id];
+  if (!cur || cur.path !== expectedPath) return;
   // 导入时探测的时长和播放器读到的常差几十毫秒：差不到一帧不再改项目，免得每次播放都重排画面
-  if (!asset || !isFinite(seconds) || Math.abs(asset.durationSec - seconds) < 0.05) return;
-  changeProject(null, () => {
-    asset.durationSec = seconds;
-  });
+  if (Number.isFinite(cur.durationSec) && Math.abs(cur.durationSec - seconds) < 0.05) return;
+  changeProject(
+    null,
+    (_change, project) => {
+      const live = project.assets?.[asset.id];
+      if (!live || live.path !== expectedPath) return false;
+      live.durationSec = seconds;
+    },
+    { projectId },
+  );
 }
 
 /* 重新定位失联文件：改的是素材库条目，项目内所有引用一起修好 */
@@ -273,9 +286,15 @@ export function relinkByNames(missingIds, candidates) {
   return changeProject('批量重新定位素材', change => {
     const moves = [];
     for (const { id, path } of plan) {
-      moves.push([state.assets[id].path, path]);
-      state.assets[id].path = path;
-      state.assets[id].name = assetName(path);
+      const asset = state.assets[id];
+      const nextPath = String(path).trim();
+      moves.push([asset.path, nextPath]);
+      asset.path = nextPath;
+      asset.name = assetName(nextPath);
+      const kind = kindOf(nextPath);
+      if (kind) asset.kind = kind;
+      delete asset.durationSec;
+      clipAdjustPlan(state.rows, id, null);
     }
     change.emit('asset-relocated', { moves });
 
@@ -291,13 +310,14 @@ export const invalidateProbe = () => {
   probeCache = new Map();
 };
 export async function probePaths(paths) {
-  const need = [...new Set(paths.filter(p => p && !LINK_RE.test(p) && !probeCache.has(p)))];
+  const cache = probeCache;
+  const need = [...new Set(paths.filter(p => p && !LINK_RE.test(p) && !cache.has(p)))];
   if (need.length) {
     const res = await native.probeAssets(need);
-    for (const [p, info] of Object.entries(res || {})) probeCache.set(p, info);
+    for (const [p, info] of Object.entries(res || {})) cache.set(p, info);
   }
   const out = {};
-  for (const p of paths) out[p] = probeCache.get(p) || null;
+  for (const p of paths) out[p] = cache.get(p) || null;
   return out;
 }
 export const isMissing = info => info === false || (info && info.exists === false);

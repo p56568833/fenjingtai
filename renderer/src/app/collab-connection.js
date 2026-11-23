@@ -49,6 +49,7 @@ export function createCollabConnection({
         if (s.attempts >= 5) {
           c.code = newCode();
           s.attempts = 0;
+          saveMeta(s);
           notify('配对码输错太多次，已经换了一个新的', null, 'warn');
           changed();
         }
@@ -63,6 +64,7 @@ export function createCollabConnection({
       // 同一个人重连：旧连接悄悄关掉；换了人：告诉原来那位
       if (!sameGuest) send(s, { type: 'bye', reason: 'replaced' });
       conns.delete(s.conn);
+      files.abortSession(s.pid);
       native.collabClose(s.conn).catch(() => {});
     }
     c.guest.name = String(msg.name || c.guest.name || '同事').slice(0, 40);
@@ -84,11 +86,18 @@ export function createCollabConnection({
   async function joinShare(host, share, code) {
     const existing = storage.allProjects().find(p => p.collab?.id === share.id && p.collab.role === 'guest');
     const s = existing && sessions.get(existing.id);
-    if (s?.conn) {
+    if (s?.conn && s.status === 'online') {
       storage.switchProject(existing.id);
       clearUndo();
       update('rows');
       return { ok: true, projectId: existing.id };
+    }
+    if (s?.conn) {
+      const oldConn = s.conn;
+      conns.delete(oldConn);
+      s.conn = null;
+      files.abortSession(s.pid);
+      native.collabClose(oldConn).catch(() => {});
     }
     const r = await native
       .collabConnect({ address: host.address, port: host.port })
@@ -164,9 +173,16 @@ export function createCollabConnection({
   }
   function leaveShare(pid = state.projectId) {
     const s = sessions.get(pid);
-    if (!s || s.rep.role !== 'guest') return false;
-    if (s.conn) send(s, { type: 'bye', reason: 'left' });
-    setTimeout(() => endSession(s), s.conn ? 200 : 0);
+    if (!s || s.rep.role !== 'guest' || s.closing) return false;
+    const connId = s.conn;
+    s.closing = true;
+    clearTimeout(s.retry);
+    if (connId) {
+      conns.delete(connId);
+      files.abortSession(s.pid);
+      native.collabSend(connId, { type: 'bye', reason: 'left' }).catch(() => {});
+    }
+    setTimeout(() => endSession(s), connId ? 200 : 0);
     return true;
   }
   /* 钥匙失效（主机那边有人重新配对过）：输新的配对码重连 */
@@ -189,7 +205,14 @@ export function createCollabConnection({
     discovery.sync();
   }
   async function reconnect(s) {
-    if (sessions.get(s.pid) !== s || s.conn || s.connecting || s.rep.role !== 'guest' || s.status === 'needs-code')
+    if (
+      sessions.get(s.pid) !== s ||
+      s.closing ||
+      s.conn ||
+      s.connecting ||
+      s.rep.role !== 'guest' ||
+      s.status === 'needs-code'
+    )
       return;
     const c = metaOf(s);
     if (!c) return;
@@ -199,7 +222,7 @@ export function createCollabConnection({
     s.connecting = true;
     const r = await native.collabConnect({ address: target.address, port: target.port }).catch(() => ({ error: 'x' }));
     s.connecting = false;
-    if (sessions.get(s.pid) !== s || s.conn) {
+    if (sessions.get(s.pid) !== s || s.closing || s.conn) {
       // 等连接的这会儿项目退出了协作，或者已经用配对码重新连上了
       if (r?.id) native.collabClose(r.id).catch(() => {});
       return;
@@ -216,6 +239,7 @@ export function createCollabConnection({
     conns.delete(s.conn);
     native.collabClose(s.conn).catch(() => {});
     s.conn = null;
+    files.abortSession(s.pid);
     const title = projectOf(s.pid)?.title || '这个项目';
     if (msg.reason === 'stopped') {
       notify(`主机已停止共享「${title}」，它现在是你的普通项目，内容都在`, null, 'info');
@@ -235,12 +259,15 @@ export function createCollabConnection({
     const title = projectOf(s.pid)?.title || '这个项目';
     const who = s.peer || '对方';
     if (s.rep.role === 'host') {
+      const oldConn = s.conn;
       const c = metaOf(s);
       if (msg.reason === 'left' && c) {
         c.guest = null;
         c.secret = '';
+        saveMeta(s);
       }
       dropConn(s);
+      if (oldConn) native.collabClose(oldConn).catch(() => {});
       notify(`${who} 退出了协作`, null, 'info');
       return;
     }
@@ -251,6 +278,7 @@ export function createCollabConnection({
           ? `${who} 删除了共享的项目。「${title}」现在是你的普通项目，内容都在`
           : `${who} 停止了共享。「${title}」现在是你的普通项目，内容都在`;
     notify(text, null, 'info');
+    s.closing = true;
     endSession(s);
   }
   /* 连接断了（不是主动退出） */
@@ -258,6 +286,7 @@ export function createCollabConnection({
     if (s.conn) conns.delete(s.conn);
     s.conn = null;
     s.peerSel = null;
+    files.abortSession(s.pid);
     session.offline(s);
     if (s.rep.role === 'host') {
       transitionSession(s, 'waiting');
@@ -292,7 +321,7 @@ export function createCollabConnection({
         j.resolve({ error: '连接断开了，稍后再试' });
       }
       const s = conns.get(evt.id);
-      if (s && s.conn === evt.id) {
+      if (s && s.conn === evt.id && !s.closing) {
         const was = s.status === 'online';
         dropConn(s);
         if (was)

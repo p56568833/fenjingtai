@@ -71,10 +71,10 @@ function menuKey(e) {
     e.preventDefault();
     e.stopImmediatePropagation();
     items[i].click();
-  } else if (e.key === 'Escape' && popEl.contains(document.activeElement)) {
+  } else if (e.key === 'Escape' && !popEl.classList.contains('pop-leaving')) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    closePop({ restoreFocus: true });
+    closePop({ restoreFocus: popEl.contains(document.activeElement) || !!popEl._kbd });
   }
 }
 

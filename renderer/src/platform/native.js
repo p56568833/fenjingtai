@@ -21,6 +21,7 @@ export const isNative = () => !!window.native;
 /* 数据 */
 export const loadData = () => n().loadData();
 export const dataStatus = () => n().dataStatus?.() || null;
+export const retryPreserve = call('retryPreserve');
 export const saveData = patch => n().saveData(patch);
 export const saveDataSync = patch => n().saveDataSync(patch);
 export const listBackups = () => n().listBackups();

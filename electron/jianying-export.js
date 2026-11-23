@@ -322,11 +322,14 @@ async function runJianyingExport(request, hooks = {}, deps = {}) {
     if (firstVisual && mediaAvailable && typeof media.cover === 'function') {
       try {
         const visual = firstVisual.asset;
+        const sourceStart = Math.max(0, Number(firstVisual.item.sourceStartUs) || 0);
+        const sourceDur = Math.max(0, Number(firstVisual.item.sourceDurationUs) || 0);
+        const offset = sourceDur > 0 ? Math.min(100000, Math.floor(sourceDur / 2)) : 0;
         await media.cover({
           sourcePath: visual.derived
             ? resourceSibling(stagingResources, resourceFiles.get(firstVisual.item.assetId))
             : visual.path,
-          atUs: visual.derived ? 0 : (Number(firstVisual.item.sourceStartUs) || 0) + 100000,
+          atUs: visual.derived ? 0 : sourceStart + offset,
           isImage: visual.derived || visual.kind === 'image' || visual.type === 'freeze',
           outPath: coverPath,
           signal,

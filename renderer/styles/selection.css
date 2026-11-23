@@ -159,8 +159,13 @@ body.dark .sel-hint {
   }
 }
 .row.selected.sel-arriving,
+.row.selected.sel-arriving:hover,
 .shared-scene-lines > .row.selected.sel-arriving,
-.shared-scene.picked .shared-scene-lines > .row.selected.sel-arriving {
+.shared-scene.picked .shared-scene-lines > .row.selected.sel-arriving,
+body.dark .row.selected.sel-arriving,
+body.dark .row.selected.sel-arriving:hover,
+body.dark .shared-scene-lines > .row.selected.sel-arriving,
+body.dark .shared-scene.picked .shared-scene-lines > .row.selected.sel-arriving {
   background: transparent;
   box-shadow: none;
   transition: none;

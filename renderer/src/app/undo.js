@@ -5,7 +5,7 @@ import { viewState } from './view-state.js';
    快照里带上当时选中的句子，撤销 / 重做后光标回到改动发生的地方。
    这里只管数据；界面（标题、滚动到改动处）订阅 'history' 事件自己刷。 */
 import { state } from './state.js';
-import { notify } from './events.js';
+import { notify, on } from './events.js';
 import { persist } from './storage.js';
 import { projectData, applyProjectData } from '../core/project-data.js';
 import { assetName } from '../core/asset-model.js';
@@ -50,7 +50,12 @@ export function snapshot(label) {
 /* 上一步快照之后数据其实没变（插入空句又没写就走了）：把那一步扔掉，⌘Z 不会「撤销」一个看不见的改动 */
 export function discardIfUnchanged() {
   const top = stack[stack.length - 1];
-  if (top && top.projectId === state.projectId && captureSnapshot(top.label).data === top.data) stack.pop();
+  if (!top || top.projectId !== state.projectId) return;
+  try {
+    if (projectDelta(JSON.parse(top.data), projectData(state, 'history')).fields.length === 0) stack.pop();
+  } catch {
+    if (captureSnapshot(top.label).data === top.data) stack.pop();
+  }
 }
 export const clearUndo = () => {
   stack.length = 0;
@@ -180,3 +185,6 @@ export function redo() {
   restore(r, data);
   notify(`已重做：${r.label}`, null, 'info');
 }
+
+/* 切项目 / 恢复备份后自动清栈，避免残留旧项目的撤销历史 */
+on('project-loaded', clearUndo);

@@ -2475,3 +2475,142 @@ body.dark .vr-rw-blank {
 .vr-rw-sent .vr-link {
   font-size: 12px;
 }
+
+/* ═════════ 英配中字模式：审核监视器 / 片段播放器 / 待返工双语字幕 ═════════ */
+.pt-box.docked .pt-stage-wrap {
+  flex: 1 1 0;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+}
+.vr-desk .pt-box.docked .pt-stage-wrap {
+  flex: 1 1 0;
+  min-height: 120px;
+}
+.pt-box.docked .pt-stage-wrap > .pt-stage {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
+.pt-box.docked .pt-cc {
+  bottom: 12px;
+}
+.pt-box.docked .pt-stage-wrap:has(.pt-stage:is(.pt-short, .pt-freeze, .pt-fitdone)) .pt-cc {
+  bottom: 42px;
+}
+.pt-box.docked .pt-cc-inner {
+  padding: 5px 12px;
+}
+.pt-box.docked .pt-cc-zh {
+  font-size: clamp(14px, 1.55vw, 19px);
+}
+.pt-box.docked .pt-cc-en {
+  font-size: clamp(11.5px, 1.15vw, 13.5px);
+}
+.vr-desk .vr-timeline .pt-controls .btn.pt-cc-btn {
+  width: auto;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.vr-desk .vr-timeline .pt-controls .btn.pt-cc-btn.on {
+  background: color-mix(in srgb, var(--accent) 28%, rgba(255, 255, 255, 0.08));
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: #fff;
+}
+.vr-desk .vr-timeline .pt-controls .btn.pt-cc-btn.on:hover {
+  background: color-mix(in srgb, var(--accent) 36%, rgba(255, 255, 255, 0.12));
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+body:not(.dark) .pt-box.docked .pt-controls .btn.pt-cc-btn.on {
+  background: var(--filter-active-bg);
+  border-color: var(--filter-active-bd);
+  color: var(--filter-active-tx);
+}
+/* 候选片段播放器双语叠字与字幕模式按钮 */
+.vr-sub-zh {
+  display: block;
+}
+.vr-sub-zh span {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.48;
+  color: #fff;
+  background: rgba(10, 12, 18, 0.72);
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+.vr-sub-en {
+  display: block;
+  margin-top: 4px;
+}
+.vr-sub-en:first-child {
+  margin-top: 0;
+}
+.vr-sub-en span {
+  font-size: 13.5px;
+  font-weight: 450;
+  line-height: 1.42;
+  color: rgba(235, 240, 250, 0.9);
+  background: rgba(10, 12, 18, 0.64);
+  padding: 2px 8px;
+  border-radius: 5px;
+}
+.vr-cc-btn {
+  flex: none;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: #dfe5ee;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.vr-cc-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+.vr-cc-btn.on {
+  background: color-mix(in srgb, var(--accent) 28%, rgba(255, 255, 255, 0.08));
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: #fff;
+}
+.vr-cc-btn[hidden] {
+  display: none;
+}
+/* 待返工页英文句子下方的柔和中文字幕 */
+.vr-line-body {
+  min-width: 0;
+}
+.vr-page .vr-line-text p.vr-line-sub,
+.vr-page .vr-rw-main .vr-line-text p.vr-line-sub,
+.vr-line-sub {
+  display: block;
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.vr-line-text > .vr-line-sub {
+  grid-column: 2;
+}
+.vr-line > .vr-line-sub {
+  margin-left: 52px;
+}
+.vr-rw-main .vr-line > .vr-line-sub {
+  margin-left: 28px;
+}

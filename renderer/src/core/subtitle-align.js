@@ -9,34 +9,172 @@
    4. 每句取对上的字里最早 / 最晚的时间；按「原字完全相同」的比例给置信度
    5. 一个字都没对上的句子（没录 / 删掉了）按前后句推算时间，标记为推算 */
 
-/* ── 字幕解析：SRT / WebVTT ── */
-const TIME_RE = /(\d{1,2}:)?(\d{1,2}):(\d{1,2})[,.](\d{1,3})\s*-->\s*(\d{1,2}:)?(\d{1,2}):(\d{1,2})[,.](\d{1,3})/;
-const toSec = (h, m, s, ms) => (h ? parseInt(h, 10) : 0) * 3600 + +m * 60 + +s + +ms.padEnd(3, '0') / 1000;
+import { speechUnits } from './text.js';
+
+/* ── 字幕解析：SRT / WebVTT / ASS ── */
+const TIME_RE =
+  /^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2})(?:[,.](\d+))?\s*-->\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2})(?:[,.](\d+))?(?:\s.*)?$/;
+const ASS_TIME_RE = /^(\d{1,3}):(\d{1,2}):(\d{1,2})(?:[,.](\d+))?$/;
+const STYLE_TAG_RE = /<\/?(?:i|b|u|c|v|font|ruby|rt|lang)(?:\.[^>]*)?(?:\s[^>]*)?>/gi;
+const VTT_TS_TAG_RE = /<(?:\d{1,3}:)?\d{1,2}:\d{2}[.,]\d+>/g;
+const ASS_TAG_RE = /\{\\[^}]*\}/g;
+const VTT_SKIP_BLOCK_RE = /^(?:WEBVTT(?:\s|$)|NOTE(?:\s|$)|STYLE\s*$|REGION\s*$)/;
+const NAMED_ENTITIES = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+const toSec = (h, m, s, ms) => (h ? parseInt(h, 10) : 0) * 3600 + +m * 60 + +s + (ms ? parseFloat('0.' + ms) : 0);
+
+function decodeEntities(str) {
+  return str.replace(/&(?:#x([0-9a-fA-F]+)|#(\d+)|(amp|lt|gt|quot|apos|nbsp));/gi, (full, hex, dec, named) => {
+    if (named) return NAMED_ENTITIES[named.toLowerCase()] ?? full;
+    const cp = hex ? parseInt(hex, 16) : parseInt(dec, 10);
+    if (!Number.isInteger(cp) || cp < 0 || cp > 0x10ffff) return full;
+    try {
+      return String.fromCodePoint(cp);
+    } catch {
+      return full;
+    }
+  });
+}
+
+function cleanSubLine(line) {
+  return decodeEntities(line.replace(STYLE_TAG_RE, '').replace(VTT_TS_TAG_RE, '').replace(ASS_TAG_RE, ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseAssTime(str) {
+  const m = String(str || '')
+    .trim()
+    .match(ASS_TIME_RE);
+  return m ? toSec(m[1], m[2], m[3], m[4]) : NaN;
+}
+
+function parseAssDialogue(line) {
+  const body = line.replace(/^Dialogue:\s*/i, '');
+  const fields = [];
+  let from = 0;
+  for (let n = 0; n < 9; n++) {
+    const comma = body.indexOf(',', from);
+    if (comma < 0) return null;
+    fields.push(body.slice(from, comma));
+    from = comma + 1;
+  }
+  const start = parseAssTime(fields[1]);
+  const end = parseAssTime(fields[2]);
+  if (!(end > start)) return null;
+  const textPart = body
+    .slice(from)
+    .replace(/\\[Nn]/g, '\n')
+    .replace(/\\h/g, ' ');
+  const rawLines = textPart.split('\n').map(cleanSubLine).filter(Boolean);
+  if (!rawLines.length) return null;
+  return { start, end, rawLines, text: rawLines.join(' ') };
+}
+
+function dedupeRollingCues(rawCues) {
+  const out = [];
+  let prevOrig = null;
+  let prevEnd = -Infinity;
+  for (const cue of rawCues) {
+    const origLines = cue.rawLines;
+    let lines = origLines;
+    if (prevOrig && cue.start <= prevEnd + 0.5) {
+      let overlap = 0;
+      const maxK = Math.min(prevOrig.length, origLines.length);
+      for (let k = maxK; k >= 1; k--) {
+        let match = true;
+        for (let i = 0; i < k; i++) {
+          if (prevOrig[prevOrig.length - k + i] !== origLines[i]) {
+            match = false;
+            break;
+          }
+        }
+        if (match) {
+          overlap = k;
+          break;
+        }
+      }
+      if (overlap > 0 && (origLines.length > 1 || (prevOrig.length > 1 && cue.start <= prevEnd + 0.05))) {
+        lines = origLines.slice(overlap);
+      }
+    }
+    prevOrig = origLines;
+    prevEnd = cue.end;
+    if (!lines.length) continue;
+    out.push({ start: cue.start, end: cue.end, text: lines.join(' '), rawLines: lines });
+  }
+  return out;
+}
 
 export function parseSubtitles(text) {
-  const cues = [];
-  const blocks = String(text || '')
+  const lines = String(text || '')
     .replace(/^\uFEFF/, '')
     .replace(/\r\n?/g, '\n')
-    .split(/\n\s*\n/);
-  for (const block of blocks) {
-    const lines = block.split('\n');
-    const ti = lines.findIndex(l => TIME_RE.test(l));
-    if (ti < 0) continue;
-    const m = lines[ti].match(TIME_RE);
-    const start = toSec(m[1], m[2], m[3], m[4]);
-    const end = toSec(m[5], m[6], m[7], m[8]);
-    const body = lines
-      .slice(ti + 1)
-      .join(' ')
-      .replace(/<[^>]+>/g, '') // <i> / <font> 之类的样式标签
-      .replace(/\{\\[^}]*\}/g, '') // {\an8} 之类的 ASS 定位
-      .trim();
-    if (!body || !(end > start)) continue;
-    cues.push({ start, end, text: body });
+    .split('\n');
+  const rawCues = [];
+  let cur = null;
+  let skipping = false;
+
+  const flush = () => {
+    if (!cur) return;
+    const rawLines = cur.lines.map(cleanSubLine).filter(Boolean);
+    if (rawLines.length && cur.end > cur.start) {
+      rawCues.push({ start: cur.start, end: cur.end, text: rawLines.join(' '), rawLines });
+    }
+    cur = null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      flush();
+      skipping = false;
+      continue;
+    }
+    if (/^Dialogue:\s*/i.test(trimmed)) {
+      flush();
+      skipping = false;
+      const assCue = parseAssDialogue(trimmed);
+      if (assCue) rawCues.push(assCue);
+      continue;
+    }
+    if (skipping) continue;
+    if (!cur && VTT_SKIP_BLOCK_RE.test(trimmed)) {
+      skipping = true;
+      continue;
+    }
+    const m = raw.match(TIME_RE);
+    if (m) {
+      flush();
+      cur = {
+        start: toSec(m[1], m[2], m[3], m[4]),
+        end: toSec(m[5], m[6], m[7], m[8]),
+        lines: [],
+      };
+      continue;
+    }
+    if (cur) {
+      // 两条 SRT 之间缺空行时，紧贴下一条时间行的纯数字行是下一条的序号而非本条正文
+      const nextIsTime = i + 1 < lines.length && TIME_RE.test(lines[i + 1]);
+      if (nextIsTime && /^\d+$/.test(trimmed) && cur.lines.length > 0) {
+        flush();
+        continue;
+      }
+      cur.lines.push(raw);
+    }
   }
-  cues.sort((a, b) => a.start - b.start);
-  return cues;
+  flush();
+
+  rawCues.sort((a, b) => a.start - b.start);
+  return dedupeRollingCues(rawCues);
 }
 
 /* 只留文字和数字，全角转半角、统一小写：标点、空格、语气断句都不参与对齐 */
@@ -49,7 +187,20 @@ export function normChars(text) {
   return out;
 }
 
-const K = 5; // 锚点片段长度
+/* 词级切分：CJK 汉字/假名/谚文按单字，拉丁字母/数字序列（含撇号缩写）按完整单词 */
+const NORM_TOKEN_RE =
+  /[\u3400-\u9fff\uf900-\ufaff\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]|[\p{Script=Latin}\p{N}]+(?:['’][\p{Script=Latin}\p{N}]+)*/gu;
+export function normTokens(text) {
+  const norm = String(text || '')
+    .normalize('NFKC')
+    .toLowerCase();
+  const out = [];
+  for (const m of norm.matchAll(NORM_TOKEN_RE)) out.push(m[0].replaceAll('’', "'"));
+  return out;
+}
+
+const K = 5; // 中文字符级锚点片段长度
+const K_WORD = 3; // 英文词级锚点片段长度
 const DP_LIMIT = 4e6; // 逐字对齐的最大格子数（约 2000×2000），再大就按比例映射
 
 /* 最长递增子序列（按 j 严格递增），返回选中的下标 */
@@ -124,16 +275,17 @@ function dpAlign(s, t, a, b, c, d) {
   return pairs.reverse();
 }
 
-/* 稿子字 → 字幕字 的映射。map[i] = j（-1 = 没对上），exact[i] = 是否同一个字 */
-export function alignChars(s, t) {
+/* 稿子单元 → 字幕单元 的映射。map[i] = j（-1 = 没对上），exact[i] = 是否完全一致 */
+export function alignChars(s, t, { k: win = K } = {}) {
   const map = new Int32Array(s.length).fill(-1);
   const exact = new Uint8Array(s.length);
   if (!s.length || !t.length) return { map, exact };
-  // 1. 唯一锚点
+  const gramLen = Math.max(1, win);
+  // 1. 唯一锚点（不重叠、不交叉）
   const grams = arr => {
     const g = new Map();
-    for (let i = 0; i + K <= arr.length; i++) {
-      const key = arr.slice(i, i + K).join('');
+    for (let i = 0; i + gramLen <= arr.length; i++) {
+      const key = arr.slice(i, i + gramLen).join('\x00');
       const e = g.get(key);
       if (e) e.n++;
       else g.set(key, { n: 1, i });
@@ -153,16 +305,15 @@ export function alignChars(s, t) {
   let lastI = -1,
     lastJ = -1;
   for (const [i, j] of chain) {
-    for (let k = 0; k < K; k++) {
-      if (i + k > lastI && j + k > lastJ) {
-        map[i + k] = j + k;
-        exact[i + k] = 1;
-        lastI = i + k;
-        lastJ = j + k;
-      }
+    if (i < lastI + 1 || j < lastJ + 1) continue;
+    for (let m = 0; m < gramLen; m++) {
+      map[i + m] = j + m;
+      exact[i + m] = 1;
     }
+    lastI = i + gramLen - 1;
+    lastJ = j + gramLen - 1;
   }
-  // 2. 锚点之间的空隙逐字对齐
+  // 2. 锚点之间的空隙逐单元对齐
   let i = 0;
   while (i < s.length) {
     if (map[i] >= 0) {
@@ -180,8 +331,12 @@ export function alignChars(s, t) {
           exact[pi] = same ? 1 : 0;
         }
       } else {
-        // 空隙太大：按比例映射（不算「同字」，置信度自然低）
-        for (let x = i; x < b; x++) map[x] = Math.min(d - 1, c + Math.floor(((x - i) * (d - c)) / (b - i)));
+        // 空隙太大：按比例映射，精确相等的单元仍记 exact
+        for (let x = i; x < b; x++) {
+          const y = Math.min(d - 1, c + Math.floor(((x - i) * (d - c)) / (b - i)));
+          map[x] = y;
+          exact[x] = s[x] === t[y] ? 1 : 0;
+        }
       }
     }
     i = b;
@@ -192,29 +347,36 @@ export function alignChars(s, t) {
 /* 主入口：lines = [{id, text}]（按稿子顺序的句子），cues = parseSubtitles 的结果
    返回 { times: Map(id → {start,end,conf,st}), stats } ；st: ok 对上 / low 低置信 / est 推算 */
 export function alignScript(lines, cues) {
-  // 字幕字符流 + 每个字的起止时间
+  // 拉丁词占比高（英文稿）自动用词级 normTokens + K=3，中文稿仍用字级 normChars + K=5
+  const previewTokens = lines.flatMap(line => normTokens(line.text));
+  const latinCount = previewTokens.filter(tok => /\p{Script=Latin}/u.test(tok)).length;
+  const useWordMode = previewTokens.length > 0 && latinCount / previewTokens.length >= 0.5;
+  const tokenize = useWordMode ? normTokens : normChars;
+  const k = useWordMode ? K_WORD : K;
+
+  // 字幕流 + 每个单元的起止时间
   const t = [],
     tStart = [],
     tEnd = [];
   for (const cue of cues) {
-    const cs = normChars(cue.text);
+    const cs = tokenize(cue.text);
     const span = (cue.end - cue.start) / Math.max(1, cs.length);
-    cs.forEach((ch, k) => {
+    cs.forEach((ch, idx) => {
       t.push(ch);
-      tStart.push(cue.start + span * k);
-      tEnd.push(cue.start + span * (k + 1));
+      tStart.push(cue.start + span * idx);
+      tEnd.push(cue.start + span * (idx + 1));
     });
   }
-  // 稿子字符流 + 每个字属于哪一句
+  // 稿子流 + 每个单元属于哪一句
   const s = [],
     owner = [];
   lines.forEach((line, li) => {
-    for (const ch of normChars(line.text)) {
+    for (const ch of tokenize(line.text)) {
       s.push(ch);
       owner.push(li);
     }
   });
-  const { map, exact } = alignChars(s, t);
+  const { map, exact } = alignChars(s, t, { k });
 
   const per = lines.map(() => ({ n: 0, hit: 0, same: 0, lo: Infinity, hi: -Infinity }));
   for (let i = 0; i < s.length; i++) {
@@ -230,19 +392,22 @@ export function alignScript(lines, cues) {
     const p = per[li];
     if (!p.n || !p.hit || !(p.hi > p.lo)) return null;
     const conf = p.same / p.n;
-    // 对上的字太少（多半是错位配上的零星几个字），不如当成没对上，按前后推算
+    // 对上的太少（多半是错位配上的零星几个），不如当成没对上，按前后推算
     if (conf < 0.25) return null;
     return { start: p.lo, end: p.hi, conf: Math.round(conf * 100) / 100, st: conf >= 0.6 ? 'ok' : 'low' };
   });
-  // 相邻句子轻微重叠（同一条字幕里的边界字）：后一句起点顺延到前一句终点
-  let prevEnd = -Infinity;
+  // 相邻句子重叠修剪：保证严格单调（start >= prevEnd 且 end >= start）
+  let prevEnd = 0;
   for (const r of result) {
     if (!r) continue;
-    if (r.start < prevEnd && prevEnd < r.end) r.start = prevEnd;
-    prevEnd = Math.max(prevEnd, r.end);
+    if (r.start < prevEnd) {
+      r.start = prevEnd;
+      if (r.end < r.start) r.end = r.start;
+    }
+    prevEnd = r.end;
   }
-  // 没对上的句子按前后已知时间推算
-  const total = cues.length ? cues[cues.length - 1].end : 0;
+  // 没对上的句子按前后已知时间推算（权重按朗读量）
+  const total = cues.reduce((mx, c) => Math.max(mx, c.end), 0);
   for (let li = 0; li < result.length; li++) {
     if (result[li]) continue;
     let a = li - 1;
@@ -251,14 +416,14 @@ export function alignScript(lines, cues) {
     while (b < result.length && (!result[b] || result[b].st === 'est')) b++;
     const from = a >= 0 ? result[a].end : 0;
     const to = b < result.length ? result[b].start : Math.max(from, total);
-    // 这一段连续没对上的句子按字数分摊 [from, to]
+    // 这一段连续没对上的句子按朗读量分摊 [from, to]
     const run = [];
     for (let x = li; x < b; x++) if (!result[x]) run.push(x);
-    const weights = run.map(x => Math.max(1, per[x].n));
+    const weights = run.map(x => Math.max(0.5, speechUnits(lines[x].text)));
     const sum = weights.reduce((acc, w) => acc + w, 0);
     let cur = from;
-    run.forEach((x, k) => {
-      const len = to > from ? ((to - from) * weights[k]) / sum : 0;
+    run.forEach((x, idx) => {
+      const len = to > from ? ((to - from) * weights[idx]) / sum : 0;
       result[x] = { start: cur, end: cur + len, conf: 0, st: 'est' };
       cur += len;
     });

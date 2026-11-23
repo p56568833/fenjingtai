@@ -13,13 +13,25 @@ export const esc = s =>
 /* 中文输入法正在组合中（打拼音未上屏）时，按键不该触发任何命令 */
 export const composing = e => e.isComposing || e.keyCode === 229;
 
-/* 可编辑文字的纯文本：换行（<br> / 段落）都还原成 \n，不会被 textContent 吞掉 */
+/* 可编辑文字的纯文本：换行（<br> / 段落）都还原成 \n，不会被 textContent 吞掉；
+   直接遍历 DOM 节点，不依赖 innerText 排版（屏幕外 content-visibility: auto 节点的 innerText 会返回空串）。 */
 export function readEditable(el) {
   if (!el) return '';
-  const text = el.isConnected ? el.innerText : el.textContent;
-  return String(text ?? '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/\n$/, '');
+  let text = '';
+  const walk = node => {
+    for (const c of node.childNodes) {
+      if (c.nodeType === 3) text += c.nodeValue;
+      else if (c.nodeType === 1) {
+        if (c.tagName === 'BR') text += '\n';
+        else {
+          if (/^(DIV|P|LI)$/.test(c.tagName) && text && !text.endsWith('\n')) text += '\n';
+          walk(c);
+        }
+      }
+    }
+  };
+  walk(el);
+  return text.replace(/\u00a0/g, ' ').replace(/\n$/, '');
 }
 
 /* 正在编辑文字（输入框 / 可编辑区域）：全局快捷键要让路 */
@@ -85,7 +97,8 @@ export function initModal() {
 
 /* 把某句（或它所在的共用画面）带进视口 */
 export function revealRow(id, block = 'nearest') {
-  const el = document.querySelector(`.row[data-id="${id}"]`);
+  if (id == null) return null;
+  const el = document.querySelector(`#rows .row[data-id="${id}"]`);
   (el?.closest('.shared-scene') || el)?.scrollIntoView({ block });
   return el;
 }

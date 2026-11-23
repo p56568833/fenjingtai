@@ -27,7 +27,7 @@ import {
 } from './review-model.js';
 import { secText } from '../core/review-format.js';
 
-import { renderRework } from './review-rework.js';
+import { renderRework, resetReworkRender } from './review-rework.js';
 import { navHTML, paintTabs } from './review-nav.js';
 
 import { deferRenderWhileEditing, clearDeferredRender } from '../ui/base/edit-session.js';
@@ -77,7 +77,7 @@ export function createReviewRenderer({
   }
 
   /* 上次写进页面的内容：一样就不重写（见 paintVideoReview） */
-  const painted = { nav: null, navEl: null, shot: null, shotEl: null, cand: null };
+  const painted = { nav: null, navEl: null, shot: null, shotEl: null, cand: null, mode: null };
   /* 批次进度条：左栏整块重画后，从上一次的长度长到现在的长度（同一批才长，换批次直接到位） */
   let barMemo = { key: null, w: null };
   let lastShotSwap = 0;
@@ -100,11 +100,18 @@ export function createReviewRenderer({
     refreshReviewStatus();
 
     if (page.mode === 'rework') {
-      showTimeline();
-      closeReviewPlayback();
-      painted.shot = null;
-      return renderRework(host, $('#vrNav'), cards);
+      if (painted.mode !== 'rework') {
+        showTimeline();
+        closeReviewPlayback();
+        painted.shot = null;
+        painted.nav = null;
+        painted.navEl = null;
+        painted.mode = 'rework';
+      }
+      return renderRework(host, $('#vrNav'), showTimeline);
     }
+    if (painted.mode === 'rework') resetReworkRender();
+    painted.mode = 'review';
     // 选中的画面和候选：候选是右栏顶上的一排标签，下面只放选中那个的详情
     const g = shots.find(x => x.key === page.curShot);
     const list = g ? orderedCandidates(g) : [];
@@ -271,8 +278,9 @@ export function createReviewRenderer({
     fitSide(null);
     reviewProject = navShown = null;
     barMemo = { key: null, w: null };
-    painted.shot = painted.nav = painted.cand = null;
+    painted.shot = painted.nav = painted.cand = painted.mode = null;
     painted.shotEl = painted.navEl = null;
+    resetReworkRender();
   }
   function progress({ label, percent }) {
     const button = $('#vrSaveAll');
@@ -291,6 +299,8 @@ export function createReviewRenderer({
       showTimeline();
       closeReviewPlayback();
       painted.shot = null;
+      painted.mode = null;
+      resetReworkRender();
     },
   };
 }

@@ -1,4 +1,5 @@
 /* 审核页的播放宿主。实例只属于当前画面，不借用连播窗口的节点和状态。 */
+import { state } from '../app/state.js';
 import { on, emit } from '../app/events.js';
 import { createPlaybackView } from './playback-view.js';
 let view = null;
@@ -33,7 +34,11 @@ export const toggleReviewPlayback = () => view?.toggle() || false;
 export const seekReviewPlayback = t => view?.seek(t);
 export const reviewPlaybackKey = e => view?.handleKey(e) || false;
 export const reviewPlaybackState = () => view?.snapshot();
-on('project-committed', change => (change.source === 'remote' ? view?.remote() : view?.refresh()));
+on('project-committed', change => {
+  if (change.projectId !== state.projectId) return;
+  if (change.source === 'remote') view?.remote();
+  else view?.refresh();
+});
 on('project-loaded', closeReviewPlayback);
 on('playback-starting', ({ owner }) => {
   if (owner !== 'review') pauseReviewPlayback();

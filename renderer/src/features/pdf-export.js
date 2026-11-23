@@ -2,6 +2,7 @@
 import { state } from '../app/state.js';
 import { types, timeline } from '../app/project-queries.js';
 import { buildPrintDoc, planDocument, assetRefs, PDF_DEFAULTS } from '../core/print-doc.js';
+import { isBilingualProject } from '../core/bilingual.js';
 import { safeFileName } from '../core/text.js';
 import * as native from '../platform/native.js';
 import { toast } from '../ui/base/dom.js';
@@ -52,12 +53,20 @@ function shrink(dataUrl) {
   });
 }
 
+const usedAssetRefs = (r, registry = {}) =>
+  Array.isArray(r.assetUsages)
+    ? r.assetUsages
+        .filter(u => u.role !== 'alt')
+        .map(u => registry[u.assetId]?.path || u.path || '')
+        .filter(Boolean)
+    : assetRefs(r, registry);
+
 async function collectThumbs(rows, registry) {
   const refs = [
     ...new Set(
       rows
         .filter(r => r.kind === 'line')
-        .flatMap(r => assetRefs(r, registry))
+        .flatMap(r => usedAssetRefs(r, registry))
         .filter(localPreviewable),
     ),
   ];
@@ -96,23 +105,35 @@ function openPdfExport() {
     return;
   }
   const p = loadPrefs();
+  const bilingual = isBilingualProject(state);
   $(`#pdfMask input[name="pdfOrient"][value="${p.landscape ? 'landscape' : 'portrait'}"]`).checked = true;
   $('#pdfCover').checked = !!p.cover;
   $('#pdfAssets').checked = !!p.assets;
+  $('#pdfSubsRow').hidden = !bilingual;
+  $('#pdfSubs').checked = p.subtitles !== false;
   renderSummary();
   $('#pdfMask').classList.add('show');
-  setTimeout(() => $('#pdfOk').focus(), 60);
+  setTimeout(() => {
+    if ($('#pdfMask')?.classList.contains('show')) $('#pdfOk')?.focus();
+  }, 60);
 }
 const closePdf = () => $('#pdfMask').classList.remove('show');
 
 async function runExport() {
   if (busy) return;
-  const opts = {
+  const p = loadPrefs();
+  const bilingual = isBilingualProject(state);
+  const savedOpts = {
     landscape: $('#pdfMask input[name="pdfOrient"]:checked')?.value === 'landscape',
     cover: $('#pdfCover').checked,
     assets: $('#pdfAssets').checked,
+    subtitles: bilingual ? !!$('#pdfSubs').checked : p.subtitles !== false,
   };
-  savePrefs(opts);
+  savePrefs(savedOpts);
+  const opts = {
+    ...savedOpts,
+    subtitles: bilingual ? savedOpts.subtitles : false,
+  };
   closePdf();
   busy = true;
   const project = structuredClone({
@@ -164,6 +185,7 @@ export function initPdfExport() {
     <div class="pdf-checks">
       <label><input type="checkbox" id="pdfCover"><span>封面概览<small>全片节奏色条、画面构成、章节目录</small></span></label>
       <label><input type="checkbox" id="pdfAssets"><span>素材缩略图与链接<small id="pdfAssetCount"></small></span></label>
+      <label id="pdfSubsRow" hidden><input type="checkbox" id="pdfSubs"><span>附带中文字幕对照<small>在每句英文口播下方印出中文字幕</small></span></label>
     </div>
     <div class="pdf-foot"><span id="pdfSummary"></span><div class="m-btns"><button class="btn ghost" id="pdfCancel">取消</button><button class="btn primary" id="pdfOk">导出 PDF</button></div></div>
   </div></div>`,

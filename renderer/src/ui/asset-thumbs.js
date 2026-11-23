@@ -5,6 +5,7 @@ import { assetName as baseName, LINK_RE } from '../core/asset-model.js';
 import { preview, videoFrame, remoteVideoFrame, invalidateVideoFrame } from './base/media.js';
 
 function thumbPlaceholder(el, path, kind, missing) {
+  el.dataset.thumbState = 'done';
   el.replaceChildren();
   el.classList.remove('thumb-missing', 'thumb-unsupported', 'thumb-nopreview');
   if (missing) {
@@ -21,6 +22,7 @@ function thumbPlaceholder(el, path, kind, missing) {
   const label = document.createElement('span');
   label.textContent = '无缩略图';
   const retry = document.createElement('button');
+  retry.type = 'button';
   retry.className = 'thumb-retry';
   retry.dataset.thumbRetry = path;
   retry.textContent = '重试';
@@ -33,6 +35,7 @@ function thumbPlaceholder(el, path, kind, missing) {
    跨域视频画到 canvas 上后不能导出成图片，所以缓存的是 canvas 本身，用时再画一份 */
 function paintRemote(el, path, src) {
   if (!el.isConnected || el.dataset.previewPath !== path) return;
+  el.dataset.thumbState = 'done';
   if (!src) {
     el.classList.add('thumb-nopreview');
     el.textContent = '在线视频';
@@ -53,7 +56,10 @@ function paintRemote(el, path, src) {
   el.replaceChildren(cv, play, tag);
 }
 function remoteVideoThumb(el, path) {
-  if (el.querySelector('canvas')) return;
+  if (el.querySelector('canvas')) {
+    el.dataset.thumbState = 'done';
+    return;
+  }
   el.textContent = '…';
   remoteVideoFrame(path).then(frame => paintRemote(el, path, frame));
 }
@@ -70,6 +76,7 @@ function localVideoThumb(el, path) {
   });
 }
 function showFrame(el, data) {
+  el.dataset.thumbState = 'done';
   const img = document.createElement('img');
   img.src = data;
   img.alt = baseName(el.dataset.previewPath || '');
@@ -87,6 +94,7 @@ async function systemThumb(el, path) {
     return;
   }
   el.dataset.thumbFailed = '';
+  el.dataset.thumbState = 'done';
   const img = document.createElement('img');
   img.src = data;
   img.alt = baseName(path);
@@ -101,7 +109,12 @@ async function systemThumb(el, path) {
 
 async function loadThumb(el) {
   const path = el.dataset.previewPath;
-  if (!path || el.querySelector('img, canvas')) return;
+  if (!path || el.dataset.thumbState === 'loading') return;
+  if (el.querySelector('img, canvas')) {
+    el.dataset.thumbState = 'done';
+    return;
+  }
+  el.dataset.thumbState = 'loading';
   if (LINK_RE.test(path)) {
     if (el.dataset.kind === 'video') remoteVideoThumb(el, path);
     else thumbPlaceholder(el, path, 'link', false);
@@ -118,11 +131,13 @@ async function loadThumb(el) {
   systemThumb(el, path);
 }
 
+const observed = new WeakSet();
 const observer = new IntersectionObserver(
   entries => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
       observer.unobserve(entry.target);
+      observed.delete(entry.target);
       loadThumb(entry.target);
     }
   },
@@ -130,15 +145,23 @@ const observer = new IntersectionObserver(
 );
 
 export function hydrateAssetCards() {
-  observer.disconnect();
   document.querySelectorAll('.asset-thumb[data-preview-path]').forEach(el => {
-    if (el.querySelector('img, canvas')) return;
+    if (el.dataset.thumbState === 'loading' || el.dataset.thumbState === 'done') return;
+    if (el.querySelector('img, canvas')) {
+      el.dataset.thumbState = 'done';
+      return;
+    }
+    if (observed.has(el)) return;
+    observed.add(el);
     observer.observe(el);
   });
 }
 export function refreshThumb(path) {
   invalidateVideoFrame(path);
   document.querySelectorAll(`.asset-thumb[data-preview-path="${CSS.escape(path)}"]`).forEach(el => {
+    observer.unobserve(el);
+    observed.delete(el);
+    delete el.dataset.thumbState;
     el.dataset.thumbFailed = '';
     el.classList.remove('thumb-missing', 'thumb-unsupported', 'thumb-nopreview');
     loadThumb(el);

@@ -1,19 +1,19 @@
 import { viewState } from '../app/view-state.js';
 /* ⌘F 搜索：输入后定位首个结果，↓/↑ 继续向后 / 向前跳转，Enter 选定当前这句并收起搜索。
    也能输入句子编号（248、248-256）或口播时间（26:37、26:37-27:21）直达。 */
-import { queryLineIds, queryJumpLabel } from '../app/search-queries.js';
+import { queryJumpLabel } from '../app/search-queries.js';
 import { rowById } from '../app/project-queries.js';
 import { match } from '../app/selection.js';
 import { setView } from './render.js';
 import { runCommand } from './base/commands.js';
 import { closePop, popEl } from './base/popover.js';
 import { leave, cancelLeave, flash, reduced, SPRING } from './base/motion.js';
-import { paintSearch } from './base/search-paint.js';
+import { paintSearch, resolvedQueryLineIds } from './base/search-paint.js';
 
 let timer = null; // 打字防抖；关闭时一并取消，免得关掉后旧关键词又生效
 
 function qMatches() {
-  return queryLineIds();
+  return resolvedQueryLineIds().ids;
 }
 
 export function openSearch() {
@@ -61,7 +61,7 @@ export function closeSearch() {
 function selectResult(id) {
   // 编号 / 时间直达的句子可能被类型筛选藏起来，这时切回「全部」再跳
   runCommand('nav:jump', id, { preserveFilter: match(rowById(id)) });
-  flash(document.querySelector(`.row[data-id="${id}"]`));
+  flash(document.querySelector(`#rows .row[data-id="${id}"]`));
 }
 function qNav(d) {
   const m = qMatches();
@@ -72,11 +72,16 @@ function qNav(d) {
   updateQCount();
 }
 function updateQCount() {
-  const m = qMatches();
-  document.querySelector('#searchCnt').textContent = viewState.query
-    ? `${m.length ? m.indexOf(viewState.sel) + 1 : 0}/${m.length}`
-    : '';
-  document.querySelector('#searchJump').textContent = queryJumpLabel();
+  const { ids, fallback } = resolvedQueryLineIds();
+  const idx = ids.indexOf(viewState.sel);
+  document.querySelector('#searchCnt').textContent = !viewState.query
+    ? ''
+    : !ids.length
+      ? '0/0'
+      : idx >= 0
+        ? `${idx + 1}/${ids.length}`
+        : `共 ${ids.length} 处`;
+  document.querySelector('#searchJump').textContent = fallback ? '' : queryJumpLabel();
 }
 
 export function initSearch() {
@@ -122,19 +127,20 @@ export function initSearch() {
     timer = setTimeout(apply, 150);
   });
   document.querySelector('#searchInput').addEventListener('keydown', e => {
-    e.stopPropagation();
+    if (e.metaKey || e.ctrlKey) return; // ⌘F / ⌘T / ⇧⌘E / ⌘/ 等全局快捷键放行冒泡
     if (composing || e.isComposing || e.keyCode === 229) return; // 输入法选字的回车不是「选定」
     if (e.key === 'Enter') {
       e.preventDefault();
+      e.stopPropagation();
       confirm();
-    }
-    // 上下键在结果之间切换（单行输入框里上下键本来也没有用处）
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      // 上下键在结果之间切换（单行输入框里上下键本来也没有用处）
       e.preventDefault();
+      e.stopPropagation();
       navigate(e.key === 'ArrowDown' ? 1 : -1);
-    }
-    if (e.key === 'Escape') {
+    } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       closeSearch();
     }
   });
