@@ -188,6 +188,24 @@ async function importFromFile() {
   importLoadedFile(await native.importFile());
 }
 
+/* 弹系统文件对话框选视频候选清单 JSON（只筛 .json；误选了项目文件也能自动兜底打开） */
+async function importCandidatesFile() {
+  const r = await native.importFile('json');
+  if (!r) return;
+  if (r.error) return toast(r.error, null, 'error');
+  if (!String(r.content || '').trim()) return toast('这个 JSON 文件是空的', null, 'warn');
+  let doc;
+  try {
+    doc = JSON.parse(r.content);
+  } catch {
+    return toast('JSON 解析失败：文件内容不是有效的 JSON', null, 'error');
+  }
+  if (doc?.type === CANDIDATE_TYPE) return runCommand('video:import', doc, r.path || '');
+  if (doc && typeof doc === 'object' && Array.isArray(doc.rows))
+    return importProjectObject(doc, r.name.replace(/\.json$/i, ''));
+  toast('这个 JSON 不是视频候选清单（需要分镜台候选清单格式）', null, 'warn');
+}
+
 /* ── 导出 ── */
 async function download(name, content) {
   const r = await native.exportFile(name, content);
@@ -201,7 +219,6 @@ async function download(name, content) {
 }
 
 function doExport(kind) {
-  if (kind === 'pdf') return runCommand('pdf:open');
   if (kind === 'json') return runCommand('pack:export-open');
   if (kind === 'jianying') return runCommand('jianying:export');
   if (kind === 'srt') return runCommand('srt:export');
@@ -222,96 +239,113 @@ function openPaste() {
   setTimeout(() => $('#pasteArea').focus(), 60);
 }
 
-/* 口播音频、剪映字幕：没导入时是导入入口；导入了就写着现在用的是哪个，并给出更换 / 重新对齐 / 移除 */
-const ICON_MIC =
-  '<svg class="mi" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
-const ICON_SRT =
-  '<svg class="mi" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>';
+const ICON_DOC =
+  '<svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>';
 const ICON_PASTE =
-  '<svg class="mi" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>';
+  '<svg viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h4"/></svg>';
+const ICON_CAND =
+  '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9.5 5 2.5-5 2.5z"/></svg>';
+const ICON_MIC =
+  '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+const ICON_SRT =
+  '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M13 15h4M7 11h10"/></svg>';
 const ICON_LANG =
-  '<svg class="mi" viewBox="0 0 24 24"><path d="M4 5h8M8 3v2m-2 0c0 4 2 7 6 9m-4-7c-1 3-3 5-5 7"/><path d="M13 20l4-10 4 10m-6.5-3h5"/></svg>';
-const ICON_REDO = '<svg class="mi" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>';
-const ICON_OFF = '<svg class="mi" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
-const item = (imp, icon, title, desc) =>
-  `<div class="pop-item" data-imp="${imp}">${icon}<span class="main">${title}<span class="desc">${desc}</span></span></div>`;
-const voiceItems = () =>
-  state.voice
-    ? item('voice', ICON_MIC, '更换口播音频', `现在用的是：${esc(state.voice.name)}`) +
-      item('voice-clear', ICON_OFF, '移除口播音频', '本地文件保留，⌘Z 可撤销')
-    : item('voice', ICON_MIC, '口播音频', '录好的口播（音频或视频）：逐句播放、对着画面预览');
-const subtitleItems = () => {
-  const bi = isBilingualProject(state);
-  return state.timing
-    ? item(
-        'srt',
-        ICON_SRT,
-        bi ? '换一份英文字幕' : '换一份剪映字幕',
-        `现在对齐的是：${esc(state.timing.name || (bi ? '英文字幕' : '剪映字幕'))}`,
-      ) +
-        item('srt-realign', ICON_REDO, '重新对齐字幕', '改过稿子后，用同一份字幕重新对齐') +
-        item('srt-clear', ICON_OFF, '清除字幕时间', '回到按语速估算，⌘Z 可撤销')
-    : item('srt', ICON_SRT, bi ? '对齐英文字幕（SRT）' : '对齐剪映字幕（SRT）', '录完口播后，把每句换成精确的时间码');
-};
-const zhSubItems = () => {
-  const bi = isBilingualProject(state);
-  const hasZhSub = !!(
-    state.subTiming?.cues?.length ||
-    state.rows.some(r => r.kind === 'line' && typeof r.sub === 'string' && r.sub.trim())
-  );
-  const desc = state.subTiming?.name ? `当前：${esc(state.subTiming.name)}` : '英文稿配中文对照，不改英文时间轴';
-  let html = item('srt-sub', ICON_SRT, hasZhSub ? '更换中文字幕（SRT）' : '导入中文字幕（SRT）', desc);
-  if (bi) html += item('sub-paste', ICON_PASTE, '批量粘贴中文译文…', '按行把翻译好的中文一次填入各句');
-  if (hasZhSub) html += item('srt-sub-clear', ICON_OFF, '清除中文字幕', '⌘Z 可撤销');
-  return html;
-};
-const langModeItem = () => {
-  const on = state.langMode === 'en-zh';
-  return `<div class="pop-item" data-imp="lang-mode">${ICON_LANG}<span class="main">英配中字模式${on ? '（已开启）' : ''}<span class="desc">审英文稿 + 听英文语音 + 看中文字幕（YouTube）</span></span>${on ? '<span class="chk">✓</span>' : ''}</div>`;
-};
+  '<svg viewBox="0 0 24 24"><path d="M4 5h8M8 3v2m-2 0c0 4 2 7 6 9m-4-7c-1 3-3 5-5 7"/><path d="M13 20l4-10 4 10m-6.5-3h5"/></svg>';
+const ICON_PROJ =
+  '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg>';
+const ICON_JY =
+  '<svg viewBox="0 0 24 24"><path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z"/><path d="m4 9 1.6-4h4L8 9m4 0 1.6-4h4L16 9"/></svg>';
+const ICON_PACK =
+  '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 10v7m-3-3 3 3 3-3"/></svg>';
+const ICON_WARN = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3.5h.01"/></svg>';
+const ICON_OK = '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.2 4.2L19 7"/></svg>';
 
-function openImportMenu(anchor) {
+function voiceSlotHTML() {
+  if (!state.voice) {
+    return `<button type="button" class="io-row" data-imp="voice"><span class="io-ico green">${ICON_MIC}</span><span class="io-meta"><span class="io-name">口播音频</span><span class="io-desc">录音或视频，逐句听配音对画面</span></span><span class="io-pill">导入</span></button>`;
+  }
+  const name = state.voice.name || '已导入口播';
+  return `<div class="io-slot"><span class="io-ico green on">${ICON_MIC}</span><span class="io-meta"><span class="io-name">口播音频<i class="io-dot" aria-hidden="true"></i></span><span class="io-desc io-file" title="${esc(name)}">${esc(name)}</span></span><span class="io-acts"><button type="button" class="io-act" data-imp="voice" title="更换口播音频">更换</button><button type="button" class="io-act icon danger" data-imp="voice-clear" title="移除口播音频（保留本地文件，⌘Z 可撤销）" aria-label="移除口播音频">×</button></span></div>`;
+}
+
+function subtitleSlotHTML(bi) {
+  const label = bi ? '英文字幕' : '剪映字幕';
+  if (!state.timing) {
+    return `<button type="button" class="io-row" data-imp="srt"><span class="io-ico amber">${ICON_SRT}</span><span class="io-meta"><span class="io-name">${label}<em class="io-tag">SRT</em></span><span class="io-desc">把每句口播换成精确时间码</span></span><span class="io-pill">对齐</span></button>`;
+  }
+  const name = state.timing.name || label;
+  return `<div class="io-slot"><span class="io-ico amber on">${ICON_SRT}</span><span class="io-meta"><span class="io-name">${label}<i class="io-dot" aria-hidden="true"></i></span><span class="io-desc io-file" title="${esc(name)}">${esc(name)}</span></span><span class="io-acts"><button type="button" class="io-act" data-imp="srt-realign" title="改过稿子后，用同一份字幕重新对齐">重对</button><button type="button" class="io-act" data-imp="srt" title="换一份字幕重新对齐">更换</button><button type="button" class="io-act icon danger" data-imp="srt-clear" title="清除字幕时间（⌘Z 可撤销）" aria-label="清除字幕时间">×</button></span></div>`;
+}
+
+function bilingualBoxHTML(bi) {
+  const modeOn = state.langMode === 'en-zh';
+  const subLines = state.rows.filter(r => r.kind === 'line' && typeof r.sub === 'string' && r.sub.trim()).length;
+  const hasZhSub = !!(state.subTiming?.cues?.length || subLines);
+  const subStatus = state.subTiming?.name || (subLines ? `已填 ${subLines} 句中文字幕` : '支持 SRT 导入或整段粘贴');
+  const subBar = bi
+    ? `<div class="io-sub-bar"><span class="io-meta"><span class="io-sub-name">中文字幕${hasZhSub ? '<i class="io-dot" aria-hidden="true"></i>' : ''}</span><span class="io-desc io-file" title="${esc(subStatus)}">${esc(subStatus)}</span></span><span class="io-acts"><button type="button" class="io-act" data-imp="srt-sub">${hasZhSub ? '换 SRT' : '导入 SRT'}</button><button type="button" class="io-act" data-imp="sub-paste">粘贴译文</button>${hasZhSub ? '<button type="button" class="io-act icon danger" data-imp="srt-sub-clear" title="清除中文字幕（⌘Z 可撤销）" aria-label="清除中文字幕">×</button>' : ''}</span></div>`
+    : '';
+  return `<div class="io-mode-box${bi ? ' active' : ''}">
+    <button type="button" class="io-switch-row" data-imp="lang-mode" role="switch" aria-checked="${modeOn}">
+      <span class="io-ico sky${modeOn ? ' on' : ''}">${ICON_LANG}</span>
+      <span class="io-meta"><span class="io-name">英配中字模式</span><span class="io-desc">审英文稿 · 听英配 · 看中文字幕</span></span>
+      <span class="io-switch${modeOn ? ' on' : ''}" aria-hidden="true"><i></i></span>
+    </button>
+    ${subBar}
+  </div>`;
+}
+
+function openImportMenu(anchor, { refresh = false } = {}) {
+  const bi = isBilingualProject(state);
   openMenu(
     anchor,
     `
-      <div class="p-title">导入</div>
-      <div class="pop-item" data-imp="file"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></svg><span class="main">选择稿子文件<span class="desc">MD / TXT / Word，整篇自动分句；也可以直接拖进窗口</span></span></div>
-      <div class="pop-item" data-imp="paste"><svg class="mi" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg><span class="main">粘贴稿子文本<span class="desc">整篇复制进来，也认得出带批注的 MD</span></span></div>
-      <div class="pop-sep"></div>
-      ${voiceItems()}
-      ${subtitleItems()}
-      <div class="pop-sep"></div>
-      ${zhSubItems()}
-      <div class="pop-sep"></div>
-      ${langModeItem()}
-      <div class="pop-sep"></div>
-      <div class="pop-item" data-imp="jsonnew"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg><span class="main">打开项目文件<span class="desc">JSON 或打包的 ZIP，导入为新项目；ZIP 会把素材一起解压出来</span></span></div>`,
+      <div class="io-head"><span class="io-title">导入</span><span class="io-tip">文件可直接拖进窗口</span></div>
+      <div class="io-grid">
+        <button type="button" class="io-tile" data-imp="file"><span class="io-ico blue">${ICON_DOC}</span><span class="io-tile-txt"><strong>选择稿子</strong><small>MD / TXT / Word</small></span></button>
+        <button type="button" class="io-tile" data-imp="paste"><span class="io-ico blue">${ICON_PASTE}</span><span class="io-tile-txt"><strong>粘贴稿子</strong><small>自动分句 / 批注</small></span></button>
+      </div>
+      <div class="io-sec-label">素材与字幕</div>
+      <div class="io-group">
+        <button type="button" class="io-row" data-imp="candidates"><span class="io-ico violet">${ICON_CAND}</span><span class="io-meta"><span class="io-name">视频候选清单<em class="io-tag">JSON</em></span><span class="io-desc">AI 找好的候选批次，导入后直接进审核页</span></span><span class="io-arrow" aria-hidden="true">›</span></button>
+        ${voiceSlotHTML()}
+        ${subtitleSlotHTML(bi)}
+      </div>
+      ${bilingualBoxHTML(bi)}
+      <div class="io-sep"></div>
+      <button type="button" class="io-row foot" data-imp="jsonnew"><span class="io-ico slate">${ICON_PROJ}</span><span class="io-meta"><span class="io-name">打开项目文件<em class="io-tag">JSON / ZIP</em></span><span class="io-desc">导入为新项目，不影响当前稿件</span></span><span class="io-arrow" aria-hidden="true">›</span></button>`,
+    { className: refresh ? 'import-menu io-refresh' : 'import-menu', hoverGlide: false },
   );
   markPopAnchor(anchor);
 }
 
 function openExportMenu(anchor) {
   const n = deliveryIssues().length;
-  const srtExportItem = isBilingualProject(state)
-    ? `<div class="pop-item" data-x="srt">${ICON_SRT}<span class="main">字幕文件（SRT）<span class="desc">导出中文字幕、英文字幕或中英双语字幕</span></span></div>`
+  const srtCard = isBilingualProject(state)
+    ? `<button type="button" class="io-row exp-card" data-x="srt"><span class="io-ico amber">${ICON_SRT}</span><span class="io-meta"><span class="io-name">字幕文件<em class="io-tag">SRT</em></span><span class="io-desc">导出中文字幕、英文字幕或中英双语</span></span><span class="io-arrow" aria-hidden="true">›</span></button>`
     : '';
   openMenu(
     anchor,
     `
-      <div class="p-title" title="${esc(state.title)}">导出「${esc(state.title)}」</div>
-      <div class="pop-item export-check${n ? ' has-issues' : ''}" data-x="review">
-        <svg class="mi" viewBox="0 0 24 24">${n ? '<circle cx="12" cy="12" r="9"/><path d="M12 7v6m0 4h.01"/>' : '<path d="m5 12 4 4 10-10"/>'}</svg>
-        <span>交稿检查</span><span class="export-status">${n ? `${n} 处待处理` : '方案完整'}</span><span class="export-chevron" aria-hidden="true">›</span>
-      </div>
-      <div class="pop-sep"></div>
-      <div class="export-group">剪辑</div>
-      <div class="pop-item" data-x="jianying"><svg class="mi" viewBox="0 0 24 24"><path d="M4 9h16v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1Z"/><path d="m4 9 1.6-4h4L8 9m4 0 1.6-4h4L16 9"/></svg><span class="main">导出到剪映<span class="desc">生成可编辑草稿，在剪映中继续剪辑</span></span></div>
-      <div class="export-group">文档</div>
-      <div class="pop-item" data-x="pdf"><svg class="mi" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg><span class="main">PDF 分镜脚本<span class="desc">按镜头排版，方便审阅与分享</span></span><span class="sub" aria-label="快捷键 Shift Command E">⇧⌘E</span></div>
-      ${srtExportItem}
-      <div class="export-group">项目交接</div>
-      <div class="pop-item" data-x="json"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 10v7m-3-3 3 3 3-3"/></svg><span class="main">项目文件<span class="desc">导出完整项目，可附带所用素材</span></span></div>`,
-    { className: 'export-menu' },
+      <div class="io-head"><span class="io-title">导出</span><span class="io-proj" title="${esc(state.title)}">${esc(state.title)}</span></div>
+      <button type="button" class="exp-health${n ? ' warn' : ' ok'}" data-x="review">
+        <span class="exp-health-left">${n ? ICON_WARN : ICON_OK}<span>交稿检查</span></span>
+        <span class="exp-health-right"><span>${n ? `${n} 处待处理` : '方案完整'}</span><span class="io-arrow" aria-hidden="true">›</span></span>
+      </button>
+      <div class="exp-stack">
+        <button type="button" class="io-row exp-card primary" data-x="jianying">
+          <span class="io-ico brand">${ICON_JY}</span>
+          <span class="io-meta"><span class="io-name">导出到剪映<kbd class="io-kbd" aria-label="快捷键 Shift Command E">⇧⌘E</kbd></span><span class="io-desc">生成可编辑草稿，在剪映中继续剪辑</span></span>
+          <span class="io-arrow" aria-hidden="true">›</span>
+        </button>
+        ${srtCard}
+        <button type="button" class="io-row exp-card" data-x="json">
+          <span class="io-ico slate">${ICON_PACK}</span>
+          <span class="io-meta"><span class="io-name">项目文件<em class="io-tag">JSON / ZIP</em></span><span class="io-desc">备份或发给同事，可一并打包所用素材</span></span>
+          <span class="io-arrow" aria-hidden="true">›</span>
+        </button>
+      </div>`,
+    { className: 'export-menu', hoverGlide: false },
   );
   markPopAnchor(anchor);
 }
@@ -322,6 +356,7 @@ export function initImportExport() {
     `<div class="modal-mask" id="importPreviewMask"><div class="modal wide import-review"><h3>确认分句与导入方式</h3><label>项目名称<input id="importTitle"></label><label>导入方式<select id="importMode"><option value="new">导入为新项目（推荐）</option><option value="update">更新当前稿件，保留未变句子的标注</option><option value="replace">替换当前项目内容</option></select></label><p id="importSummary"></p><p id="importWarning"></p><div id="importPreview"></div><div class="m-btns"><button class="btn" id="cancelImport">取消</button><button class="btn primary" id="acceptImport">确认导入</button></div></div></div>`,
   );
   registerCommand('import:file', importFromFile);
+  registerCommand('import:candidates', importCandidatesFile);
   registerCommand('import:paste', openPaste);
   registerCommand('import:loaded', importLoadedFile);
   registerCommand('export', doExport);
@@ -355,12 +390,19 @@ export function initImportExport() {
       const start = e.target.closest && e.target.closest('.empty-start [data-start]');
       if (start) return start.dataset.start === 'paste' ? openPaste() : importFromFile();
       const pop = document.querySelector('.popover:not(.pop-leaving)');
-      const imp = e.target.closest && e.target.closest('.pop-item[data-imp]');
-      if (imp && pop) {
-        closePop();
+      const imp = pop && e.target.closest && e.target.closest('[data-imp]');
+      if (imp && pop.contains(imp)) {
         const w = imp.dataset.imp;
+        if (w === 'lang-mode') {
+          e.stopPropagation();
+          runCommand('lang:toggle');
+          openImportMenu($('#btnImport'), { refresh: true });
+          return;
+        }
+        closePop();
         if (w === 'file') importFromFile();
         if (w === 'paste') openPaste();
+        if (w === 'candidates') importCandidatesFile();
         if (w === 'srt') runCommand('srt:pick');
         if (w === 'voice') runCommand('voice:pick');
         if (w === 'voice-clear') runCommand('voice:clear');
@@ -369,7 +411,6 @@ export function initImportExport() {
         if (w === 'srt-sub') runCommand('srt:pick-sub');
         if (w === 'sub-paste') runCommand('sub:paste');
         if (w === 'srt-sub-clear') runCommand('srt:clear-sub');
-        if (w === 'lang-mode') runCommand('lang:toggle');
         if (w === 'jsonnew') {
           const r = await native.importFile();
           if (!r) return;
@@ -377,14 +418,20 @@ export function initImportExport() {
           else {
             const ext = String(r.ext || r.name?.split('.').pop() || '').toLowerCase();
             if (ext === 'zip') runCommand('pack:import', r);
-            else if (ext === 'json') importAsNewProject(r.name, r.content);
-            else toast('请选择项目文件（.json）或打包的项目（.zip）', null, 'warn');
+            else if (ext === 'json') {
+              let doc = null;
+              try {
+                doc = JSON.parse(r.content);
+              } catch {}
+              if (doc?.type === CANDIDATE_TYPE) runCommand('video:import', doc, r.path || '');
+              else importAsNewProject(r.name, r.content);
+            } else toast('请选择项目文件（.json）或打包的项目（.zip）', null, 'warn');
           }
         }
         return;
       }
-      const x = e.target.closest && e.target.closest('.pop-item[data-x]');
-      if (x && pop) {
+      const x = pop && e.target.closest && e.target.closest('[data-x]');
+      if (x && pop.contains(x)) {
         closePop();
         if (x.dataset.x === 'review') runCommand('review:open');
         else doExport(x.dataset.x);

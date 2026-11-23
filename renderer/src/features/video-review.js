@@ -244,30 +244,73 @@ const stopAll = stopAllVideos;
 const purgeRejected = purgeRejectedCandidates;
 
 /* 换批次的菜单：还有待审的批次排在最上面（批次一多，老批次里漏审的不用往下翻），其余按新的在上；
-   每批写待审数 / 审完，当前批次打勾；最下面是导入新批次 */
+   每批带类型色标、状态胶囊、进度条与当前标识；底部双瓷砖入口常驻不随列表滚走 */
+const vrSvg = p => `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+const vrIco = (cls, p) => `<span class="io-ico sm ${cls}">${vrSvg(p)}</span>`;
+const VR_ICO_FILM = '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9.5 4.5 2.5-4.5 2.5Z"/>';
+const VR_ICO_REWORK = '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>';
+const VR_ICO_PLUS = '<path d="M12 5v14M5 12h14"/>';
+const VR_ICO_SPEC =
+  '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>';
+const VR_ICO_EDIT = '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>';
+const VR_ICO_DOC =
+  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>';
+const VR_ICO_FOLDER = '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>';
+const VR_ICO_TRASH =
+  '<path d="M4 7h16M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>';
+
 function openBatchPicker(anchor) {
   const all = batches();
   const waiting = all.filter(b => b.cands.some(isPending));
   const done = all.filter(b => !waiting.includes(b));
   const item = b => {
+    const total = b.cands.length;
     const p = b.cands.filter(isPending).length;
     const okN = b.cands.filter(c => c.decision === 'ok').length;
+    const reviewedPct = total ? Math.round(((total - p) / total) * 100) : 0;
     const name = batchDetail(b);
     const tip = [batchLabel(b), name, fmtDay(b.at), `原清单名称：${b.name}`].filter(Boolean).join('\n');
-    return `<div class="pop-item vr-bpick${b.id === page.curBatch ? ' cur' : ''}" data-vrb="pick" data-id="${esc(b.id)}" title="${esc(tip)}"><span class="main"><span>${esc(batchLabel(b))}</span>${name ? `<span class="desc">${esc(name)}</span>` : ''}${b.at ? `<span class="vr-bpick-date">${fmtDay(b.at)}</span>` : ''}</span><span class="vr-bpick-st${p ? ' wait' : ''}"><span>${p ? `待审 ${p} 个` : '已审完'}</span><small>通过 ${okN}/${b.cands.length}</small>${b.id === page.curBatch ? '<span class="chk">✓ 当前</span>' : ''}</span></div>`;
+    const badgeCls = b.rework ? 'amber' : p ? 'blue' : okN ? 'green' : 'slate';
+    const isCur = b.id === page.curBatch;
+    return `<div class="pop-item vr-bpick${isCur ? ' cur' : ''}" data-vrb="pick" data-id="${esc(b.id)}" title="${esc(tip)}">
+      ${vrIco(badgeCls, b.rework ? VR_ICO_REWORK : VR_ICO_FILM)}
+      <span class="main">
+        <span class="vr-bpick-top"><span>${esc(batchLabel(b))}</span>${b.at ? `<span class="vr-bpick-date">${fmtDay(b.at)}</span>` : ''}</span>
+        ${name ? `<span class="desc">${esc(name)}</span>` : ''}
+        <span class="vr-bpick-bar"><i class="${p ? 'wait' : okN ? 'ok' : 'none'}" style="width:${reviewedPct}%"></i></span>
+      </span>
+      <span class="vr-bpick-st${p ? ' wait' : ''}">
+        <span class="vr-bpick-pill">${p ? `待审 ${p} 个` : '已审完'}</span>
+        <small>通过 ${okN}/${total}</small>
+        ${isCur ? '<span class="chk">✓ 当前</span>' : ''}
+      </span>
+    </div>`;
   };
-  const group = (title, list) => `<div class="vr-bpick-group">${title}</div>${list.map(item).join('')}`;
+  const group = (title, kind, list) =>
+    `<div class="vr-bpick-group ${kind}"><i></i><span>${title}</span></div>${list.map(item).join('')}`;
   const items =
     waiting.length && done.length
-      ? group(`还有待审 · ${waiting.length} 批`, waiting) + group(`已审完 · ${done.length} 批`, done)
+      ? group(`还有待审 · ${waiting.length} 批`, 'wait', waiting) + group(`已审完 · ${done.length} 批`, 'done', done)
       : all.map(item).join('');
   openMenu(
     anchor,
-    `<div class="p-title">选择批次 · 共 ${all.length} 批</div>
+    `<div class="io-head vr-bpick-head">
+        <div class="vr-bpick-head-left"><span class="io-title">选择批次</span><span class="io-badge slate">共 ${all.length} 批</span></div>
+        ${waiting.length ? `<span class="io-badge blue">${waiting.length} 批待审</span>` : '<span class="io-badge green">全部已审完</span>'}
+      </div>
       <div class="vr-bpick-list">${items}</div>
-      <div class="pop-sep"></div>
-      <div class="pop-item" data-vrb="import"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">导入新批次…<span class="desc">Claude 找好的候选清单（.json），也可以直接拖进窗口</span></span></div>
-      <div class="pop-item" data-vrb="spec"><svg class="mi" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span class="main">复制候选清单格式规范<span class="desc">发给找素材的 AI，按 v${CANDIDATE_VERSION} 格式写才能导入</span></span></div>`,
+      <div class="vr-bpick-foot">
+        <div class="io-grid vr-bpick-grid">
+          <button class="pop-item io-tile" data-vrb="import" title="导入 Claude 找好的候选清单（.json），也可以直接拖进窗口">
+            ${vrIco('blue', VR_ICO_PLUS)}
+            <span class="io-tile-txt"><strong>导入新批次</strong><small>JSON · 可拖入窗口</small></span>
+          </button>
+          <button class="pop-item io-tile" data-vrb="spec" title="发给找素材的 AI，按 v${CANDIDATE_VERSION} 格式写才能导入">
+            ${vrIco('violet', VR_ICO_SPEC)}
+            <span class="io-tile-txt"><strong>复制格式规范</strong><small>v${CANDIDATE_VERSION} 供 AI 填写</small></span>
+          </button>
+        </div>
+      </div>`,
     { className: 'vr-batch-picker', hoverGlide: false },
   );
   markPopAnchor(anchor);
@@ -307,25 +350,29 @@ function batchReworkLinks(batch) {
       const request = state.reworkRequests[id];
       const label = `返工单${request?.at ? ` · ${fmtDay(request.at)}` : ` · ${id}`}`;
       return request?.path
-        ? `<div class="pop-item" data-vrb="request" data-request="${esc(id)}"><span class="main">${esc(label)}<span class="desc">在访达中显示对应返工单</span></span></div>`
+        ? `<div class="pop-item" data-vrb="request" data-request="${esc(id)}">${vrIco('amber', VR_ICO_DOC)}<span class="main"><span>${esc(label)}</span><span class="desc">在访达中显示对应返工单</span></span><span class="io-arrow">›</span></div>`
         : `<div class="p-title vr-request-label" title="${esc(id)}">${esc(label)}${request ? '' : '（未记录）'}</div>`;
     })
     .join('');
 }
 
-/* 批次「⋯」菜单：保存位置（平时不占主界面）、删除此批次（危险操作收进菜单） */
+/* 批次「⋯」菜单：重命名、返工单、保存位置、删除此批次 */
 function openBatchMenu(anchor) {
   const batch = curBatchObj();
   if (!batch) return;
   const locked = !!batchRun || batch.cands.some(c => isCandidateBusy(c.id));
   openMenu(
     anchor,
-    `<div class="p-title">${esc(batchLabel(batch))}${batch.at ? ` · ${fmtDay(batch.at)}` : ''}</div>
-      <div class="pop-item" data-vrb="rename"><span class="main">重命名批次…<span class="desc">补充便于辨认的名称，批次编号保持不变</span></span></div>
+    `<div class="io-head">
+        <span class="io-title">${esc(batchLabel(batch))}</span>
+        ${batch.at ? `<span class="io-tip">${fmtDay(batch.at)}</span>` : ''}
+      </div>
+      <div class="pop-item" data-vrb="rename">${vrIco('violet', VR_ICO_EDIT)}<span class="main"><span>重命名批次…</span><span class="desc">补充便于辨认的名称，编号不变</span></span></div>
       ${batchReworkLinks(batch)}
-      <div class="pop-item" data-vrb="dir"><svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="main">更换保存位置…<span class="desc vr-pop-path">${esc(state.mediaDir || '还没选（第一次保存片段时会问）')}</span></span></div>
-      <div class="pop-sep"></div>
-      <div class="pop-item danger${locked ? ' disabled' : ''}" id="vrDeleteBatch" data-vrb="delete" title="${locked ? '片段保存完成后可以删除批次' : '移除这一批的审核候选，保留表格素材和本地文件'}"><svg class="mi" viewBox="0 0 24 24"><path d="M4 7h16M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/></svg><span class="main">删除此批次<span class="desc">${batch.cands.length} 个候选 · 表格里的素材和本地文件保留</span></span></div>`,
+      <div class="pop-item" data-vrb="dir">${vrIco('blue', VR_ICO_FOLDER)}<span class="main"><span>更换保存位置…</span><span class="desc vr-pop-path">${esc(state.mediaDir || '还没选（第一次保存片段时会问）')}</span></span></div>
+      <div class="io-sep"></div>
+      <div class="pop-item danger${locked ? ' disabled' : ''}" id="vrDeleteBatch" data-vrb="delete" title="${locked ? '片段保存完成后可以删除批次' : '移除这一批的审核候选，保留表格素材和本地文件'}">${vrIco('red', VR_ICO_TRASH)}<span class="main"><span>删除此批次</span><span class="desc">${batch.cands.length} 个候选 · 表格里的素材和本地文件保留</span></span></div>`,
+    { className: 'act-menu vr-batch-menu', hoverGlide: false },
   );
   markPopAnchor(anchor);
 }
@@ -475,7 +522,7 @@ export function initVideoReview() {
     if (tab) return setMode(tab.dataset.vrTab);
     const rw = e.target.closest('[data-vr-rw]');
     if (rw) return selectRework(rw.dataset.vrRw);
-    if (e.target.closest('#vrImport')) return runCommand('import:file');
+    if (e.target.closest('#vrImport')) return runCommand('import:candidates');
     if (e.target.closest('#vrCopySpec')) return copyCandidateSpec();
     const next = e.target.closest('[data-vr-next-batch]');
     if (next) return selectBatch(next.dataset.vrNextBatch);
@@ -503,7 +550,7 @@ export function initVideoReview() {
   // 空状态里的两个按钮：和左栏的「导入候选清单 / 复制格式规范」是同一件事
   $('#vrList').addEventListener('click', e => {
     const act = e.target.closest('[data-vr-act]')?.dataset.vrAct;
-    if (act === 'import') runCommand('import:file');
+    if (act === 'import') runCommand('import:candidates');
     if (act === 'spec') copyCandidateSpec();
   });
   // 点时间条上的色块：右栏换成这段画面对应的候选（不是审核来的画面就不动）
@@ -653,7 +700,7 @@ export function initVideoReview() {
       if (path) native('revealAsset')(path);
     } else if (act === 'delete') confirmDeleteBatch();
     else if (act === 'pick') selectBatch(it.dataset.id);
-    else if (act === 'import') runCommand('import:file');
+    else if (act === 'import') runCommand('import:candidates');
     else if (act === 'spec') copyCandidateSpec();
   });
   on('project-loaded', () => {

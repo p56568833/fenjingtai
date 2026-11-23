@@ -16,13 +16,13 @@ export function chipHTML(r) {
   return `<div class="tchip typed" style="--tc:${esc(t.color)}" title="${esc(t.full)}">${typeIcon(t)}${esc(t.label)}${ARROW}</div>`;
 }
 
-/* 标注菜单（表格类型格） */
+/* 标注菜单（表格类型格）：带各类型色标徽章 + 快捷键帽 + 当前选中标识 */
 export function typeMenuItems(attr, isOn) {
   return types()
-    .list.map(
-      (t, i) =>
-        `<div class="pop-item" ${attr}="${esc(t.id)}"><span class="k">${i + 1}</span><span class="pdot" style="background:${esc(t.color)}"></span><span>${esc(t.full)}</span>${isOn(t.id) ? '<span class="chk">✓</span>' : ''}</div>`,
-    )
+    .list.map((t, i) => {
+      const on = isOn(t.id);
+      return `<div class="pop-item${on ? ' on' : ''}" ${attr}="${esc(t.id)}"><span class="io-ico type" style="--tc:${esc(t.color)}">${typeIcon(t)}</span><span class="type-name">${esc(t.full)}</span>${on ? '<span class="chk">✓</span>' : ''}<span class="k">${i + 1}</span></div>`;
+    })
     .join('');
 }
 

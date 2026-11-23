@@ -93,7 +93,7 @@ export function openMenu(anchor, html, opts = {}) {
   closePop({ instant: true });
   popEl = document.createElement('div');
   popEl.className = 'popover';
-  if (opts.className) popEl.classList.add(opts.className);
+  if (opts.className) popEl.classList.add(...String(opts.className).split(/\s+/).filter(Boolean));
   popEl.innerHTML = html;
   popEl.style.visibility = 'hidden'; // 先量尺寸再定位，别闪现在旧位置
   document.body.appendChild(popEl);

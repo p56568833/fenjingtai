@@ -401,10 +401,11 @@ body.dark .btn.danger-text {
   margin-top: 8px;
 }
 
-/* 顶栏协作菜单：只有对方位置常显，文件名与连接详情按需展开。 */
+/* 顶栏协作菜单：卡片式对方位置 + 色标可展开行，与导入/导出/项目面板同一视觉语言。 */
 .cl-menu {
-  width: min(328px, calc(100vw - 32px));
+  width: min(344px, calc(100vw - 24px));
   font-size: 13px;
+  padding: 2px;
 }
 .cl-menu-head,
 .cl-menu-person,
@@ -417,19 +418,31 @@ body.dark .btn.danger-text {
 }
 .cl-menu-head {
   justify-content: space-between;
-  padding: 8px 10px 10px;
+  padding: 2px 4px 8px;
   font-weight: 600;
 }
 .cl-menu-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.1);
   color: var(--text-3);
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 600;
 }
 .cl-menu-status[data-status='online'] {
+  background: color-mix(in srgb, var(--online) 13%, transparent);
   color: var(--online);
+}
+.cl-menu-status[data-status='connecting'] {
+  background: rgba(217, 130, 11, 0.13);
+  color: #c27109;
+}
+.cl-menu-status[data-status='needs-code'] {
+  background: rgba(232, 80, 47, 0.13);
+  color: #dc362e;
 }
 .cl-menu-status i {
   width: 6px;
@@ -437,13 +450,26 @@ body.dark .btn.danger-text {
   border-radius: 50%;
   background: currentColor;
 }
+.cl-menu-status[data-status='online'] i {
+  animation: clPing 2.4s ease-out infinite;
+}
 .cl-menu-peer {
-  padding: 8px 10px 12px;
+  padding: 10px 11px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--peer) 18%, var(--hairline));
+  background: color-mix(in srgb, var(--peer) 5%, var(--card));
+}
+body.dark .cl-menu-peer {
+  background: color-mix(in srgb, var(--peer) 10%, rgba(255, 255, 255, 0.03));
+  border-color: color-mix(in srgb, var(--peer) 24%, rgba(255, 255, 255, 0.08));
 }
 .cl-menu-label {
-  margin-bottom: 8px;
+  margin-bottom: 7px;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
 }
 .cl-menu-avatar {
   display: grid;
@@ -452,37 +478,53 @@ body.dark .btn.danger-text {
   height: 28px;
   flex: none;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--peer) 12%, var(--card));
+  background: color-mix(in srgb, var(--peer) 16%, var(--card));
   color: var(--peer);
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
 }
 .cl-menu-peer-name {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
-  font-weight: 600;
+  font-weight: 650;
 }
 .cl-menu-location {
-  margin: 8px 0 0 36px;
+  margin: 7px 0 0 36px;
   font-size: 12px;
+  line-height: 1.45;
   color: var(--text-3);
   overflow-wrap: anywhere;
 }
 .cl-menu-location.located {
   color: var(--peer);
+  font-weight: 550;
+}
+.cl-menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .cl-menu .cl-menu-action,
 body.dark .cl-menu .cl-menu-action {
-  padding: 5px 8px;
-  border: 0;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
   background: color-mix(in srgb, var(--accent) 10%, var(--card));
   color: var(--accent);
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
   flex: none;
+}
+.cl-menu .cl-menu-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 18%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
 }
 .cl-menu .cl-menu-action:disabled,
 body.dark .cl-menu .cl-menu-action:disabled {
   color: var(--text-3);
+  border-color: transparent;
   background: color-mix(in srgb, var(--text-3) 8%, var(--card));
   opacity: 0.65;
 }
@@ -492,7 +534,8 @@ body.dark .cl-menu .cl-menu-action:disabled {
   border: 0;
   background: none;
   margin: 0;
-  font-weight: 400;
+  padding: 7px 8px;
+  font-weight: 550;
 }
 .cl-menu-row {
   width: 100%;
@@ -504,10 +547,16 @@ body.dark .cl-menu .cl-menu-action:disabled {
   cursor: default;
 }
 .cl-menu .pop-item.danger {
-  color: #d4472a;
+  color: #dc362e;
+}
+.cl-menu .pop-item.danger:hover {
+  background: rgba(220, 54, 46, 0.08);
 }
 body.dark .cl-menu .pop-item.danger {
-  color: #ff7a5c;
+  color: #ff8a84;
+}
+body.dark .cl-menu .pop-item.danger:hover {
+  background: rgba(248, 113, 113, 0.13);
 }
 .cl-menu-end {
   display: flex;
@@ -515,7 +564,7 @@ body.dark .cl-menu .pop-item.danger {
   gap: 6px;
   margin-left: auto;
   min-width: 0;
-  max-width: 55%;
+  max-width: 52%;
   color: var(--text-3);
   font-size: 11px;
 }
@@ -528,12 +577,13 @@ body.dark .cl-menu .pop-item.danger {
 .cl-menu-end svg.mi {
   width: 12px;
   height: 12px;
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.5, 1);
 }
 .cl-menu [aria-expanded='true'] > .cl-menu-end > svg.mi:last-child {
   transform: rotate(90deg);
 }
 .cl-menu-details {
-  padding: 3px 10px 10px 37px;
+  padding: 4px 10px 10px 44px;
 }
 .cl-menu-details small {
   display: block;
@@ -555,6 +605,8 @@ body.dark .cl-menu .pop-item.danger {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 11.5px;
 }
 .cl-menu .text-button {
   font-size: 11px;
@@ -567,7 +619,7 @@ body.dark .cl-menu .pop-item.danger {
 .cl-menu-files-row > .cl-menu-action {
   position: absolute;
   top: 50%;
-  right: 30px;
+  right: 28px;
   z-index: 1;
   transform: translateY(-50%);
 }
@@ -576,7 +628,7 @@ body.dark .cl-menu .pop-item.danger {
   padding: 0;
   margin: 0 0 8px;
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 .cl-menu-file-list li {
   color: var(--text-2);
@@ -590,14 +642,24 @@ body.dark .cl-menu .pop-item.danger {
   padding: 7px 9px;
   border: 1px solid var(--hairline-2);
   border-radius: 8px;
-  background: var(--card);
+  background: var(--bg);
   color: var(--text);
   font: inherit;
   font-size: 12px;
+  outline: none;
+}
+.cl-menu-details input:focus,
+.cl-menu-details input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .cl-menu-transfer {
   padding: 10px;
   font-size: 12px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg) 65%, var(--card));
+  border: 1px solid var(--hairline);
 }
 .cl-menu-transfer > div {
   min-width: 0;

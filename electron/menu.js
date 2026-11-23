@@ -17,6 +17,7 @@ function buildMenu({ win, dataDir }) {
       submenu: [
         { label: '新建项目', accelerator: 'CmdOrCtrl+N', click: send('new-project') },
         { label: '导入稿子…', accelerator: 'CmdOrCtrl+O', click: send('import') },
+        { label: '导入视频候选清单（JSON）…', click: send('import-candidates') },
         { label: '对齐剪映字幕（SRT）…', accelerator: 'Shift+CmdOrCtrl+O', click: send('import-srt') },
         { label: '导入中文字幕（SRT）…', click: send('import-zh-srt') },
         { label: '导入口播音频…', accelerator: 'Alt+CmdOrCtrl+O', click: send('import-voice') },
@@ -24,10 +25,9 @@ function buildMenu({ win, dataDir }) {
         {
           label: '导出',
           submenu: [
-            { label: 'PDF 分镜脚本…', accelerator: 'CmdOrCtrl+Shift+E', click: send('export:pdf') },
+            { label: '导出到剪映…', accelerator: 'CmdOrCtrl+Shift+E', click: send('export:jianying') },
             { label: '字幕文件（SRT）…', click: send('export:srt') },
             { type: 'separator' },
-            { label: '导出到剪映…', click: send('export:jianying') },
             { label: '项目文件…', click: send('export:json') },
           ],
         },

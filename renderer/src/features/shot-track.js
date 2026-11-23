@@ -187,27 +187,38 @@ export function createShotTrack({
     pick = id;
     for (const el of root.querySelectorAll('[data-pt="pttLanes"] .ptt-block')) el.classList.toggle('on', el === block);
     renderEdit();
-    const item = (act, label, desc, { disabled = false, danger = false } = {}) =>
-      `<div class="pop-item${danger ? ' danger' : ''}${disabled ? ' disabled' : ''}" data-ptt-act="${act}"><span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
-    let html = `<div class="p-title">${isAlt ? '备选' : circled(it.n)} ${esc(shortName(it.asset.name))}</div>`;
+    const ico = (cls, p) =>
+      `<span class="io-ico sm ${cls}"><svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg></span>`;
+    const item = (act, iconHtml, label, desc, { disabled = false, danger = false } = {}) =>
+      `<div class="pop-item${danger ? ' danger' : ''}${disabled ? ' disabled' : ''}" data-ptt-act="${act}">${iconHtml}<span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
+    let html = `<div class="io-head"><span class="io-title">${isAlt ? '备选片段' : `主画面 ${circled(it.n)}`}</span><span class="io-tip" title="${esc(it.asset.name)}">${esc(shortName(it.asset.name))}</span></div>`;
     if (!isAlt) {
       const f = freezePlan(it);
       html += f.off
-        ? item('unfreeze', '取消定格', '画面截回片段本身的长度')
-        : item('freeze', '定格补满', f.ok ? `放完停在最后一帧，补足 ${sec(f.gain)} 秒` : f.why, { disabled: !f.ok });
-      html += '<div class="pop-sep"></div>';
+        ? item('unfreeze', ico('amber', '<path d="M10 4H6v16h4M18 4h-4v16h4"/>'), '取消定格', '画面截回片段本身的长度')
+        : item(
+            'freeze',
+            ico('sky', '<path d="M12 2v20M2 12h20m-4.2-7.8L12 10 6.2 4.2m11.6 15.6L12 14l-5.8 5.8"/>'),
+            '定格补满',
+            f.ok ? `放完停在最后一帧，补足 ${sec(f.gain)} 秒` : f.why,
+            { disabled: !f.ok },
+          );
+      html += '<div class="io-sep"></div>';
     }
     const cand = approvedCand(id);
     html += item(
       'remove',
+      ico(
+        'red',
+        '<path d="M4 7h16M10 7V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/>',
+      ),
       '删除',
       cand ? '撤回通过，视频回到待审 · ⌘Z 可撤销' : '从这个画面移除，本地文件保留 · ⌘Z 可撤销',
       {
         danger: true,
       },
     );
-    openMenu(block, html);
-    popEl.classList.add('ptt-menu');
+    openMenu(block, html, { className: 'act-menu ptt-menu' });
     popEl.addEventListener('click', e => {
       const act = e.target.closest('.pop-item:not(.disabled)')?.dataset.pttAct;
       if (!act) return;

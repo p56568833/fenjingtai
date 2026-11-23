@@ -26,14 +26,27 @@
   display: block;
   width: 100%;
   margin-top: 7px;
-  padding: 9px;
+  padding: 9px 10px;
   border: 1px solid var(--hairline-2);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--bg);
   color: var(--text);
   font-size: 13px;
   line-height: 1.6;
   resize: vertical;
+  outline: none;
+}
+.inspector textarea:focus,
+.inspector textarea:focus-visible,
+.inspector select:focus,
+.inspector select:focus-visible,
+.import-review input:focus,
+.import-review input:focus-visible,
+.import-review select:focus,
+.import-review select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .detail-buttons {
   display: flex;

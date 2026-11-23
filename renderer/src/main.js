@@ -32,7 +32,6 @@ import { closeAssetPicker } from './ui/asset-picker.js';
 import { initVoice } from './features/voice.js';
 import { initPlaythrough, closePlaythrough, playthroughKey } from './features/playthrough.js';
 import { initTypeEditor } from './features/type-editor.js';
-import { initPdfExport } from './features/pdf-export.js';
 import { initVideoReview } from './features/video-review.js';
 import { initProjectPack } from './features/project-pack.js';
 import { initJianyingExport } from './features/jianying-export.js';
@@ -68,6 +67,7 @@ function showSaveState(phase) {
 const MENU = {
   'new-project': 'project:new',
   import: 'import:file',
+  'import-candidates': 'import:candidates',
   'import-srt': 'srt:pick',
   'import-zh-srt': 'srt:pick-sub',
   'import-voice': 'voice:pick',
@@ -169,16 +169,6 @@ function registerModals() {
   registerModal('diffMask', { close: click('#diffCancel'), enter: click('#diffOk') });
   registerModal('envMask', {});
   registerModal('srtMask', { close: click('#srtCancel'), enter: click('#srtApply') });
-  registerModal('pdfMask', {
-    close: click('#pdfCancel'),
-    onKey: e => {
-      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && e.target.id !== 'pdfCancel') {
-        e.preventDefault();
-        click('#pdfOk')();
-        return true;
-      }
-    },
-  });
   registerModal('typeEditorMask', { close: click('#teCancel') });
   registerModal('helpMask', { close: click('#helpClose'), enter: click('#helpClose') });
   registerModal('updateMask', { onKey: updateKey });
@@ -228,7 +218,6 @@ async function boot() {
   initVoice();
   initPlaythrough();
   initTypeEditor();
-  initPdfExport();
   initVideoReview();
   initProjectPack();
   initJianyingExport();

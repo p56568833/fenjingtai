@@ -186,6 +186,9 @@ function removeAsset(r, assetId) {
   else if (res.withdrawn) toast('已从画面上移除，视频回到待审 · ⌘Z 可撤销', null, 'ok');
 }
 
+const UNLINK_ICO =
+  '<span class="io-ico sm red"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></span>';
+
 function openRemoveMenu(anchor, r) {
   if (popOpenFor(anchor)) return closePop();
   const usages = usageList(r);
@@ -196,13 +199,14 @@ function openRemoveMenu(anchor, r) {
   if (!usages.length) return;
   openMenu(
     anchor,
-    '<div class="p-title">选择要移除的素材</div>' +
+    `<div class="io-head"><span class="io-title">移除素材</span><span class="io-badge slate">${usages.length} 个</span></div>` +
       orderedUsages(r)
         .map(({ u, index }) => {
           const asset = state.assets[u.assetId] || u;
-          return `<div class="pop-item" data-remove-usage="${index}" data-remove-asset="${esc(u.assetId)}" data-remove-row="${r.id}" data-remove-project="${esc(state.projectId)}"><span class="main">${esc(asset.name || assetName(asset.path || '') || '未命名素材')}<span class="desc">${esc(ROLES[u.role] || '未分配')}${approvedCandidateOf(u.assetId) ? ' · 撤回通过，回到待审' : ''}</span></span></div>`;
+          return `<div class="pop-item danger" data-remove-usage="${index}" data-remove-asset="${esc(u.assetId)}" data-remove-row="${r.id}" data-remove-project="${esc(state.projectId)}">${UNLINK_ICO}<span class="main"><span>${esc(asset.name || assetName(asset.path || '') || '未命名素材')}</span><span class="desc">${esc(ROLES[u.role] || '未分配')}${approvedCandidateOf(u.assetId) ? ' · 撤回通过，回到待审' : ''}</span></span></div>`;
         })
         .join(''),
+    { className: 'act-menu' },
   );
   markPopAnchor(anchor);
 }

@@ -20,13 +20,24 @@ const timeAgo = t => {
   return Math.floor(s / 86400) + ' 天前';
 };
 const lineCount = p => (p.rows || []).filter(r => r.kind === 'line').length;
-/* 二级菜单（最近删除 / 自动备份）就地替换项目菜单，顶上一行「‹ 返回」回到上一层 */
-const back = (to, label) =>
-  `<div class="pop-item pop-back" data-projact="${to}"><svg class="mi" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg><span>${label}</span></div>`;
-const FOLDER =
-  '<svg class="mi" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+/* 二级菜单（最近删除 / 自动备份）就地替换项目菜单，顶上「‹ 返回」回到上一层 */
+const svg = p => `<svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+const ico = (cls, p) => `<span class="io-ico sm ${cls}">${svg(p)}</span>`;
+const ICO_BOARD = '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 10h18M9 10v10"/>';
+const ICO_FOLDER = '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>';
+const ICO_PLUS = '<path d="M12 5v14M5 12h14"/>';
+const ICO_EDIT = '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>';
+const ICO_CLOCK = '<path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/>';
+const ICO_RESTORE = '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>';
+const ICO_BACK = '<path d="m15 18-6-6 6-6"/>';
+const ICO_EXT = '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>';
 const TRASH_PATH =
   'M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M6.5 7l.8 11.2A2 2 0 0 0 9.3 20h5.4a2 2 0 0 0 2-1.8L17.5 7M10 11v5M14 11v5';
+const subHead = (to, backLabel, title, badge = '') => `<div class="io-head proj-sub-head">
+  <button class="io-head-btn pop-back" data-projact="${to}">${svg(ICO_BACK)}<span>${esc(backLabel)}</span></button>
+  <span class="io-title proj-sub-title">${esc(title)}</span>
+  ${badge ? `<span class="io-badge slate">${esc(badge)}</span>` : ''}
+</div>`;
 
 /* 换了项目（切换 / 新建 / 删除当前 / 恢复）后的统一收尾 */
 function afterProjectChange(msg) {
@@ -41,31 +52,64 @@ let backupMenuSeq = 0;
 
 function openProjectsMenu(anchor) {
   backupMenuSeq++;
-  const list = storage
-    .allProjects()
+  const all = storage.allProjects();
+  const list = all
     .map(p => {
       const cur = p.id === state.projectId;
-      return `<div class="pop-item pi-even" data-proj="${esc(p.id)}">${FOLDER}
-      <span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}${p.langMode === 'en-zh' ? ' · <span class="proj-bilingual">英配中字</span>' : ''}${p.collab ? ` · <span class="proj-collab">${p.collab.role === 'host' ? '共享中' : '协作'}</span>` : ''}</span></span>
-      ${cur ? '<span class="chk">✓</span>' : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${TRASH_PATH}"/></svg></button>`}
-    </div>`;
+      const tags = [
+        p.langMode === 'en-zh' ? '<span class="io-badge sky proj-bilingual">英配中字</span>' : '',
+        p.collab
+          ? `<span class="io-badge green proj-collab">${p.collab.role === 'host' ? '共享中' : '协作'}</span>`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('');
+      return `<div class="pop-item proj-card${cur ? ' cur' : ''}" data-proj="${esc(p.id)}">
+        ${ico(cur ? 'blue' : 'slate', cur ? ICO_BOARD : ICO_FOLDER)}
+        <span class="io-meta">
+          <span class="io-name proj-name">${esc(p.title || '未命名')}</span>
+          <span class="proj-meta"><span>${lineCount(p)} 句 · ${timeAgo(p.updatedAt || Date.now())}</span>${tags}</span>
+        </span>
+        ${
+          cur
+            ? '<span class="chk proj-cur-pill">✓ 当前</span>'
+            : `<button class="proj-del" data-projdel="${esc(p.id)}" title="删除这个项目（30 天内可在「最近删除」找回）" aria-label="删除这个项目"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${TRASH_PATH}"/></svg></button>`
+        }
+      </div>`;
     })
     .join('');
   const trashN = storage.trashList().length;
   openMenu(
     anchor,
-    `
-    <div class="p-title p-title-row"><span>项目 · ${storage.allProjects().length} 个</span><button class="p-title-link" data-projact="folder" title="项目数据存在这台电脑上，点开看数据文件夹">数据文件夹</button></div>
-    ${list}
-    <div class="pop-sep"></div>
-    <div class="pop-item pi-even" data-projact="rename"><svg class="mi" viewBox="0 0 24 24"><path d="m14 5 5 5M4 20l4-1 12-12-3-3L5 16Z"/></svg><span>重命名当前项目…</span></div>
-    <div class="pop-item pi-even" data-projact="new"><svg class="mi" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span class="main">新建空项目<span class="desc">⌘N · 也可以直接把稿子文件拖进窗口</span></span></div>
-    <div class="pop-sep"></div>
-    ${trashN ? `<div class="pop-item pi-even" data-projact="trash"><svg class="mi" viewBox="0 0 24 24"><path d="${TRASH_PATH}"/></svg><span class="main">最近删除（${trashN}）<span class="desc">删除的项目保留 30 天</span></span></div>` : ''}
-    <div class="pop-item pi-even" data-projact="backup"><svg class="mi" viewBox="0 0 24 24"><path d="M12 8v4l2.5 2.5"/><circle cx="12" cy="12" r="9"/></svg><span>从自动备份恢复…</span></div>
-  `,
+    `<div class="io-head proj-head">
+      <div class="proj-head-left"><span class="io-title">项目</span><span class="io-badge slate">${all.length} 个</span></div>
+      <button class="io-head-btn" data-projact="folder" title="项目数据存在这台电脑上，点开看数据文件夹"><span>数据文件夹</span>${svg(ICO_EXT)}</button>
+    </div>
+    <div class="proj-list">${list}</div>
+    <div class="proj-foot">
+      <div class="io-grid proj-grid">
+        <button class="pop-item io-tile" data-projact="new" title="新建空项目 (⌘N)，也可以直接把稿子文件拖进窗口">
+          ${ico('blue', ICO_PLUS)}
+          <span class="io-tile-txt"><strong>新建空项目</strong><small>⌘N · 可拖稿导入</small></span>
+        </button>
+        <button class="pop-item io-tile" data-projact="rename" title="修改当前项目名称">
+          ${ico('violet', ICO_EDIT)}
+          <span class="io-tile-txt"><strong>重命名当前</strong><small>修改项目标题</small></span>
+        </button>
+      </div>
+      <div class="proj-util">
+        ${
+          trashN
+            ? `<button class="pop-item proj-util-btn" data-projact="trash" title="删除的项目保留 30 天">${svg(`<path d="${TRASH_PATH}"/>`)}<span>最近删除</span><span class="io-badge amber">${trashN}</span><span class="io-arrow">›</span></button>`
+            : ''
+        }
+        <button class="pop-item proj-util-btn" data-projact="backup" title="每 30 分钟自动备份，可单取项目或整库恢复">${svg(ICO_CLOCK)}<span>自动备份恢复</span><span class="io-arrow">›</span></button>
+      </div>
+    </div>`,
+    { className: 'proj-menu', hoverGlide: false },
   );
   markPopAnchor(anchor);
+  popEl?.querySelector('.proj-card.cur')?.scrollIntoView({ block: 'nearest' });
 }
 
 function openTrashMenu(anchor) {
@@ -73,17 +117,16 @@ function openTrashMenu(anchor) {
   const list = storage.trashList();
   openMenu(
     anchor,
-    back('projects', '项目') +
+    subHead('projects', '项目', '最近删除', list.length ? `${list.length} 个` : '') +
       (!list.length
-        ? `<div class="p-title">最近删除是空的</div>`
-        : `<div class="p-title">最近删除（30 天后自动清掉）</div>` +
-          list
+        ? '<div class="proj-empty">最近删除是空的</div>'
+        : `<div class="proj-sub-hint">删除的项目保留 30 天，点击即可找回</div><div class="proj-list">${list
             .map(
               x =>
-                `<div class="pop-item" data-untrash="${esc(x.project.id)}">${FOLDER}<span class="main"><span>${esc(x.project.title || '未命名')}</span><span class="desc">${lineCount(x.project)} 句 · ${timeAgo(x.deletedAt)}删除 · 点击找回</span></span></div>`,
+                `<div class="pop-item proj-card" data-untrash="${esc(x.project.id)}">${ico('amber', ICO_RESTORE)}<span class="io-meta"><span class="io-name proj-name">${esc(x.project.title || '未命名')}</span><span class="io-desc">${lineCount(x.project)} 句 · ${timeAgo(x.deletedAt)}删除</span></span><span class="io-pill">找回</span></div>`,
             )
-            .join('')),
-    { sub: true },
+            .join('')}</div>`),
+    { className: 'proj-menu', sub: true, hoverGlide: false },
   );
   markPopAnchor(anchor);
 }
@@ -95,17 +138,16 @@ async function openBackupMenu(anchor) {
   if (seq !== backupMenuSeq || state.projectId !== pid || anyModalOpen() || popEl || !anchor?.isConnected) return;
   openMenu(
     anchor,
-    back('projects', '项目') +
+    subHead('projects', '项目', '自动备份', list.length ? `${list.length} 份` : '') +
       (!list.length
-        ? `<div class="p-title">暂无备份（写盘时每 30 分钟自动备份一份：24 小时内全留，更早的每天留一份、保留 30 天）</div>`
-        : `<div class="p-title">选一个时间点（下一步可选：只取回某个项目，或整库恢复）</div>` +
-          list
+        ? '<div class="proj-empty">暂无自动备份<small>写盘时每 30 分钟自动留存一份：24 小时内全留，更早的每天留一份、保留 30 天</small></div>'
+        : `<div class="proj-sub-hint">选一个时间点，可只取回单个项目或整库恢复</div><div class="proj-list">${list
             .map(
               b =>
-                `<div class="pop-item" data-backup="${esc(b.f)}"><span>${esc(b.f.replace(/^备份-|\.json$/g, ''))}</span><span class="sub">${timeAgo(b.t)}</span></div>`,
+                `<div class="pop-item proj-card" data-backup="${esc(b.f)}">${ico('sky', ICO_CLOCK)}<span class="io-meta"><span class="io-name">${esc(b.f.replace(/^备份-|\.json$/g, ''))}</span><span class="io-desc">${timeAgo(b.t)}</span></span><span class="io-arrow">›</span></div>`,
             )
-            .join('')),
-    { sub: true },
+            .join('')}</div>`),
+    { className: 'proj-menu', sub: true, hoverGlide: false },
   );
   markPopAnchor(anchor);
 }
@@ -120,16 +162,16 @@ async function openBackupDetail(anchor, file) {
   const projects = Object.values(r.data.projects || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   openMenu(
     anchor,
-    back('backup', '全部备份') +
-      `<div class="p-title">备份 ${esc(file.replace(/^备份-|\.json$/g, ''))} 里的项目 · 点一个只取回它</div>` +
-      projects
+    subHead('backup', '全部备份', file.replace(/^备份-|\.json$/g, ''), `${projects.length} 个`) +
+      '<div class="proj-sub-hint">点某个项目只取回它（作为新项目加入，不动现有项目）</div>' +
+      `<div class="proj-list">${projects
         .map(
           p =>
-            `<div class="pop-item" data-backup-one="${esc(p.id)}" data-backup-file="${esc(file)}">${FOLDER}<span class="main"><span>${esc(p.title || '未命名')}</span><span class="desc">${lineCount(p)} 句 · 当时 ${timeAgo(p.updatedAt || Date.now())}改过 · 作为新项目加回来</span></span></div>`,
+            `<div class="pop-item proj-card" data-backup-one="${esc(p.id)}" data-backup-file="${esc(file)}">${ico('blue', ICO_FOLDER)}<span class="io-meta"><span class="io-name proj-name">${esc(p.title || '未命名')}</span><span class="io-desc">${lineCount(p)} 句 · 当时 ${timeAgo(p.updatedAt || Date.now())}改过</span></span><span class="io-pill">取回</span></div>`,
         )
-        .join('') +
-      `<div class="pop-sep"></div><div class="pop-item danger" data-backup-all="${esc(file)}"><span class="main">整库恢复到这个时间点<span class="desc">当前所有项目会被替换（数据损坏时兜底用）</span></span></div>`,
-    { sub: true },
+        .join('')}</div>` +
+      `<div class="proj-foot"><div class="pop-item proj-card danger" data-backup-all="${esc(file)}">${ico('red', ICO_RESTORE)}<span class="io-meta"><span class="io-name">整库恢复到这个时间点</span><span class="io-desc">当前所有项目会被替换（数据损坏时兜底用）</span></span></div></div>`,
+    { className: 'proj-menu', sub: true, hoverGlide: false },
   );
   markPopAnchor(anchor);
 }

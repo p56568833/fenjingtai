@@ -44,11 +44,25 @@ export async function runBilingualTests(t) {
     );
     click($('#btnExport'));
     t(
-      '纯中文项目导出菜单保持 4 项（不含 SRT）',
+      '纯中文项目导出菜单保持 3 项（不含 PDF 与 SRT）',
       $$('.popover [data-x]')
         .map(el => el.dataset.x)
-        .join(',') === 'review,jianying,pdf,json',
+        .join(',') === 'review,jianying,json',
     );
+    closePop();
+    click($('#btnImport'));
+    t(
+      '纯中文项目导入菜单含候选 JSON 入口且未展开中文字幕操作栏',
+      !!$('.popover [data-imp="candidates"]') && !$('.popover [data-imp="srt-sub"]'),
+    );
+    click($('.popover [data-imp="lang-mode"]'));
+    await sleep(30);
+    t(
+      '导入菜单内拨动英配中字开关原地展开中文字幕操作栏',
+      state.langMode === 'en-zh' && !!$('.popover [data-imp="srt-sub"]') && !!$('.popover [data-imp="sub-paste"]'),
+    );
+    click($('.popover [data-imp="lang-mode"]'));
+    await sleep(30);
     closePop();
 
     /* 2. 导入英文稿自动识别并开启英配中字模式 */
@@ -231,13 +245,13 @@ export async function runBilingualTests(t) {
     closePlaythrough();
     await sleep(30);
 
-    /* 8. 导出菜单、导出 SRT 弹窗、PDF 与剪映多语言字幕选项 */
+    /* 8. 导出菜单与导出 SRT 弹窗 */
     click($('#btnExport'));
     t(
-      '英配中字项目导出菜单出现字幕文件（SRT）入口',
+      '英配中字项目导出菜单出现字幕文件（SRT）入口且不含 PDF',
       $$('.popover [data-x]')
         .map(el => el.dataset.x)
-        .join(',') === 'review,jianying,pdf,srt,json',
+        .join(',') === 'review,jianying,srt,json',
     );
     const srtItem = $('.popover [data-x="srt"]');
     click(srtItem);
@@ -249,12 +263,6 @@ export async function runBilingualTests(t) {
         !$('#srtExportGo').disabled,
     );
     click($('#srtExportCancel'));
-    await sleep(20);
-
-    runCommand('pdf:open');
-    await sleep(30);
-    t('PDF 弹窗在双语项目显示「附带中文字幕对照」选项', !$('#pdfSubsRow').hidden && $('#pdfSubs').checked);
-    click($('#pdfCancel'));
     await sleep(20);
 
     /* 9. 空项目直接导入双语 SRT 一步生成英文稿 + 中文字幕 + 双轨时间 */
@@ -298,7 +306,6 @@ export async function runBilingualTests(t) {
     $('#srtMask')?.classList.remove('show');
     $('#subPasteMask')?.classList.remove('show');
     $('#srtExportMask')?.classList.remove('show');
-    $('#pdfMask')?.classList.remove('show');
     $('#importPreviewMask')?.classList.remove('show');
     if (prevSubShow == null) localStorage.removeItem('fjz:subShow');
     else localStorage.setItem('fjz:subShow', prevSubShow);

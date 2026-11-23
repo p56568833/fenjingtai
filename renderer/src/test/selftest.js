@@ -424,7 +424,7 @@ export async function runSelfTest() {
   $('#reviewMask')?.classList.remove('show');
   await sleep(400); // 等前面用例残留的悬停卡定时器跑完，免得它把刚弹出的菜单关掉
   click($('#btnExport')); // 菜单同步弹出，立刻点，不给其它定时器插队的机会
-  const pdfItem = document.querySelector('.popover .pop-item[data-x="pdf"]');
+  const jyItem = document.querySelector('.popover [data-x="jianying"]');
   t(
     '视图只提供审核与表格',
     $$('#viewToggle button')
@@ -432,46 +432,52 @@ export async function runSelfTest() {
       .join(',') === 'review,table',
   );
   t(
-    '导出菜单只提供交稿检查、剪映、PDF 和项目文件',
+    '导出菜单只提供交稿检查、剪映和项目文件（不含 PDF）',
     $$('.popover [data-x]')
       .map(el => el.dataset.x)
-      .join(',') === 'review,jianying,pdf,json',
+      .join(',') === 'review,jianying,json',
   );
   const exportBox = $('.popover').getBoundingClientRect();
   t('导出菜单宽度受限且不横向溢出', exportBox.width <= 410 && $('.popover').scrollWidth <= $('.popover').clientWidth);
-  t('PDF 快捷键单独显示', pdfItem?.querySelector('.sub')?.textContent === '⇧⌘E');
-  t('导出菜单有 PDF 分镜脚本', !!pdfItem);
-  pdfItem && click(pdfItem);
+  t('导出到剪映显示 ⇧⌘E 快捷键', jyItem?.querySelector('.io-kbd')?.textContent === '⇧⌘E');
+  {
+    const { closePop } = await import('../ui/base/popover.js');
+    closePop();
+  }
   await sleep(30);
-  t('PDF 选项弹窗打开', $('#pdfMask').classList.contains('show'));
+  click($('#btnImport'));
+  t(
+    '导入菜单包含稿子双卡、视频候选清单 JSON、音视频字幕与打开项目文件',
+    !!$('.popover [data-imp="file"]') &&
+      !!$('.popover [data-imp="paste"]') &&
+      !!$('.popover [data-imp="candidates"]') &&
+      !!$('.popover [data-imp="lang-mode"]') &&
+      !!$('.popover [data-imp="jsonnew"]') &&
+      !$('.popover [data-imp="srt-sub"]'),
+  );
+  const importBox = $('.popover').getBoundingClientRect();
+  t(
+    '导入菜单宽度受限且纯中文下不溢出',
+    importBox.width <= 400 && $('.popover').scrollWidth <= $('.popover').clientWidth,
+  );
+  {
+    const { closePop } = await import('../ui/base/popover.js');
+    closePop();
+  }
+  await sleep(30);
+  key(document.body, 'E', { metaKey: true, shiftKey: true });
+  await sleep(40);
+  t('⇧⌘E 打开导出到剪映弹窗', $('#jianyingMask').classList.contains('show'));
   viewState.sel = rows()[0].id;
   viewState.multi = null;
-  const typeBeforePdf = rows()[0].type;
+  const typeBeforeJy = rows()[0].type;
   key(document.body, '5');
   await sleep(20);
-  t('PDF 弹窗下快捷键不穿透', rows()[0].type === typeBeforePdf, rows()[0].type);
-  if (rows()[0].type !== typeBeforePdf) undo();
+  t('导出弹窗下快捷键不穿透', rows()[0].type === typeBeforeJy, rows()[0].type);
+  if (rows()[0].type !== typeBeforeJy) undo();
   key(document.body, 'Escape');
   await sleep(20);
-  t('Esc 关闭 PDF 弹窗', !$('#pdfMask').classList.contains('show'));
-  key(document.body, 'E', { metaKey: true, shiftKey: true });
-  await sleep(20);
-  t('⇧⌘E 导出 PDF', $('#pdfMask').classList.contains('show'));
-  key(document.body, 'Escape');
-  await sleep(20);
-  {
-    const { buildPrintDoc } = await import('../core/print-doc.js');
-    const { shots } = await import('../core/shots.js');
-    const doc = buildPrintDoc({ title: state.title, rows: state.rows, speechRate: state.speechRate });
-    const dom = new DOMParser().parseFromString(doc.html, 'text/html');
-    t(
-      'PDF 每个镜头一行',
-      dom.querySelectorAll('tr.shot').length === shots(state.rows).length,
-      `${dom.querySelectorAll('tr.shot').length}`,
-    );
-    t('PDF 逐句保留口播', dom.querySelectorAll('tr.shot li').length === rows().length);
-    t('PDF 原生接口已暴露', typeof window.native.exportPdf === 'function');
-  }
+  t('Esc 关闭导出到剪映弹窗', !$('#jianyingMask').classList.contains('show'));
 
   const beforeDelete = structuredClone(state.rows);
   actions.deleteRows([rows()[0].id]);

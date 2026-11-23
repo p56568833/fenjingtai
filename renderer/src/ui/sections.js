@@ -48,6 +48,9 @@ function commitRename() {
 }
 
 /* ── 章节菜单 ── */
+const secIco = (cls, p) =>
+  `<span class="io-ico sm ${cls}"><svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg></span>`;
+
 function sectionMenu(id, anchor) {
   const r = rowById(id);
   if (!r || r.kind !== 'section') return;
@@ -57,14 +60,13 @@ function sectionMenu(id, anchor) {
   const headDesc = isFirst ? `${n} 句保留为开头正文` : n ? `${n} 句并回上一节` : '这节还没有句子';
   openMenu(
     anchor,
-    `
-    <div class="p-title">章节「${esc(r.text)}」</div>
-    <div class="pop-item" data-sec-act="rename" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="main">改名</span></div>
-    ${viewState.view === 'table' ? `<div class="pop-item" data-sec-act="insert" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg><span class="main">在这节后面插入新章节<span class="desc">立个标题和空句，接着往下写</span></span></div>` : ''}
-    <div class="pop-sep"></div>
-    <div class="pop-item" data-sec-act="delhead" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 7l4-4M4 7l4 4"/></svg><span class="main">只删标题<span class="desc">${headDesc}</span></span></div>
-    <div class="pop-item danger" data-sec-act="delall" data-sec-id="${id}"><svg class="mi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m-1 0v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6"/></svg><span class="main">删除整节<span class="desc">标题和 ${n} 句一起删</span></span></div>
-  `,
+    `<div class="io-head"><span class="io-title">章节操作</span><span class="io-tip" title="${esc(r.text)}">${esc(r.text)}</span></div>
+    <div class="pop-item center" data-sec-act="rename" data-sec-id="${id}">${secIco('violet', '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>')}<span class="main"><span>改名</span></span></div>
+    ${viewState.view === 'table' ? `<div class="pop-item" data-sec-act="insert" data-sec-id="${id}">${secIco('blue', '<path d="M12 5v14M5 12h14"/>')}<span class="main"><span>在这节后面插入新章节</span><span class="desc">立个标题和空句，接着往下写</span></span></div>` : ''}
+    <div class="io-sep"></div>
+    <div class="pop-item" data-sec-act="delhead" data-sec-id="${id}">${secIco('amber', '<path d="M4 7h16M4 7l4-4M4 7l4 4"/>')}<span class="main"><span>只删标题</span><span class="desc">${headDesc}</span></span></div>
+    <div class="pop-item danger" data-sec-act="delall" data-sec-id="${id}">${secIco('red', '<path d="M3 6h18M8 6V4h8v2m-1 0v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2V6"/>')}<span class="main"><span>删除整节</span><span class="desc">标题和 ${n} 句一起删</span></span></div>`,
+    { className: 'act-menu' },
   );
   markPopAnchor(anchor);
 }

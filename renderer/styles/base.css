@@ -145,8 +145,35 @@ body.dark::after {
   opacity: 0;
 }
 ::-webkit-scrollbar {
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.24);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.44);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+body.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+body.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 .spacer {
   flex: 1;
@@ -253,13 +280,13 @@ select {
   box-shadow: var(--hi), var(--shadow-xs);
 }
 .btn.primary:hover {
-  box-shadow: var(--primary-shadow);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .btn.ghost:hover {
   box-shadow: none;
 }
 .btn.danger:hover {
-  box-shadow: none;
+  box-shadow: 0 4px 12px rgba(229, 83, 58, 0.26);
 }
 .text-button {
   border: 0;

@@ -55,7 +55,7 @@ export function initKeyboard() {
     }
     if (mod && e.shiftKey && keyLower === 'e') {
       e.preventDefault();
-      runCommand('pdf:open'); // ⇧⌘E 导出 PDF
+      runCommand('jianying:export'); // ⇧⌘E 导出到剪映
       return;
     }
     if (mod && e.key === '/') {

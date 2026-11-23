@@ -4,11 +4,20 @@ import * as collab from '../app/collab.js';
 import { esc } from '../ui/base/dom.js';
 
 const icon = paths => `<svg class="mi" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+const ico = (cls, paths) =>
+  `<span class="io-ico sm ${cls}"><svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg></span>`;
 const arrow = icon('<path d="m9 5 7 7-7 7"/>');
-const link = icon('<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2"/>');
-const file = icon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>');
-const person = icon('<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>');
-const stop = icon('<circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9Z"/>');
+const link = ico(
+  'blue',
+  '<path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-2 2M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l2-2"/>',
+);
+const file = hasMissing =>
+  ico(
+    hasMissing ? 'amber' : 'green',
+    '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>',
+  );
+const person = ico('violet', '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>');
+const stop = ico('red', '<circle cx="12" cy="12" r="9"/><path d="M9 9h6v6H9Z"/>');
 
 /* 句号按稿子顺序计算，不把内部行 id 当成句号，也不显示口播原文。 */
 export function peerLocation() {
@@ -68,7 +77,7 @@ function filesSection(cur, missing, expanded) {
   }
   const online = cur.status === 'online';
   const list = missing.map(m => `<li title="${esc(m.name)}">${esc(m.name)}</li>`).join('');
-  return `<div class="cl-menu-files-row"><button class="pop-item cl-menu-row cl-menu-files-toggle" data-cl="files" aria-expanded="${expanded.files}" aria-controls="collabMenuFiles" ${missing.length ? '' : 'disabled'}>${file}<span>${missing.length ? `缺 ${missing.length} 个文件` : '文件已齐全'}</span>${missing.length ? `<span class="cl-menu-end">${arrow}</span>` : ''}</button>${missing.length ? `<button class="btn cl-menu-action" data-cl="fetchall" ${online ? '' : 'disabled'} title="${online ? '从对方电脑取回缺失文件' : '对方在线后可取回文件'}">全部取过来</button>` : ''}</div>
+  return `<div class="cl-menu-files-row"><button class="pop-item cl-menu-row cl-menu-files-toggle" data-cl="files" aria-expanded="${expanded.files}" aria-controls="collabMenuFiles" ${missing.length ? '' : 'disabled'}>${file(missing.length > 0)}<span>${missing.length ? `缺 ${missing.length} 个文件` : '文件已齐全'}</span>${missing.length ? `<span class="cl-menu-end">${arrow}</span>` : ''}</button>${missing.length ? `<button class="btn cl-menu-action" data-cl="fetchall" ${online ? '' : 'disabled'} title="${online ? '从对方电脑取回缺失文件' : '对方在线后可取回文件'}">全部取过来</button>` : ''}</div>
     <div id="collabMenuFiles" class="cl-menu-details" ${expanded.files && missing.length ? '' : 'hidden'}><ul class="cl-menu-file-list">${list}</ul>${!online ? '<small>对方在线后可查找和取回这些文件。</small>' : ''}<button class="text-button" data-cl="findin" ${online ? '' : 'disabled'}>在文件夹里找</button></div>`;
 }
 
@@ -94,15 +103,15 @@ export function collabMenuHTML(missing, expanded) {
         ? '对方不在线，连上后自动同步'
         : '让同事在「协作」中加入这个项目');
   return `<div class="cl-menu" id="collabMenu">
-    <div class="cl-menu-head"><span>${cur.role === 'host' ? '当前共享' : '当前协作'}</span><span class="cl-menu-status" data-status="${cur.status}"><i></i>${status}</span></div>
-    <div class="pop-sep"></div>
+    <div class="cl-menu-head"><span class="io-title">${cur.role === 'host' ? '当前共享' : '当前协作'}</span><span class="cl-menu-status" data-status="${cur.status}"><i></i>${status}</span></div>
     <section class="cl-menu-peer"><div class="cl-menu-label">对方当前位置</div><div class="cl-menu-person"><span class="cl-menu-avatar">${esc([...who][0] || '?')}</span><span class="cl-menu-peer-name">${esc(who)}</span><button class="btn cl-menu-action" data-cl="jump" ${location ? '' : 'disabled'}>跳转</button></div><div class="cl-menu-location${location ? ' located' : ''}" aria-live="polite">${esc(position)}</div></section>
-    <div class="pop-sep"></div>
-    ${connectionSection(st, cur, expanded)}
-    ${filesSection(cur, missing, expanded)}
-    <button class="pop-item cl-menu-row" data-cl="name" aria-expanded="${expanded.name}" aria-controls="collabMenuName">${person}<span>我的名字</span><span class="cl-menu-end"><span title="${esc(st.me.name)}">${esc(st.me.name)}</span>${icon('<path d="m16 3 5 5-13 13H3v-5Z"/>')}</span></button>
-    <div id="collabMenuName" class="cl-menu-details" ${expanded.name ? '' : 'hidden'}><input id="collabName" maxlength="40" value="${esc(st.me.name)}" aria-label="我的名字" placeholder="对方看到的名字" autocomplete="off"></div>
-    <div class="pop-sep"></div>
-    <button class="pop-item cl-menu-row danger" data-cl="${cur.role === 'host' ? 'stop' : 'leave'}">${stop}${cur.role === 'host' ? '停止共享' : '退出协作'}</button>
+    <div class="cl-menu-group">
+      ${connectionSection(st, cur, expanded)}
+      ${filesSection(cur, missing, expanded)}
+      <button class="pop-item cl-menu-row" data-cl="name" aria-expanded="${expanded.name}" aria-controls="collabMenuName">${person}<span>我的名字</span><span class="cl-menu-end"><span title="${esc(st.me.name)}">${esc(st.me.name)}</span>${icon('<path d="m16 3 5 5-13 13H3v-5Z"/>')}</span></button>
+      <div id="collabMenuName" class="cl-menu-details" ${expanded.name ? '' : 'hidden'}><input id="collabName" maxlength="40" value="${esc(st.me.name)}" aria-label="我的名字" placeholder="对方看到的名字" autocomplete="off"></div>
+    </div>
+    <div class="io-sep"></div>
+    <button class="pop-item cl-menu-row danger" data-cl="${cur.role === 'host' ? 'stop' : 'leave'}">${stop}<span>${cur.role === 'host' ? '停止共享' : '退出协作'}</span></button>
   </div>`;
 }

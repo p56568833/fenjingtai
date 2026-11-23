@@ -342,6 +342,13 @@ body.dark .vr-btn.no.on {
   padding: 5px 10px;
   font: inherit;
   font-size: 12.5px;
+  outline: none;
+}
+.vr-note:focus,
+.vr-note:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .vr-mini {
   border: 1px solid var(--hairline-2);
@@ -833,10 +840,10 @@ body.dark .vr-sync {
   flex: none;
   fill: none;
   stroke: var(--text-2);
-  stroke-width: 1.6;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transition: transform 0.2s;
+  transition: transform 0.26s cubic-bezier(0.34, 1.45, 0.5, 1);
 }
 .vr-batch-head.pop-open svg {
   transform: rotate(180deg);
@@ -874,23 +881,39 @@ body.dark .vr-sync {
 }
 .vr-bother {
   margin-top: 9px;
-  padding: 0;
-  border: 0;
-  background: none;
+  padding: 5px 8px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
   font: inherit;
   font-size: 11px;
   color: var(--text-2);
   cursor: pointer;
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 6px;
   text-align: left;
+  transition:
+    background 0.14s ease,
+    border-color 0.14s ease,
+    transform 0.09s ease;
+}
+.vr-bother:hover {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+}
+.vr-bother:active {
+  transform: scale(0.985);
 }
 .vr-bother span {
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 650;
+  transition: transform 0.14s ease;
 }
 .vr-bother:hover span {
-  text-decoration: underline;
+  transform: translateX(2px);
 }
 .vr-bname {
   margin-top: 7px;
@@ -1288,64 +1311,163 @@ body.dark .vr-pst.ok {
 .vr-nav-shot.on small {
   color: color-mix(in srgb, var(--accent) 70%, var(--text-2));
 }
-/* 换批次的菜单 */
+/* 换批次的菜单：顶栏 + 独立滚动卡片列表 + 底部固定双瓷砖入口 */
 .popover.vr-batch-picker {
   display: flex;
   flex-direction: column;
-  width: min(440px, calc(100vw - 32px));
-  max-height: min(70vh, calc(100vh - 24px));
+  width: min(426px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(74vh, calc(100vh - 24px));
+  padding: 10px;
   box-sizing: border-box;
   overflow: hidden;
 }
 .vr-batch-picker > :not(.vr-bpick-list) {
   flex-shrink: 0;
 }
+.vr-bpick-head {
+  padding: 2px 2px 8px;
+}
+.vr-bpick-head-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .vr-bpick-list {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 1px 2px 4px;
 }
-.vr-batch-picker .pop-item:hover,
-.vr-batch-picker .pop-item:focus-visible {
-  background: color-mix(in srgb, var(--text) 7%, transparent);
+.vr-bpick-list > * {
+  flex-shrink: 0;
 }
 .vr-batch-picker .pop-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 .vr-bpick-group {
-  padding: 10px 12px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px 2px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--text-3);
+  letter-spacing: 0.02em;
 }
 .vr-bpick-group:first-child {
   padding-top: 2px;
 }
+.vr-bpick-group i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+  flex: none;
+}
+.vr-bpick-group.wait i {
+  background: var(--accent);
+}
+.vr-bpick-group.done i {
+  background: #12945f;
+}
+.vr-bpick {
+  align-items: flex-start;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg) 50%, var(--card));
+  gap: 10px;
+  overflow: hidden;
+}
+.vr-bpick:hover {
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--hairline-2));
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+body.dark .vr-bpick {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(255, 255, 255, 0.075);
+}
+body.dark .vr-bpick:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: none;
+}
+.vr-bpick .io-ico {
+  margin-top: 1px;
+}
 .vr-bpick .main {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
-.vr-bpick .main > span:first-child {
+.vr-bpick-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.vr-bpick-top > span:first-child {
+  font-size: 13px;
   font-weight: 650;
-  white-space: normal;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 .vr-bpick .desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   white-space: normal;
   overflow-wrap: anywhere;
+  font-size: 11.5px;
+  line-height: 1.45;
+  margin-top: 2px;
 }
 .vr-bpick-date {
-  display: block;
-  margin-top: 4px;
-  font-size: 11.5px;
-  font-weight: 400;
+  font-size: 10.5px;
+  font-weight: 450;
   color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.vr-bpick-bar {
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-3) 16%, transparent);
+  overflow: hidden;
+}
+.vr-bpick-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.vr-bpick-bar i.ok {
+  background: #12945f;
+}
+.vr-bpick-bar i.none {
+  background: color-mix(in srgb, var(--text-3) 45%, transparent);
+}
+body.dark .vr-bpick-bar i.ok {
+  background: #34d399;
 }
 .vr-bpick-st {
   flex: none;
   margin-left: auto;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-2);
   display: flex;
@@ -1354,10 +1476,45 @@ body.dark .vr-pst.ok {
   gap: 4px;
   white-space: nowrap;
 }
-.vr-bpick-st small {
+.vr-bpick-pill {
+  padding: 2px 7px;
+  border-radius: 999px;
   font-size: 11px;
-  font-weight: 400;
+  font-weight: 650;
+  background: rgba(100, 116, 139, 0.11);
+  color: var(--text-2);
+}
+body.dark .vr-bpick-pill {
+  background: rgba(255, 255, 255, 0.08);
+  color: #b8c2d6;
+}
+.vr-bpick-st.wait .vr-bpick-pill {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent);
+}
+body.dark .vr-bpick-st.wait .vr-bpick-pill {
+  background: rgba(76, 141, 255, 0.2);
+  color: #8cb7ff;
+}
+.vr-bpick-st small {
+  font-size: 10.5px;
+  font-weight: 450;
   color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.vr-bpick-foot {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hairline);
+}
+body.dark .vr-bpick-foot {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+.vr-bpick-grid {
+  margin-bottom: 0;
+}
+.vr-bpick-grid .io-tile {
+  padding: 8px 9px;
 }
 .vr-batch-date,
 .vr-batch-reviewed {
@@ -1383,10 +1540,27 @@ body.dark .vr-pst.ok {
 .vr-bpick .chk {
   margin-left: 0;
   color: var(--accent);
-  font-size: 11px;
+  font-size: 10.5px;
+  font-weight: 650;
 }
 .vr-bpick.cur {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--hairline));
+}
+.vr-bpick.cur:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+}
+body.dark .vr-bpick.cur {
+  background: rgba(76, 141, 255, 0.13);
+  border-color: rgba(108, 160, 255, 0.32);
+}
+.vr-batch-menu .vr-pop-path {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10.5px;
 }
 .vr-batch-add.ghost {
   margin-top: 0;

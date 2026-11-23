@@ -20,9 +20,11 @@ import { registerCommand } from './base/commands.js';
 import { probeDuration } from './base/media.js';
 
 const $ = s => document.querySelector(s);
-const actItem = (act, ids, label, desc, { disabled = false, danger = false } = {}) =>
+const shotIco = (cls, p) =>
+  `<span class="io-ico sm ${cls}"><svg viewBox="0 0 24 24" aria-hidden="true">${p}</svg></span>`;
+const actItem = (act, ids, iconHtml, label, desc, { disabled = false, danger = false } = {}) =>
   `<div class="pop-item${danger ? ' danger' : ''}${disabled ? ' disabled' : ''}" data-shot-act="${act}" ${ids}>
-    <span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
+    ${iconHtml}<span class="main"><span>${label}</span>${desc ? `<span class="desc">${esc(desc)}</span>` : ''}</span></div>`;
 
 /* 共用区域「···」：范围调整（加入下一句 / 移出最后一句 / 从选中的这句拆开）和解除共用 */
 function openGroupMenu(anchor, groupId) {
@@ -34,10 +36,11 @@ function openGroupMenu(anchor, groupId) {
   const first = members[0],
     last = members[members.length - 1];
   const plan = groupExtendNextPlan(state.rows, groupId);
-  let html = `<div class="p-title">共用画面 · 第 ${first.no}–${last.no} 句</div>`;
+  let html = `<div class="io-head"><span class="io-title">共用画面</span><span class="io-badge blue">第 ${first.no}–${last.no} 句</span></div>`;
   html += actItem(
     'extend-next',
     `data-gid="${esc(groupId)}"`,
+    shotIco('blue', '<path d="M12 5v14M5 12h14"/>'),
     '将下一句加入这个画面',
     plan.ok ? `下一句是第 ${plan.next.no} 句` : plan.reason,
     { disabled: !plan.ok },
@@ -45,6 +48,7 @@ function openGroupMenu(anchor, groupId) {
   html += actItem(
     'drop-last',
     `data-gid="${esc(groupId)}"`,
+    shotIco('slate', '<path d="M5 12h14"/>'),
     '将最后一句移出这个画面',
     `第 ${last.no} 句恢复独立画面，保留描述、素材和片段`,
   );
@@ -54,15 +58,23 @@ function openGroupMenu(anchor, groupId) {
   html += actItem(
     'split-at',
     `data-row-id="${sel?.id ?? ''}" data-gid="${esc(groupId)}"`,
+    shotIco('violet', '<path d="M4 12h16M12 4v4M12 16v4"/>'),
     sel ? `从第 ${sel.no} 句开始使用另一个画面` : '从选中的句子开始使用另一个画面',
     !sel ? '先点选这个画面里的某一句' : split.ok ? '把共用画面拆成前后两个' : split.reason,
     { disabled: !split?.ok },
   );
-  html += '<div class="pop-sep"></div>';
-  html += actItem('ungroup', `data-gid="${esc(groupId)}"`, '解除共用', '各句恢复独立画面，保留现有信息', {
-    danger: true,
-  });
-  openMenu(anchor, html);
+  html += '<div class="io-sep"></div>';
+  html += actItem(
+    'ungroup',
+    `data-gid="${esc(groupId)}"`,
+    shotIco('red', '<path d="m18 6-12 12M6 6l12 12"/>'),
+    '解除共用',
+    '各句恢复独立画面，保留现有信息',
+    {
+      danger: true,
+    },
+  );
+  openMenu(anchor, html, { className: 'act-menu' });
   markPopAnchor(anchor);
 }
 
